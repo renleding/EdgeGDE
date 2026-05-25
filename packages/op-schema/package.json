@@ -1,0 +1,18 @@
+{
+  "name": "@edgegde/schema",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/openpencil.ts",
+  "scripts": {
+    "test": "bun test tests/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "bun-types": "^1.1.0"
+  }
+}

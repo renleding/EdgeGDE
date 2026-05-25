@@ -1,0 +1,8 @@
+{
+  "name": "edgegde",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
