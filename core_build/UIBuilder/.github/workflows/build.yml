@@ -1,0 +1,275 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            label: macos-arm64
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            label: macos-x64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x64
+          - platform: windows-latest
+            target: aarch64-pc-windows-msvc
+            label: windows-arm64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: linux-x64
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Install dependencies (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - run: bun install
+
+      - name: Extract release notes
+        id: changelog
+        shell: bash
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "release_notes<<$EOF" >> "$GITHUB_OUTPUT"
+          awk '/^## /{if(found)exit; found=1; next} found{print}' CHANGELOG.md >> "$GITHUB_OUTPUT"
+          echo "$EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Add new contributors to release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: release_body
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: ${{ steps.changelog.outputs.release_notes }}
+        run: |
+          PREV_TAG=$(git tag -l 'v*' --sort=-version:refname | sed -n '2p')
+          NEW=""
+          if [ -n "$PREV_TAG" ]; then
+            PREV=$(git log "$PREV_TAG" --format='%aE' | sort -u)
+            NEW=$(comm -23 \
+              <(git log "${PREV_TAG}..${{ github.ref_name }}" --format='%aE' | sort -u) \
+              <(echo "$PREV") \
+            | while read -r email; do
+                git log "${PREV_TAG}..${{ github.ref_name }}" --format="%aE %aN" \
+                  | grep "^${email} " | head -1 | sed 's/^[^ ]* //'
+              done)
+          fi
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          {
+            echo "body<<$EOF"
+            printf '%s\n' "$RELEASE_NOTES"
+            if [ -n "$NEW" ]; then
+              echo ""
+              echo "### New Contributors"
+              echo ""
+              echo "$NEW" | while read -r name; do echo "- $name"; done
+            fi
+            echo "$EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tauriScript: bunx tauri
+          args: --target ${{ matrix.target }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('OpenPencil {0}', github.ref_name) || '' }}
+          releaseBody: ${{ steps.release_body.outputs.body || steps.changelog.outputs.release_notes }}
+          releaseDraft: true
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+
+  publish-npm:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org/
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - run: bun install
+
+      - name: Build packages for publish
+        run: |
+          for dir in packages/core packages/mcp packages/vue; do
+            if [ -f "$dir/package.json" ] && node -p "require('./$dir/package.json').scripts?.build" 2>/dev/null | grep -qv undefined; then
+              echo "Building $dir..."
+              (cd "$dir" && bun run build)
+            fi
+          done
+
+      - name: Prepare publish directories
+        run: |
+          node - <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+
+          const root = process.cwd()
+          const outRoot = path.join(root, '.publish')
+          const coreVersion = require('./packages/core/package.json').version
+
+          fs.rmSync(outRoot, { recursive: true, force: true })
+          fs.mkdirSync(outRoot, { recursive: true })
+
+          const copyRecursive = (from, to) => {
+            const stat = fs.statSync(from)
+            if (stat.isDirectory()) {
+              fs.mkdirSync(to, { recursive: true })
+              for (const entry of fs.readdirSync(from)) {
+                copyRecursive(path.join(from, entry), path.join(to, entry))
+              }
+              return
+            }
+            fs.mkdirSync(path.dirname(to), { recursive: true })
+            fs.copyFileSync(from, to)
+          }
+
+          const packages = [
+            { dir: 'packages/core', include: ['dist', 'src', 'assets'], extraFiles: [] },
+            { dir: 'packages/cli', include: ['src'], extraFiles: [] },
+            { dir: 'packages/mcp', include: ['dist'], extraFiles: [] },
+            { dir: 'packages/vue', include: ['dist'], extraFiles: ['README.md'] }
+          ]
+
+          for (const pkg of packages) {
+            const srcDir = path.join(root, pkg.dir)
+            const destDir = path.join(outRoot, path.basename(pkg.dir))
+            fs.mkdirSync(destDir, { recursive: true })
+
+            for (const rel of pkg.include) {
+              const from = path.join(srcDir, rel)
+              if (fs.existsSync(from)) copyRecursive(from, path.join(destDir, rel))
+            }
+
+            for (const rel of pkg.extraFiles) {
+              const from = path.join(srcDir, rel)
+              if (fs.existsSync(from)) copyRecursive(from, path.join(destDir, rel))
+            }
+
+            const pkgJsonPath = path.join(srcDir, 'package.json')
+            const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
+            for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {
+              if (!json[field]) continue
+              for (const [name, version] of Object.entries(json[field])) {
+                if (typeof version === 'string' && version.startsWith('workspace:')) {
+                  json[field][name] = '^' + coreVersion
+                }
+              }
+            }
+            delete json.scripts
+            delete json.devDependencies
+            if (json.publishConfig) {
+              for (const [key, value] of Object.entries(json.publishConfig)) {
+                if (key === 'access' || key === 'provenance' || key === 'registry') continue
+                json[key] = value
+              }
+              delete json.publishConfig
+            }
+            fs.writeFileSync(path.join(destDir, 'package.json'), JSON.stringify(json, null, 2) + '\n')
+            console.log(`Prepared ${destDir}`)
+          }
+          NODE
+          find .publish -maxdepth 3 -type f | sort
+
+      - name: Pack packages for publish
+        run: |
+          mkdir -p .npm-packages
+          pack_if_new() {
+            local dir=$1
+            local name=$(node -p "require('./$dir/package.json').name")
+            local version=$(node -p "require('./$dir/package.json').version")
+            local publish_dir=".publish/$(basename "$dir")"
+            if npm view "${name}@${version}" version 2>/dev/null; then
+              echo "${name}@${version} already published, skipping pack"
+            else
+              (cd "$publish_dir" && npm pack --pack-destination "$root_dir/.npm-packages")
+            fi
+          }
+          root_dir="$PWD"
+          pack_if_new packages/core
+          pack_if_new packages/cli
+          pack_if_new packages/mcp
+          pack_if_new packages/vue
+          ls -la .npm-packages
+          tar -tf .npm-packages/open-pencil-mcp-*.tgz | sed -n '1,40p' || true
+          tar -tf .npm-packages/open-pencil-vue-*.tgz | sed -n '1,60p' || true
+
+      - name: Publish packages to npm
+        run: |
+          publish_if_new() {
+            local dir=$1
+            local name=$(node -p "require('./$dir/package.json').name")
+            local version=$(node -p "require('./$dir/package.json').version")
+            if npm view "${name}@${version}" version 2>/dev/null; then
+              echo "${name}@${version} already published, skipping"
+            else
+              local tarball
+              tarball=$(cd .npm-packages && ls open-pencil-$(basename "$dir")-${version}.tgz)
+              npm publish "./.npm-packages/${tarball}" --access public --provenance
+            fi
+          }
+          publish_if_new packages/core
+          publish_if_new packages/cli
+          publish_if_new packages/mcp
+          publish_if_new packages/vue

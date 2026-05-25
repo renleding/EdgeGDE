@@ -1,0 +1,60 @@
+{
+  "name": "@open-pencil/mcp",
+  "version": "0.12.2",
+  "license": "MIT",
+  "type": "module",
+  "imports": {
+    "#mcp/*": {
+      "types": "./src/*.ts",
+      "bun": "./src/*.ts",
+      "default": "./dist/*.mjs"
+    }
+  },
+  "main": "./dist/server.mjs",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.mts",
+      "import": "./dist/server.mjs",
+      "default": "./dist/server.mjs"
+    },
+    "./stdio": {
+      "types": "./dist/stdio.d.mts",
+      "import": "./dist/stdio.mjs",
+      "default": "./dist/stdio.mjs"
+    }
+  },
+  "bin": {
+    "openpencil-mcp": "./bin/openpencil-mcp.js",
+    "openpencil-mcp-http": "./bin/openpencil-mcp-http.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "bunx tsdown --config tsdown.config.ts",
+    "prepublishOnly": "bun run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/open-pencil/open-pencil.git",
+    "directory": "packages/mcp"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.9",
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@open-pencil/core": "workspace:*",
+    "hono": "^4.11.4",
+    "package-manager-detector": "^1.6.0",
+    "zod": "^4.3.6",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1"
+  }
+}

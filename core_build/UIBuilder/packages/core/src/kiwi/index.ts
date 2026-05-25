@@ -1,0 +1,51 @@
+export { prefetchFigmaSchema } from '#core/clipboard'
+export { readFigFile, parseFigFile } from './fig/file'
+export { importNodeChanges } from './fig/import'
+export { deduplicateNodeChangePluginData } from './fig/parse/core'
+export {
+  initCodec,
+  encodeMessage,
+  decodeMessage,
+  compress,
+  decompress,
+  getCompiledSchema,
+  getSchemaBytes,
+  isCodecReady,
+  peekMessageType,
+  createNodeChangesMessage,
+  createNodeChange,
+  parseVariableId,
+  encodePaintWithVariableBinding,
+  encodeNodeChangeWithVariables,
+  type NodeChange,
+  type GUID,
+  type Color,
+  type Paint,
+  type Effect,
+  type VariableBinding,
+  type VariableAnyValue,
+  type VariableDataEntry,
+  type VariableConsumptionEntry,
+  type VariableDataValuesEntry,
+  type ParentIndex,
+  type FigmaMessage
+} from './fig/codec'
+export {
+  MESSAGE_TYPES,
+  NODE_TYPES,
+  NODE_PHASES,
+  BLEND_MODES,
+  PAINT_TYPES,
+  PROTOCOL_VERSION,
+  KIWI,
+  SESSION_ID,
+  ZSTD_MAGIC,
+  buildMultiplayerUrl,
+  isZstdCompressed,
+  hasFigWireHeader,
+  skipFigWireHeader,
+  isKiwiMessage,
+  getKiwiMessageType,
+  parseVarint,
+  FIG_WIRE_MAGIC
+} from './fig/codec/protocol'

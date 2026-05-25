@@ -1,0 +1,47 @@
+import { pick } from 'es-toolkit/object'
+
+import type { SceneNode } from '#core/scene-graph'
+
+import { createLayoutModeActions } from './layout-mode'
+import { createNudgeActions } from './nudge'
+import type { EditorContext } from './types'
+import { createVariableBindingActions } from './variable-bindings'
+
+export function createNodeActions(ctx: EditorContext) {
+  const layoutModeActions = createLayoutModeActions(ctx)
+  const nudgeActions = createNudgeActions(ctx)
+  const variableBindingActions = createVariableBindingActions(ctx)
+
+  function updateNode(id: string, changes: Partial<SceneNode>) {
+    ctx.graph.updateNode(id, changes)
+    ctx.runLayoutForNode(id)
+  }
+
+  function updateNodeWithUndo(id: string, changes: Partial<SceneNode>, label = 'Update') {
+    const node = ctx.graph.getNode(id)
+    if (!node) return
+    const previous = pick(node, Object.keys(changes) as (keyof SceneNode)[]) as Partial<SceneNode>
+    ctx.graph.updateNode(id, changes)
+    ctx.runLayoutForNode(id)
+    ctx.undo.push({
+      label,
+      forward: () => {
+        ctx.graph.updateNode(id, changes)
+        ctx.runLayoutForNode(id)
+      },
+      inverse: () => {
+        ctx.graph.updateNode(id, previous)
+        ctx.runLayoutForNode(id)
+      }
+    })
+    ctx.requestRender()
+  }
+
+  return {
+    updateNode,
+    updateNodeWithUndo,
+    ...layoutModeActions,
+    ...variableBindingActions,
+    ...nudgeActions
+  }
+}

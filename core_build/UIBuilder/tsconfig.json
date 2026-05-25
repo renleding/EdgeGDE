@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "allowArbitraryExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "#vue/*": ["./packages/vue/src/*", "./packages/vue/src/*.vue"],
+      "#core/*": ["./packages/core/src/*"],
+      "#cli/*": ["./packages/cli/src/*"],
+      "#mcp/*": ["./packages/mcp/src/*"],
+      "#tests/*": ["./tests/*"],
+      "tinykeys": ["./node_modules/tinykeys/dist/tinykeys.d.ts"],
+      "@open-pencil/vue": ["./packages/vue/src/index.ts"],
+      "@open-pencil/core": ["./packages/core/src/index.ts"],
+      "@open-pencil/core/*": ["./packages/core/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
