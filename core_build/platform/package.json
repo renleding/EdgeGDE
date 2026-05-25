@@ -1,0 +1,22 @@
+{
+  "name": "@edgegde/platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "test": "bun test tests/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.12.5",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^1.19.11",
+    "wrangler": "^4.0.0",
+    "typescript": "^5.5.0",
+    "bun-types": "^1.1.0"
+  }
+}
