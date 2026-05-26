@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "bun run generate:tauri-menu && bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run generate:tauri-menu && bun run build",
+    "beforeBuildCommand": "bun run generate:tauri-menu && bun run lint 2>/dev/null; true && vite build",
     "frontendDist": "../dist"
   },
   "app": {

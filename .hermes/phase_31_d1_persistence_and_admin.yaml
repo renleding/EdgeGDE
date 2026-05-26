@@ -1,0 +1,148 @@
+name: Phase_31_D1_Persistence_and_Admin
+description: "Introduce Cloudflare D1 for relational persistence with safe async inserts and secure Admin API."
+version: "4.0.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - strict_relational_schema: true
+  - schema_agnostic_storage: true
+  - zero_blocking_compute: true
+  - graceful_persistence_failure: true
+  - secure_admin_boundary: true
+  - bounded_payload_size: true
+  - indexed_query_paths: true
+
+# ---------------------------------------------------------
+# 2. Target Files
+# ---------------------------------------------------------
+targets:
+  - path: "apps/edge-runtime/wrangler.toml"
+  - path: "apps/edge-runtime/schema.sql"
+  - path: "apps/edge-runtime/src/lib/form-registry.ts"
+  - path: "apps/edge-runtime/src/index.ts"
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 0 — D1 PROVISIONING (CRITICAL)
+  # -------------------------------------
+  - id: provision_d1
+    name: "Provision D1 Database"
+    instruction: |
+      Run:
+
+      bunx wrangler d1 create ebroker_leads
+
+      Copy database_id into wrangler.toml.
+
+      Run migrations:
+
+      bunx wrangler d1 execute ebroker_leads --remote --file=schema.sql
+
+      Set admin token:
+
+      bunx wrangler secret put ADMIN_TOKEN
+
+  # -------------------------------------
+  # STEP 1 — DATABASE SCHEMA
+  # -------------------------------------
+  - id: define_d1_schema
+    instruction: |
+      ```sql
+      CREATE TABLE IF NOT EXISTS form_submissions (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        form_id TEXT NOT NULL,
+        payload JSON NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tenant_form 
+      ON form_submissions (tenant_id, form_id);
+
+      CREATE INDEX IF NOT EXISTS idx_created_at 
+      ON form_submissions (created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_tenant_created 
+      ON form_submissions (tenant_id, created_at DESC);
+      ```
+
+  # -------------------------------------
+  # STEP 2 — REGISTRY PERSISTENCE
+  # -------------------------------------
+  - id: wire_d1_to_registry
+    instruction: |
+      ```typescript
+      const submissionId =
+        crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`
+
+      const tenantId =
+        c.get('tenantConfig')?.tenantId || 'default'
+
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const payloadStr = JSON.stringify(result.data)
+
+          if (payloadStr.length > 50000) {
+            throw new Error('Payload too large')
+          }
+
+          await c.env.DB.prepare(
+            'INSERT INTO form_submissions (id, tenant_id, form_id, payload) VALUES (?, ?, ?, ?)'
+          )
+          .bind(submissionId, tenantId, def.id, payloadStr)
+          .run()
+
+        } catch (error) {
+          console.error('[D1 Persistence Failure]', error)
+        }
+      })())
+      ```
+
+  # -------------------------------------
+  # STEP 3 — ADMIN API
+  # -------------------------------------
+  - id: create_admin_api
+    instruction: |
+      ```typescript
+      app.get('/api/admin/leads/:tenantId', async (c) => {
+        const token = c.req.header('Authorization')
+        const adminToken = c.env.ADMIN_TOKEN
+
+        if (!adminToken || token !== `Bearer ${adminToken}`) {
+          return c.json({ error: 'Unauthorized' }, 401)
+        }
+
+        const tenantId = c.req.param('tenantId')
+
+        const offsetRaw = c.req.query('offset')
+        const offset = Math.max(0, Number(offsetRaw) || 0)
+
+        const limit = 100
+
+        const { results } = await c.env.DB.prepare(`
+          SELECT * FROM form_submissions
+          WHERE tenant_id = ?
+          ORDER BY created_at DESC
+          LIMIT ? OFFSET ?
+        `)
+        .bind(tenantId, limit, offset)
+        .all()
+
+        return c.json({ leads: results })
+      })
+      ```
+
+# ---------------------------------------------------------
+# 4. Verification Gates
+# ---------------------------------------------------------
+verification:
+  - bun x tsc --noEmit
+  - auth_rejection_test:
+      run: "curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/api/admin/leads/default"
+      expect_status: 401

@@ -1,0 +1,127 @@
+name: Phase_30_Telemetry_Counters
+description: "Replace expensive KV list() operations with O(1) counter reads. Includes environment binding fixes, HTMX response formatting, and a data seeding step."
+version: "3.0.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - zero_list_operations: true # kv.list() MUST NEVER be used for live telemetry polling
+  - htmx_text_fragments: true  # Telemetry endpoints must return text/plain for HTMX swapping
+  - specific_kv_bindings: true # Helpers must accept specific KV namespaces (e.g., env.ARTIFACT_KV)
+  - no_data_loss_on_deploy: true # Existing items must be counted and seeded into the new counters
+
+# ---------------------------------------------------------
+# 2. Target Files
+# ---------------------------------------------------------
+targets:
+  - path: "apps/edge-runtime/src/lib/utils/counters.ts" # NEW
+  - path: "apps/edge-runtime/src/index.ts"              # Deployment & Telemetry routes
+  - path: "apps/edge-runtime/src/routes/dashboard.ts"   # Explicit removal of scanNamespace
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 0 — BINDING-AWARE COUNTER UTILITY
+  # -------------------------------------
+  - id: create_counter_helper
+    name: "Create Safe Counter Utilities"
+    instruction: |
+      Create `apps/edge-runtime/src/lib/utils/counters.ts`.
+      CRITICAL: The first argument must be the specific KV binding, not the global env.
+
+      ```typescript
+      export async function getCounter(kvBinding: KVNamespace, key: string): Promise<number> {
+        try {
+          const raw = await kvBinding.get(key)
+          let count = parseInt(raw || '0', 10)
+          if (isNaN(count)) count = 0
+          return count
+        } catch {
+          return 0
+        }
+      }
+
+      export async function incrementCounter(kvBinding: KVNamespace, key: string): Promise<void> {
+        try {
+          const current = await getCounter(kvBinding, key)
+          await kvBinding.put(key, String(current + 1))
+        } catch {
+          try { await kvBinding.put(key, '1') } catch {}
+        }
+      }
+      ```
+
+  # -------------------------------------
+  # STEP 1 — INCREMENT ON DEPLOY
+  # -------------------------------------
+  - id: update_deployment_logic
+    name: "Increment Counters Safely on Deployment"
+    instruction: |
+      Update deployment endpoints (e.g., `/api/dev/deploy-staging`).
+      AFTER a successful write, invoke the counter:
+      ```typescript
+      import { incrementCounter } from './lib/utils/counters'
+      await incrementCounter(c.env.ARTIFACT_KV, '_counts:artifacts')
+      ```
+
+  # -------------------------------------
+  # STEP 2 — SEED EXISTING DATA (MIGRATION)
+  # -------------------------------------
+  - id: create_seed_route
+    name: "Create One-Time Seed Route"
+    instruction: |
+      Add a temporary route in `index.ts`: `GET /api/dev/seed-counters`.
+      This is the ONLY place `list()` is allowed to run (once).
+      ```typescript
+      app.get('/api/dev/seed-counters', async (c) => {
+        const artifacts = await c.env.ARTIFACT_KV.list();
+        // Count items filtering out the counter key itself
+        const count = artifacts.keys.filter(k => k.name !== '_counts:artifacts').length;
+        await c.env.ARTIFACT_KV.put('_counts:artifacts', String(count));
+        return c.text(`Seeded: ${count}`);
+      })
+      ```
+
+  # -------------------------------------
+  # STEP 3 — UPDATE TELEMETRY ENDPOINT (HTMX FIX)
+  # -------------------------------------
+  - id: update_telemetry_endpoint
+    name: "Switch Telemetry to O(1) Reads for HTMX"
+    instruction: |
+      Update `/api/telemetry` in `routes/dashboard.ts`.
+      Fetch the counter and return strictly formatted plain text for HTMX swapping.
+      ```typescript
+      import { getCounter } from './lib/utils/counters'
+      const totalArtifacts = await getCounter(c.env.ARTIFACT_KV, '_counts:artifacts')
+
+      c.header('Content-Type', 'text/plain; charset=utf-8')
+      c.header('Cache-Control', 'no-store')
+      return c.text(String(totalArtifacts))
+      ```
+
+  # -------------------------------------
+  # STEP 4 — PURGE KV.LIST & SCANNAMESPACE
+  # -------------------------------------
+  - id: remove_list_calls
+    name: "Eradicate KV.list from Runtime"
+    instruction: |
+      1. Open `apps/edge-runtime/src/routes/dashboard.ts`.
+      2. Delete the `scanNamespace()` function completely. It is a quota killer.
+      3. Update any endpoints (like `/api/dashboard/kv`) that relied on it to use `getCounter()` instead, or strip the heavy list operations entirely.
+
+# ---------------------------------------------------------
+# 4. Verification Gates
+# ---------------------------------------------------------
+verification:
+  - bun x tsc --noEmit
+  - grep_list_test:
+      description: "Ensure .list() is only used in the seed route"
+      run: "grep -rnE '\\.list\\(' apps/edge-runtime/src"
+      expect_output: "index.ts (only in /api/dev/seed-counters)"
+  - htmx_header_test:
+      description: "Ensure telemetry returns text/plain for HTMX"
+      run: "curl -s -I http://localhost:8787/api/telemetry | grep -i 'Content-Type: text/plain'"

@@ -1,0 +1,153 @@
+# ===========================================================================
+# ⚕ HERMES EXECUTION INSTRUCTION: PHASE 23.1 (ENTERPRISE ENHANCED)
+# ===========================================================================
+# Target: EdgeGDE Platform
+# Objective: MCP-Driven Deployment Engine with Locks, Diffs, Versioning & Previews
+# ===========================================================================
+
+phase: "23.1_mcp_deploy_enterprise_grade"
+description: >
+  Execute full MCP-driven design-to-deployment pipeline with strict versioning,
+  rollback capability, deterministic registry updates, KV deployment locks, 
+  and pre-computed diff storage for instant UI rendering.
+
+execution_steps:
+  - action: invoke_sub_agent
+    tool: call_aider_sub_agent
+    parameters:
+      target_files:
+        - "apps/edge-runtime/src/lib/versioning.ts"
+        - "apps/edge-runtime/src/lib/registry.ts"
+        - "apps/edge-runtime/src/routes/mcp-deploy.ts"
+        - "apps/edge-runtime/src/index.ts"
+        - "mcp_tools.json"
+
+      instruction: |
+        Implement a deterministic MCP-driven deployment pipeline with versioning, staging previews, rollback, distributed locks, and diff storage.
+
+        ============================================================
+        1. EXTEND MCP TOOL CONTRACT (mcp_tools.json)
+        ============================================================
+
+        Modify existing tools and add new capabilities:
+
+        ------------------------------------------------------------
+        edgegde_registry.set_tenant_layout
+        ------------------------------------------------------------
+        Input must become:
+        {
+          tenant_id: string,
+          layout_payload: string,
+          version_note?: string,
+          environment?: "staging" | "production" // DEFAULT: "staging"
+        }
+
+        Output must include:
+        {
+          status: "success" | "failure",
+          version: string,
+          url: string // Returns staging URL or prod URL
+        }
+
+        ------------------------------------------------------------
+        Add NEW TOOL: edgegde_registry.rollback_layout
+        ------------------------------------------------------------
+        Input: { tenant_id: string, version: string }
+        Output: { status: "success" | "failure" }
+
+        ------------------------------------------------------------
+        Add NEW TOOL: edgegde_registry.promote_to_production
+        ------------------------------------------------------------
+        Input: { tenant_id: string, version: string }
+        Output: { status: "success" | "failure", active_version: string }
+
+        ============================================================
+        2. VERSIONING, PREVIEWS & PRE-COMPUTED DIFFS (src/lib/versioning.ts)
+        ============================================================
+
+        Implement strict KV version model:
+
+        Key patterns:
+          layout:{tenantId}:production:latest → "vN"
+          layout:{tenantId}:staging:latest → "vN"
+          layout:{tenantId}:vN → compiled payload
+          layout:{tenantId}:meta:vN → metadata JSON
+
+        Metadata MUST include:
+          { 
+            timestamp, 
+            version, 
+            note, 
+            hash,
+            diff_summary_vs_previous // Pre-compute and store during deploy
+          }
+
+        Behavior:
+        - All new MCP compiles default to the `staging` pointer.
+        - Hash payload (SHA-256).
+        - If identical to current latest → DO NOT create new version (idempotent).
+        - Else: 
+            - Calculate diff vs vN-1.
+            - Increment version, store payload + metadata (including diff_summary), update pointer.
+
+        ============================================================
+        3. REGISTRY WRITE CONTRACT & DEPLOY LOCKS (src/lib/registry.ts)
+        ============================================================
+
+        Implement atomic operations with Race Condition Protection:
+          async setTenantLayout(tenantId, payload, note, env)
+          async promoteToProduction(tenantId, version)
+          async rollbackTenantLayout(tenantId, version)
+
+        Behavior:
+          - DEPLOY LOCK: You MUST implement a `lock:{tenantId}:deploy` KV lock.
+          - Flow: Acquire Lock → Execute Write/Deploy → Release Lock.
+          - If lock exists, reject deployment with 409 Conflict.
+          - NEVER partially write. Use atomic KV operations.
+          - Rollback updates "production:latest" pointer ONLY.
+          - DO NOT delete history.
+
+        ============================================================
+        4. MCP ROUTING (src/routes/mcp-deploy.ts)
+        ============================================================
+
+        Create endpoints:
+          POST /api/v1/mcp/deploy
+          POST /api/v1/mcp/promote
+          POST /api/v1/mcp/rollback
+          GET  /api/v1/mcp/diff?tenant_id=X&v1=vA&v2=vB // Return pre-computed diff from meta
+
+        DEPLOY PIPELINE (STRICT ORDER):
+          STEP 1: Call openpencil.export_layout
+          STEP 2: Call hsaes_compiler.compile_layout (FAIL FAST if valid === false)
+          STEP 3: Acquire KV Deploy Lock
+          STEP 4: Call setTenantLayout(env = "staging")
+          STEP 5: Release KV Deploy Lock
+          RESPONSE: { status: "success", version: "vN", staging_url: "vnext.tenant.workers.dev" }
+
+        ============================================================
+        5. INDEX INTEGRATION (src/index.ts)
+        ============================================================
+
+        Mount all MCP deployment routes securely. Ensure edge runtime correctly 
+        inspects Host headers to serve the staging:latest pointer for preview 
+        domains, and the production:latest pointer for live domains.
+
+        ============================================================
+        6. MULTI-TENANT ISOLATION RULE
+        ============================================================
+
+        Each tenant MUST have an independent version chain and independent lock.
+        NO SHARED STATE between tenant keys.
+
+        ============================================================
+        7. VERIFICATION GATES
+        ============================================================
+        - bun install --frozen-lockfile
+        - bun x tsc --noEmit
+        MUST PASS BEFORE DEPLOYMENT.
+
+      system_context: >
+        Endpoint: http://127.0.0.1:4000/v1.
+        Stack: Hono + Cloudflare Workers KV.
+        Invariant: Deterministic MCP pipeline + safe versioned staging, KV locking, and pre-computed diffs.

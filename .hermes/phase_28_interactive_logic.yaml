@@ -1,0 +1,89 @@
+
+name: Phase_28_Interactive_Logic_eBroker
+description: "Build the deterministic edge calculation engine for the eBroker widget, wired via HTMX with elite formatting."
+version: "1.1.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - pure_functions_only: true # Core math must have zero side effects or KV writes
+  - htmx_native: true # Endpoint MUST return a raw HTML fragment, never JSON
+  - schema_first: true # Payload must be validated by Zod before calculation
+  - zero_latency_compute: true # No external API or LLM calls in this phase
+  - strict_financial_formatting: true # Must use explicit rounding and currency formatters
+  - stable_htmx_targets: true # Output fragments must strictly wrap inside <div id="results">
+
+# ---------------------------------------------------------
+# 2. Target Files
+# ---------------------------------------------------------
+targets:
+  - path: "apps/edge-runtime/src/lib/schemas.ts" # Add calculator schema
+  - path: "apps/edge-runtime/src/lib/calculator.ts" # NEW FILE: Pure math logic
+  - path: "apps/edge-runtime/src/index.ts" # Add /api/ebroker/calculate route
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 1 — SCHEMA DEFINITION
+  # -------------------------------------
+  - id: define_calculator_schema
+    name: "Add eBroker Zod Schema"
+    instruction: |
+      Update `schemas.ts` to include the expected form payload:
+
+      ```typescript
+      export const EbrokerCalcSchema = z.object({
+        loanAmount: z.coerce.number().positive(),
+        interestRate: z.coerce.number().nonnegative(), // e.g. 5.5 for 5.5% (allows 0)
+        termYears: z.coerce.number().int().positive().max(30),
+        income: z.coerce.number().nonnegative().optional().default(0),
+        expenses: z.coerce.number().nonnegative().optional().default(0)
+      }).strict();
+      ```
+
+  # -------------------------------------
+  # STEP 2 — PURE MATH ENGINE & HELPERS
+  # -------------------------------------
+  - id: build_math_engine
+    name: "Create Deterministic Compute Module"
+    instruction: |
+      Create `apps/edge-runtime/src/lib/calculator.ts`.
+      
+      Requirements:
+      1. Add a central rounding helper: `const round = (n: number) => Number(n.toFixed(2))`
+      2. Add a currency formatter: `const formatMoney = (n: number) => '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })`
+      3. Write pure function `calculateLoanMetrics(data: z.infer<typeof EbrokerCalcSchema>)`:
+         - Guard against divide-by-zero: if `interestRate === 0`, `monthlyRepayment = loanAmount / totalMonths`.
+         - Otherwise, use standard amortization: `P * (r(1+r)^n) / ((1+r)^n - 1)`.
+         - Calculate `surplusIncome`: `(income / 12) - (expenses / 12) - monthlyRepayment`.
+         - Return an object with precisely formatted strings (using the helpers) alongside the raw numbers.
+
+  # -------------------------------------
+  # STEP 3 — EDGE ROUTE & HTMX RENDER
+  # -------------------------------------
+  - id: bind_htmx_route
+    name: "Add /api/ebroker/calculate Endpoint"
+    instruction: |
+      Update `index.ts` to add the new route: `POST /api/ebroker/calculate`
+      
+      Requirements:
+      1. Parse the incoming `FormData`.
+      2. Run `EbrokerCalcSchema.safeParse()`.
+      3. If invalid, return `<div id="results" class="error">Invalid input</div>`.
+      4. If valid, pass the data to `calculateLoanMetrics()`.
+      5. Return an HTML fragment matching our Phase 24 CSS styling.
+      6. CRITICAL: The entire returned payload MUST be wrapped in `<div id="results">...</div>` to ensure HTMX target swapping is 100% reliable.
+
+# ---------------------------------------------------------
+# 4. Expected Outcome
+# ---------------------------------------------------------
+outputs:
+  description: |
+    The eBroker calculator is backed by a robust, edge-native math engine.
+    It mathematically guards against 0% interest rate faults.
+    Outputs are perfectly formatted as localized currency.
+    HTMX DOM swapping is rock-solid due to consistent ID targeting.

@@ -6,5 +6,46 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
-  }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ARTIFACT_KV",
+      "id": "95a35fb5eaa441bd9f6336b4ef894a57"
+    },
+    {
+      "binding": "TENANT_KV",
+      "id": "04893a14b75e41b281177bf558cf3e32"
+    },
+    {
+      "binding": "TELEMETRY_KV",
+      "id": "588cdc5578244acdbaed515dbbc175f7"
+    }
+  ],
+  "assets": {
+    "directory": "public"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiter"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RateLimiter"]
+    }
+  ],
+  "vars": {
+    "ADMIN_API_TOKEN": "edgegde-dev-token-2026"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ebroker_leads",
+      "database_id": "1d24d306-9537-4386-929c-60c9e6d882b1"
+    }
+  ]
 }

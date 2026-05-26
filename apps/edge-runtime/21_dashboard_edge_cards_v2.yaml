@@ -1,0 +1,86 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# EdgeGDE Platform — Dashboard Edge Cards v2
+# HSAES Phase 21: Edge-rendered dashboard cards for system observability,
+# artifact visibility, tenant health, and operational metrics.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+phase: "21_dashboard_edge_cards"
+description: "Extend the EdgeGDE System Health Dashboard (port 8899) with real-time edge telemetry cards using bounded TELEMETRY_KV log extraction without altering the pre-existing grid layout."
+
+execution_steps:
+  - action: invoke_sub_agent
+    tool: call_aider_sub_agent
+    parameters:
+      target_files:
+        - "apps/edge-runtime/src/lib/metrics.ts"
+        - "apps/edge-runtime/src/routes/dashboard.ts"
+        - "apps/edge-runtime/src/index.ts"
+        - "apps/edge-runtime/public/system-dashboard.html"
+      instruction: |
+        Hermes, here are the answers to your structural questions:
+        1. Type of cards: Vanilla DOM elements injected into the existing system-dashboard.html, hydrated via a JSON polling API.
+        2. Data displayed: System health and traffic metrics derived from TELEMETRY_KV logs.
+        3. Where served: A new JSON endpoint `GET /api/dashboard/metrics`.
+        4. Card grouping: A single batch endpoint that returns all metrics for the frontend to paint.
+
+        Execute the following implementation:
+        
+        ============================================================
+        1. BOUNDED METRICS EXTRACTION (src/lib/metrics.ts)
+        ============================================================
+        - Implement `async function getEdgeMetrics(env: Env): Promise<MetricsPayload>`
+        - **Performance Rule:** To bypass lexicographical list scaling bottlenecks, retrieve logs by calling `env.TELEMETRY_KV.list({ prefix: "log:", limit: 200 })`. 
+        - Iterate over the fetched keys, execute `env.TELEMETRY_KV.get(key, "json")` concurrently via `Promise.all()`, and safely filter out any null values.
+        - Compute the following metrics strictly from this bounded data set:
+          - `requests_per_minute`: Total records found normalized to 60s.
+          - `avg_latency_ms`: Numerical average of the `duration` fields.
+          - `p95_latency_ms`: 95th percentile ranking of the sorted `duration` array.
+          - `error_rate_percent`: Percentage of payloads returning a `statusCode >= 400`.
+          - `total_429_responses`: Count of payloads where `statusCode === 429`.
+          - `top_routes`: Sorted count frequency array of `route`.
+          - `top_tenants`: Sorted count frequency array of `tenantId`.
+          - `tool_usage_counts`: Key-value map totaling hits per `toolId`.
+          - `agent_request_ratio`: Percentage calculation where `isAgentRequest === true`.
+
+        ============================================================
+        2. DASHBOARD API & CROSS-ISOLATE CACHING (src/routes/dashboard.ts)
+        ============================================================
+        - Expose endpoint: `GET /api/dashboard/metrics`
+        - **Consensus Rule:** To prevent visual data stuttering across shifting V8 isolates, verify cache presence using a shared state check:
+          1. Attempt to read `await env.TELEMETRY_KV.get("cache:metrics:summary", "json")`.
+          2. If present and younger than 5 seconds, return it immediately to meet the <50ms constraint.
+          3. If absent or expired, execute `getEdgeMetrics(env)`, write the output back to `cache:metrics:summary` with an expiration TTL of 5 seconds, and return the payload.
+
+        ============================================================
+        3. INDEX MOUNTING (src/index.ts)
+        ============================================================
+        - Import the dashboard metrics router and cleanly mount it under the `/api` route block. Ensure no pre-existing paths or pipeline telemetry contexts are mutated.
+
+        ============================================================
+        4. DETERMINISTIC HTML INJECTION (public/system-dashboard.html)
+        ============================================================
+        - Target the existing dashboard served on port 8899.
+        - **Stitching Rule:** DO NOT modify, re-arrange, or drop any of the existing blocks (SYSTEM ARCHITECTURE, SYSTEM RESOURCES, SERVICE STATUS, etc.).
+        - Append a new full-width container `<!-- EDGE METRICS CONTAINER --> <div id="edge-metrics-grid" class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-6 mt-6"></div>` exactly prior to the final closing tag of the main layout section.
+        - Inside this container, dynamically inject 7 cleanly designed Tailwind CSS metrics cards matching the existing dark theme aesthetic:
+          1. Edge Traffic (RPM, top routes, top tenants)
+          2. Latency Metrics (Avg, P95, slowest route)
+          3. Platform Error Rate (Error %, 4xx/5xx counts)
+          4. Rate Limiting Panel (429 counts, hot throttled hostnames)
+          5. Tenant Isolation Monitor (Active counts, peak tenant tracker)
+          6. Tool Registry Usage (Calculation metrics broken down by toolId)
+          7. Agentic vs Human Traffic Flow (% of WebMCP / JSON agent executions vs human hits)
+
+        ============================================================
+        5. FRONTEND HUD REGISTRATION
+        ============================================================
+        - Append a clean, isolated vanilla JavaScript script block to handle UI data binding:
+          - Implement a non-blocking `setInterval` fetch loop polling `/api/dashboard/metrics` every 5000ms.
+          - Safely verify JSON structural boundaries before editing text targets. If the payload is empty or an exception occurs, retain current structural DOM text states to eliminate visual glitching.
+
+        ============================================================
+        6. VALIDATION GATE
+        ============================================================
+        - Execute `bun x tsc --noEmit` and run the structural test harness to confirm zero compiler regressions are introduced.
+
+      system_context: "Endpoint: http://127.0.0.1:4000/v1. Dashboard Port: 8899. Stack: Hono + Cloudflare Workers. Invariant: Use TELEMETRY_KV. Protect existing DOM order exactly."

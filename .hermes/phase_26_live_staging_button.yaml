@@ -1,0 +1,111 @@
+name: Phase_26_UIBuilder_Live_Staging_Button
+description: "Add a 'Live Staging' button to UIBuilder that compiles and deploys the current design to staging."
+version: "1.0.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - staging_only: true
+  - no_auto_promote: true
+  - explicit_user_trigger: true
+  - no_background_watchers: true
+
+# ---------------------------------------------------------
+# 2. Target Files (OpenPencil / UIBuilder fork)
+# ---------------------------------------------------------
+targets:
+  - path: "packages/app/src/components/Toolbar.tsx"
+  - path: "packages/app/src/lib/deploy.ts"
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 1 — UI BUTTON
+  # -------------------------------------
+  - id: add_button
+    name: "Add Live Staging button to UIBuilder toolbar"
+    instruction: |
+      In the UIBuilder toolbar component:
+
+      - Add a new button labeled:
+        "🚀 Live Staging"
+
+      - Button behavior:
+        - Disabled while deploying
+        - Shows loading state ("Deploying...")
+        - Shows success ("✅ Staging Updated")
+
+  # -------------------------------------
+  # STEP 2 — COMPILE + DEPLOY PIPELINE
+  # -------------------------------------
+  - id: deploy_logic
+    name: "Trigger compile and deploy on button click"
+    instruction: |
+      On button click:
+
+      1. Determine current file path (.fig)
+      2. Extract tenant name from filename
+
+      Then execute:
+
+      bun open-pencil export <file> -f layout_def
+
+      Capture stdout JSON
+
+      Then POST to:
+
+      /api/dev/deploy-staging
+
+      With body:
+      {
+        tenant: <tenant>,
+        layout: <parsed LayoutDefinition>
+      }
+
+  # -------------------------------------
+  # STEP 3 — EDGE ENDPOINT (SAFE BRIDGE)
+  # -------------------------------------
+  - id: staging_api
+    name: "Create staging-only deploy endpoint"
+    instruction: |
+      Add new route:
+
+      POST /api/dev/deploy-staging
+
+      Requirements:
+      - Validate dev token
+      - Call existing MCP deploy logic internally
+      - DO NOT expose /mcp/deploy directly to UIBuilder
+      - Always deploy to staging
+      - Return version hash
+
+  # -------------------------------------
+  # STEP 4 — UI FEEDBACK
+  # -------------------------------------
+  - id: ui_feedback
+    name: "Provide deployment feedback"
+    instruction: |
+      After deploy:
+
+      - Show:
+        ✅ "Deployed to vnext.<tenant>.workers.dev (vX)"
+
+      - On error:
+        ❌ "Deployment failed"
+
+      - Optional:
+        auto-open staging URL in browser
+
+# ---------------------------------------------------------
+# 4. Expected Outcome
+# ---------------------------------------------------------
+outputs:
+  description: |
+    UIBuilder now includes a "Live Staging" button.
+    Users explicitly trigger compile + deploy.
+    No watchers required.
+    Production remains safe.

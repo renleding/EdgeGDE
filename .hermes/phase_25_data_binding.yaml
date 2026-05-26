@@ -1,0 +1,75 @@
+name: Phase_25_Data_Binding_Layer
+description: "Upgrade engine.ts to compile Data: nodes into HTMX bindings and deploy the /api/telemetry edge endpoint."
+version: "1.0.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - no_client_js: true # strictly rely on HTMX for DOM updates
+  - htmx_expects_fragments: true # the API must return raw text/html, not JSON
+  - single_telemetry_endpoint: true # do not create multiple endpoints for different stats
+  - preserve_visual_fidelity: true # the Data: node must still retain its UIBuilder inline styles
+
+# ---------------------------------------------------------
+# 2. Target Files
+# ---------------------------------------------------------
+targets:
+  - path: "apps/edge-runtime/src/compiler/engine.ts"
+  - path: "apps/edge-runtime/src/index.ts" # or your main Hono router file
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 1 — COMPILER UPGRADE (HTMX BINDING)
+  # -------------------------------------
+  - id: compile_data_nodes
+    name: "Map Data: nodes to HTMX attributes"
+    instruction: |
+      Update engine.ts to intercept nodes where node.name starts with "Data:".
+      
+      Requirements:
+      - Extract the key (e.g., "Data:ArtifactSize" -> "ArtifactSize").
+      - Emit a <span> or <div> (depending on if it's text or a container).
+      - PRESERVE all inline styles (fonts, colors, layout) calculated in Phase 24 from the UIBuilder extraction.
+      - Inject the following HTMX attributes:
+        - hx-get="/api/telemetry?key={extracted_key}"
+        - hx-trigger="load, every 5s"
+        - hx-target="this"
+        - hx-swap="innerHTML"
+        - data-key="{extracted_key}"
+      - Render a safe fallback text inside (e.g., "--" or "Loading...").
+
+  # -------------------------------------
+  # STEP 2 — TELEMETRY ENDPOINT
+  # -------------------------------------
+  - id: create_telemetry_api
+    name: "Build /api/telemetry endpoint"
+    instruction: |
+      Add a new GET route to the Hono edge router: /api/telemetry
+      
+      Requirements:
+      - Extract the ?key= query parameter.
+      - Query the Cloudflare KV namespaces (edgegde-artifacts, edgegde-tenants).
+      - Use a switch/case or map to match the requested key to the data.
+        - e.g., if key === 'TotalKeys', return the length of the KV list.
+        - e.g., if key === 'ArtifactSize', calculate/return the payload size.
+      - Return the result as raw text (c.text(value)), NOT as JSON (c.json()).
+      - CRITICAL: Prevent edge caching and ensure clean HTMX parsing by appending these headers:
+        "Cache-Control": "no-store"
+        "Content-Type": "text/plain; charset=utf-8"
+      - Ensure proper error handling (return "N/A" if key is not found).
+
+# ---------------------------------------------------------
+# 4. Verification Gates
+# ---------------------------------------------------------
+verification:
+  - bun x tsc --noEmit
+  - manual_test:
+      description: "Deploy and verify live telemetry"
+      steps:
+        - run: bunx wrangler deploy
+        - verify: Visit the dashboard URL. The Data: nodes should initially flash "--" and then auto-populate with live KV stats every 5 seconds.

@@ -5,3 +5,4 @@ dist/
 .DS_Store
 apps/ui-builder/UIBuilder/desktop/target/
 apps/ui-builder/UIBuilder/.wrangler/
+.aider*

@@ -1,0 +1,130 @@
+name: Phase_29_Universal_Form_Engine
+description: "Build a generic backend form registry, establish SSOT dynamic Zod schemas, preserve pure compute boundaries, and upgrade the engine.ts compiler with strict parsing priorities."
+version: "4.0.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - no_hardcoded_routes: true       # Forms must register themselves dynamically
+  - single_source_of_truth: true    # All form schemas MUST be generated dynamically by buildFormSchema(). No static schemas.
+  - pure_compute_isolation: true    # Registry handlers orchestrate; pure math MUST remain isolated in lib/calculator.ts
+  - semantic_html: true             # engine.ts MUST map Input:/Button: nodes to <input>/<button> tags
+  - preserve_visual_fidelity: true  # Native elements MUST retain UIBuilder inline CSS + browser resets
+
+# ---------------------------------------------------------
+# 2. Target Files
+# ---------------------------------------------------------
+targets:
+  - path: "apps/edge-runtime/src/lib/calculator.ts"    # NEW / UPDATE: Pure math logic
+  - path: "apps/edge-runtime/src/lib/schemas.ts"
+  - path: "apps/edge-runtime/src/lib/form-registry.ts" # NEW: Generic router & validation engine
+  - path: "apps/edge-runtime/src/registry/forms.ts"    # NEW: Specific implementations
+  - path: "apps/edge-runtime/src/index.ts"             # Mount the registry
+  - path: "apps/edge-runtime/src/compiler/engine.ts"   # CRITICAL: DOM Mapping
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 0 — PURE MATH ENGINE
+  # -------------------------------------
+  - id: create_calculator_engine
+    name: "Ensure lib/calculator.ts exists with pure functions"
+    instruction: |
+      Create or update `apps/edge-runtime/src/lib/calculator.ts`.
+      - Export `calculateLoanMetrics(data: any)`.
+      - Include pure math: amortization formula, surplus calculation, and currency formatters.
+      - Ensure zero side effects and zero imports from outside utility/schema files.
+
+  # -------------------------------------
+  # STEP 1 — SINGLE SOURCE OF TRUTH SCHEMAS
+  # -------------------------------------
+  - id: define_dynamic_schemas
+    name: "Implement SSOT Dynamic Zod Schemas"
+    instruction: |
+      Update `schemas.ts`.
+      1. CRITICAL: Do NOT define any static form-specific schemas. If an `EbrokerCalcSchema` exists, delete it. All form schemas MUST be generated dynamically.
+      2. Add `FormDefinition` and `FormFieldDef` interfaces.
+      3. Create `buildFormSchema(fields: FormFieldDef[])`. Use `z.coerce.number().refine(n => !isNaN(n))` for numbers. Return `z.object().strict()`.
+
+  # -------------------------------------
+  # STEP 2 — THE FORM REGISTRY (BACKEND)
+  # -------------------------------------
+  - id: build_registry
+    name: "Implement form-registry.ts"
+    instruction: |
+      Create `form-registry.ts`.
+      1. Export `registerForm(def, handler)` and `mountFormRoutes(app: Hono)`.
+      2. Export lookup utilities: `getForm(id: string)` and `getFormIds()`.
+      3. Include a local `escapeHtml()` helper to prevent XSS in error fragments.
+      4. Export `mountFormRoutes` must parse FormData or URL-encoded form data,
+         run `schema.safeParse()`, return HTMX error fragments on failure,
+         and execute the handler on success.
+
+  # -------------------------------------
+  # STEP 3 — PURE COMPUTE ORCHESTRATION
+  # -------------------------------------
+  - id: build_mortgage_form
+    name: "Implement registry/forms.ts with Pure Isolation"
+    instruction: |
+      Create `forms.ts`.
+      1. Define `mortgageForm: FormDefinition` (loanAmount, interestRate, termYears, income, expenses).
+      2. Import `calculateLoanMetrics` from `lib/calculator.ts`.
+      3. Call `registerForm(mortgageForm, async (data) => { ... })`.
+      4. Inside the handler: pass `data` to `calculateLoanMetrics(data)` and return the formatted HTMX HTML string. Do NOT embed the math logic inside the handler itself.
+
+  # -------------------------------------
+  # STEP 4 — WIRE INDEX.TS
+  # -------------------------------------
+  - id: wire_index
+    name: "Mount Registry in Router"
+    instruction: |
+      Update `index.ts`. 
+      Remove any legacy hardcoded `/api/ebroker/calculate` or `/api/calc/mortgage` routes.
+      Import `registerForms` and `mountFormRoutes`. Execute `registerForms()` then `mountFormRoutes(app)`.
+
+  # -------------------------------------
+  # STEP 5 — THE DOM COMPILER (FRONTEND)
+  # -------------------------------------
+  - id: upgrade_engine_dom
+    name: "Compile UIBuilder nodes using Strict Priority Tree"
+    instruction: |
+      Update `engine.ts`. 
+      
+      CRITICAL CLEANUP: Remove the legacy form compilation logic (e.g., `layout.formFields[]`, `layout.submitButton`, `layout.resultNodeId`). The prefix approach replaces it entirely.
+      
+      Implement the following prefix matching priority (first match wins) inside `compileNode`:
+      1. `Data:*` -> HTMX polling span (keep existing logic).
+      2. `Form:*` -> Extract ID, set `context.formId`. Emit `<form>` tag with `hx-post="/api/form/{id}"` and `hx-target="#results-{id}"`.
+      3. `Input:*` -> Extract name. Emit `<input name="{name}">`. Apply CSS resets: `appearance: none; border: none; outline: none; background: transparent;`.
+      4. `Button:Submit` -> Emit `<button type="submit">`. Apply CSS resets: `cursor: pointer; border: none; background: transparent;`.
+      5. `Container:Results` -> Emit `<div id="results-{context.formId}">`.
+      6. (All others) -> Fallback to standard div/span rendering.
+
+# ---------------------------------------------------------
+# 4. Verification Gates
+# ---------------------------------------------------------
+verification:
+  - bun x tsc --noEmit
+  - route_test:
+      description: "POST /api/form/mortgage with valid data returns HTML fragment"
+      run: >
+        curl -s http://localhost:8787/api/form/mortgage
+        -X POST -H "Content-Type: application/json"
+        -d '{"loanAmount":500000,"interestRate":5.5,"termYears":30,"income":10000,"expenses":3000}'
+      expect_status: 200
+      expect_body_contains: "results-mortgage"
+  - validation_test:
+      description: "POST with invalid data (negative loan) returns 400"
+      run: >
+        curl -s -o /dev/null -w "%{http_code}" http://localhost:8787/api/form/mortgage
+        -X POST -H "Content-Type: application/json"
+        -d '{"loanAmount":-1,"interestRate":5.5,"termYears":30}'
+      expect_status: 400
+      expect_body_contains: "<div"
+  - compiler_attrs_test:
+      description: "Compiled layout uses registry endpoint"
+      run: "check compileLayout output for hx-post='/api/form/mortgage'"

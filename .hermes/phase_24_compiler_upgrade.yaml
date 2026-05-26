@@ -1,0 +1,90 @@
+# ===========================================================================
+# ⚕ PHASE 24 — COMPILER UPGRADE (Alignment & Visual Fidelity)
+# ===========================================================================
+# Target: EdgeGDE Platform
+# Objective: Upgrade the HSAES compiler engine to preserve fill colors,
+#            text content, dimensions, and visual alignment from the
+#            OpenPencil scene graph through to the rendered HTML.
+# Status: ✅ COMPLETE
+# ===========================================================================
+
+deliverables:
+  - file: apps/edge-runtime/src/compiler/engine.ts
+    description: >
+      Rewritten to emit inline styles instead of Tailwind classes.
+      All dimensions, positioning, flex layout, corner radius, opacity,
+      and fill colors rendered as inline `style` attributes.
+      HTMX and WebMCP attributes preserved unchanged.
+      Null-safe: all optional properties guarded with ?? / ?. chains.
+
+  - deployment:
+      version_id: 279dbaf3-669f-4d9a-a36d-b65b8c4f2058
+      url: https://edgegde-calculator.renleding.workers.dev/?tenant=afirmico
+
+# ===========================================================================
+# Capabilities Added
+# ===========================================================================
+
+capabilities:
+  - name: "Inline Style Rendering"
+    description: >
+      All layout nodes emit inline CSS styles instead of framework classes.
+      Attributes: width, height, position, left, top, display, flexDirection,
+      borderRadius, opacity, backgroundColor, overflow.
+
+  - name: "Dimension Preservation"
+    description: >
+      Width and height from the design AST are preserved as px values
+      in inline style. Nodes without dimensions omit the property.
+
+  - name: "Absolute Positioning"
+    description: >
+      x,y coordinates from the design are mapped to position:absolute,
+      left:Npx, top:Npx. FRAME/GROUP nodes default to position:relative
+      unless they have absolute coordinates.
+
+  - name: "Flex Layout"
+    description: >
+      FRAME and GROUP nodes get display:flex; flex-direction:column
+      with overflow:hidden, matching the design's auto-layout structure.
+
+  - name: "Corner Radius"
+    description: >
+      border-radius rendered as inline px value from cornerRadius property.
+      Mapped from the same threshold scale as before (sm/md/lg/xl/2xl/3xl/full).
+
+  - name: "Fill Color Parsing"
+    description: >
+      Defensively parses fill arrays. Supports {color: "#hex"} and
+      {color: {r,g,b,a}} normalized 0-1 formats. First visible solid
+      fill wins. No crash on empty or malformed fills.
+
+  - name: "Text Content Rendering"
+    description: >
+      TEXT nodes render their text content (if available via optional
+      "text" property) or fall back to the node name as display text.
+      HTML-escaped to prevent injection.
+
+  - name: "Zero Framework Dependency"
+    description: >
+      No Tailwind, no Bootstrap, no external CSS framework required.
+      The compiled output is self-contained HTML with inline styles,
+      ready for embedding or serving through any HTML shell.
+
+# ===========================================================================
+# Validation
+# ===========================================================================
+
+validation:
+  typescript: |
+    bun x tsc --noEmit — zero new errors (7 pre-existing only)
+  deployment: |
+    Deployed to Cloudflare. Verified running at:
+    https://edgegde-calculator.renleding.workers.dev/?tenant=afirmico
+  style_sample: |
+    style="width:200px;height:200px;position:absolute;left:0px;top:0px;display:flex;flex-direction:column;overflow:hidden"
+    style="width:140px;height:140px;position:absolute;left:30px;top:10px;display:flex;flex-direction:column;border-radius:100px;overflow:hidden"
+    style="width:100px;height:100px;position:absolute;left:20px;top:20px;display:flex;flex-direction:column;overflow:hidden"
+    style="width:60px;height:60px;position:absolute;left:0px;top:0px;display:flex;flex-direction:column;overflow:hidden"
+    style="width:12px;height:36px;position:absolute;left:-8px;top:-4px"
+    style="width:100px;height:24px;position:absolute;left:50px;top:166px"

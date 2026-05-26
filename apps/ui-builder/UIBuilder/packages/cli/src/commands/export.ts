@@ -8,10 +8,11 @@ import type { RasterExportFormat } from '@open-pencil/core/io'
 import { isAppMode, requireFile, rpc } from '#cli/app-client'
 import { ok, printError } from '#cli/format'
 import { loadDocument } from '#cli/headless'
+import { formatLayoutDef } from '../formatters/layout-def'
 
 const io = new IORegistry(BUILTIN_IO_FORMATS)
 const RASTER_FORMATS = ['PNG', 'JPG', 'WEBP']
-const ALL_FORMATS = new Set([...RASTER_FORMATS, 'SVG', 'PDF', 'JSX', 'FIG'])
+const ALL_FORMATS = new Set([...RASTER_FORMATS, 'SVG', 'PDF', 'JSX', 'FIG', 'LAYOUT_DEF'])
 const JSX_STYLES = new Set(['openpencil', 'tailwind'])
 
 interface ExportArgs {
@@ -145,8 +146,15 @@ async function exportFromFile(format: string, args: ExportArgs) {
   console.log(ok(`Target: ${targetLabel(args.page, args.node)}`))
 }
 
+async function exportLayoutDef(format: string, args: ExportArgs) {
+  const file = requireFile(args.file)
+  const graph = await loadDocument(file)
+  const layoutDef = formatLayoutDef(graph)
+  process.stdout.write(JSON.stringify(layoutDef))
+}
+
 export default defineCommand({
-  meta: { description: 'Export a document to PNG, JPG, WEBP, SVG, PDF, JSX, or .fig' },
+  meta: { description: 'Export a document to PNG, JPG, WEBP, SVG, PDF, JSX, FIG, or LAYOUT_DEF' },
   args: {
     file: {
       type: 'positional',
@@ -192,15 +200,20 @@ export default defineCommand({
     height: { type: 'string', description: 'Thumbnail height (default: 1080)', default: '1080' }
   },
   async run({ args }) {
-    const format = args.format.toUpperCase() as RasterExportFormat | 'SVG' | 'JSX' | 'FIG'
+    const format = args.format.toUpperCase() as RasterExportFormat | 'SVG' | 'JSX' | 'FIG' | 'LAYOUT_DEF'
     if (!ALL_FORMATS.has(format)) {
-      printError(`Invalid format "${args.format}". Use png, jpg, webp, svg, pdf, jsx, or fig.`)
+      printError(`Invalid format "${args.format}". Use png, jpg, webp, svg, pdf, jsx, fig, or layout_def.`)
       process.exit(1)
     }
 
     if (format === 'JSX' && !JSX_STYLES.has(args.style)) {
       printError(`Invalid JSX style "${args.style}". Use openpencil or tailwind.`)
       process.exit(1)
+    }
+
+    if (format === 'LAYOUT_DEF') {
+      await exportLayoutDef(format, args)
+      return
     }
 
     if (isAppMode(args.file)) {

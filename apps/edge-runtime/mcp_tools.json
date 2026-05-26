@@ -1,0 +1,65 @@
+[
+  {
+    "name": "edgegde_registry.set_tenant_layout",
+    "description": "Set or update a tenant's layout design. Defaults to staging environment. If the payload is identical to the current latest, no new version is created (idempotent). Returns version number and staging/production URL.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "description": "The tenant identifier (hostname or tenant slug)"
+        },
+        "layout_payload": {
+          "type": "string",
+          "description": "JSON-serialized LayoutDefinition payload"
+        },
+        "version_note": {
+          "type": "string",
+          "description": "Optional human-readable note for this version"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["staging", "production"],
+          "description": "Target environment. DEFAULT: staging"
+        }
+      },
+      "required": ["tenant_id", "layout_payload"]
+    }
+  },
+  {
+    "name": "edgegde_registry.rollback_layout",
+    "description": "Rollback a tenant's production layout to a previous version. Updates the production:latest pointer only. Does NOT delete version history.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "description": "The tenant identifier"
+        },
+        "version": {
+          "type": "string",
+          "description": "Target version to rollback to (e.g. 'v3')"
+        }
+      },
+      "required": ["tenant_id", "version"]
+    }
+  },
+  {
+    "name": "edgegde_registry.promote_to_production",
+    "description": "Promote a specific staging version to production. Copies the staging:latest pointer to production:latest after acquiring a deploy lock.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "description": "The tenant identifier"
+        },
+        "version": {
+          "type": "string",
+          "description": "Staging version to promote (e.g. 'v5'). If omitted, promotes whatever staging:latest points to."
+        }
+      },
+      "required": ["tenant_id"]
+    }
+  }
+]

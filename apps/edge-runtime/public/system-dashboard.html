@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Dashboard — EdgeGDE</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1117;
+      color: #e1e4e8;
+      min-height: 100vh;
+      padding: 12px;
+    }
+    h1 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #f0f2f5;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    h1 svg { width: 14px; height: 14px; }
+    h1 small {
+      font-size: 11px;
+      font-weight: 400;
+      color: #8b949e;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .card {
+      background: #1c1e26;
+      border: 1px solid #2d3140;
+      border-radius: 8px;
+      padding: 10px 14px;
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: #58a6ff; }
+    .card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #8b949e;
+      margin-bottom: 4px;
+    }
+    .card .value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f0f2f5;
+      line-height: 1.2;
+    }
+    .card .sub {
+      font-size: 12px;
+      color: #58a6ff;
+      margin-top: 2px;
+    }
+    .card .sub.warn { color: #d29922; }
+    .card .sub.danger { color: #f85149; }
+    .card.wide { grid-column: span 2; }
+    .card .tool-list {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #8b949e;
+      max-height: 90px;
+      overflow-y: auto;
+    }
+    .card .tool-list li {
+      display: flex;
+      justify-content: space-between;
+      padding: 2px 0;
+      list-style: none;
+    }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #8b949e;
+    }
+    .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #3fb950;
+      display: inline-block;
+    }
+    .dot.error { background: #f85149; }
+    .dot.pending { background: #d29922; }
+  </style>
+</head>
+<body>
+  <h1>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1"/>
+      <rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/>
+      <rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+    EdgeGDE Runtime
+    <small>CF Dashboard</small>
+  </h1>
+  <div class="grid" id="metrics-grid"></div>
+  <div class="grid">
+    <div class="card wide" id="kv-card">
+      <div class="sub pending">Loading KV stats...</div>
+    </div>
+  </div>
+  <div class="grid" id="runtime-grid"></div>
+  <div class="status-bar">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Loading...</span>
+    <span id="timestamp"></span>
+  </div>
+  <script>
+    const METRICS = [
+      { key: 'requests_per_minute', label: 'Requests / min', fmt: v => v.toLocaleString(), sub: 'throughput' },
+      { key: 'avg_latency_ms', label: 'Avg Latency', fmt: v => v.toFixed(1) + ' ms', sub: v => v > 500 ? 'high' : 'normal', cls: v => v > 500 ? 'warn' : '' },
+      { key: 'p95_latency_ms', label: 'P95 Latency', fmt: v => v.toFixed(1) + ' ms', sub: v => v > 1000 ? 'elevated' : 'normal', cls: v => v > 1000 ? 'danger' : '' },
+      { key: 'error_rate_percent', label: 'Error Rate', fmt: v => v.toFixed(1) + ' %', sub: v => v > 5 ? 'degraded' : 'healthy', cls: v => v > 5 ? 'danger' : 'success' },
+      { key: 'total_429_responses', label: '429 Responses', fmt: v => v.toLocaleString(), sub: 'rate limited' },
+      { key: 'tool_usage_counts', label: 'Active Tools', fmt: v => Object.keys(v).length, sub: v => Object.keys(v).length + ' tools', cls: 'wide', list: true },
+      { key: 'agent_request_ratio', label: 'Agent Requests', fmt: v => v.toFixed(1) + ' %', sub: v => v > 50 ? 'dominant' : 'mixed', cls: v => v > 50 ? 'warn' : '' },
+    ]
+
+    function render(data) {
+      const grid = document.getElementById('metrics-grid')
+      grid.innerHTML = METRICS.map(m => {
+        const raw = data[m.key]
+        const val = m.fmt(raw)
+        const subVal = typeof m.sub === 'function' ? m.sub(raw) : m.sub
+        const subCls = typeof m.cls === 'function' ? m.cls(raw) : (m.cls || '')
+        let extra = ''
+        if (m.list && typeof raw === 'object') {
+          const entries = Object.entries(raw).sort((a, b) => b[1] - a[1])
+          extra = entries.length ? '<ul class="tool-list">' + entries.slice(0, 8).map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join('') + '</ul>' : '<div class="tool-list">no data</div>'
+        }
+        return `<div class="card ${subCls}"><div class="label">${m.label}</div><div class="value">${val}</div><div class="sub ${subCls}">${subVal}</div>${extra}</div>`
+      }).join('')
+    }
+
+    function updateStatus(ok, msg, ts) {
+      const dot = document.getElementById('status-dot')
+      dot.className = 'dot' + (ok ? '' : ' error')
+      document.getElementById('status-text').textContent = msg
+      if (ts) document.getElementById('timestamp').textContent = '— ' + ts
+    }
+
+    async function poll() {
+      try {
+        const res = await fetch('/api/dashboard/metrics')
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        render(data)
+        updateStatus(true, 'OK', new Date().toLocaleTimeString())
+      } catch (err) {
+        updateStatus(false, 'Error: ' + err.message)
+      }
+    }
+
+    poll()
+    setInterval(poll, 5000)
+
+    // KV Metrics + Cost — poll every 30s
+    async function pollKv() {
+      try {
+        const res = await fetch('/api/dashboard/kv')
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        renderKv(data)
+      } catch (err) {
+        document.getElementById('kv-card').innerHTML = '<div class="sub danger">Error: ' + err.message + '</div>'
+      }
+    }
+
+    function fmtBytes(b) {
+      if (b < 1024) return b + ' B'
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB'
+      return (b / 1048576).toFixed(2) + ' MB'
+    }
+
+    function renderKv(data) {
+      const t = data.total
+      const l = data.limits
+      const c = data.cost
+      const storageLimit = l.storage_gb * 1073741824
+      const storagePct = (t.estimatedBytes / storageLimit * 100)
+      const storageCls = storagePct > 80 ? 'danger' : storagePct > 50 ? 'warn' : ''
+
+      let nsHtml = data.namespaces.map(n => {
+        const pct = t.estimatedBytes > 0 ? (n.estimatedBytes / t.estimatedBytes * 100).toFixed(0) : 0
+        return `<div style="display:flex;justify-content:space-between;font-size:11px;color:#8b949e;padding:2px 0">
+          <span>${n.binding}</span>
+          <span>${n.keys} keys / ${fmtBytes(n.estimatedBytes)} (${pct}%)</span>
+        </div>`
+      }).join('')
+
+      // Tenant versions from artifacts
+      const tv = data.tenantVersions || {}
+      const tvKeys = Object.keys(tv).sort()
+      let tvHtml = ''
+      if (tvKeys.length > 0) {
+        tvHtml = tvKeys.map(k =>
+          `<div style="display:flex;justify-content:space-between;font-size:11px;color:#8b949e;padding:2px 0">
+            <span>${k}</span>
+            <span>${tv[k]} version${tv[k] > 1 ? 's' : ''}</span>
+          </div>`
+        ).join('')
+      } else {
+        tvHtml = '<div style="font-size:11px;color:#8b949e">no versioned tenants</div>'
+      }
+
+      document.getElementById('kv-card').innerHTML =
+        `<div class="label">KV Storage — ${c.within_free_tier ? '' : '~'}$${c.estimated_monthly.toFixed(4)}/mo</div>
+        <div class="value">${fmtBytes(t.estimatedBytes)}</div>
+        <div class="sub ${storageCls}">${storagePct.toFixed(4)}% of ${l.storage_gb} GB limit</div>
+        <div style="margin-top:8px;display:flex;gap:12px">
+          <div style="flex:1;border-top:1px solid #2d3140;padding-top:6px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b949e;padding:2px 0">
+              <span>Total keys</span><span>${t.keys}</span>
+            </div>
+            ${nsHtml}
+          </div>
+          <div style="flex:1;border-top:1px solid #2d3140;padding-top:6px">
+            <div style="font-weight:600;color:#e1e4e8;font-size:11px;margin-bottom:4px">Versions per Tenant</div>
+            ${tvHtml}
+          </div>
+        </div>
+        <div style="margin-top:6px;display:flex;gap:16px;border-top:1px solid #2d3140;padding-top:6px;font-size:11px;color:#8b949e">
+          <div style="flex:1">
+            <div style="font-weight:600;color:#e1e4e8;margin-bottom:4px">Daily Ops (free tier)</div>
+            <div style="display:flex;justify-content:space-between"><span>Reads</span><span>< 1,000 / 100,000</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Writes</span><span>< 1 / 1,000</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Deletes</span><span>< 1 / 1,000</span></div>
+            <div style="display:flex;justify-content:space-between"><span>List ops</span><span>< 10 / 1,000</span></div>
+          </div>
+          <div style="flex:1">
+            <div style="font-weight:600;color:#e1e4e8;margin-bottom:4px">Cost Breakdown</div>
+            <div style="display:flex;justify-content:space-between"><span>KV Reads</span><span>$${c.reads_cost.toFixed(4)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>KV Writes</span><span>$${c.writes_cost.toFixed(4)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>KV Storage</span><span>$${c.storage_cost.toFixed(4)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span>R2 Storage (< ${c.r2_free_tier_gb} GB free)</span><span>$${c.r2_cost.toFixed(4)}</span></div>
+            <div style="display:flex;justify-content:space-between;font-weight:600;color:#e1e4e8;margin-top:2px"><span>Est. monthly</span><span>$${c.estimated_monthly.toFixed(4)}</span></div>
+            <div style="display:flex;justify-content:space-between;margin-top:2px;font-weight:600;color:#3fb950"><span>Actual billed</span><span>$${c.actual_billed.toFixed(2)} ✅ (within Free Tier)</span></div>
+          </div>
+        </div>`
+    }
+
+    pollKv()
+    setInterval(pollKv, 30000)
+
+    // Runtime Telemetry — poll every 15s
+    async function pollRuntime() {
+      try {
+        const res = await fetch('/api/dashboard/runtime')
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        renderRuntime(data)
+      } catch (err) {
+        document.getElementById('runtime-grid').innerHTML = '<div class="card"><div class="sub danger">Error: ' + err.message + '</div></div>'
+      }
+    }
+
+    function renderRuntime(data) {
+      const t = data.telemetry
+      const kvEff = data.kv_efficiency
+
+      const cards = [
+        { label: 'Telemetry Logs', value: t.log_entries.toLocaleString(), sub: 'total events logged' },
+        { label: 'Errors', value: t.error_count.toLocaleString(), sub: t.error_count > 0 ? 'needs review' : 'none', cls: t.error_count > 0 ? 'danger' : '' },
+        { label: 'Deploy Events', value: t.deploy_events.toLocaleString(), sub: 'pipeline history' },
+        { label: 'Avg KV Reads / Request', value: kvEff.avg_reads_per_request.toFixed(2), sub: 'efficiency ratio', cls: kvEff.avg_reads_per_request > 5 ? 'warn' : '' },
+      ]
+
+      document.getElementById('runtime-grid').innerHTML = cards.map(c =>
+        `<div class="card ${c.cls || ''}"><div class="label">${c.label}</div><div class="value">${c.value}</div><div class="sub ${c.cls || ''}">${c.sub}</div></div>`
+      ).join('')
+    }
+
+    pollRuntime()
+    setInterval(pollRuntime, 15000)
+  </script>
+</body>
+</html>

@@ -1,0 +1,167 @@
+name: Hermes_vs_Aider_Sweet_Spot_Test
+description: "Empirically determine when direct Hermes coding vs Routa/Aider delegation is optimal."
+version: "1.0.0"
+
+# ---------------------------------------------------------
+# Hypothesis
+# ---------------------------------------------------------
+hypothesis: |
+  Direct Hermes coding is faster for single-file, scoped patches
+  where the full context is already in the conversation window.
+  
+  Routa/Aider wins for multi-file features, unfamiliar code paths,
+  and any task requiring file reads outside the current context.
+  
+  The crossover point is roughly: 2+ files OR 1 file with
+  dependencies outside the hot path.
+
+# ---------------------------------------------------------
+# Test Design
+# ---------------------------------------------------------
+test_design: |
+  Run each task twice:
+    Run A: Hermes Agent writes code directly
+    Run B: Routa Team mode → Aider
+  
+  Score on: accuracy, time, retries, context-cost.
+  
+  Context-cost tracks how many additional file reads / tool
+  calls the agent needed beyond the minimum. High context-cost
+  means the agent lacked local knowledge.
+
+# ---------------------------------------------------------
+# Scenarios
+# ---------------------------------------------------------
+scenarios:
+
+# ── Category 1: HERMES WINS (small, scoped, hot-path) ──
+
+  - id: hermes_win_1
+    name: "Single style tweak in hot path"
+    description: |
+      Change one CSS property in engine.ts's buildInlineStyle().
+      e.g. "Change all text node font-size to 16px"
+    expected_winner: hermes
+    reason: |
+      engine.ts is in active context. Single line change.
+      No file reads needed. Hermes does this in 10s.
+      Routa overhead (spawn, read file, plan, write) ~30s.
+
+  - id: hermres_win_2
+    name: "Quick bugfix on known code"
+    description: |
+      Fix a null-reference crash in a function that was
+      just written this session. e.g. "compileNode crashes
+      when node.fills is undefined"
+    expected_winner: hermes
+    reason: |
+      Same session context. Hermes knows the exact line.
+      Routa would need to re-read files to learn the context.
+
+# ── Category 2: AIDER WINS (multi-file, cold path) ──
+
+  - id: aider_win_1
+    name: "Cross-package refactor"
+    description: |
+      Move a shared type from @edgegde/schema into a new
+      @edgegde/types package, update all imports across
+      edge-runtime, uibuilder, and op-schema.
+    expected_winner: aider
+    reason: |
+      3+ packages, 8+ files. Hermes would need to read every
+      file to find imports. Aider handles the full scan
+      deterministically via its map-tokens / tree-sitter.
+
+  - id: aider_win_2
+    name: "New feature across stack"
+    description: |
+      Add a "dark mode" toggle: new KV key per tenant,
+      new CSS class injection in engine.ts, new endpoint
+      GET /api/theme/{tenant}, new Reactivity in UIBuilder
+      toolbar.
+    expected_winner: aider
+    reason: |
+      4 touch points across stack. Aider can work each file
+      in sequence via team mode. Hermes would context-switch
+      and risk missing a layer.
+
+# ── Category 3: BORDERLINE (crossover zone) ──
+
+  - id: borderline_1
+    name: "New endpoint + single consumer"
+    description: |
+      Add GET /api/health/detailed returning uptime, version,
+      KV read latency. Wire it into the existing dashboard
+      HTML card.
+    expected_winner: tie
+    reason: |
+      2 files (routes + HTML). Hermes can do this quickly
+      if the route file was recently touched. Aider more
+      reliable if the route file is cold.
+
+  - id: borderline_2
+    name: "Compiler feature + test"
+    description: |
+      Add support for a new node prefix (e.g. "Chart:") in
+      engine.ts. Must also update engine.test.ts with 3 test
+      cases.
+    expected_winner: aider
+    reason: |
+      2 files, but test file was never touched in this
+      session. Hermes would need to read it cold. Aider
+      handles cold reads better.
+
+# ---------------------------------------------------------
+# Execution Protocol
+# ---------------------------------------------------------
+execution:
+  - step: "Run both agents on each task, same prompt"
+  - step: "Reset context between runs (fresh session for Aider)"
+  - step: "Measure wall clock from prompt → passing code"
+  - step: "Count retries (failed compile, failed test, missed requirement)"
+  - step: "Score: accuracy 0-100, time in seconds, retries as penalty"
+
+# ---------------------------------------------------------
+# Scoring
+# ---------------------------------------------------------
+scoring:
+  accuracy: { weight: 0.5, scale: 0-100 }
+  speed:    { weight: 0.3, measure: "seconds", inverse: true }
+  retries:  { weight: 0.2, measure: "count", inverse: true }
+  formula: "(accuracy * 0.5) + (speed_score * 0.3) + (retry_score * 0.2)"
+
+  speed_score: "100 - (seconds / 10)"  # 10s = 99, 60s = 94, 300s = 70
+  retry_score: "100 - (retries * 20)"   # 0 retries = 100, 3 retries = 40
+
+# ---------------------------------------------------------
+# Decision Matrix Output
+# ---------------------------------------------------------
+outputs:
+  matrix:
+    rows:
+      - task_type: "Single file, hot path"
+        hermres_score: "95-100"
+        aider_score: "70-85"
+        use: "Hermes"
+      - task_type: "Multi-file, cross-package"
+        hermres_score: "60-75"
+        aider_score: "90-100"
+        use: "Routa/Aider"
+      - task_type: "New endpoint + consumer"
+        hermres_score: "80-90"
+        aider_score: "80-95"
+        use: "Tie — Hermes if hot, Aider if cold"
+      - task_type: "Compiler feature + tests"
+        hermres_score: "70-85"
+        aider_score: "85-100"
+        use: "Routa/Aider"
+
+  rule_of_thumb: |
+    | Condition | Use |
+    |---|---|
+    | 1 file, written this session | Hermes |
+    | 1 file, not seen this session | Hermes (read once) or Aider |
+    | 2+ files | Routa/Aider |
+    | Cross-package refactors | Routa/Aider |
+    | New test files | Routa/Aider |
+    | Quick bugfix on recent code | Hermes |
