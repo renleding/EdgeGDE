@@ -1,0 +1,264 @@
+name: Phase_32_Unified_Registry_Engine
+description: "Replace the imperative HTML generation in engine.ts with a typed registry of renderers. One compileNode(), one rendering path — Figma nodes, form nodes, and composer nodes all go through the same registry."
+version: "1.0.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - single_compile_node: true       # One compileNode() call handles ALL types
+  - registry_is_html_source: true   # Registry owns all HTML generation
+  - preserve_legacy_rendering: true # Existing Figma/OpenPencil layouts must render identically
+  - cycle_detection_preserved: true # Cycle detection stays in engine.ts
+  - form_htmx_preserved: true       # Form: / Input: / Data: prefixes still generate HTMX attrs
+  - composer_types_added: true       # Page, Header, Section:Hero, Footer are new registry types
+
+# ---------------------------------------------------------
+# 2. Target Files
+# ---------------------------------------------------------
+targets:
+  - path: "apps/edge-runtime/src/compiler/registry.ts"  # NEW — all renderers
+  - path: "apps/edge-runtime/src/compiler/engine.ts"     # REFACTOR — uses registry
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 1 — CREATE THE REGISTRY
+  # -------------------------------------
+  - id: create_registry
+    name: "Create src/compiler/registry.ts with all typed renderers"
+    instruction: |
+      Create `apps/edge-runtime/src/compiler/registry.ts`.
+
+      Every renderer receives the same interface:
+      ```typescript
+      interface RenderInput {
+        node: OpenPencilNode
+        style: Record<string, string>     // computed inline styles
+        attrs: Record<string, string>     // computed HTML attributes (id, name, hx-*, etc.)
+        childrenHtml: string              // pre-rendered children (empty string for leaf nodes)
+        slotContent?: string              // for composer types: explicit children slot
+      }
+
+      type NodeRenderer = (input: RenderInput) => string
+      ```
+
+      **Base Figma renderers:**
+
+      | Type | HTML | Notes |
+      |---|---|---|
+      | `FRAME` | `<div {attrs}>{children}</div>` | Container with style+attrs |
+      | `GROUP` | `<div {attrs}>{children}</div>` | Same as FRAME |
+      | `TEXT` | `<span {attrs}>{text}</span>` | Content from input.node (via getTextContent) |
+      | `RECTANGLE` | `<div {attrs}></div>` | No children |
+      | `ELLIPSE` | `<div {attrs}></div>` | With border-radius:50% added |
+      | `LINE` | `<hr {attrs}>` | Self-closing |
+      | `VECTOR` | `<div {attrs}></div>` | Placeholder |
+      | `INSTANCE` | `<div {attrs}>{children}</div>` | Recursive |
+
+      **Prefix renderers (form/HTMX):**
+
+      | Detected by | HTML | Notes |
+      |---|---|---|
+      | `node.name startsWith 'Form:'` | `<form {attrs}>{children}</form>` | attrs include hx-post, hx-target from registry lookup |
+      | `node.name startsWith 'Input:'` | `<input {attrs}>` | Self-closing, attrs include name=, CSS resets |
+      | `node.name === 'Button:Submit'` | `<button {attrs}>{children}</button>` | attrs include type=submit, CSS resets |
+      | `node.name === 'Container:Results'` | `<div {attrs}>{children}</div>` | attrs include id=results-{formId} |
+      | `node.name startsWith 'Data:'` | `<span {attrs}>--</span>` | attrs include hx-get, hx-trigger |
+
+      **Composer renderers (new — AI-generated layouts):**
+
+      | Type | HTML | Notes |
+      |---|---|---|
+      | `Page` | `<main>{slotContent}</main>` | Top-level wrapper |
+      | `Header` | `<header><div>{logo}</div><nav>{links}</nav></header>` | Uses props from RenderInput |
+      | `Section:Hero` | `<section><h1>{title}</h1><p>{subtitle}</p></section>` | Props-driven |
+      | `Section` | `<section>{slotContent}</section>` | Generic section wrapper |
+      | `Grid:*` | `<div class="grid-{variant}">{slotContent}</div>` | Variant from suffix |
+      | `Footer` | `<footer>{slotContent}</footer>` | Standard footer |
+
+      Important: composer renderers that display dynamic content (logo, links, title, subtitle) MUST escape user-supplied values via the existing `escapeHtml()` helper to prevent XSS.
+
+  # -------------------------------------
+  # STEP 2 — REFACTOR ENGINE.TS
+  # -------------------------------------
+  - id: refactor_engine
+    name: "Refactor engine.ts to dispatch through the registry"
+    instruction: |
+      Update `apps/edge-runtime/src/compiler/engine.ts`.
+
+      The key change: instead of building HTML inline with template strings, each node
+      type is dispatched to a registered renderer.
+
+      **Imports:**
+      - Remove inline HTML generation functions (`getElementType`, `TYPE_TO_ELEMENT`, type-specific logic)
+      - Add `import { renderNode } from './registry'`
+      - Keep: `buildInlineStyle()`, `serializeStyle()`, `serializeAttributes()`, `escapeHtml()`, `getTextContent()`
+      - Keep: `CompileContext`, `hasPrefixNode()`, `needsFormWrapper()`, `getFormContainerAttrs()`
+      - Keep: cycle detection, prefix detection, form registration lookup
+
+      **The new compileNode():**
+
+      ```typescript
+      function compileNode(node: OpenPencilNode, ctx: CompileContext): string {
+        // ── Cycle detection (unchanged) ────────────────────────────────────
+        if (ctx.visited.has(node.id)) { throw ... }
+        ctx.visited.add(node.id)
+
+        try {
+          const nodeName = node.name || ''
+
+          // ── Detect type (unchanged) ─────────────────────────────────────
+          // Same prefix detection as before: Data:, Form:, Input:, etc.
+
+          // ── Compute inline style (unchanged) ────────────────────────────
+          const style = buildInlineStyle(node)
+          const styleStr = serializeStyle(style)
+
+          // ── Build attributes (unchanged form/HTMX logic) ────────────────
+          const allAttrs: Record<string, string> = {}
+          // ... form attrs, data attrs, input attrs, button attrs, id ...
+
+          // ── Render children (unchanged) ─────────────────────────────────
+          let childrenHtml = compileChildren(node, ctx)
+          // ... button text, TEXT content, Data: fallback, form submit fallback ...
+
+          // ── NEW: dispatch to registry instead of inline template ─────────
+          return renderNode({
+            node,
+            style,
+            attrs: allAttrs,
+            childrenHtml,
+          })
+
+        } catch (e) {
+          ctx.visited.delete(node.id)
+          throw e
+        } finally {
+          ctx.visited.delete(node.id)
+        }
+      }
+      ```
+
+      The `renderNode()` function in registry.ts handles the dispatch:
+
+      ```typescript
+      export function renderNode(input: RenderInput): string {
+        const nodeName = input.node.name || ''
+
+        // Prefix priority (same order as before)
+        if (nodeName.startsWith('Data:')) return renderDataNode(input)
+        if (nodeName.startsWith('Form:')) return renderFormContainer(input)
+        if (nodeName.startsWith('Input:')) return renderInput(input)
+        if (nodeName === 'Button:Submit') return renderSubmitButton(input)
+        if (nodeName === 'Container:Results') return renderResultsContainer(input)
+
+        // Figma node types
+        const figmaType = input.node.type
+        const figmaRenderer = FIGMA_RENDERERS[figmaType]
+        if (figmaRenderer) return figmaRenderer(input)
+
+        // Composer types (for non-OpenPencil JSON layouts)
+        const composerRenderer = COMPOSER_RENDERERS[figmaType || nodeName]
+        if (composerRenderer) return composerRenderer(input)
+
+        // Fallback
+        return `<div${serializeAttributes(input.attrs)}>${input.childrenHtml}</div>`
+      }
+      ```
+
+      **Keep `compileLayout()` signature unchanged:**
+      ```typescript
+      export function compileLayout(layout: LayoutDefinition): string {
+        const ctx: CompileContext = {
+          visited: new Set<string>(),
+          layout,
+          usedMcpParams: new Set<string>(),
+          formId: null,
+        }
+        return compileNode(layout.rootNode, ctx)
+      }
+      ```
+
+      This ensures the existing root route `/` in index.ts continues to work without changes.
+
+  # -------------------------------------
+  # STEP 3 — TEST COMPOSER LAYOUT ROUTE
+  # -------------------------------------
+  - id: add_render_endpoint
+    name: "Add POST /api/render endpoint for AI-generated composer layouts"
+    instruction: |
+      Add a new route in `apps/edge-runtime/src/index.ts` for rendering
+      composer-format layouts (non-OpenPencil JSON):
+
+      ```typescript
+      app.post('/api/render', async (c) => {
+        try {
+          const body = await c.req.json()
+          const html = renderComposerLayout(body)
+          return c.html(html)
+        } catch (err: any) {
+          return c.json({ error: 'Render failed', details: err.message }, 400)
+        }
+      })
+      ```
+
+      Where `renderComposerLayout()` is a new export from `registry.ts`:
+
+      ```typescript
+      /** Render a composer-format layout tree. */
+      export function renderComposerLayout(node: ComposerNode): string {
+        const typeName = node.type
+        const renderer = COMPOSER_RENDERERS[typeName]
+        if (!renderer) {
+          throw new Error(`Unknown composer type: ${typeName}`)
+        }
+
+        const slotContent = (node.children || [])
+          .map((child: ComposerNode) => renderComposerLayout(child))
+          .join('')
+
+        return renderer({
+          node: { id: '', name: typeName, type: typeName, x: 0, y: 0, width: 0, height: 0 },
+          style: {},
+          attrs: {},
+          childrenHtml: '',
+          slotContent,
+          props: node.props || {},
+        })
+      }
+
+      interface ComposerNode {
+        type: string
+        props?: Record<string, any>
+        children?: ComposerNode[]
+      }
+      ```
+
+# ---------------------------------------------------------
+# 4. Verification Gates
+# ---------------------------------------------------------
+verification:
+  - bun x tsc --noEmit
+
+  - legacy_layout_test:
+      description: "Existing Figma/OpenPencil layouts still render correctly"
+      run: "curl -s http://localhost:8787/?tenant=afirmico&env=staging"
+      expect_status: 200
+
+  - composer_render_test:
+      description: "New composer-format JSON renders via POST /api/render"
+      run: >
+        curl -s -X POST http://localhost:8787/api/render
+        -H 'Content-Type: application/json'
+        -d '{"type":"Page","children":[{"type":"Header","props":{"logo":"EdgeGDE","links":["Home","Pricing"]}},{"type":"Section:Hero","props":{"title":"Edge Sites","subtitle":"Compiled at the edge"}},{"type":"Footer"}]}'
+      expect_status: 200
+      expect_body: "EdgeGDE"
+
+  - form_htmx_test:
+      description: "Form: nodes still generate correct hx-post attributes"
+      run: "grep 'hx-post' apps/edge-runtime/src/compiler/registry.ts"
+      expect_status: 0

@@ -10,8 +10,9 @@
  * @packageDocumentation
  */
 
-import type { LayoutDefinition, OpenPencilNode, FormField } from '@edgegde/schema'
-import { getForm } from '../lib/form-registry'
+import type { LayoutDefinition, OpenPencilNode } from '@edgegde/schema'
+import { renderNode, escapeHtml } from './registry'
+import type { DesignTokens } from '../lib/design-parser'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -27,28 +28,8 @@ interface CompileContext {
   usedMcpParams: Set<string>
   /** Form ID for HTMX endpoint generation (set by Form:* prefix) */
   formId: string | null
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Node type → HTML element mapping
-// ═══════════════════════════════════════════════════════════════════════════
-
-type NodeType = 'FRAME' | 'TEXT' | 'RECTANGLE' | 'ELLIPSE' | 'LINE' | 'COMPONENT' | 'INSTANCE' | 'GROUP' | 'VECTOR'
-
-const TYPE_TO_ELEMENT: Record<NodeType, string> = {
-  FRAME: 'div',
-  TEXT: 'span',
-  RECTANGLE: 'div',
-  ELLIPSE: 'div',
-  LINE: 'hr',
-  COMPONENT: 'div',
-  INSTANCE: 'div',
-  GROUP: 'div',
-  VECTOR: 'div',
-}
-
-function getElementType(node: OpenPencilNode): string {
-  return TYPE_TO_ELEMENT[node.type as NodeType] || 'div'
+  /** Phase 33: design tokens propagated through the tree */
+  design: DesignTokens
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -162,141 +143,16 @@ function getTextContent(node: OpenPencilNode): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Attribute builders
+// Style serializer
 // ═══════════════════════════════════════════════════════════════════════════
 
-function serializeStyle(style: InlineStyle): string {
+function serializeStyle(style: Record<string, string>): string {
   const entries = Object.entries(style)
   if (entries.length === 0) return ''
   return entries.map(([key, value]) => {
     const cssKey = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)
     return `${cssKey}:${value}`
   }).join(';')
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Attribute serialization (sorted: id → style → hx-* → mcp-*)
-// ═══════════════════════════════════════════════════════════════════════════
-
-type AttrBucket = 'id' | 'style' | 'type' | 'placeholder' | 'required' | 'minmax' | 'hx' | 'mcp'
-
-function classifyAttr(name: string): AttrBucket {
-  if (name === 'id') return 'id'
-  if (name === 'style') return 'style'
-  if (name === 'type') return 'type'
-  if (name === 'placeholder') return 'placeholder'
-  if (name === 'required') return 'required'
-  if (name === 'min' || name === 'max' || name === 'step') return 'minmax'
-  if (name.startsWith('hx-')) return 'hx'
-  if (name.startsWith('mcp-')) return 'mcp'
-  return 'mcp'
-}
-
-const BUCKET_ORDER: AttrBucket[] = ['id', 'style', 'type', 'placeholder', 'required', 'minmax', 'hx', 'mcp']
-
-function serializeAttributes(attrs: Record<string, string>): string {
-  if (Object.keys(attrs).length === 0) return ''
-
-  const buckets: Record<AttrBucket, [string, string][]> = {
-    id: [],
-    style: [],
-    type: [],
-    placeholder: [],
-    required: [],
-    minmax: [],
-    hx: [],
-    mcp: [],
-  }
-
-  for (const [name, value] of Object.entries(attrs)) {
-    const bucket = classifyAttr(name)
-    buckets[bucket].push([name, value])
-  }
-
-  // Sort within each bucket alphabetically by attribute name
-  for (const bucket of Object.keys(buckets) as AttrBucket[]) {
-    buckets[bucket].sort(([a], [b]) => a.localeCompare(b))
-  }
-
-  // Concatenate in bucket order
-  const parts: string[] = []
-  for (const bucket of BUCKET_ORDER) {
-    for (const [name, value] of buckets[bucket]) {
-      if (value === '') continue
-      parts.push(`${name}="${escapeAttr(value)}"`)
-    }
-  }
-
-  return parts.length > 0 ? ' ' + parts.join(' ') : ''
-}
-
-function escapeAttr(value: string): string {
-  return value.replace(/"/g, '&quot;').replace(/&/g, '&amp;')
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// HTMX & WebMCP attribute generators
-// ═══════════════════════════════════════════════════════════════════════════
-
-function getFormContainerAttrs(formId: string | null): Record<string, string> {
-  const attrs: Record<string, string> = {}
-  const registered = formId ? getForm(formId) : undefined
-
-  if (registered) {
-    attrs['hx-post'] = `/api/form/${registered.def.id}`
-    attrs['hx-target'] = `#${registered.def.resultTargetId}`
-    attrs['hx-swap'] = 'outerHTML'
-    attrs['mcp-tool'] = `form_${registered.def.id}`
-    attrs['mcp-description'] = registered.def.label
-  } else {
-    attrs['hx-post'] = '#'
-    attrs['hx-target'] = '#calculator-results'
-    attrs['hx-swap'] = 'outerHTML'
-    attrs['mcp-tool'] = 'unknown_form'
-    attrs['mcp-description'] = 'Form'
-  }
-
-  return attrs
-}
-
-/**
- * Check if any node in the layout uses a Form:* prefix.
- * This replaces the old layout.formFields[] check.
- */
-function needsFormWrapper(layout: LayoutDefinition): boolean {
-  return hasPrefixNode(layout.rootNode, 'Form:')
-}
-
-/** Recursively check if any descendant has the given prefix */
-function hasPrefixNode(node: OpenPencilNode, prefix: string): boolean {
-  if (node.name && node.name.startsWith(prefix)) return true
-  if (node.children && Array.isArray(node.children)) {
-    return (node.children as OpenPencilNode[]).some((child) => hasPrefixNode(child, prefix))
-  }
-  return false
-}
-
-/**
- * Generate and validate the mcp-param for a given form field.
- */
-function getMcpParam(field: FormField, usedMcpParams: Set<string>): string {
-  const paramName = (field as any).mcpParam || toSnakeCase(field.label)
-  if (usedMcpParams.has(paramName)) {
-    throw new Error(
-      `Duplicate mcp-param value: "${paramName}" — ` +
-      `both "${field.label}" and a previous field would produce this value`
-    )
-  }
-  usedMcpParams.add(paramName)
-  return paramName
-}
-
-function toSnakeCase(label: string): string {
-  return label
-    .replace(/['']/g, '')
-    .replace(/[^a-zA-Z0-9\s]/g, '')
-    .replace(/\s+/g, '_')
-    .toLowerCase()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -314,133 +170,40 @@ function compileNode(node: OpenPencilNode, ctx: CompileContext): string {
 
   try {
     const nodeName = node.name || ''
-    const isText = node.type === 'TEXT'
-    const isDataNode = nodeName.startsWith('Data:')
-    const isFormPrefix = nodeName.startsWith('Form:')
-    const isInputPrefix = nodeName.startsWith('Input:')
-    const isButtonSubmit = nodeName === 'Button:Submit'
-    const isContainerResults = nodeName === 'Container:Results'
 
-    // Prefix priority: Data: > Form: > Input: > Button:Submit > Container:Results > standard
-
-    // ── Determine element type ─────────────────────────────────────────
-    let elementType: string
-    let extractName = ''
-
-    if (isDataNode) {
-      elementType = 'span'
-    } else if (isFormPrefix) {
-      elementType = 'form'
-      extractName = nodeName.slice(5).trim()
-      ctx.formId = extractName
-    } else if (isInputPrefix) {
-      elementType = 'input'
-      extractName = nodeName.slice(6).trim()
-    } else if (isButtonSubmit) {
-      elementType = 'button'
-    } else if (isContainerResults) {
-      elementType = 'div'
-    } else if (isText) {
-      elementType = 'span'
-    } else {
-      elementType = getElementType(node)
+    // ── Detect prefix to set formId on context ──────────────────────────
+    if (nodeName.startsWith('Form:')) {
+      ctx.formId = nodeName.slice(5).trim()
     }
 
-    // ── Build attributes ───────────────────────────────────────────────
-    const allAttrs: Record<string, string> = {}
-
-    // Inline style
+    // ── Build inline style ──────────────────────────────────────────────
     const style = buildInlineStyle(node)
+
+    // ── Build basic attributes (id + style only; registry handles prefixes) ─
+    const allAttrs: Record<string, string> = {}
     const styleStr = serializeStyle(style)
     if (styleStr) {
       allAttrs.style = styleStr
     }
+    allAttrs.id = node.id
 
-    // Form container HTMX + WebMCP attributes
-    if (isFormPrefix) {
-      Object.assign(allAttrs, getFormContainerAttrs(ctx.formId))
-    }
-
-    // Data node HTMX polling attributes
-    if (isDataNode) {
-      const dataKey = nodeName.slice(5).trim()
-      allAttrs['hx-get'] = `/api/telemetry?key=${encodeURIComponent(dataKey)}`
-      allAttrs['hx-trigger'] = 'load, every 5s'
-      allAttrs['hx-target'] = 'this'
-      allAttrs['hx-swap'] = 'innerHTML'
-      allAttrs['data-key'] = dataKey
-    }
-
-    // id
-    if (isContainerResults) {
-      allAttrs.id = `results-${ctx.formId || 'unknown'}`
-    } else {
-      allAttrs.id = node.id
-    }
-
-    // Input attributes
-    if (isInputPrefix) {
-      allAttrs.name = extractName
-      allAttrs.type = 'text'
-      // CSS resets for native input appearance
-      allAttrs.style = (allAttrs.style || '') +
-        ';appearance:none;border:none;outline:none;background:transparent'
-    }
-
-    // Submit button attributes
-    if (isButtonSubmit) {
-      allAttrs.type = 'submit'
-      // CSS resets for native button appearance
-      allAttrs.style = (allAttrs.style || '') +
-        ';cursor:pointer;border:none;background:transparent'
-    }
-
-    // ── Build children HTML ────────────────────────────────────────────
+    // ── Render children ─────────────────────────────────────────────────
     let childrenHtml = compileChildren(node, ctx)
 
-    // Button text content (use the node's text or name)
-    if (isButtonSubmit) {
-      childrenHtml = escapeHtml(getTextContent(node) || 'Submit')
-    }
-
     // TEXT node content
-    if (isText && !isInputPrefix && !isButtonSubmit) {
-      const text = getTextContent(node)
-      childrenHtml = escapeHtml(text)
+    if (node.type === 'TEXT') {
+      childrenHtml = escapeHtml(getTextContent(node))
     }
 
-    // Data node fallback text
-    if (isDataNode) {
-      childrenHtml = '--'
-    }
+    // ── Dispatch to registry ────────────────────────────────────────────
+    return renderNode({
+      node,
+      style,
+      attrs: allAttrs,
+      childrenHtml,
+      design: ctx.design,
+    })
 
-    // If this is the form container, append a submit button if none found in children
-    if (isFormPrefix) {
-      // Check if any child is already a button
-      const hasButton = (node.children as OpenPencilNode[] || []).some(
-        (child) => child.name === 'Button:Submit'
-      )
-      if (!hasButton) {
-        const btnStyle = serializeStyle({
-          display: 'inline-block',
-          padding: '8px 16px',
-          backgroundColor: '#2563eb',
-          color: '#ffffff',
-          border: 'none',
-          borderRadius: '6px',
-          cursor: 'pointer',
-          fontSize: '14px',
-          fontWeight: '600',
-        })
-        childrenHtml += `<button type="submit" style="${btnStyle}">Submit</button>`
-      }
-    }
-
-    // ── Serialize ──────────────────────────────────────────────────────
-    const html = `<${elementType}${serializeAttributes(allAttrs)}>${childrenHtml}</${elementType}>`
-
-    ctx.visited.delete(node.id)
-    return html
   } catch (e) {
     ctx.visited.delete(node.id)
     throw e
@@ -453,15 +216,6 @@ function compileChildren(node: OpenPencilNode, ctx: CompileContext): string {
     .filter((child: OpenPencilNode) => child != null && typeof child === 'object')
     .map((child: OpenPencilNode) => compileNode(child, ctx))
     .join('')
-}
-
-function escapeHtml(text: string): string {
-  if (!text) return ''
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -483,13 +237,18 @@ function escapeHtml(text: string): string {
  * @returns Serialized HTML string with inline styles
  * @throws {Error} If a cycle is detected or mcp-param collision occurs
  */
-export function compileLayout(layout: LayoutDefinition): string {
+export function compileLayout(
+  layout: LayoutDefinition,
+  design?: DesignTokens
+): string {
+  const defaultDesign: DesignTokens = { colors: {}, typography: {}, spacing: {} }
   // Build context (no legacy formFields/submitButton/resultNodeId)
   const ctx: CompileContext = {
     visited: new Set<string>(),
     layout,
     usedMcpParams: new Set<string>(),
     formId: null,
+    design: design || defaultDesign,
   }
 
   // Compile the root node recursively

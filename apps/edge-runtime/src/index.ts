@@ -225,6 +225,34 @@ app.get('/api/admin/leads/:tenantId', async (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Composer Layout Renderer (Phase 32) — renders JSON layout trees
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { renderComposerLayout } from './compiler/registry'
+import { parseDesignMd, type DesignTokens } from './lib/design-parser'
+
+app.post('/api/render', async (c) => {
+  try {
+    const body = await c.req.json() as any
+    const layout = body.layout || body  // support {layout, designMd} and bare tree
+
+    let design: DesignTokens | undefined
+    if (body.designMd) {
+      design = parseDesignMd(body.designMd)
+    }
+
+    if (body.debugDesign) {
+      console.log('[Design Tokens]', JSON.stringify(design))
+    }
+
+    const html = renderComposerLayout(layout, design)
+    return c.html(html)
+  } catch (err: any) {
+    return c.json({ error: 'Render failed', details: err.message }, 400)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Root Layout Render — serves tenant layouts via ?tenant=&env= query params
 // ═══════════════════════════════════════════════════════════════════════════
 

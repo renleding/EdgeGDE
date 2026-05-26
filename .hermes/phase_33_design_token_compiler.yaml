@@ -1,0 +1,322 @@
+name: Phase_33_Design_Token_Compiler
+description: "Parse DESIGN.md into structured runtime tokens and inject them into the Node Registry's RenderInput, enabling brand-aware rendering for both Figma and composer layouts."
+version: "4.0.0"
+
+# ---------------------------------------------------------
+# 1. Execution Invariants
+# ---------------------------------------------------------
+invariants:
+  - design_is_runtime_input: true         # DESIGN.md influences rendering dynamically
+  - structure_style_separation: true      # Registry defines structure, DESIGN defines appearance
+  - safe_parsing: true                    # Markdown parsing must be deterministic and bounded
+  - non_blocking_render: true             # Missing design must NOT break rendering
+  - section_based_parsing: true           # Parse by ##-headed sections, not loose regex
+  - no_breaking_changes: true             # compileLayout() signature stays the same
+  - figma_renderer_design_aware: true     # FRAME/TEXT renderers also get design tokens
+
+# ---------------------------------------------------------
+# 2. Target Files
+# ---------------------------------------------------------
+targets:
+  - path: "apps/edge-runtime/src/lib/design-parser.ts"     # NEW
+  - path: "apps/edge-runtime/src/compiler/registry.ts"      # MODIFY — extend RenderInput, inject design into renderers
+  - path: "apps/edge-runtime/src/index.ts"                   # MODIFY — extend POST /api/render body
+
+# ---------------------------------------------------------
+# 3. Execution Tasks
+# ---------------------------------------------------------
+steps:
+
+  # -------------------------------------
+  # STEP 1 — DESIGN.MD PARSER
+  # -------------------------------------
+  - id: create_design_parser
+    name: "Parse DESIGN.md into structured DesignTokens"
+    instruction: |
+      Create `apps/edge-runtime/src/lib/design-parser.ts`.
+
+      Uses section-based parsing (Google DESIGN.md spec). Only parses
+      ## Colors, ## Typography, ## Spacing sections. All other markdown
+      is ignored. Never throws — returns empty tokens on any error.
+
+      ```typescript
+      export interface DesignTokens {
+        colors: {
+          primary?: string
+          secondary?: string
+          background?: string
+          text?: string
+        }
+        typography: {
+          fontFamily?: string
+          headingFont?: string
+          headingTracking?: string
+        }
+        spacing: {
+          sectionPadding?: string
+          gap?: string
+        }
+      }
+
+      export function parseDesignMd(md: string): DesignTokens {
+        const tokens: DesignTokens = { colors: {}, typography: {}, spacing: {} }
+        if (!md) return tokens
+
+        const normalizeHex = (hex: string): string =>
+          hex.startsWith('#') ? hex.toLowerCase() : `#${hex.toLowerCase()}`
+
+        try {
+          // ── Colors section ─────────────────────────────────────────────
+          const colorsSec = md.match(/## Colors\n([\s\S]*?)(?=\n##|$)/)
+          if (colorsSec) {
+            const body = colorsSec[1]
+            const p = body.match(/primary[^#]*#([0-9a-fA-F]{6})/i)
+            if (p) tokens.colors.primary = normalizeHex(p[1])
+            const s = body.match(/secondary[^#]*#([0-9a-fA-F]{6})/i)
+            if (s) tokens.colors.secondary = normalizeHex(s[1])
+            const b = body.match(/background[^#]*#([0-9a-fA-F]{6})/i)
+            if (b) tokens.colors.background = normalizeHex(b[1])
+            const t = body.match(/text[^#]*#([0-9a-fA-F]{6})/i)
+            if (t) tokens.colors.text = normalizeHex(t[1])
+          }
+
+          // ── Typography section ──────────────────────────────────────────
+          const typeSec = md.match(/## Typography\n([\s\S]*?)(?=\n##|$)/)
+          if (typeSec) {
+            const body = typeSec[1]
+            const ff = body.match(/font[^#\n]*?([a-zA-Z][a-zA-Z\s-]+[a-zA-Z])/i)
+            if (ff) tokens.typography.fontFamily = ff[1].trim()
+            const hf = body.match(/heading[^#\n]*?([a-zA-Z][a-zA-Z\s-]+[a-zA-Z])/i)
+            if (hf) tokens.typography.headingFont = hf[1].trim()
+          }
+
+          // ── Spacing section ─────────────────────────────────────────────
+          const spaceSec = md.match(/## Spacing\n([\s\S]*?)(?=\n##|$)/)
+          if (spaceSec) {
+            const body = spaceSec[1]
+            const gap = body.match(/(gap|padding)[\s:]+(\d+px)/i)
+            if (gap) tokens.spacing.gap = gap[2]
+          }
+        } catch { /* silent — non-blocking */ }
+        return tokens
+      }
+      ```
+
+  # -------------------------------------
+  # STEP 2 — EXTEND RENDERINPUT WITH DESIGN
+  # -------------------------------------
+  - id: extend_renderinput
+    name: "Add design tokens to RenderInput and inject into all renderers"
+    instruction: |
+      Update `apps/edge-runtime/src/compiler/registry.ts`.
+
+      **2a. Extend RenderInput:**
+      ```typescript
+      import type { DesignTokens } from '../lib/design-parser'
+
+      export interface RenderInput {
+        node: OpenPencilNode
+        style: Record<string, string>
+        attrs: Record<string, string>
+        childrenHtml: string
+        slotContent?: string
+        props?: Record<string, any>
+        /** Phase 33: design tokens from DESIGN.md */
+        design: DesignTokens
+      }
+      ```
+
+      const appendStyle = (base: string | undefined, next: string): string =>
+        base ? `${base};${next}` : next
+
+      **2b. Update Figma renderers to apply design tokens:**
+      Each FIGMA_RENDERERS entry receives `input.design`. For example,
+      `FRAME` and `GROUP` inject background color into the inline style:
+
+      ```typescript
+      FRAME: (input) => {
+        const bgColor = input.design.colors.background
+        const a = { ...input.attrs }
+        if (bgColor && !a.style?.includes('background')) {
+          a.style = appendStyle(a.style, `background-color:${bgColor}`)
+        }
+        return `<div${serializeAttributes(a)}>${input.childrenHtml}</div>`
+      },
+      ```
+
+      Similarly, TEXT renderer can inject fontFamily from design tokens:
+      ```typescript
+      TEXT: (input) => {
+        const text = getTextContent(input.node)
+        const font = input.design.typography.fontFamily
+        const a = { ...input.attrs }
+        if (font) {
+          a.style = appendStyle(a.style, `font-family:${font}`)
+        }
+        return `<span${serializeAttributes(a)}>${escapeHtml(text)}</span>`
+      },
+      ```
+
+      **2c. Update composer renderers to apply design tokens:**
+      ```typescript
+      Header: (input) => {
+        const p = input.props || {}
+        const d = input.design
+        const logo = escapeHtml(String(p.logo || ''))
+        const links = (p.links || []).map((l: string) => `<a>${escapeHtml(String(l))}</a>`).join('')
+        const textColor = d.colors.text || ''
+        const style = textColor ? ` style="color:${textColor}"` : ''
+        return `<header${style}>\n  <div>${logo}</div>\n  <nav>${links}</nav>\n</header>`
+      },
+
+      'Section:Hero': (input) => {
+        const p = input.props || {}
+        const d = input.design
+        const title = escapeHtml(String(p.title || ''))
+        const subtitle = escapeHtml(String(p.subtitle || ''))
+        const bgColor = d.colors.background ? `background-color:${d.colors.background};` : ''
+        const primary = d.colors.primary ? `color:${d.colors.primary};` : ''
+        const style = (bgColor || primary) ? ` style="${bgColor}${primary}"` : ''
+        return `<section${style}>\n  <h1>${title}</h1>\n  <p>${subtitle}</p>\n</section>`
+      },
+      ```
+
+      **2d. Update `renderNode()` to pass `design: {}` as default:**
+      ```typescript
+      export function renderNode(input: RenderInput): string {
+        // Ensure design tokens always exist
+        if (!input.design) input.design = { colors: {}, typography: {}, spacing: {} }
+        // ... rest of dispatch unchanged ...
+      }
+      ```
+
+      **2e. Update `renderComposerLayout()` to accept optional design:**
+      ```typescript
+      export function renderComposerLayout(
+        node: ComposerNode,
+        design?: DesignTokens
+      ): string {
+        // ... existing logic ...
+        return renderer({
+          // ... existing fields ...
+          design: design || { colors: {}, typography: {}, spacing: {} },
+        })
+      }
+      ```
+
+  # -------------------------------------
+  # STEP 3 — UPDATE ENGINE.TS CONTEXT
+  # -------------------------------------
+  - id: update_engine_context
+    name: "Add design tokens to CompileContext"
+    instruction: |
+      Update `apps/edge-runtime/src/compiler/engine.ts`.
+
+      Add `design` field to `CompileContext`:
+      ```typescript
+      interface CompileContext {
+        visited: Set<string>
+        layout: LayoutDefinition
+        usedMcpParams: Set<string>
+        formId: string | null
+        /** Phase 33: design tokens propagated through the tree */
+        design: import('../lib/design-parser').DesignTokens
+      }
+      ```
+
+      Update `compileNode()` to pass design into `renderNode()`:
+      ```typescript
+      return renderNode({
+        node,
+        style,
+        attrs: allAttrs,
+        childrenHtml,
+        design: ctx.design,
+      })
+      ```
+
+      Update `compileLayout()` to accept optional design:
+      ```typescript
+      export function compileLayout(
+        layout: LayoutDefinition,
+        design?: import('../lib/design-parser').DesignTokens
+      ): string {
+        const ctx: CompileContext = {
+          visited: new Set<string>(),
+          layout,
+          usedMcpParams: new Set<string>(),
+          formId: null,
+          design: design || { colors: {}, typography: {}, spacing: {} },
+        }
+        return compileNode(layout.rootNode, ctx)
+      }
+      ```
+      Note: `compileLayout()` default is backwards-compatible — no existing caller breaks.
+
+  # -------------------------------------
+  # STEP 4 — EXTEND POST /API/RENDER
+  # -------------------------------------
+  - id: extend_render_endpoint
+    name: "Accept design tokens in POST /api/render body"
+    instruction: |
+      Update `apps/edge-runtime/src/index.ts`.
+
+      Import `parseDesignMd`:
+      ```typescript
+      import { parseDesignMd, type DesignTokens } from './lib/design-parser'
+      ```
+
+      Extend the `/api/render` handler to accept an optional `designMd` field:
+      ```typescript
+      app.post('/api/render', async (c) => {
+        try {
+          const body = await c.req.json() as any
+          const layout = body.layout || body  // support both {layout, designMd} and bare tree
+
+          let design: DesignTokens | undefined
+          if (body.designMd) {
+            design = parseDesignMd(body.designMd)
+          }
+
+          if (body.debugDesign) {
+            console.log('[Design Tokens]', JSON.stringify(design))
+          }
+
+          const html = renderComposerLayout(layout, design)
+          return c.html(html)
+        } catch (err: any) {
+          return c.json({ error: 'Render failed', details: err.message }, 400)
+        }
+      })
+      ```
+
+# ---------------------------------------------------------
+# 4. Verification Gates
+# ---------------------------------------------------------
+verification:
+  - bun x tsc --noEmit
+
+  - default_render:
+      description: "Rendering works without DESIGN.md"
+      run: >
+        curl -s -X POST http://localhost:8787/api/render
+        -H 'Content-Type: application/json'
+        -d '{"type":"Page","children":[{"type":"Header","props":{"logo":"Test"}},{"type":"Footer"}]}'
+      expect_status: 200
+
+  - design_injection:
+      description: "Design tokens applied to rendered output"
+      run: >
+        curl -s -X POST http://localhost:8787/api/render
+        -H 'Content-Type: application/json'
+        -d '{"designMd":"## Colors\nprimary: #1a73e8\nbackground: #ffffff\n","layout":{"type":"Page","children":[{"type":"Section:Hero","props":{"title":"Styled","subtitle":"With design tokens"}}]}}'
+      expect_body: "1a73e8"
+
+  - figma_legacy:
+      description: "Existing Figma layout render still works"
+      run: "curl -s -o /dev/null -w '%{http_code}' 'http://localhost:8787/?tenant=afirmico&env=staging'"
+
+  - compileLayout_backward:
+      description: "compileLayout() without design still works"
+      run: "cd apps/edge-runtime && grep -r 'compileLayout(' src/index.ts src/compiler/ | head -3"
+      expect_output: "compileLayout"
