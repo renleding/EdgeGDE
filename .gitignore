@@ -5,4 +5,9 @@ dist/
 .DS_Store
 apps/ui-builder/UIBuilder/desktop/target/
 apps/ui-builder/UIBuilder/.wrangler/
+apps/edge-runtime/.wrangler/
+*.db
 .aider*
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
