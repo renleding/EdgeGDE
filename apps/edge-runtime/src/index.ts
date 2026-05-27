@@ -508,6 +508,12 @@ app.get('/', async (c) => {
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <style>
+    .htmx-indicator { opacity:0; transition:opacity 0.2s; }
+    .htmx-request .htmx-indicator { opacity:1; }
+    .htmx-request button { pointer-events:none; opacity:0.6; }
+    .htmx-request input, .htmx-request select { pointer-events:none; opacity:0.7; }
+  </style>
 </head>
 <body class="min-h-screen bg-[#0b1326]">
   <header class="bg-[#0b1326]/90 border-b border-white/10 backdrop-blur-2xl">

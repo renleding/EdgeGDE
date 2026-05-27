@@ -1,70 +1,33 @@
 /**
  * EdgeGDE EDR — Fragment Rendering Endpoints
- * v4.8.1: HTMX fragment endpoints for partial UI updates.
- * Each endpoint returns bare HTML fragments — no page wrapper.
+ * v4.9.0: HTMX fragment endpoints for partial UI updates.
+ * Uses pure domain calculator — no KV, no HTMX awareness in domain layer.
  *
  * @packageDocumentation
  */
 
 import { Hono } from 'hono'
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Mortgage Calculation
-// ═══════════════════════════════════════════════════════════════════════════
-
-interface CalcResult {
-  monthlyRepayment: number
-  fortnightlyRepayment: number
-  weeklyRepayment: number
-  totalInterest: number
-  totalCost: number
-  warning: string
-}
-
-function calculateMortgage(input: Record<string, string>): CalcResult {
-  const P = parseFloat(input.property_value || input.principal || '0')
-  const annualRate = parseFloat(input.interest_rate || '0')
-  const termYears = 30 // default loan term
-
-  const r = annualRate / 12 / 100
-  const n = termYears * 12
-  let monthlyRepayment = 0
-
-  if (r > 0 && P > 0) {
-    const onePlusR = 1 + r
-    const powR = Math.pow(onePlusR, n)
-    monthlyRepayment = P * (r * powR) / (powR - 1)
-  }
-
-  monthlyRepayment = Math.round(monthlyRepayment * 100) / 100
-  const annualCost = monthlyRepayment * 12
-  const fortnightlyRepayment = Math.round((annualCost / 26) * 100) / 100
-  const weeklyRepayment = Math.round((annualCost / 52) * 100) / 100
-  const totalRepayments = monthlyRepayment * n
-  const totalInterest = Math.round(Math.max(0, totalRepayments - P) * 100) / 100
-  const totalCost = Math.round((P + totalInterest) * 100) / 100
-
-  return {
-    monthlyRepayment,
-    fortnightlyRepayment,
-    weeklyRepayment,
-    totalInterest,
-    totalCost,
-    warning: 'This is an estimate only. Not financial advice.',
-  }
-}
+import { calculateLoan } from '../edr/domain/calculator'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Fragment HTML Builder
 // ═══════════════════════════════════════════════════════════════════════════
 
-function buildResultsFragment(result: CalcResult): string {
+interface CalcDisplay {
+  monthly: number
+  fortnightly: number
+  weekly: number
+  totalInterest: number
+  totalRepayment: number
+}
+
+function buildResultsFragment(result: CalcDisplay): string {
   const items = [
-    { label: 'Monthly Repayment', value: `$${result.monthlyRepayment.toFixed(2)}` },
-    { label: 'Fortnightly Repayment', value: `$${result.fortnightlyRepayment.toFixed(2)}` },
-    { label: 'Weekly Repayment', value: `$${result.weeklyRepayment.toFixed(2)}` },
+    { label: 'Monthly Repayment', value: `$${result.monthly.toFixed(2)}` },
+    { label: 'Fortnightly Repayment', value: `$${result.fortnightly.toFixed(2)}` },
+    { label: 'Weekly Repayment', value: `$${result.weekly.toFixed(2)}` },
     { label: 'Total Interest', value: `$${result.totalInterest.toFixed(2)}` },
-    { label: 'Total Cost', value: `$${result.totalCost.toFixed(2)}` },
+    { label: 'Total Cost', value: `$${result.totalRepayment.toFixed(2)}` },
   ]
 
   const rows = items.map(i => `
@@ -74,10 +37,10 @@ function buildResultsFragment(result: CalcResult): string {
     </div>`).join('')
 
   return `
-<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px" id="results">
+<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px;transition:opacity 0.2s" id="results">
   <h4 style="color:rgba(255,255,255,0.9);font-size:16px;font-weight:600;margin:0 0 8px 0">Your Quote</h4>
   ${rows}
-  <p style="color:rgba(255,255,255,0.4);font-size:11px;margin:8px 0 0 0">${result.warning}</p>
+  <p style="color:rgba(255,255,255,0.4);font-size:11px;margin:8px 0 0 0">This is an estimate only. Not financial advice.</p>
 </div>`
 }
 
@@ -88,14 +51,12 @@ function buildResultsFragment(result: CalcResult): string {
 export const fragmentRouter = new Hono()
 
 /**
- * POST /api/fragment/calculate
- * Accepts form field values, runs mortgage calculation,
- * returns HTML fragment for HTMX swap.
+ * POST /api/fragment/calculate — stateless, no KV writes.
+ * Accepts form field values, runs pure calculation, returns HTML fragment.
  */
 fragmentRouter.post('/fragment/calculate', async (c) => {
   let body: Record<string, string> = {}
   try {
-    // Support both JSON and form-encoded submissions
     const ct = c.req.header('content-type') || ''
     if (ct.includes('application/json')) {
       body = await c.req.json() as Record<string, string>
@@ -109,7 +70,11 @@ fragmentRouter.post('/fragment/calculate', async (c) => {
     return c.text('Invalid submission', 400)
   }
 
-  const result = calculateMortgage(body)
+  const loanAmount = parseFloat(body.loan_amount || body.property_value || '0')
+  const interestRate = parseFloat(body.interest_rate || '0')
+  const termYears = parseInt(body.term_years || '30', 10)
+
+  const result = calculateLoan({ loanAmount, interestRate, termYears })
   const fragment = buildResultsFragment(result)
 
   c.header('Content-Type', 'text/html; charset=utf-8')
