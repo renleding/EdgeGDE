@@ -465,12 +465,37 @@ app.get('/', async (c) => {
     let html = await TENANT_KV.get(cacheKey)
 
     if (!html) {
-      html = compileLayout(layout, design)
+      // Detect EDR-based layout vs legacy OpenPencil layout
+      if (layout && layout.root) {
+        // EDR pipeline: compile via pure_compiler
+        const { transform } = await import('./edr/compiler/synthesis')
+        const synthesized = transform(layout.root)
+        const edrDef: import('./edr/compiler/engine').EDR = {
+          components: layout.edr?.components || {},
+          global: layout.edr?.global || {},
+        }
+        const { compile: edrCompile } = await import('./edr/compiler/engine')
+        html = edrCompile(synthesized, edrDef, layout.edrHash || 'default', 'edr')
+
+        // Generate CSS from EDR components
+        const { generateCSS } = await import('./lib/generateCSS')
+        const css = generateCSS(edrDef, layout.edrHash || 'default')
+        html = `<style>${css}</style>${html}`
+      } else {
+        // Legacy OpenPencil pipeline
+        html = compileLayout(layout, design)
+      }
       const ttl = 120 + Math.floor(Math.random() * 20)
       await TENANT_KV.put(cacheKey, html, { expirationTtl: ttl })
     }
 
-    const envTag = tenant.slug === 'localhost' ? 'development' : 'production'
+    // ── Environment badge ───────────────────────────────────────────────
+    // Only show for non-production environments
+    const queryEnv = c.req.query('env')
+    const envBadge = queryEnv === 'staging'
+      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-400/20 text-yellow-400 uppercase tracking-wider">STAGING</span>'
+      : ''
+
     const title = `${tenant.name} — EdgeGDE`
 
     const page = `<!DOCTYPE html>
@@ -482,11 +507,11 @@ app.get('/', async (c) => {
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
-<body class="min-h-screen bg-gray-100">
-  <header class="bg-white border-b border-gray-200 shadow-sm">
+<body class="min-h-screen bg-[#0b1326]">
+  <header class="bg-[#0b1326]/90 border-b border-white/10 backdrop-blur-2xl">
     <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-      <span class="text-lg font-semibold text-gray-900">${tenant.name}</span>
-      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">${envTag}</span>
+      <span class="text-lg font-semibold text-white uppercase tracking-wider">${tenant.name}</span>
+      ${envBadge}
     </div>
   </header>
   <main class="max-w-4xl mx-auto p-4">

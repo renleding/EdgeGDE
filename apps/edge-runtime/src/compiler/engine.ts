@@ -4,6 +4,10 @@
  * inline styles (text, fills, dimensions, flex layouts) without
  * external CSS framework dependencies.
  *
+ * ⚠️ BOUNDARY GUARD: DO NOT import EDR modules here.
+ * This is the LEGACY compiler. It must remain fully isolated from
+ * the EDR pipeline (src/edr/compiler/engine.ts).
+ *
  * Null-safe: all optional properties are guarded with ?? / ?. chains.
  * HTMX + WebMCP attributes preserved unchanged.
  *
@@ -203,6 +207,47 @@ function compileNode(node: OpenPencilNode, ctx: CompileContext): string {
       const required = props.required === true
       const placeholder = props.placeholder as string || label
 
+      // ── Design token-driven field styling ─────────────────────────────
+      const df = ctx.design.field || {}
+      const fieldBg = df.background || 'rgba(255,255,255,0.1)'
+      const fieldText = df.textColor || '#ffffff'
+      const fieldLabel = df.labelColor || 'rgba(255,255,255,0.7)'
+      const fieldRadius = df.borderRadius || '1rem'
+      const fieldBorder = df.borderColor || 'rgba(255,255,255,0.2)'
+      const fieldBlur = df.backdropBlur ? `backdrop-filter:blur(${df.backdropBlur});-webkit-backdrop-filter:blur(${df.backdropBlur});` : ''
+      const fieldPad = df.padding || '16px'
+      const fieldHeight = df.height || '48px'
+      const fieldPlaceholder = df.placeholderColor || 'rgba(255,255,255,0.4)'
+      const fieldFocus = df.focusColor || 'rgba(255,255,255,0.3)'
+
+      const inputStyle = [
+        `background:${fieldBg}`,
+        `color:${fieldText}`,
+        `border:1px solid ${fieldBorder}`,
+        `border-radius:${fieldRadius}`,
+        `padding:${fieldPad}`,
+        `height:${fieldHeight}`,
+        `width:100%`,
+        `box-sizing:border-box`,
+        `outline:none`,
+        `font-size:16px`,
+        `transition:border-color 0.2s,box-shadow 0.2s`,
+      ].filter(Boolean).join(';')
+
+      const labelStyle = [
+        `color:${fieldLabel}`,
+        `display:block`,
+        `margin-bottom:6px`,
+        `font-size:14px`,
+        `font-weight:500`,
+      ].join(';')
+
+      const fieldContainerStyle = [
+        fieldBlur,
+        `border-radius:${fieldRadius}`,
+        `margin-bottom:16px`,
+      ].filter(Boolean).join(';')
+
       if (fieldType === 'select' || fieldType === 'dropdown') {
         const options: Array<{ value: string; label?: string }> = props.options || []
         const opts = options.map((o: any) => {
@@ -210,18 +255,19 @@ function compileNode(node: OpenPencilNode, ctx: CompileContext): string {
           const lbl = typeof o === 'string' ? o : (o.label || val)
           return `<option value="${escapeHtml(val)}">${escapeHtml(lbl)}</option>`
         }).join('')
-        childrenHtml = `<label class="block text-sm font-medium text-gray-700">${escapeHtml(label)}</label><select name="${escapeHtml(fieldId)}" ${required ? 'required' : ''} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">${opts}</select>`
+        childrenHtml = `<label style="${labelStyle}">${escapeHtml(label)}</label><select name="${escapeHtml(fieldId)}" ${required ? 'required' : ''} style="${inputStyle};appearance:none;-webkit-appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=\\"http://www.w3.org/2000/svg\\" width=\\"12\\" height=\\"12\\" viewBox=\\"0 0 12 12\\"><path fill=\\"white\\" d=\\"M6 8L1 3h10z\\"/></svg>');background-repeat:no-repeat;background-position:right 12px center;padding-right:36px"><option value="">Select...</option>${opts}</select>`
       } else if (fieldType === 'radio') {
         const options: Array<{ value: string; label?: string }> = props.options || []
         const opts = options.map((o: any) => {
           const val = typeof o === 'string' ? o : (o.value || o)
           const lbl = typeof o === 'string' ? o : (o.label || val)
-          return `<label class="inline-flex items-center mr-4"><input type="radio" name="${escapeHtml(fieldId)}" value="${escapeHtml(val)}" ${required ? 'required' : ''} class="mr-1"/>${escapeHtml(lbl)}</label>`
+          return `<label style="color:${fieldLabel};display:inline-flex;align-items:center;margin-right:16px;cursor:pointer"><input type="radio" name="${escapeHtml(fieldId)}" value="${escapeHtml(val)}" ${required ? 'required' : ''} style="margin-right:6px;accent-color:${fieldFocus}"/>${escapeHtml(lbl)}</label>`
         }).join('')
-        childrenHtml = `<fieldset><legend class="text-sm font-medium text-gray-700">${escapeHtml(label)}</legend>${opts}</fieldset>`
+        childrenHtml = `<fieldset style="border:none;padding:0;margin:0"><legend style="${labelStyle};margin-bottom:8px">${escapeHtml(label)}</legend>${opts}</fieldset>`
       } else {
         const inputType = fieldType === 'number' ? 'number' : fieldType === 'email' ? 'email' : fieldType === 'tel' ? 'tel' : 'text'
-        childrenHtml = `<label class="block text-sm font-medium text-gray-700">${escapeHtml(label)}</label><input type="${inputType}" name="${escapeHtml(fieldId)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required' : ''} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 text-sm"/>`
+        const phStyle = `${inputStyle};::placeholder{color:${fieldPlaceholder}}`
+        childrenHtml = `<label style="${labelStyle}">${escapeHtml(label)}</label><div style="${fieldContainerStyle}"><input type="${inputType}" name="${escapeHtml(fieldId)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required' : ''} style="${inputStyle}" onfocus="this.style.borderColor='${fieldFocus}'" onblur="this.style.borderColor='${fieldBorder}'"/></div>`
       }
     }
 
@@ -298,3 +344,4 @@ export function compileLayout(
 
   return rootHtml
 }
+
