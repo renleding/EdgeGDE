@@ -133,8 +133,12 @@ function buildInlineStyle(node: OpenPencilNode): InlineStyle {
   return s
 }
 
-/** Text content for TEXT nodes — uses name as fallback when text field absent */
+/** Text content for TEXT nodes — props.content > text > name fallback */
 function getTextContent(node: OpenPencilNode): string {
+  // Phase 35: props.content is the absolute source of truth for AI-generated layouts
+  if ((node as any).props?.content && typeof (node as any).props.content === 'string') {
+    return (node as any).props.content
+  }
   if ((node as any).text && typeof (node as any).text === 'string') {
     return (node as any).text
   }
@@ -189,6 +193,37 @@ function compileNode(node: OpenPencilNode, ctx: CompileContext): string {
 
     // ── Render children ─────────────────────────────────────────────────
     let childrenHtml = compileChildren(node, ctx)
+
+    // Phase 35: Form input rendering — nodes with fieldId become interactive inputs
+    if ((node as any).props?.fieldId) {
+      const props = (node as any).props
+      const fieldId = props.fieldId as string
+      const label = (props.label as string) || node.name || ''
+      const fieldType = (props.fieldType as string) || 'text'
+      const required = props.required === true
+      const placeholder = props.placeholder as string || label
+
+      if (fieldType === 'select' || fieldType === 'dropdown') {
+        const options: Array<{ value: string; label?: string }> = props.options || []
+        const opts = options.map((o: any) => {
+          const val = typeof o === 'string' ? o : (o.value || o)
+          const lbl = typeof o === 'string' ? o : (o.label || val)
+          return `<option value="${escapeHtml(val)}">${escapeHtml(lbl)}</option>`
+        }).join('')
+        childrenHtml = `<label class="block text-sm font-medium text-gray-700">${escapeHtml(label)}</label><select name="${escapeHtml(fieldId)}" ${required ? 'required' : ''} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">${opts}</select>`
+      } else if (fieldType === 'radio') {
+        const options: Array<{ value: string; label?: string }> = props.options || []
+        const opts = options.map((o: any) => {
+          const val = typeof o === 'string' ? o : (o.value || o)
+          const lbl = typeof o === 'string' ? o : (o.label || val)
+          return `<label class="inline-flex items-center mr-4"><input type="radio" name="${escapeHtml(fieldId)}" value="${escapeHtml(val)}" ${required ? 'required' : ''} class="mr-1"/>${escapeHtml(lbl)}</label>`
+        }).join('')
+        childrenHtml = `<fieldset><legend class="text-sm font-medium text-gray-700">${escapeHtml(label)}</legend>${opts}</fieldset>`
+      } else {
+        const inputType = fieldType === 'number' ? 'number' : fieldType === 'email' ? 'email' : fieldType === 'tel' ? 'tel' : 'text'
+        childrenHtml = `<label class="block text-sm font-medium text-gray-700">${escapeHtml(label)}</label><input type="${inputType}" name="${escapeHtml(fieldId)}" placeholder="${escapeHtml(placeholder)}" ${required ? 'required' : ''} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2 text-sm"/>`
+      }
+    }
 
     // TEXT node content
     if (node.type === 'TEXT') {
@@ -252,5 +287,14 @@ export function compileLayout(
   }
 
   // Compile the root node recursively
-  return compileNode(layout.rootNode, ctx)
+  const rootHtml = compileNode(layout.rootNode, ctx)
+
+  // Phase 35: Wrap in <form> if layout has formFields
+  const hasFormFields = layout.formFields && layout.formFields.length > 0
+  if (hasFormFields) {
+    const formAction = '/api/v1/tenant/data-ingest'
+    return `<form hx-post="${formAction}" hx-trigger="submit" hx-swap="none" class="space-y-4">${rootHtml}</form>`
+  }
+
+  return rootHtml
 }

@@ -9,14 +9,14 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { CALCULATOR_REGISTRY, compileToHtml } from '../registry/calculators'
-import type { TenantConfig } from '../middleware/tenant'
+import type { TenantConfig } from '../lib/tenant'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Variables type for Hono context
 // ═══════════════════════════════════════════════════════════════════════════
 
 type Variables = {
-  tenantConfig: TenantConfig
+  tenant: TenantConfig
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -53,8 +53,8 @@ router.post('/v1/:toolId', async (c) => {
   }
 
   // ── Tenant gate — resolved by middleware ───────────────────────────────
-  const tenant = (c as any).get('tenantConfig') as TenantConfig | undefined
-  if (!tenant || !tenant.enabledCalculators.includes(toolId)) {
+  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+  if (!tenant) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
@@ -124,8 +124,8 @@ router.get('/calculator/:toolId', async (c) => {
   }
 
   // ── Tenant gate — resolved by middleware ───────────────────────────────
-  const tenant = (c as any).get('tenantConfig') as TenantConfig | undefined
-  if (!tenant || !tenant.enabledCalculators.includes(toolId)) {
+  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+  if (!tenant) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 

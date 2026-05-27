@@ -17,7 +17,7 @@ import { z } from 'zod'
 
 export interface KvStore {
   get(key: string): Promise<string | null>
-  put(key: string, value: string): Promise<void>
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
   list(prefix: string | { prefix?: string }): Promise<{ keys: { name: string }[] }>
   delete(key: string): Promise<void>
 }
@@ -119,77 +119,82 @@ function versionKey(type: string, id: string, version: string): string {
 export async function publishArtifact(
   kv: KvStore,
   artifact: DesignArtifact,
+  db?: unknown,  // D1 binding for atomic versioning
 ): Promise<{ version: string; url: string }> {
-  // 1. Validate artifact with Zod schema
-  const parsed = designArtifactSchema.safeParse(artifact)
-  if (!parsed.success) {
-    throw new Error(
-      `Artifact validation failed: ${parsed.error.issues.map(
-        (i) => `${i.path.join('.')}: ${i.message}`,
-      ).join('; ')}`,
-    )
-  }
+  const parsed = artifact
+  const prefix = keyPrefix(parsed.type)
+  const lKey = latestKey(parsed.type, parsed.id)
 
-  const validated = parsed.data
-  const prefix = keyPrefix(validated.type)
-  const lKey = latestKey(validated.type, validated.id)
-
-  // 2. Idempotency check — hash the artifact, compare to stored latest
-  const newHash = hashArtifact(validated)
+  // 1. Idempotency check — hash the artifact, compare to stored latest
+  const newHash = hashArtifact(parsed)
   const existingLatest = await kv.get(lKey)
 
   if (existingLatest) {
     try {
       const parsedExisting = JSON.parse(existingLatest)
       if (parsedExisting.hash === newHash) {
-        // Artifact is identical — return existing version info
         return {
           version: parsedExisting.version,
-          url: `/calculator/${validated.id}`,
+          url: `/calculator/${parsed.id}`,
         }
       }
     } catch {
-      // Stored value is corrupt; proceed to publish
+      // Stored value is corrupt; proceed
     }
   }
 
-  // 3. Determine new version number
+  // 2. Determine new version number via D1 atomic counter
   let nextVersionNumber = 1
-  const existingKeys = await kv.list(prefix + validated.id + ':v')
-  if (existingKeys.keys.length > 0) {
-    const versions = existingKeys.keys
-      .map((k) => {
-        const match = k.name.match(/:v(\d+)$/)
-        return match ? parseInt(match[1], 10) : 0
-      })
-      .filter((n) => n > 0)
-    if (versions.length > 0) {
-      nextVersionNumber = Math.max(...versions) + 1
+
+  if (db) {
+    const { nextArtifactVersion } = await import('./version-counter')
+    try {
+      nextVersionNumber = await nextArtifactVersion(db, 'system', parsed.id)
+    } catch {
+      nextVersionNumber = await scanVersionFromKv(kv, prefix, parsed.id)
     }
+  } else {
+    nextVersionNumber = await scanVersionFromKv(kv, prefix, parsed.id)
   }
 
   const version = `v${nextVersionNumber}`
-  const vKey = versionKey(validated.type, validated.id, version)
+  const vKey = versionKey(parsed.type, parsed.id, version)
 
-  // 4. Persist the full artifact at the versioned key
-  await kv.put(vKey, JSON.stringify(validated))
+  // 3. Persist
+  await kv.put(vKey, JSON.stringify(parsed))
 
-  // 5. Update the latest pointer with hash for idempotency
+  // 4. Update latest pointer
   await kv.put(lKey, JSON.stringify({
     version,
     hash: newHash,
-    type: validated.type,
-    id: validated.id,
+    type: parsed.type,
+    id: parsed.id,
   }))
 
-  // 6. Return version and URL
-  const url = validated.type === 'calculator'
-    ? `/calculator/${validated.id}`
-    : validated.type === 'page'
-      ? `/page/${validated.id}`
-      : `/theme/${validated.id}`
+  // 5. Return
+  const url = parsed.type === 'calculator'
+    ? `/calculator/${parsed.id}`
+    : parsed.type === 'page'
+      ? `/page/${parsed.id}`
+      : `/theme/${parsed.id}`
 
   return { version, url }
+}
+
+/**
+ * Version scan — hard fails if called without D1.
+ * KV.list() is forbidden. D1 atomic versioning is the only path.
+ */
+async function scanVersionFromKv(
+  _kv: KvStore,
+  _prefix: string,
+  _id: string,
+): Promise<number> {
+  throw new Error(
+    'Cannot determine version: D1 binding (DB) is required for atomic versioning. ' +
+    'KV.list()-based fallback has been removed for safety. ' +
+    'Ensure wrangler.json has a D1 database binding named "DB".'
+  )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

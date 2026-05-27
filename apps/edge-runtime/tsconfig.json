@@ -8,6 +8,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
     "paths": {
       "@/*": ["./src/*"]
     },

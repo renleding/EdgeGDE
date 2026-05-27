@@ -27,30 +27,6 @@ import {
 } from '../lib/schemas'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Constants
-// ═══════════════════════════════════════════════════════════════════════════
-
-const DEV_TOKEN = 'edgegde-dev-token-2026'
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Auth Helper
-// ═══════════════════════════════════════════════════════════════════════════
-
-function checkAuth(c: any, bodyToken?: string): boolean {
-  // For POST requests, check Authorization header
-  const authHeader = c.req.header('Authorization') || ''
-  const headerToken = authHeader.replace(/^Bearer\s+/i, '').trim()
-
-  // For GET requests, also check query parameter ?token=
-  const queryToken = c.req.query('token') || ''
-
-  const token = bodyToken || headerToken || queryToken
-  const adminToken = (c.env as any)?.ADMIN_API_TOKEN || DEV_TOKEN
-
-  return token === adminToken
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // KV Resolver — Workers KV binding or MemoryKvStore fallback
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -75,12 +51,9 @@ export const mcpDeployRouter = new Hono()
 // ═══════════════════════════════════════════════════════════════════════════
 
 mcpDeployRouter.post('/mcp/deploy', async (c) => {
-  // ── 1. Auth ─────────────────────────────────────────────────────────────
-  if (!checkAuth(c)) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
+  // ── Auth is handled by adminAuth middleware ──────────────────────────────
 
-  // ── 2. Parse + validate body ────────────────────────────────────────────
+  // ── 1. Parse + validate body ────────────────────────────────────────────
   let body: Record<string, unknown>
   try {
     body = await c.req.json()
@@ -143,12 +116,9 @@ mcpDeployRouter.post('/mcp/deploy', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 mcpDeployRouter.post('/mcp/promote', async (c) => {
-  // ── 1. Auth ─────────────────────────────────────────────────────────────
-  if (!checkAuth(c)) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
+  // ── Auth is handled by adminAuth middleware ──────────────────────────────
 
-  // ── 2. Parse + validate body ────────────────────────────────────────────
+  // ── 1. Parse + validate body ────────────────────────────────────────────
   let body: Record<string, unknown>
   try {
     body = await c.req.json()
@@ -230,12 +200,9 @@ mcpDeployRouter.post('/mcp/promote', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 mcpDeployRouter.post('/mcp/rollback', async (c) => {
-  // ── 1. Auth ─────────────────────────────────────────────────────────────
-  if (!checkAuth(c)) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
+  // ── Auth is handled by adminAuth middleware ──────────────────────────────
 
-  // ── 2. Parse + validate body ────────────────────────────────────────────
+  // ── 1. Parse + validate body ────────────────────────────────────────────
   let body: Record<string, unknown>
   try {
     body = await c.req.json()
@@ -305,12 +272,9 @@ mcpDeployRouter.post('/mcp/rollback', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 mcpDeployRouter.get('/mcp/diff', async (c) => {
-  // ── 1. Auth (via query param for GET convenience) ───────────────────────
-  if (!checkAuth(c)) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
+  // ── Auth is handled by adminAuth middleware ──────────────────────────────
 
-  // ── 2. Validate query params ───────────────────────────────────────────
+  // ── 1. Parse ────────────────────────────────────────────────────────────
   const rawQuery = {
     tenant_id: c.req.query('tenant_id') || '',
     v1: c.req.query('v1') || '',

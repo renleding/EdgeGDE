@@ -14,7 +14,7 @@ import {
 import { incrementCounter } from '../lib/utils/counters'
 import { getCounter } from '../lib/utils/counters'
 
-const CACHE_TTL_MS = 5000
+const CACHE_TTL_MS = 30_000
 const CACHE_KEY = 'dashboard:metrics:cache'
 
 export const dashboardRouter = new Hono()
@@ -32,7 +32,12 @@ dashboardRouter.get('/dashboard/metrics', async (c) => {
     } catch { }
   }
 
-  const metrics = await getEdgeMetrics()
+  const metrics = await getEdgeMetrics(
+    (c.env as any)?.DB,
+    (c.env as any)?.TELEMETRY_KV,
+    (c.env as any)?.ARTIFACT_KV,
+    (c.env as any)?.TENANT_KV,
+  )
 
   await kv.put(CACHE_KEY, JSON.stringify({ timestamp: now, data: metrics }))
 
@@ -126,18 +131,36 @@ dashboardRouter.get('/dashboard/kv', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 dashboardRouter.get('/dashboard/runtime', async (c) => {
+  const db = (c.env as any)?.DB
   const telemetryKv = (c.env as any)?.TELEMETRY_KV
-  const logCount = await getCounter(telemetryKv, '_counts:telemetry')
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+
+  const logCount = telemetryKv ? await getCounter(telemetryKv, '_counts:telemetry') : 0
+
+  let tenantCount = 0
+  let submissionCount = 0
+
+  if (db && typeof db.prepare === 'function') {
+    try {
+      const t = await db.prepare('SELECT COUNT(*) as c FROM tenants').first()
+      tenantCount = (t as any)?.c || 0
+    } catch {}
+    try {
+      const s = await db.prepare('SELECT COUNT(*) as c FROM form_submissions').first()
+      submissionCount = (s as any)?.c || 0
+    } catch {}
+  }
 
   return c.json({
-    telemetry: {
-      log_entries: logCount,
-      error_count: 0,
-      deploy_events: 0,
-    },
-    kv_efficiency: {
-      avg_reads_per_request: 0,
-    },
+    worker: 'edgegde-calculator',
+    status: 'active',
+    tenants: tenantCount,
+    submissions: submissionCount,
+    telemetry: { log_entries: logCount },
+    kv: 'TENANT_KV',
+    d1: 'ebroker_leads',
+    afirmico_url: '/?tenant=afirmico',
+    timestamp: new Date().toISOString(),
   })
 })
 
@@ -212,13 +235,7 @@ dashboardRouter.get('/telemetry', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 dashboardRouter.post('/dev/deploy-staging', async (c) => {
-  // Dev token auth (same DEV_TOKEN as agent.ts)
-  const authHeader = c.req.header('Authorization') || ''
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim()
-  const adminToken = (c.env as any)?.ADMIN_API_TOKEN || 'edgegde-dev-token-2026'
-  if (!token || token !== adminToken) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
+  // ── Auth is handled by adminAuth middleware in index.ts ──────────────────
 
   // Parse + validate body
   let body: Record<string, unknown>

@@ -3,26 +3,44 @@
  * HSAES Phase 5 & 6: Registry-driven calculator tools with MCP discovery,
  * dynamic tenant-gated API routing, and KV-backed artifact publishing.
  * HSAES Phase 20: Hostname-based multi-tenancy, rate limiting, telemetry.
+ * Phase 34: Unified tenant model, strict isolation, lazy migration.
  *
  * @packageDocumentation
  */
 
 import { Hono } from 'hono'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { CALCULATOR_REGISTRY, hydrateCalculatorsFromKV } from './registry/calculators'
-import { PAGE_REGISTRY, hydratePagesFromKV } from './registry/pages'
-import { THEME_REGISTRY, hydrateThemesFromKV } from './registry/themes'
+import { CALCULATOR_REGISTRY } from './registry/calculators'
+import { PAGE_REGISTRY } from './registry/pages'
+import { THEME_REGISTRY } from './registry/themes'
 import { router as apiRouter } from './routes/api'
 import { agentRouter } from './routes/agent'
 import { mcpDeployRouter } from './routes/mcp-deploy'
 import { dashboardRouter } from './routes/dashboard'
+import { tenantRouter } from './api/tenants'
+import { submissionRouter } from './api/submissions'
+import { tenantAuth } from './middleware/tenant-auth'
+import { templateRouter, instantiateRouter } from './api/templates'
+import { builderRouter } from './api/builder'
+import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
+import { reportAdminRouter, reportCronHandler } from './api/reports'
+import {
+  getCachedLayout,
+  setCachedLayout,
+  getCachedDesign,
+  setCachedDesign,
+  clearLayout,
+  clearDesign,
+} from './lib/cache'
 import { MemoryKvStore } from './lib/publish'
 import type { KvStore } from './lib/publish'
 import { getLatestVersion, getVersion } from './lib/versioning'
 import { compileLayout } from './compiler/engine'
-import { tenantMiddleware } from './middleware/tenant'
+import { tenantResolver } from './middleware/tenant-resolver'
+import { adminAuth } from './middleware/auth'
 import { rateLimiter } from './lib/rate-limiter'
 import { logEvent } from './lib/telemetry'
+import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
 // ═══════════════════════════════════════════════════════════════════════════
 // Form Registry (Phase 29)
@@ -43,20 +61,66 @@ const app = new Hono()
 export const kv = new MemoryKvStore()
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Global Tenant Middleware — resolves tenant from hostname
+// KV.list() Safety Guard — hard crash if any code calls list() on TENANT_KV
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.use('*', tenantMiddleware)
+/**
+ * Override a KV namespace binding's `list` method to throw immediately.
+ * This is a permanent runtime safety net — NOT a debugging tool.
+ *
+ * KV.list() is forbidden in this architecture.
+ * All listing MUST go through D1 or counter reads.
+ */
+function guardKvList(kvBinding: any, name: string): void {
+  if (kvBinding && typeof kvBinding === 'object') {
+    try {
+      kvBinding.list = () => {
+        throw new Error(
+          `🚨 KV.list() is FORBIDDEN on ${name}. ` +
+          'Use D1 queries or counter reads for aggregation. ' +
+          'This is a runtime safety guard — not a configuration issue.'
+        )
+      }
+    } catch {
+      // Binding may be frozen in some environments — guard silently skipped
+    }
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Rate Limit Middleware — local dev shim for /api/v1/* routes
+// MIDDLEWARE ORDER — MUST BE STRICTLY ENFORCED
+//   1. tenantResolver — resolves tenant before ANY logic
+//   2. rateLimiter — protects /api/* endpoints
+//   3. adminAuth — protects admin endpoints
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.use('/api/v1/*', async (c: any, next) => {
-  const tenantConfig = c.get('tenantConfig') as { hostname?: string } | undefined
-  const tenantId = tenantConfig?.hostname ?? 'localhost'
+// 1. KV LIST GUARD — patch TENANT_KV binding on first request
+app.use('*', async (c, next) => {
+  // This middleware is idempotent — patching a frozen binding is a no-op
+  guardKvList((c.env as any)?.TENANT_KV, 'TENANT_KV')
+  guardKvList((c.env as any)?.ARTIFACT_KV, 'ARTIFACT_KV')
+  guardKvList((c.env as any)?.TELEMETRY_KV, 'TELEMETRY_KV')
+  await next()
+})
 
-  const result = await rateLimiter.check(tenantId)
+// 2. TENANT RESOLVER — always first after guard
+app.use('*', tenantResolver)
+
+// 2. RATE LIMITER — /api/* endpoints only (not healthz, MCP discovery, static)
+async function rateLimitHandler(c: any, next: any) {
+  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+
+  if (!tenant) {
+    // No tenant resolved (admin/agent endpoints) — skip rate limiting
+    return next()
+  }
+
+  const ip = c.req.header('cf-connecting-ip') || 'unknown'
+  const path = c.req.path
+
+  // Key includes tenantId (immutable), endpoint path, and IP
+  const key = `rate:${tenant.tenantId}:${path}:${ip}`
+  const result = await rateLimiter.check(key)
 
   if (!result.allowed) {
     c.header('Retry-After', '60')
@@ -70,7 +134,20 @@ app.use('/api/v1/*', async (c: any, next) => {
 
   c.header('X-RateLimit-Remaining', String(result.remaining))
   await next()
-})
+}
+
+app.use('/api/*', rateLimitHandler)
+
+// 3. TENANT AUTH — submission endpoints
+app.use('/api/v1/tenant/*', tenantAuth)
+
+// 4. ADMIN AUTH — protected endpoint patterns
+app.use('/api/v1/agent/*', adminAuth)
+app.use('/api/v1/mcp/*', adminAuth)
+app.use('/api/tenants', adminAuth)
+app.use('/api/v1/admin/*', adminAuth)
+app.use('/dev/deploy-staging', adminAuth)
+app.use('/api/admin/*', adminAuth)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Health Check — zero dependency endpoint
@@ -109,35 +186,139 @@ app.get('/.well-known/mcp.json', (c) => {
 
   const discoveryDoc = {
     protocolVersion: '2025-03-26',
-    tools: [...calcTools, ...pageTools, ...themeTools],
+    tools: [
+      // Static deploy tool — wraps full generate→validate→publish pipeline
+      {
+        name: 'deploy_layout_from_json',
+        description:
+          'Deploy a tenant layout from structured LayoutDefinition JSON ' +
+          'and DESIGN.md. You MUST generate both internally before calling. ' +
+          'Returns live URL on success, structured Zod errors on failure.',
+        inputSchema: {
+          type: 'object',
+          required: ['layout', 'design', 'tenantId'],
+          properties: {
+            layout: {
+              type: 'object',
+              description: 'Strict LayoutDefinition JSON — must conform to the schema',
+            },
+            design: {
+              type: 'string',
+              description: 'DESIGN.md formatted string (e.g. "## Colors\\nprimary: #1a73e8")',
+            },
+            tenantId: {
+              type: 'string',
+              description: 'Target tenant slug or tenant ID',
+            },
+            source: {
+              type: 'string',
+              enum: ['ai', 'manual', 'import'],
+              description: 'Optional origin label for audit',
+            },
+          },
+        },
+      },
+      // Static read tool — get tenant layout snapshot (version + layout + design)
+      {
+        name: 'get_tenant_layout',
+        description:
+          'Retrieve the current layout, design, and version for a tenant. ' +
+          'Always use this before editing to ensure OCC correctness.',
+        inputSchema: {
+          type: 'object',
+          required: ['tenantId'],
+          properties: {
+            tenantId: {
+              type: 'string',
+              description: 'Target tenant slug or tenant ID',
+            },
+          },
+        },
+      },
+      // Smoke test generator — generates bash/curl test script for a tenant
+      {
+        name: 'generate_smoke_test',
+        description:
+          'Generate a self-contained bash/curl smoke test script for a tenant. ' +
+          'Tests layout rendering, health endpoint, MCP discovery, form submission, ' +
+          'and D1 persistence. Returns a runnable shell script.',
+        inputSchema: {
+          type: 'object',
+          required: ['tenantId'],
+          properties: {
+            tenantId: {
+              type: 'string',
+              description: 'Target tenant slug or tenant ID',
+            },
+            baseUrl: {
+              type: 'string',
+              description: 'Optional base URL override (defaults to tenant.edgegde.com)',
+            },
+          },
+        },
+      },
+      // Dynamic registry tools
+      ...calcTools,
+      ...pageTools,
+      ...themeTools,
+    ],
   }
   c.header('Cache-Control', 'public, max-age=60')
   return c.json(discoveryDoc)
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Mount API Router
+// Mount Routers
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.route('/api', apiRouter)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Mount Dashboard Router
-// ═══════════════════════════════════════════════════════════════════════════
-
 app.route('/api', dashboardRouter)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Mount Agent Router (publish endpoint)
-// ═══════════════════════════════════════════════════════════════════════════
-
 app.route('/api/v1', agentRouter)
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Mount MCP Deploy Router (deployment management endpoints)
-// ═══════════════════════════════════════════════════════════════════════════
-
 app.route('/api/v1', mcpDeployRouter)
+app.route('/api/v1', submissionRouter)
+app.route('/api/v1/admin', templateRouter)
+app.route('/api/v1', instantiateRouter)
+app.route('/api/v1', builderRouter)
+app.route('/api/v1/admin', scoringAdminRouter)
+app.route('/api/v1', scoringTenantRouter)
+app.route('/api/v1/admin', reportAdminRouter)
+app.route('/api/v1', reportCronHandler)
+
+// Tenant provisioning (admin)
+app.route('/api/tenants', tenantRouter)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUT /api/tenants/:slug — update tenant config (admin only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.put('/api/tenants/:slug', adminAuth, async (c) => {
+  const slug = c.req.param('slug')
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+  if (!TENANT_KV) return c.json({ error: 'TENANT_KV not available' }, 500)
+
+  const existing = await TENANT_KV.get(`tenant:${slug}`, 'json')
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  let body: Record<string, unknown>
+  try { body = await c.req.json() } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  const updated = {
+    ...existing,
+    ...(body.name ? { name: String(body.name) } : {}),
+    ...(body.plan ? { plan: String(body.plan) } : {}),
+    updatedAt: new Date().toISOString(),
+  }
+
+  await TENANT_KV.put(`tenant:${slug}`, JSON.stringify(updated))
+
+  // Bust in-memory cache
+  const { clearTenant } = await import('./lib/cache')
+  clearTenant(slug)
+
+  return c.json(updated)
+})
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Mount Form Routes (Phase 29) — auto-generated from form registry
@@ -147,42 +328,33 @@ registerForms()
 mountFormRoutes(app)
 
 // ═══════════════════════════════════════════════════════════════════════════
-// One-Time Counter Seed Route (Phase 30) — run after deploy to bootstrap
+// One-Time Counter Seed Route (Phase 30)
 // ═══════════════════════════════════════════════════════════════════════════
-
 app.get('/api/dev/seed-counters', async (c) => {
-  const artifactsKv = (c.env as any)?.ARTIFACT_KV
-  const tenantKv = (c.env as any)?.TENANT_KV
-  const telemetryKv = (c.env as any)?.TELEMETRY_KV
+  const db = (c.env as any)?.DB
 
-  if (!artifactsKv || !tenantKv || !telemetryKv) {
-    return c.text('KV namespaces not available', 500)
+  if (!db || typeof db.prepare !== 'function') {
+    return c.text('D1 binding required', 500)
   }
 
   try {
-    const [artifacts, tenants, telemetry, _r] = await Promise.all([
-      artifactsKv.list(),
-      tenantKv.list(),
-      telemetryKv.list(),
-      // Write artifact count (exclude counter key itself)
-      artifactsKv.put('_counts:artifacts', String(0)),
+    // Use D1 COUNT queries instead of KV.list() — KV.list() is forbidden
+    const [submissionsResult, tenantsResult, draftsResult] = await Promise.all([
+      db.prepare(`SELECT COUNT(*) as count FROM form_submissions`).first(),
+      db.prepare(`SELECT COUNT(*) as count FROM tenants`).first(),
+      db.prepare(`SELECT COUNT(*) as count FROM form_drafts`).first(),
     ])
 
-    const artifactCount = (artifacts.keys ?? []).filter(
-      (k: any) => k.name !== '_counts:artifacts'
-    ).length
-    const tenantCount = (tenants.keys ?? []).length
-    const telemetryCount = (telemetry.keys ?? []).length
+    const artifactCount = 0 // Artifacts are KV-only — no D1 mirror yet
+    const submissionCount = (submissionsResult as any)?.count || 0
+    const tenantCount = (tenantsResult as any)?.count || 0
+    const draftCount = (draftsResult as any)?.count || 0
 
-    await Promise.all([
-      artifactsKv.put('_counts:artifacts', String(artifactCount)),
-      tenantKv.put('_counts:tenants', String(tenantCount)),
-      telemetryKv.put('_counts:telemetry', String(telemetryCount)),
-    ])
-
-    return c.text(`Counters seeded: artifacts=${artifactCount} tenants=${tenantCount} telemetry=${telemetryCount}`)
+    return c.text(
+      `D1 counters: submissions=${submissionCount} tenants=${tenantCount} drafts=${draftCount}`
+    )
   } catch (err: any) {
-    return c.text(`Seed failed: ${err.message}`, 500)
+    return c.text(`Count failed: ${err.message}`, 500)
   }
 })
 
@@ -191,12 +363,7 @@ app.get('/api/dev/seed-counters', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.get('/api/admin/leads/:tenantId', async (c) => {
-  const token = c.req.header('Authorization')
-  const adminToken = (c.env as any)?.ADMIN_TOKEN
-
-  if (!adminToken || token !== `Bearer ${adminToken}`) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
+  // ── Auth is handled by adminAuth middleware ──────────────────────────────
 
   const tenantId = c.req.param('tenantId')
   const offsetRaw = c.req.query('offset')
@@ -234,7 +401,7 @@ import { parseDesignMd, type DesignTokens } from './lib/design-parser'
 app.post('/api/render', async (c) => {
   try {
     const body = await c.req.json() as any
-    const layout = body.layout || body  // support {layout, designMd} and bare tree
+    const layout = body.layout || body
 
     let design: DesignTokens | undefined
     if (body.designMd) {
@@ -253,37 +420,60 @@ app.post('/api/render', async (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Root Layout Render — serves tenant layouts via ?tenant=&env= query params
+// Tenant Layout Render — serves tenant layouts via subdomain or ?tenant=
+// Phase 34: cached, tenant-aware, deterministic
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.get('/', async (c) => {
-  const url = new URL(c.req.url)
-  const tenantId = url.searchParams.get('tenant')
-  if (!tenantId) return c.text('404 Not Found', 404)
+  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+  if (!tenant) return c.text('Tenant not resolved', 500)
 
-  const isStaging = url.searchParams.get('env') === 'staging' || url.hostname.startsWith('vnext.')
-  const env = isStaging ? 'staging' : 'production'
-
-  // Resolve KV binding
-  const bindings = (c.env as any)?.ARTIFACT_KV
-  const kv = bindings && typeof bindings.get === 'function' ? bindings as KvStore : null
-  if (!kv) return c.text('KV not available', 500)
-
-  // Get latest version for the target environment
-  const version = await getLatestVersion(kv, tenantId, env)
-  if (!version) return c.text(`No ${env} version found for "${tenantId}"`, 404)
-
-  // Fetch and compile the layout
-  const raw = await getVersion(kv, tenantId, version)
-  if (!raw) return c.text(`Version ${version} not found`, 404)
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+  if (!TENANT_KV) return c.text('TENANT_KV not available', 500)
 
   try {
-    const layoutDef = JSON.parse(raw) as LayoutDefinition
-    const content = compileLayout(layoutDef)
-    const envTag = isStaging ? 'staging' : 'production'
-    const title = `${tenantId.charAt(0).toUpperCase() + tenantId.slice(1)} — ${envTag}`
+    const tenantId = tenant.tenantId
 
-    const html = `<!DOCTYPE html>
+    // ── 1. Layout (memory → KV) ──────────────────────────────────────────
+    let layout: any = getCachedLayout(tenantId)
+    if (!layout) {
+      layout = await TENANT_KV.get(`tenant:${tenantId}:layout:latest`, 'json')
+      if (layout) setCachedLayout(tenantId, layout)
+    }
+
+    if (!layout) return c.text('No layout found for tenant', 404)
+
+    // Layout size guard
+    const layoutSize = JSON.stringify(layout).length
+    if (layoutSize > 200_000) {
+      console.warn(`[CRITICAL] Layout ${tenantId} exceeds 200KB (${layoutSize} chars)`)
+    } else if (layoutSize > 100_000) {
+      console.warn(`[WARNING] Layout ${tenantId} exceeds 100KB (${layoutSize} chars)`)
+    }
+
+    // ── 2. Design (memory → KV → parse) ──────────────────────────────────
+    let design = getCachedDesign(tenantId)
+    if (!design) {
+      const designMd = await TENANT_KV.get(`tenant:${tenantId}:design`)
+      const { parseDesignMd } = await import('./lib/design-parser')
+      design = parseDesignMd(designMd || '')
+      setCachedDesign(tenantId, design)
+    }
+
+    // ── 3. Compiled HTML cache (KV, 120s + jitter) ────────────────────────
+    const cacheKey = `tenant:${tenantId}:compiled`
+    let html = await TENANT_KV.get(cacheKey)
+
+    if (!html) {
+      html = compileLayout(layout, design)
+      const ttl = 120 + Math.floor(Math.random() * 20)
+      await TENANT_KV.put(cacheKey, html, { expirationTtl: ttl })
+    }
+
+    const envTag = tenant.slug === 'localhost' ? 'development' : 'production'
+    const title = `${tenant.name} — EdgeGDE`
+
+    const page = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -295,25 +485,27 @@ app.get('/', async (c) => {
 <body class="min-h-screen bg-gray-100">
   <header class="bg-white border-b border-gray-200 shadow-sm">
     <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-      <span class="text-lg font-semibold text-gray-900">${tenantId}</span>
-      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-        isStaging ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
-      }">${envTag}</span>
+      <span class="text-lg font-semibold text-gray-900">${tenant.name}</span>
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">${envTag}</span>
     </div>
   </header>
   <main class="max-w-4xl mx-auto p-4">
-    ${content}
+    ${html}
   </main>
 </body>
 </html>`
+
     c.header('Content-Type', 'text/html; charset=utf-8')
     c.header('Cache-Control', 'no-cache, no-store, must-revalidate')
-    return c.body(html)
+    return c.body(page)
   } catch (err: any) {
     return c.text(`Layout render error: ${err.message}`, 500)
   }
 })
 
-export default app
+// ═══════════════════════════════════════════════════════════════════════════
+// Exports
+// ═══════════════════════════════════════════════════════════════════════════
 
+export default app
 export { RateLimiter } from './objects/RateLimiter'

@@ -18,13 +18,14 @@ import {
   publishArtifact,
 } from '../lib/publish'
 import type { DesignArtifact, KvStore } from '../lib/publish'
+import { deployTenantLayout } from '../lib/publish-tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
+import { layoutDefinitionSchema } from '@edgegde/schema'
+import { validateDesign } from '../lib/design-validator'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
 // ═══════════════════════════════════════════════════════════════════════════
-
-const DEV_TOKEN = 'edgegde-dev-token-2026'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Router
@@ -33,21 +34,39 @@ const DEV_TOKEN = 'edgegde-dev-token-2026'
 export const agentRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
-// POST /api/v1/agent/publish
+// Discriminated union schema for unified publish endpoint
+// ═══════════════════════════════════════════════════════════════════════════
+
+const publishSchema = z.discriminatedUnion('kind', [
+  // Variant 1: Artifact publish (existing calculator/page/theme flow)
+  z.object({
+    kind: z.literal('artifact'),
+    id: z.string().min(1),
+    type: z.enum(['calculator', 'page', 'theme']),
+    layout: z.any(),
+    schema: z.any().optional(),
+    theme: z.any().optional(),
+  }),
+  // Variant 2: Tenant layout deploy (AI-generated site layout)
+  z.object({
+    kind: z.literal('tenant'),
+    tenantId: z.string().min(1),
+    layout: z.any(),
+    design: z.string(),
+    source: z.string().optional(),
+    idempotencyKey: z.string().optional(),
+  }),
+])
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/v1/agent/publish — unified publish controller
+// Phase 35B: Routes to artifact or tenant flow based on body.kind
 // ═══════════════════════════════════════════════════════════════════════════
 
 agentRouter.post('/agent/publish', async (c) => {
-  // ── 1. Authorization check ──────────────────────────────────────────────
-  const authHeader = c.req.header('Authorization') || ''
-  const token = authHeader.replace(/^Bearer\s+/i, '').trim()
+  // ── Auth is handled by adminAuth middleware ──────────────────────────────
 
-  const adminToken = (c.env as any)?.ADMIN_API_TOKEN || DEV_TOKEN
-
-  if (!token || token !== adminToken) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
-
-  // ── 2. Parse body ──────────────────────────────────────────────────────
+  // ── 1. Parse + validate body via discriminated union ────────────────────
   let raw: any
   try {
     raw = await c.req.json()
@@ -58,8 +77,7 @@ agentRouter.post('/agent/publish', async (c) => {
     )
   }
 
-  // ── 3. Validate artifact schema ─────────────────────────────────────────
-  const parsed = designArtifactSchema.safeParse(raw)
+  const parsed = publishSchema.safeParse(raw)
   if (!parsed.success) {
     return c.json(
       {
@@ -73,62 +91,49 @@ agentRouter.post('/agent/publish', async (c) => {
     )
   }
 
-  const artifact: DesignArtifact = parsed.data
+  const body = parsed.data
 
-  // ── 4. Resolve KV store ─────────────────────────────────────────────────
+  // ── 2. Route based on discriminator ─────────────────────────────────────
+  try {
+    if (body.kind === 'artifact') {
+      return await handleArtifactPublish(c, body)
+    } else {
+      return await handleTenantDeploy(c, body)
+    }
+  } catch (err: any) {
+    return c.json({ error: 'Publish failed', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Artifact publish handler (existing calculator/page/theme flow)
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function handleArtifactPublish(c: any, body: any) {
+  const artifact: DesignArtifact = {
+    id: body.id,
+    type: body.type,
+    layout: body.layout,
+    schema: body.schema,
+    theme: body.theme,
+  }
+
+  // Resolve KV store
   let kv: KvStore
   const bindings = (c.env as any)?.ARTIFACT_KV
-
   if (bindings && typeof bindings.get === 'function') {
-    // Real Workers KV binding
     kv = bindings as KvStore
   } else {
-    // Fallback to in-memory store (local dev)
     kv = getOrCreateMemoryKv(c)
   }
 
-  // ── 5. Publish artifact (idempotent) ────────────────────────────────────
-  let result: { version: string; url: string } = { version: 'v0', url: '' }
-  let wasAlreadyLatest = false
+  // D1 binding for atomic versioning
+  const db = (c.env as any)?.DB
 
-  try {
-    // Check idempotency before publishing
-    const keyPrefix = artifact.type === 'calculator' ? 'calc' : artifact.type
-    const lKey = `${keyPrefix}:${artifact.id}:latest`
-    const existingLatest = await kv.get(lKey)
-    const newHash = simpleHash(artifact)
+  // Publish with optional D1 versioning
+  const result = await publishArtifact(kv, artifact, db)
 
-    if (existingLatest) {
-      try {
-        const parsedExisting = JSON.parse(existingLatest)
-        if (parsedExisting.hash === newHash) {
-          wasAlreadyLatest = true
-          const urlPath = artifact.type === 'calculator'
-            ? `/calculator/${artifact.id}`
-            : artifact.type === 'page'
-              ? `/page/${artifact.id}`
-              : `/theme/${artifact.id}`
-          result = {
-            version: parsedExisting.version,
-            url: urlPath,
-          }
-        }
-      } catch {
-        // Fall through to normal publish
-      }
-    }
-
-    if (!wasAlreadyLatest) {
-      result = await publishArtifact(kv, artifact)
-    }
-  } catch (err: any) {
-    return c.json(
-      { error: 'Publish failed', details: err.message },
-      500,
-    )
-  }
-
-  // ── 6. Register in-memory (deferred via waitUntil) ──────────────────────
+  // Register in-memory (deferred)
   c.executionCtx.waitUntil(
     (async () => {
       try {
@@ -147,7 +152,6 @@ agentRouter.post('/agent/publish', async (c) => {
               },
             }
             break
-
           case 'page':
             PAGE_REGISTRY[artifact.id] = {
               id: artifact.id,
@@ -156,7 +160,6 @@ agentRouter.post('/agent/publish', async (c) => {
               html,
             }
             break
-
           case 'theme':
             const tokens: Record<string, string> = {}
             if (artifact.theme && typeof artifact.theme === 'object') {
@@ -172,18 +175,77 @@ agentRouter.post('/agent/publish', async (c) => {
             break
         }
       } catch {
-        // Background persistence failure is non-fatal
+        // Non-fatal
       }
     })(),
   )
 
-  // ── 7. Return success ──────────────────────────────────────────────────
+  console.log(JSON.stringify({
+    event: 'publish',
+    kind: 'artifact',
+    type: artifact.type,
+    id: artifact.id,
+    version: result.version,
+    timestamp: Date.now(),
+  }))
+
+  return c.json({ success: true, version: result.version, url: result.url })
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tenant deploy handler (AI-generated layout pipeline)
+// Phase 35B: validate → version → KV → invalidate → pre-warm → respond
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function handleTenantDeploy(c: any, body: any) {
+  const { tenantId, layout, design, source } = body
+
+  // 1. Defensive validation — layout against Zod schema
+  const layoutParsed = layoutDefinitionSchema.safeParse(layout)
+  if (!layoutParsed.success) {
+    const issues = layoutParsed.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      message: i.message,
+    }))
+    return c.json({
+      error: 'validation_failed',
+      details: issues,
+    }, 400)
+  }
+
+  // 2. Validate design
+  const designResult = validateDesign(design)
+  if (!designResult.valid) {
+    return c.json({
+      error: 'validation_failed',
+      details: designResult.errors,
+    }, 400)
+  }
+
+  // 3. Resolve bindings
+  const db = (c.env as any)?.DB
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+
+  if (!db) return c.json({ error: 'D1 binding required' }, 500)
+  if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
+
+  // 4. Deploy
+  const result = await deployTenantLayout(
+    tenantId,
+    layoutParsed.data,
+    design,
+    db,
+    TENANT_KV,
+    source,
+  )
+
   return c.json({
     success: true,
+    tenantId: result.tenantId,
     version: result.version,
     url: result.url,
   })
-})
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Simple hash utility
@@ -215,3 +277,81 @@ const globalKv = new MemoryKvStore()
 function getOrCreateMemoryKv(c: any): KvStore {
   return globalKv
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /agent/generate-layout — validate externally-generated LayoutDefinition
+// Phase 35: Stateless validation gate. No KV, no D1, no side effects.
+// ═══════════════════════════════════════════════════════════════════════════
+
+agentRouter.post('/agent/generate-layout', async (c) => {
+  // ── Auth is handled by adminAuth middleware ──────────────────────────────
+
+  const startTime = Date.now()
+
+  // ── 1. Parse body ───────────────────────────────────────────────────────
+  let body: Record<string, unknown>
+  try {
+    body = await c.req.json()
+  } catch {
+    console.log(JSON.stringify({
+      type: 'metric', event: 'validation_failure',
+      timestamp: startTime, details: 'Invalid JSON body',
+    }))
+    return c.json({
+      error: 'validation_failed',
+      details: 'Request body must be valid JSON',
+    }, 400)
+  }
+
+  const layout = body.layout
+  const design = body.design
+  const prompt = body.prompt
+
+  // ── 2. Validate design ─────────────────────────────────────────────────
+  const designResult = validateDesign(design)
+  if (!designResult.valid) {
+    console.log(JSON.stringify({
+      type: 'metric', event: 'validation_failure',
+      timestamp: Date.now(), details: designResult.errors.join('; '),
+    }))
+    return c.json({
+      error: 'validation_failed',
+      details: designResult.errors,
+    }, 400)
+  }
+
+  // ── 3. Validate layout with Zod ─────────────────────────────────────────
+  const parsed = layoutDefinitionSchema.safeParse(layout)
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => ({
+      path: i.path.join('.'),
+      message: i.message,
+      code: i.code,
+    }))
+
+    console.log(JSON.stringify({
+      type: 'metric', event: 'validation_failure',
+      timestamp: Date.now(), details: JSON.stringify(issues),
+    }))
+
+    return c.json({
+      error: 'validation_failed',
+      details: issues,
+    }, 400)
+  }
+
+  // ── 4. Success ──────────────────────────────────────────────────────────
+  const elapsed = Date.now() - startTime
+
+  console.log(JSON.stringify({
+    type: 'metric', event: 'validation_success',
+    timestamp: Date.now(), durationMs: elapsed,
+    promptLength: typeof prompt === 'string' ? prompt.length : 0,
+  }))
+
+  return c.json({
+    layout: parsed.data,
+    design: String(design),
+    valid: true,
+  })
+})

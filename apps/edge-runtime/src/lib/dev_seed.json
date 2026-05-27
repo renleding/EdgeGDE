@@ -1,0 +1,6 @@
+{
+  "tenantId": "dev-local",
+  "slug": "localhost",
+  "name": "EdgeGDE Dev",
+  "plan": "free"
+}

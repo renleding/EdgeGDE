@@ -124,7 +124,7 @@ export function mountFormRoutes(app: Hono): void {
         const submissionId =
           (crypto as any).randomUUID?.() || `${Date.now()}-${Math.random()}`
         const tenantId =
-          ((c as any).get('tenantConfig')?.tenantId) || 'default'
+          ((c as any).get('tenant')?.tenantId) || 'default'
 
         c.executionCtx.waitUntil((async () => {
           try {
@@ -143,6 +143,64 @@ export function mountFormRoutes(app: Hono): void {
             )
               .bind(submissionId, tenantId, def.id, payloadStr)
               .run()
+
+            // ══════════════════════════════════════════════════════════════
+            // Lead Scoring (Track 4 Phase 5) — fire after D1 + webhook
+            // ══════════════════════════════════════════════════════════════
+            try {
+              const db = (c.env as any)?.DB
+              if (db && typeof db.prepare === 'function') {
+                const activeRubric = await db.prepare(
+                  `SELECT id, ruleset_json FROM scoring_rubrics
+                   WHERE tenant_id = ? AND is_active = 1 LIMIT 1`
+                ).bind(tenantId).first()
+
+                if (activeRubric) {
+                  let ruleset: any
+                  try { ruleset = JSON.parse((activeRubric as any).ruleset_json) } catch { ruleset = null }
+
+                  if (ruleset && ruleset.rules) {
+                    const { scoreLead } = await import('../lib/scoring-engine')
+                    // Use validated form data directly (result.data = parsed form fields)
+                    const scoreResult = scoreLead(result.data, ruleset)
+
+                    await db.prepare(
+                      `INSERT OR IGNORE INTO lead_scores (id, tenant_id, lead_id, rubric_id, score)
+                       VALUES (?, ?, ?, ?, ?)`
+                    ).bind(crypto.randomUUID(), tenantId, submissionId, (activeRubric as any).id, scoreResult.score).run()
+                  }
+                }
+              }
+            } catch {
+              // Scoring failure is non-blocking — never breaks the response
+            }
+            // ══════════════════════════════════════════════════════════════
+            // Webhook Dispatch (Track 4 Phase 1) — fire after scoring + D1
+            // ══════════════════════════════════════════════════════════════
+            try {
+              const TENANT_KV = (c.env as any)?.TENANT_KV
+              if (TENANT_KV && typeof TENANT_KV.get === 'function') {
+                const { dispatchWebhook } = await import('../lib/webhook')
+                // Extract correlationId from submission fields if present
+                const fields = result.data as Record<string, unknown>
+                const correlationId = (fields?._test_correlation as string) || undefined
+
+                await dispatchWebhook(TENANT_KV, {
+                  tenantId,
+                  formId: def.id,
+                  submissionId,
+                  timestamp: new Date().toISOString(),
+                  fields,
+                  metadata: {
+                    source: 'form-submission',
+                    version: 1,
+                    correlationId,
+                  },
+                })
+              }
+            } catch {
+              // Webhook failure is non-blocking
+            }
 
           } catch (error) {
             console.error('[D1 Persistence Failure]', error)

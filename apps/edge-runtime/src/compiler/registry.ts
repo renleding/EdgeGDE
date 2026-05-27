@@ -133,7 +133,7 @@ const FIGMA_RENDERERS: Record<string, NodeRenderer> = {
     }
     return `<span${serializeAttributes(a)}>${escapeHtml(text)}</span>`
   },
-  RECTANGLE: (input) => `<div${serializeAttributes(input.attrs)}></div>`,
+  RECTANGLE: (input) => `<div${serializeAttributes(input.attrs)}>${input.childrenHtml}</div>`,
   ELLIPSE: (input) => {
     const a = { ...input.attrs }
     const style = input.style

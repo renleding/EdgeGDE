@@ -26,6 +26,11 @@ export const audAmountSchema = z.number()
   .max(10_000_000, 'Principal exceeds maximum ($10M)')
   .or(z.string().regex(/^\d+(\.\d{1,2})?$/, 'Must be a valid dollar amount'))
 
+/** AUD amount that may be zero (fees, additional repayments). */
+export const audNonNegativeSchema = z.number()
+  .nonnegative('Amount must be non-negative')
+  .or(z.string().regex(/^\d+(\.\d{1,2})?$/, 'Must be a valid dollar amount'))
+
 /** Annual interest rate as percentage (e.g. 6.25 = 6.25%) */
 export const interestRateSchema = z.number()
   .positive('Interest rate must be positive')
@@ -53,7 +58,7 @@ export const repaymentFrequencySchema = z.enum([
   RepaymentFrequency.WEEKLY,
 ])
 
-export type RepaymentFrequency = z.infer<typeof repaymentFrequencySchema>
+export type RepaymentFrequency = z.output<typeof repaymentFrequencySchema>
 
 export const RateType = {
   FIXED: 'fixed',
@@ -67,7 +72,7 @@ export const rateTypeSchema = z.enum([
   RateType.SPLIT,
 ])
 
-export type RateType = z.infer<typeof rateTypeSchema>
+export type RateType = z.output<typeof rateTypeSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Main Calculator Input Schema
@@ -96,10 +101,10 @@ export const mortgageCalculatorInputSchema = z.object({
   fixedRatePeriod: z.number().int().min(1).max(10).optional(),
 
   /** Optional additional monthly repayment */
-  additionalRepayment: audAmountSchema.optional().default(0),
+  additionalRepayment: audNonNegativeSchema.optional().default(0),
 
   /** Estimated annual fees */
-  annualFees: audAmountSchema.optional().default(0),
+  annualFees: audNonNegativeSchema.optional().default(0),
 }).refine(
   (data) => {
     if (data.rateType === RateType.FIXED && !data.fixedRatePeriod) {
@@ -113,7 +118,7 @@ export const mortgageCalculatorInputSchema = z.object({
   },
 )
 
-export type MortgageCalculatorInput = z.infer<typeof mortgageCalculatorInputSchema>
+export type MortgageCalculatorInput = z.output<typeof mortgageCalculatorInputSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Calculation Result Schema
@@ -145,7 +150,7 @@ export const repaymentSummarySchema = z.object({
   totalFees: z.number().nonnegative(),
 })
 
-export type RepaymentSummary = z.infer<typeof repaymentSummarySchema>
+export type RepaymentSummary = z.output<typeof repaymentSummarySchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Amortization Schedule
@@ -168,14 +173,14 @@ export const amortizationEntrySchema = z.object({
   remainingBalance: z.number().nonnegative(),
 })
 
-export type AmortizationEntry = z.infer<typeof amortizationEntrySchema>
+export type AmortizationEntry = z.output<typeof amortizationEntrySchema>
 
 export const amortizationScheduleSchema = z.object({
   entries: z.array(amortizationEntrySchema),
   totalEntries: z.number().int().positive(),
 })
 
-export type AmortizationSchedule = z.infer<typeof amortizationScheduleSchema>
+export type AmortizationSchedule = z.output<typeof amortizationScheduleSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Full Calculator Response
@@ -189,7 +194,7 @@ export const calculatorResponseSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
 })
 
-export type CalculatorResponse = z.infer<typeof calculatorResponseSchema>
+export type CalculatorResponse = z.output<typeof calculatorResponseSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // OpenPencil Layout Node Types (Schema Stabilization)
@@ -207,7 +212,7 @@ export const openPencilNodeTypeSchema = z.enum([
   'VECTOR',
 ])
 
-export type OpenPencilNodeType = z.infer<typeof openPencilNodeTypeSchema>
+export type OpenPencilNodeType = z.output<typeof openPencilNodeTypeSchema>
 
 export const openPencilNodeSchema = z.object({
   id: z.string(),
@@ -225,7 +230,7 @@ export const openPencilNodeSchema = z.object({
   visible: z.boolean().optional().default(true),
 })
 
-export type OpenPencilNode = z.infer<typeof openPencilNodeSchema>
+export type OpenPencilNode = z.output<typeof openPencilNodeSchema>
 
 /** Mortgage calculator form input mapping from design nodes */
 export const formFieldSchema = z.object({
@@ -240,7 +245,7 @@ export const formFieldSchema = z.object({
   step: z.number().optional(),
 })
 
-export type FormField = z.infer<typeof formFieldSchema>
+export type FormField = z.output<typeof formFieldSchema>
 
 /** Extracted layout definition from OpenPencil design */
 export const layoutDefinitionSchema = z.object({
@@ -257,4 +262,4 @@ export const layoutDefinitionSchema = z.object({
   }).optional(),
 })
 
-export type LayoutDefinition = z.infer<typeof layoutDefinitionSchema>
+export type LayoutDefinition = z.output<typeof layoutDefinitionSchema>

@@ -33,7 +33,7 @@ export async function acquireDeployLock(
   if (existing !== null) {
     return false // Already locked
   }
-  await kv.put(key, '1')
+  await kv.put(key, '1', { expirationTtl: 30 })
   return true
 }
 

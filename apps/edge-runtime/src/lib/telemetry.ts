@@ -70,8 +70,8 @@ export function logEvent(
   }
 
   // Get tenantId from context if available
-  const tenantConfig = c.get?.('tenantConfig') as { hostname?: string } | undefined
-  const tenantId = tenantConfig?.hostname ?? 'unknown'
+  const tenant = c.get?.('tenant') as { tenantId?: string } | undefined
+  const tenantId = tenant?.tenantId ?? 'unknown'
 
   // Build KV key
   const key = `log:${tenantId}:${timestamp}:${requestId}`

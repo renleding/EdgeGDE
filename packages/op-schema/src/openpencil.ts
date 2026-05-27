@@ -59,7 +59,7 @@ export const repaymentFrequencySchema = z.enum([
   RepaymentFrequency.WEEKLY,
 ])
 
-export type RepaymentFrequency = z.infer<typeof repaymentFrequencySchema>
+export type RepaymentFrequency = z.output<typeof repaymentFrequencySchema>
 
 export const RateType = {
   FIXED: 'fixed',
@@ -73,7 +73,7 @@ export const rateTypeSchema = z.enum([
   RateType.SPLIT,
 ])
 
-export type RateType = z.infer<typeof rateTypeSchema>
+export type RateType = z.output<typeof rateTypeSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Main Calculator Input Schema
@@ -119,7 +119,7 @@ export const mortgageCalculatorInputSchema = z.object({
   },
 )
 
-export type MortgageCalculatorInput = z.infer<typeof mortgageCalculatorInputSchema>
+export type MortgageCalculatorInput = z.output<typeof mortgageCalculatorInputSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Calculation Result Schema
@@ -151,7 +151,7 @@ export const repaymentSummarySchema = z.object({
   totalFees: z.number().nonnegative(),
 })
 
-export type RepaymentSummary = z.infer<typeof repaymentSummarySchema>
+export type RepaymentSummary = z.output<typeof repaymentSummarySchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Amortization Schedule
@@ -174,14 +174,14 @@ export const amortizationEntrySchema = z.object({
   remainingBalance: z.number().nonnegative(),
 })
 
-export type AmortizationEntry = z.infer<typeof amortizationEntrySchema>
+export type AmortizationEntry = z.output<typeof amortizationEntrySchema>
 
 export const amortizationScheduleSchema = z.object({
   entries: z.array(amortizationEntrySchema),
   totalEntries: z.number().int().positive(),
 })
 
-export type AmortizationSchedule = z.infer<typeof amortizationScheduleSchema>
+export type AmortizationSchedule = z.output<typeof amortizationScheduleSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Full Calculator Response
@@ -195,7 +195,7 @@ export const calculatorResponseSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
 })
 
-export type CalculatorResponse = z.infer<typeof calculatorResponseSchema>
+export type CalculatorResponse = z.output<typeof calculatorResponseSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // OpenPencil Layout Node Types (Schema Stabilization)
@@ -213,7 +213,7 @@ export const openPencilNodeTypeSchema = z.enum([
   'VECTOR',
 ])
 
-export type OpenPencilNodeType = z.infer<typeof openPencilNodeTypeSchema>
+export type OpenPencilNodeType = z.output<typeof openPencilNodeTypeSchema>
 
 export const openPencilNodeSchema = z.object({
   id: z.string(),
@@ -229,24 +229,26 @@ export const openPencilNodeSchema = z.object({
   cornerRadius: z.number().optional(),
   opacity: z.number().min(0).max(1).optional(),
   visible: z.boolean().optional().default(true),
+  props: z.record(z.string(), z.any()).optional(),
 })
 
-export type OpenPencilNode = z.infer<typeof openPencilNodeSchema>
+export type OpenPencilNode = z.output<typeof openPencilNodeSchema>
 
 /** Mortgage calculator form input mapping from design nodes */
 export const formFieldSchema = z.object({
   nodeId: z.string(),
   label: z.string(),
-  fieldType: z.enum(['text', 'number', 'select', 'slider']),
+  fieldType: z.enum(['text', 'number', 'email', 'tel', 'select', 'slider', 'checkbox', 'radio']),
   placeholder: z.string().optional(),
   defaultValue: z.union([z.string(), z.number()]).optional(),
   required: z.boolean().default(true),
   min: z.number().optional(),
   max: z.number().optional(),
+  options: z.array(z.union([z.string(), z.object({ value: z.string(), label: z.string() })])).optional(),
   step: z.number().optional(),
 })
 
-export type FormField = z.infer<typeof formFieldSchema>
+export type FormField = z.output<typeof formFieldSchema>
 
 /** Extracted layout definition from OpenPencil design */
 export const layoutDefinitionSchema = z.object({
@@ -263,4 +265,4 @@ export const layoutDefinitionSchema = z.object({
   }).optional(),
 })
 
-export type LayoutDefinition = z.infer<typeof layoutDefinitionSchema>
+export type LayoutDefinition = z.output<typeof layoutDefinitionSchema>
