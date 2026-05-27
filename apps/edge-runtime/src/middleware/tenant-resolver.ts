@@ -80,7 +80,7 @@ export async function tenantResolver(
 ): Promise<Response | void> {
   // ── Skip tenant resolution for admin and agent endpoints ────────────────
   const path = c.req.path
-  if (path.startsWith('/api/v1/agent/') || path.startsWith('/api/v1/admin/') || path.startsWith('/api/tenants/') || path === '/healthz' || path === '/favicon.ico' || path.startsWith('/api/dashboard/')) {
+  if (path.startsWith('/api/v1/agent/') || path.startsWith('/api/v1/admin/') || path.startsWith('/api/tenants/') || path === '/healthz' || path === '/favicon.ico' || path.startsWith('/api/dashboard/') || path.startsWith('/api/fragment/')) {
     return next()
   }
 

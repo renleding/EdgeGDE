@@ -24,6 +24,7 @@ import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
+import { fragmentRouter } from './routes/fragment'
 import {
   getCachedLayout,
   setCachedLayout,
@@ -273,6 +274,7 @@ app.get('/.well-known/mcp.json', (c) => {
 
 app.route('/api', apiRouter)
 app.route('/api', dashboardRouter)
+app.route('/api', fragmentRouter)
 app.route('/api/v1', agentRouter)
 app.route('/api/v1', mcpDeployRouter)
 app.route('/api/v1', submissionRouter)

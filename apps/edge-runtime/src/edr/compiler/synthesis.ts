@@ -39,7 +39,26 @@ function synthesize(node: EDRNode): EDRNode {
       type: 'div',
       props: { role: ['page'] },
       children: [
-        { type: 'div', props: { role: ['app_shell'] }, children: node.children },
+        {
+          type: 'div',
+          props: { role: ['app_shell'] },
+          children: [
+            {
+              type: 'form',
+              props: {
+                'hx-post': '/api/fragment/calculate',
+                'hx-target': '#results',
+                'hx-swap': 'innerHTML',
+                'hx-trigger': 'submit',
+                style: 'display:contents',
+              },
+              children: [
+                ...(Array.isArray(node.children) ? (node.children as EDRNode[]) : []),
+                { type: 'div', props: { id: 'results' } },
+              ],
+            },
+          ],
+        },
       ],
     }
   }
