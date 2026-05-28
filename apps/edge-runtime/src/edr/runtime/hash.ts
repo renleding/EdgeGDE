@@ -1,8 +1,10 @@
 /**
- * EdgeGDE EDR — Hash Authority (Warm-Cache Pattern)
- * v4.9.1: Hybrid warm-cache hash lookup for dev feedback loop.
- * Fast path: globalThis.EDR_LATEST_HASH (O(1))
- * Cold start: KV read once per isolate lifecycle
+ * EdgeGDE EDR — Hash Authority (Dual-Mode)
+ * v5.3:
+ *   Development: kv_read_per_poll — instant feedback
+ *   Production:  warm_cache (globalThis O(1), KV fallback on cold start)
+ *
+ * Must NOT write KV during polling. Must NOT trigger compilation.
  *
  * @packageDocumentation
  */
@@ -13,10 +15,6 @@ import { stableStringify } from '../../lib/hash'
 // Hash Computation (pure, deterministic)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Compute a deterministic hash from a layout AST.
- * Uses stableStringify + SHA-256 for byte-identical results.
- */
 export async function computeLayoutHash(layout: any): Promise<string> {
   const input = stableStringify(layout)
   const encoder = new TextEncoder()
@@ -27,22 +25,45 @@ export async function computeLayoutHash(layout: any): Promise<string> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Hash Lookup (Hybrid Warm Cache)
+// Hash Lookup (Dual-Mode: Dev / Production)
 // ═══════════════════════════════════════════════════════════════════════════
 
 declare const globalThis: any
 
 /**
  * Get the latest AST hash.
- * - Fast path: globalThis (O(1), no IO)
- * - Cold start: KV read once, hydrate memory
  *
- * Must NOT write KV during polling. Must NOT trigger compilation.
+ * DEV MODE (dev=true): reads from KV every call — no caching.
+ *   Latency: ~5ms KV read per poll. Ensures publish → sentinel picks up
+ *   on the very next tick. No worker restart required.
+ *
+ * PRODUCTION MODE (dev=false): warm cache via globalThis (O(1)).
+ *   Cold start falls back to KV once per isolate lifecycle.
  */
 export async function getLatestHash(
-  kv?: { get: (key: string, type: 'json') => Promise<any> },
+  opts?: {
+    kv?: { get: (key: string, type: 'json') => Promise<any> }
+    dev?: boolean
+  },
 ): Promise<string> {
-  // Fast path — already in memory
+  const kv = opts?.kv
+
+  // ── DEV MODE: always read fresh from KV ─────────────────────────────
+  if (opts?.dev && kv) {
+    try {
+      const manifest = await kv.get('latest_ast_manifest', 'json')
+      if (manifest?.hash) {
+        // Update warm cache for consistency, but still return fresh value
+        globalThis.EDR_LATEST_HASH = manifest.hash
+        return manifest.hash
+      }
+    } catch {
+      // KV miss — fall through
+    }
+    return 'default-hash'
+  }
+
+  // ── PRODUCTION MODE: warm cache (O(1)) ──────────────────────────────
   if (globalThis.EDR_LATEST_HASH) {
     return globalThis.EDR_LATEST_HASH
   }
@@ -56,11 +77,10 @@ export async function getLatestHash(
         return manifest.hash
       }
     } catch {
-      // KV miss — fall through to default
+      // KV miss — fall through
     }
   }
 
-  // Default fallback
   globalThis.EDR_LATEST_HASH = 'default-hash'
   return 'default-hash'
 }
@@ -75,7 +95,6 @@ export async function setLatestHash(
   kv: { put: (key: string, value: string) => Promise<void> },
 ): Promise<void> {
   globalThis.EDR_LATEST_HASH = hash
-
   const manifest = JSON.stringify({ hash, timestamp: Date.now() })
   await kv.put('latest_ast_manifest', manifest)
 }

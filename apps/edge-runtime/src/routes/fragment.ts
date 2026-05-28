@@ -95,7 +95,7 @@ fragmentRouter.post('/fragment/calculate', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fragmentRouter.get('/fragment/dev-hash', async (c) => {
-  const serverHash = await getLatestHash((c.env as any)?.TENANT_KV)
+  const serverHash = await getLatestHash({ kv: (c.env as any)?.TENANT_KV, dev: true })
   const clientHash = c.req.header('X-Current-Hash')
 
   // Mismatch detected — emit trigger, return updated sentinel
@@ -104,7 +104,7 @@ fragmentRouter.get('/fragment/dev-hash', async (c) => {
     return c.html(`
       <div id="dev-sentinel"
            hx-get="/api/fragment/dev-hash"
-           hx-trigger="every 1s"
+           hx-trigger="every 0.5s"
            hx-swap="outerHTML"
            hx-headers='{"X-Current-Hash": "${serverHash}"}'>
       </div>

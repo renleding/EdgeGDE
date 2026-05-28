@@ -462,6 +462,9 @@ app.get('/', async (c) => {
       setCachedDesign(tenantId, design)
     }
 
+    // EDR CSS accumulator (injected in <head> so it survives HTMX swaps)
+    let edrCss = ''
+
     // ── 3. Compiled HTML cache (KV, 120s + jitter) ────────────────────────
     const cacheKey = `tenant:${tenantId}:compiled`
     let html = await TENANT_KV.get(cacheKey)
@@ -478,17 +481,23 @@ app.get('/', async (c) => {
         }
         const { compile: edrCompile } = await import('./edr/compiler/engine')
         html = edrCompile(synthesized, edrDef, layout.edrHash || 'default', 'edr')
-
-        // Generate CSS from EDR components
-        const { generateCSS } = await import('./lib/generateCSS')
-        const css = generateCSS(edrDef, layout.edrHash || 'default')
-        html = `<style>${css}</style>${html}`
       } else {
         // Legacy OpenPencil pipeline
         html = compileLayout(layout, design)
       }
       const ttl = 120 + Math.floor(Math.random() * 20)
       await TENANT_KV.put(cacheKey, html, { expirationTtl: ttl })
+    }
+
+    // Generate EDR CSS for <head> injection (always runs, even on cache hit)
+    // CSS must survive HTMX fragment swaps, so it lives in <head>, not in <main>
+    if (layout && layout.root && !edrCss) {
+      const edrDef: import('./edr/compiler/engine').EDR = {
+        components: layout.edr?.components || {},
+        global: layout.edr?.global || {},
+      }
+      const { generateCSS } = await import('./lib/generateCSS')
+      edrCss = generateCSS(edrDef, layout.edrHash || 'default')
     }
 
     // ── Environment badge ───────────────────────────────────────────────
@@ -536,11 +545,12 @@ app.get('/', async (c) => {
       [class*="page"] { padding:24px !important; }
     }
   </style>
+  ${edrCss ? `<style>${edrCss}</style>` : ''}
 </head>
 <body class="min-h-screen bg-[#0b1326]">
   <header class="bg-[#0b1326]/90 border-b border-white/10 backdrop-blur-2xl">
     <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-      <span class="text-lg font-semibold text-white uppercase tracking-wider">${tenant.name}</span>
+      <span class="text-lg font-semibold text-white">${tenant.name}</span>
       ${envBadge}
     </div>
   </header>
@@ -554,7 +564,7 @@ app.get('/', async (c) => {
   ${queryEnv === 'staging' ? `
   <div id="dev-sentinel"
        hx-get="/api/fragment/dev-hash"
-       hx-trigger="every 1s"
+       hx-trigger="every 0.5s"
        hx-swap="outerHTML"
        hx-headers='{"X-Current-Hash": "default-hash"}'>
   </div>` : ''}
