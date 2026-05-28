@@ -93,11 +93,55 @@ function synthesize(node: EDRNode): EDRNode {
             ],
           }
         }
+
+        // Range slider fields — slider + number input synced
+        if (f.type === 'range') {
+          const min = (f as any).min ?? '0'
+          const max = (f as any).max ?? '100'
+          const step = (f as any).step ?? '1'
+          const def = (f as any).default ?? min
+          return {
+            type: 'div', props: { role: ['field_wrapper'] },
+            children: [
+              { type: 'label', props: { role: 'label' }, children: f.label },
+              {
+                type: 'div',
+                props: { style: 'display:flex;align-items:center;gap:12px' },
+                children: [
+                  {
+                    type: 'input',
+                    props: {
+                      role: 'input_field',
+                      id: f.id, name: f.id,
+                      type: 'range', min, max, step,
+                      value: String(def),
+                      style: 'flex:1;padding:0;height:auto;border:none',
+                      oninput: `var s=this.nextElementSibling;if(s&&s.type==='number'){s.value=parseFloat(this.value).toFixed(1)}`,
+                    },
+                  },
+                  {
+                    type: 'input',
+                    props: {
+                      role: 'input_field',
+                      name: f.id,
+                      type: 'number', min, max, step,
+                      value: String(def),
+                      placeholder: def,
+                      style: 'width:96px;text-align:center',
+                      oninput: `var s=this.previousElementSibling;if(s&&s.type==='range'){s.value=this.value}`,
+                    },
+                  },
+                ],
+              },
+            ],
+          }
+        }
+
         return {
           type: 'div', props: { role: ['field_wrapper'] },
           children: [
             { type: 'label', props: { role: 'label' }, children: f.label },
-            { type: 'input', props: { role: 'input_field', id: f.id, name: f.id, type: f.type || 'text', placeholder: (f as any).placeholder || '' } },
+            { type: 'input', props: { role: 'input_field', id: f.id, name: f.id, type: f.type || 'text', placeholder: (f as any).placeholder || '', step: (f as any).step } },
           ],
         }
       }),

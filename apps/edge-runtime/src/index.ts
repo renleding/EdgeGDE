@@ -513,6 +513,28 @@ app.get('/', async (c) => {
     .htmx-request .htmx-indicator { opacity:1; }
     .htmx-request button { pointer-events:none; opacity:0.6; }
     .htmx-request input, .htmx-request select { pointer-events:none; opacity:0.7; }
+
+    /* Hide spinners on number inputs paired with sliders */
+    input[type="range"] + input[type="number"]::-webkit-inner-spin-button,
+    input[type="range"] + input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none; margin: 0;
+    }
+    input[type="range"] + input[type="number"] {
+      -moz-appearance: textfield;
+    }
+
+    /* Responsive grid — 1 column on mobile, 2 on tablet+ */
+    @media (max-width: 640px) {
+      [class*="grid_container"] { grid-template-columns:1fr !important; }
+      [class*="page"] { padding:16px !important; }
+      [class*="app_shell"] { max-width:100% !important; }
+      [class*="section_card"], [class*="subsection_card"] { padding:16px !important; }
+      header div { flex-direction:column; gap:4px; text-align:center; }
+      h1 { font-size:28px !important; }
+    }
+    @media (min-width: 641px) and (max-width: 1024px) {
+      [class*="page"] { padding:24px !important; }
+    }
   </style>
 </head>
 <body class="min-h-screen bg-[#0b1326]">
@@ -522,7 +544,7 @@ app.get('/', async (c) => {
       ${envBadge}
     </div>
   </header>
-  <main class="max-w-4xl mx-auto p-4">
+  <main class="max-w-4xl mx-auto">
     ${html}
   </main>
 </body>

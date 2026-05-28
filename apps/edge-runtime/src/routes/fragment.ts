@@ -21,13 +21,17 @@ interface CalcDisplay {
   totalRepayment: number
 }
 
+function formatCurrency(value: number): string {
+  return '$' + Math.floor(value).toLocaleString('en-US')
+}
+
 function buildResultsFragment(result: CalcDisplay): string {
   const items = [
-    { label: 'Monthly Repayment', value: `$${result.monthly.toFixed(2)}` },
-    { label: 'Fortnightly Repayment', value: `$${result.fortnightly.toFixed(2)}` },
-    { label: 'Weekly Repayment', value: `$${result.weekly.toFixed(2)}` },
-    { label: 'Total Interest', value: `$${result.totalInterest.toFixed(2)}` },
-    { label: 'Total Cost', value: `$${result.totalRepayment.toFixed(2)}` },
+    { label: 'Monthly Repayment', value: formatCurrency(result.monthly) },
+    { label: 'Fortnightly Repayment', value: formatCurrency(result.fortnightly) },
+    { label: 'Weekly Repayment', value: formatCurrency(result.weekly) },
+    { label: 'Total Interest', value: formatCurrency(result.totalInterest) },
+    { label: 'Total Cost', value: formatCurrency(result.totalRepayment) },
   ]
 
   const rows = items.map(i => `
