@@ -22,6 +22,7 @@ import { deployTenantLayout } from '../lib/publish-tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
 import { layoutDefinitionSchema } from '@edgegde/schema'
 import { validateDesign } from '../lib/design-validator'
+import { computeLayoutHash, setLatestHash } from '../edr/runtime/hash'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
@@ -238,6 +239,16 @@ async function handleTenantDeploy(c: any, body: any) {
     TENANT_KV,
     source,
   )
+
+  // 5. Update hash authority (in-memory + KV)
+  try {
+    const hash = await computeLayoutHash(layoutParsed.data)
+    await setLatestHash(hash, layoutParsed.data, {
+      put: (key: string, value: string) => TENANT_KV.put(key, value),
+    })
+  } catch {
+    // Hash update is non-critical — deploy still succeeded
+  }
 
   return c.json({
     success: true,

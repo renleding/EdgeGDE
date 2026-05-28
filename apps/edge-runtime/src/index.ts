@@ -544,9 +544,20 @@ app.get('/', async (c) => {
       ${envBadge}
     </div>
   </header>
-  <main class="max-w-4xl mx-auto">
+  <main id="app-root"
+        class="max-w-4xl mx-auto"
+        hx-get="/api/fragment/render-root"
+        hx-trigger="ui-schema-mutated from:body"
+        hx-swap="innerHTML">
     ${html}
   </main>
+  ${queryEnv === 'staging' ? `
+  <div id="dev-sentinel"
+       hx-get="/api/fragment/dev-hash"
+       hx-trigger="every 1s"
+       hx-swap="outerHTML"
+       hx-headers='{"X-Current-Hash": "default-hash"}'>
+  </div>` : ''}
 </body>
 </html>`
 

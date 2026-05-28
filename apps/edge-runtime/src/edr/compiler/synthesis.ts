@@ -131,6 +131,11 @@ function synthesize(node: EDRNode): EDRNode {
                       oninput: `var s=this.previousElementSibling;if(s&&s.type==='range'){s.value=this.value}`,
                     },
                   },
+                  ...((f as any).suffix ? [{
+                    type: 'span' as const,
+                    props: { style: 'color:var(--text-secondary);font-size:14px;min-width:20px' },
+                    children: (f as any).suffix as string,
+                  }] : []),
                 ],
               },
             ],

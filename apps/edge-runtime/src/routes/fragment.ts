@@ -1,13 +1,16 @@
 /**
  * EdgeGDE EDR — Fragment Rendering Endpoints
- * v4.9.0: HTMX fragment endpoints for partial UI updates.
- * Uses pure domain calculator — no KV, no HTMX awareness in domain layer.
+ * v4.9.1: HTMX fragment endpoints for partial UI updates.
+ * Includes dev feedback loop hash endpoint and root fragment renderer.
  *
  * @packageDocumentation
  */
 
 import { Hono } from 'hono'
 import { calculateLoan } from '../edr/domain/calculator'
+import { compile } from '../edr/compiler/engine'
+import { transform } from '../edr/compiler/synthesis'
+import { getLatestHash } from '../edr/runtime/hash'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Fragment HTML Builder
@@ -56,7 +59,7 @@ export const fragmentRouter = new Hono()
 
 /**
  * POST /api/fragment/calculate — stateless, no KV writes.
- * Accepts form field values, runs pure calculation, returns HTML fragment.
+ * Calculator fragment for HTMX swap.
  */
 fragmentRouter.post('/fragment/calculate', async (c) => {
   let body: Record<string, string> = {}
@@ -84,4 +87,58 @@ fragmentRouter.post('/fragment/calculate', async (c) => {
   c.header('Content-Type', 'text/html; charset=utf-8')
   c.header('Cache-Control', 'no-store')
   return c.body(fragment)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dev Feedback Loop — Hash Sentinel Endpoint
+// GET /api/fragment/dev-hash — O(1), no KV writes, no compilation
+// ═══════════════════════════════════════════════════════════════════════════
+
+fragmentRouter.get('/fragment/dev-hash', async (c) => {
+  const serverHash = await getLatestHash((c.env as any)?.TENANT_KV)
+  const clientHash = c.req.header('X-Current-Hash')
+
+  // Mismatch detected — emit trigger, return updated sentinel
+  if (clientHash !== undefined && serverHash !== clientHash) {
+    c.header('HX-Trigger', 'ui-schema-mutated')
+    return c.html(`
+      <div id="dev-sentinel"
+           hx-get="/api/fragment/dev-hash"
+           hx-trigger="every 1s"
+           hx-swap="outerHTML"
+           hx-headers='{"X-Current-Hash": "${serverHash}"}'>
+      </div>
+    `)
+  }
+
+  // Idle — hashes match
+  return new Response(null, { status: 204 })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Root Fragment Renderer
+// GET /api/fragment/render-root — recompiles AST and returns bare HTML
+// ═══════════════════════════════════════════════════════════════════════════
+
+fragmentRouter.get('/fragment/render-root', async (c) => {
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+  if (!TENANT_KV) return c.text('KV not available', 500)
+
+  try {
+    const layout = await TENANT_KV.get('tenant:afirmico:layout:latest', 'json')
+    if (!layout || !layout.root) return c.text('No layout found', 404)
+
+    const synthesized = transform(layout.root)
+    const edrDef = {
+      components: layout.edr?.components || {},
+      global: layout.edr?.global || {},
+    }
+    const html = compile(synthesized, edrDef, layout.edrHash || 'default', 'edr')
+
+    c.header('Content-Type', 'text/html; charset=utf-8')
+    c.header('Cache-Control', 'no-store')
+    return c.body(html)
+  } catch (err: any) {
+    return c.text(`Render error: ${err.message}`, 500)
+  }
 })
