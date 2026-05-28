@@ -1,6 +1,7 @@
 /**
  * EdgeGDE EDR — Spec Validator
  * v4.7.0: Enforces architectural invariants against runtime objects.
+ * v1.1: Adds design system validation — unknown roles/presets/variants rejected.
  * Pure validation — never mutates inputs.
  *
  * @packageDocumentation
