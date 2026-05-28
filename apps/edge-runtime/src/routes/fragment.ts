@@ -114,44 +114,66 @@ fragmentRouter.post('/fragment/calculate-budget', async (c) => {
 
   const parseNum = (key: string) => Math.max(0, parseFloat(body[key] || '0'))
 
+  // Frequency multiplier map
+  const freqMult: Record<string, number> = {
+    daily: 365, weekly: 52, fortnightly: 26, monthly: 12, quarterly: 4, annually: 1,
+  }
+
+  // Parse a field with frequency support
+  const parseField = (baseKey: string): number => {
+    const val = parseFloat(body[baseKey] || '0')
+    if (val === 0) return 0
+    const freq = (body[`${baseKey}_freq`] as string) || 'monthly'
+    const mult = freqMult[freq] || 12
+    return Math.round(val * mult * 100) / 100
+  }
+
   // Collect dynamic fields (added via Add Income / Add Expense buttons)
-  let dynamicIncome = 0
-  let dynamicExpenses = 0
+  let dynamicIncomeTotal = 0
+  let dynamicExpensesTotal = 0
   const dynamicIncomeItems: { label: string; amount: number }[] = []
   const dynamicExpenseItems: { label: string; amount: number }[] = []
 
   for (const [key, val] of Object.entries(body)) {
-    if (key.startsWith('income_custom_') && !key.endsWith('_name')) {
+    if (key.startsWith('income_custom_') && !key.endsWith('_name') && !key.endsWith('_freq')) {
       const valNum = parseFloat(val as string) || 0
+      if (valNum === 0) continue
+      const freq = (body[`${key}_freq`] as string) || 'monthly'
+      const mult = freqMult[freq] || 12
+      const annual = Math.round(valNum * mult * 100) / 100
       const nameKey = key + '_name'
       const label = body[nameKey] || 'Custom Income'
-      dynamicIncome += valNum
+      dynamicIncomeTotal += annual
       dynamicIncomeItems.push({ label, amount: valNum })
     }
-    if (key.startsWith('expense_custom_') && !key.endsWith('_name')) {
+    if (key.startsWith('expense_custom_') && !key.endsWith('_name') && !key.endsWith('_freq')) {
       const valNum = parseFloat(val as string) || 0
+      if (valNum === 0) continue
+      const freq = (body[`${key}_freq`] as string) || 'monthly'
+      const mult = freqMult[freq] || 12
+      const annual = Math.round(valNum * mult * 100) / 100
       const nameKey = key + '_name'
       const label = body[nameKey] || 'Custom Expense'
-      dynamicExpenses += valNum
+      dynamicExpensesTotal += annual
       dynamicExpenseItems.push({ label, amount: valNum })
     }
   }
 
   const result = calculateBudget({
-    salary: parseNum('salary') + dynamicIncome,
-    investments: parseNum('investments'),
-    government: parseNum('government'),
-    otherIncome: parseNum('other_income'),
-    housing: parseNum('housing') + dynamicExpenses,
-    food: parseNum('food'),
-    transport: parseNum('transport'),
-    utilities: parseNum('utilities'),
-    insurance: parseNum('insurance'),
-    entertainment: parseNum('entertainment'),
-    healthcare: parseNum('healthcare'),
-    education: parseNum('education'),
-    debtPayments: parseNum('debt_payments'),
-    otherExpenses: parseNum('other_expenses'),
+    salary: parseField('salary') + dynamicIncomeTotal,
+    investments: parseField('investments'),
+    government: parseField('government'),
+    otherIncome: parseField('other_income'),
+    housing: parseField('housing') + dynamicExpensesTotal,
+    food: parseField('food'),
+    transport: parseField('transport'),
+    utilities: parseField('utilities'),
+    insurance: parseField('insurance'),
+    entertainment: parseField('entertainment'),
+    healthcare: parseField('healthcare'),
+    education: parseField('education'),
+    debtPayments: parseField('debt_payments'),
+    otherExpenses: parseField('other_expenses'),
   })
 
   // Inject dynamic items into breakdowns
@@ -237,13 +259,21 @@ fragmentRouter.post('/fragment/budget-add-field', async (c) => {
   const label = body.label || 'Custom'
 
   const row = `
-<div class="dynamic-field-row" style="display:flex;align-items:center;gap:8px;grid-column:1/-1">
-  <div style="flex:1;display:flex;gap:8px;align-items:center">
-    <input name="${fieldId}_name" type="text" value="${label}" placeholder="Name"
-           style="flex:1;padding:10px 12px;border-radius:18px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);color:#fff;font-size:13px">
-    <input name="${fieldId}" type="number" placeholder="0"
-           style="width:120px;padding:10px 12px;border-radius:18px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);color:#fff;font-size:13px;text-align:center">
-  </div>
+<div class="dynamic-field-row" style="display:grid;grid-template-columns:1fr 140px 120px 80px 40px;gap:8px;align-items:center">
+  <input name="${fieldId}_name" type="text" value="${label}" placeholder="Name"
+         style="padding:10px 12px;border-radius:18px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);color:#fff;font-size:13px">
+  <select name="${fieldId}_freq"
+          style="padding:10px 12px;border-radius:18px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);color:#fff;font-size:13px;cursor:pointer">
+    <option value="daily">Daily</option>
+    <option value="weekly">Weekly</option>
+    <option value="fortnightly">Fortnightly</option>
+    <option value="monthly" selected>Monthly</option>
+    <option value="quarterly">Quarterly</option>
+    <option value="annually">Annually</option>
+  </select>
+  <input name="${fieldId}" type="number" placeholder="0"
+         style="padding:10px 12px;border-radius:18px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);color:#fff;font-size:13px;text-align:center">
+  <span style="color:rgba(255,255,255,0.5);font-size:13px;text-align:center">-</span>
   <button type="button"
           hx-post="/api/fragment/budget-remove-field"
           hx-target="closest .dynamic-field-row"
