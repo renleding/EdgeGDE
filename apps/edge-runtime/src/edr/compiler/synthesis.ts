@@ -35,6 +35,7 @@ function synthesize(node: EDRNode): EDRNode {
 
   // ── Root → Page Shell Wrapper ──────────────────────────────────────────
   if (role === 'root') {
+    const formAction = (node.props as any)?.formAction || '/api/fragment/calculate'
     return {
       type: 'div',
       props: { role: ['page'] },
@@ -46,7 +47,7 @@ function synthesize(node: EDRNode): EDRNode {
             {
               type: 'form',
               props: {
-                'hx-post': '/api/fragment/calculate',
+                'hx-post': formAction,
                 'hx-target': '#results',
                 'hx-swap': 'innerHTML',
                 'hx-trigger': 'submit, keyup changed delay:400ms from:find input, find select',
