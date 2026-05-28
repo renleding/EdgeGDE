@@ -114,12 +114,35 @@ fragmentRouter.post('/fragment/calculate-budget', async (c) => {
 
   const parseNum = (key: string) => Math.max(0, parseFloat(body[key] || '0'))
 
+  // Collect dynamic fields (added via Add Income / Add Expense buttons)
+  let dynamicIncome = 0
+  let dynamicExpenses = 0
+  const dynamicIncomeItems: { label: string; amount: number }[] = []
+  const dynamicExpenseItems: { label: string; amount: number }[] = []
+
+  for (const [key, val] of Object.entries(body)) {
+    if (key.startsWith('income_custom_') && !key.endsWith('_name')) {
+      const valNum = parseFloat(val as string) || 0
+      const nameKey = key + '_name'
+      const label = body[nameKey] || 'Custom Income'
+      dynamicIncome += valNum
+      dynamicIncomeItems.push({ label, amount: valNum })
+    }
+    if (key.startsWith('expense_custom_') && !key.endsWith('_name')) {
+      const valNum = parseFloat(val as string) || 0
+      const nameKey = key + '_name'
+      const label = body[nameKey] || 'Custom Expense'
+      dynamicExpenses += valNum
+      dynamicExpenseItems.push({ label, amount: valNum })
+    }
+  }
+
   const result = calculateBudget({
-    salary: parseNum('salary'),
+    salary: parseNum('salary') + dynamicIncome,
     investments: parseNum('investments'),
     government: parseNum('government'),
     otherIncome: parseNum('other_income'),
-    housing: parseNum('housing'),
+    housing: parseNum('housing') + dynamicExpenses,
     food: parseNum('food'),
     transport: parseNum('transport'),
     utilities: parseNum('utilities'),
@@ -130,6 +153,26 @@ fragmentRouter.post('/fragment/calculate-budget', async (c) => {
     debtPayments: parseNum('debt_payments'),
     otherExpenses: parseNum('other_expenses'),
   })
+
+  // Inject dynamic items into breakdowns
+  if (dynamicIncomeItems.length > 0) {
+    result.incomeBreakdown.push(
+      ...dynamicIncomeItems.map(i => ({
+        label: i.label,
+        amount: Math.round(i.amount * 100) / 100,
+        percentage: result.totalIncome > 0 ? Math.round((i.amount / result.totalIncome) * 10000) / 100 : 0,
+      }))
+    )
+  }
+  if (dynamicExpenseItems.length > 0) {
+    result.expenseBreakdown.push(
+      ...dynamicExpenseItems.map(i => ({
+        label: i.label,
+        amount: Math.round(i.amount * 100) / 100,
+        percentage: result.totalExpenses > 0 ? Math.round((i.amount / result.totalExpenses) * 10000) / 100 : 0,
+      }))
+    )
+  }
 
   const fmt = (v: number) => '$' + Math.floor(v).toLocaleString('en-US')
 
@@ -176,6 +219,50 @@ fragmentRouter.post('/fragment/calculate-budget', async (c) => {
   c.header('Content-Type', 'text/html; charset=utf-8')
   c.header('Cache-Control', 'no-store')
   return c.body(fragment)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dynamic Budget Field — Add
+// POST /api/fragment/budget-add-field — returns new field row HTML
+// ═══════════════════════════════════════════════════════════════════════════
+
+let budgetFieldCounter = Date.now()
+
+fragmentRouter.post('/fragment/budget-add-field', async (c) => {
+  const body = await c.req.parseBody() as Record<string, string>
+  const category = body.category || 'income'
+  const prefix = category === 'income' ? 'income' : 'expense'
+  const counter = ++budgetFieldCounter
+  const fieldId = `${prefix}_custom_${counter}`
+  const label = body.label || 'Custom'
+
+  const row = `
+<div class="dynamic-field-row" style="display:flex;align-items:center;gap:8px;grid-column:1/-1">
+  <div style="flex:1;display:flex;gap:8px;align-items:center">
+    <input name="${fieldId}_name" type="text" value="${label}" placeholder="Name"
+           style="flex:1;padding:10px 12px;border-radius:18px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);color:#fff;font-size:13px">
+    <input name="${fieldId}" type="number" placeholder="0"
+           style="width:120px;padding:10px 12px;border-radius:18px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.25);color:#fff;font-size:13px;text-align:center">
+  </div>
+  <button type="button"
+          hx-post="/api/fragment/budget-remove-field"
+          hx-target="closest .dynamic-field-row"
+          hx-swap="outerHTML"
+          style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,107,107,0.4);background:rgba(255,107,107,0.15);color:#ff6b6b;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">×</button>
+</div>`
+
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  c.header('Cache-Control', 'no-store')
+  return c.body(row)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dynamic Budget Field — Remove
+// POST /api/fragment/budget-remove-field — returns 204 (HTMX removes the row)
+// ═══════════════════════════════════════════════════════════════════════════
+
+fragmentRouter.post('/fragment/budget-remove-field', async () => {
+  return new Response(null, { status: 204 })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
