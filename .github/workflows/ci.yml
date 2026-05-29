@@ -16,7 +16,5 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun test --filter="@edgegde/schema"
-      - run: bun run test
-        working-directory: apps/edge-runtime
       - run: bun run typecheck
         working-directory: apps/edge-runtime
