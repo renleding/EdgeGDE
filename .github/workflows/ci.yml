@@ -16,5 +16,5 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun test --filter="@edgegde/schema"
-      - run: cd apps/edge-runtime && npx tsx tests/compiler/edr-engine.test.ts
-      - run: cd apps/edge-runtime && npx tsc --noEmit
+      - run: cd apps/edge-runtime && bunx tsx tests/compiler/edr-engine.test.ts
+      - run: cd apps/edge-runtime && bunx tsc --noEmit
