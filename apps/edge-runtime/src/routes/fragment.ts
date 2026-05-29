@@ -313,7 +313,7 @@ fragmentRouter.post('/fragment/swatch-detail', async (c) => {
     return c.body('<div style="color:rgba(255,255,255,0.5);padding:40px;text-align:center">Design system not found</div>')
   }
 
-  const backBtn = `<button hx-post="/api/fragment/swatch-gallery" hx-target="#swatch-gallery" hx-swap="outerHTML" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);font-size:13px;cursor:pointer;margin-bottom:16px">&larr; Back to Gallery</button>`
+  const backBtn = `<button onclick="window.location.reload()" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);font-size:13px;cursor:pointer;margin-bottom:16px">&larr; Back to Gallery</button>`
 
   const colorSwatches = swatch.colors.palette.map(c => `
     <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px">
@@ -438,7 +438,13 @@ fragmentRouter.get('/fragment/render-root', async (c) => {
   if (!TENANT_KV) return c.text('KV not available', 500)
 
   try {
-    const layout = await TENANT_KV.get('tenant:afirmico:layout:latest', 'json')
+    const tool = c.req.query('tool') || 'default'
+    const layoutKey = tool === 'gallery'
+      ? 'tenant:afirmico:layout:gallery'
+      : tool === 'budget'
+        ? 'tenant:afirmico:layout:budget'
+        : 'tenant:afirmico:layout:latest'
+    const layout = await TENANT_KV.get(layoutKey, 'json')
     if (!layout || !layout.root) return c.text('No layout found', 404)
 
     const synthesized = transform(layout.root)

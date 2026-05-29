@@ -37,6 +37,7 @@ import { MemoryKvStore } from './lib/publish'
 import type { KvStore } from './lib/publish'
 import { getLatestVersion, getVersion } from './lib/versioning'
 import { compileLayout } from './compiler/engine'
+import { getLatestHash } from './edr/runtime/hash'
 import { tenantResolver } from './middleware/tenant-resolver'
 import { adminAuth } from './middleware/auth'
 import { rateLimiter } from './lib/rate-limiter'
@@ -437,10 +438,17 @@ app.get('/', async (c) => {
     const tenantId = tenant.tenantId
 
     // ── 1. Layout (memory → KV) ──────────────────────────────────────────
-    let layout: any = getCachedLayout(tenantId)
+    const layoutTool = c.req.query('tool') || 'default'
+    const layoutCacheKey = `${tenantId}:${layoutTool}`
+    let layout: any = getCachedLayout(layoutCacheKey)
     if (!layout) {
-      layout = await TENANT_KV.get(`tenant:${tenantId}:layout:latest`, 'json')
-      if (layout) setCachedLayout(tenantId, layout)
+      const layoutKvKey = layoutTool === 'gallery'
+        ? `tenant:${tenantId}:layout:gallery`
+        : layoutTool === 'budget'
+          ? `tenant:${tenantId}:layout:budget`
+          : `tenant:${tenantId}:layout:latest`
+      layout = await TENANT_KV.get(layoutKvKey, 'json')
+      if (layout) setCachedLayout(layoutCacheKey, layout)
     }
 
     if (!layout) return c.text('No layout found for tenant', 404)
@@ -466,7 +474,7 @@ app.get('/', async (c) => {
     let edrCss = ''
 
     // ── 3. Compiled HTML cache (KV, 120s + jitter) ────────────────────────
-    const cacheKey = `tenant:${tenantId}:compiled`
+    const cacheKey = `tenant:${tenantId}:compiled:${layoutTool}`
     let html = await TENANT_KV.get(cacheKey)
 
     if (!html) {
@@ -503,9 +511,7 @@ app.get('/', async (c) => {
     // ── Environment badge ───────────────────────────────────────────────
     // Only show for non-production environments
     const queryEnv = c.req.query('env')
-    const envBadge = queryEnv === 'staging'
-      ? '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-400/20 text-yellow-400 uppercase tracking-wider">STAGING</span>'
-      : ''
+    const envBadgeText = queryEnv === 'staging' ? 'STAGING' : ''
 
     const title = `${tenant.name} — EdgeGDE`
 
@@ -522,6 +528,19 @@ app.get('/', async (c) => {
     .htmx-request .htmx-indicator { opacity:1; }
     .htmx-request button { pointer-events:none; opacity:0.6; }
     .htmx-request input, .htmx-request select { pointer-events:none; opacity:0.7; }
+
+    /* Staging badge glow — active polling state */
+    .badge-live {
+      box-shadow: 0 0 12px rgba(34,197,94,0.5), 0 0 24px rgba(34,197,94,0.2);
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 12px rgba(34,197,94,0.5), 0 0 24px rgba(34,197,94,0.2); }
+      50% { box-shadow: 0 0 18px rgba(34,197,94,0.7), 0 0 36px rgba(34,197,94,0.3); }
+    }
+    .badge-idle {
+      box-shadow: 0 0 6px rgba(251,191,36,0.3);
+    }
 
     /* Hide spinners on number inputs paired with sliders */
     input[type="range"] + input[type="number"]::-webkit-inner-spin-button,
@@ -551,23 +570,57 @@ app.get('/', async (c) => {
   <header class="bg-[#0b1326]/90 border-b border-white/10 backdrop-blur-2xl">
     <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
       <span class="text-lg font-semibold text-white">${tenant.name}</span>
-      ${envBadge}
+      ${envBadgeText ? `<span id="env-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-400/20 text-yellow-400 uppercase tracking-wider">${envBadgeText}</span>` : ''}
     </div>
   </header>
   <main id="app-root"
         class="max-w-4xl mx-auto"
-        hx-get="/api/fragment/render-root"
+        hx-get="/api/fragment/render-root${layoutTool !== 'default' ? `?tool=${layoutTool}` : ''}"
         hx-trigger="ui-schema-mutated from:body"
         hx-swap="innerHTML">
     ${html}
   </main>
-  ${queryEnv === 'staging' ? `
+  ${queryEnv === 'staging' || queryEnv === 'local' ? `
   <div id="dev-sentinel"
        hx-get="/api/fragment/dev-hash"
        hx-trigger="every 0.5s"
        hx-swap="outerHTML"
-       hx-headers='{"X-Current-Hash": "default-hash"}'>
+       hx-headers='{"X-Current-Hash": "${await getLatestHash({ kv: (c.env as any)?.TENANT_KV, dev: true })}"}'>
   </div>` : ''}
+  ${queryEnv === 'staging' || queryEnv === 'local' ? `
+  <script>
+    (function() {
+      const SENTINEL_ID = 'dev-sentinel'
+      const IDLE_MS = 30 * 60 * 1000
+      let pollTimer = null, isActive = true
+
+      function setPolling(active) {
+        isActive = active
+        const el = document.getElementById(SENTINEL_ID)
+        const badge = document.getElementById('env-badge')
+        if (!el) return
+        el.setAttribute('hx-trigger', active ? 'every 0.5s' : 'click from:body delay:500ms')
+        if (window.htmx) htmx.process(el)
+        if (badge) {
+          badge.classList.toggle('badge-live', active)
+          badge.classList.toggle('badge-idle', !active)
+        }
+        if (active) resetIdleTimer()
+      }
+
+      function resetIdleTimer() {
+        if (pollTimer) clearTimeout(pollTimer)
+        pollTimer = setTimeout(() => setPolling(false), IDLE_MS)
+      }
+
+      document.addEventListener('click', function onAnyClick() {
+        if (isActive) { resetIdleTimer(); return }
+        setPolling(true)
+      })
+
+      setPolling(true)
+    })()
+  </script>` : ''}
 </body>
 </html>`
 
