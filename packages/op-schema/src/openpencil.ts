@@ -215,7 +215,7 @@ export const openPencilNodeTypeSchema = z.enum([
 
 export type OpenPencilNodeType = z.output<typeof openPencilNodeTypeSchema>
 
-export const openPencilNodeSchema = z.object({
+export const openPencilNodeSchema: z.ZodType<any> = z.object({
   id: z.string(),
   type: openPencilNodeTypeSchema,
   name: z.string(),
