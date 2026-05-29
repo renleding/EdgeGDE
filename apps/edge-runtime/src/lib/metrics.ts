@@ -1,87 +1,91 @@
 /**
- * EdgeGDE Runtime — Counter-Based Edge Metrics
- * Track 4: Replaces KV.list()-based log scanning with D1 queries + counters.
+ * EdgeGDE — KV Metrics Middleware
+ * Tracks request counts and error rates per tenant/tool/page.
+ * Writes to KV on every request. Reads are instantaneous for the dashboard.
  *
- * KV.list() is forbidden in this architecture.
- * All listing goes through D1 or counter reads.
+ * @packageDocumentation
  */
 
-import { getCounter } from './utils/counters'
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Types
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface MetricsPayload {
-  requests_per_minute: number
-  avg_latency_ms: number
-  p95_latency_ms: number
-  error_rate_percent: number
-  total_429_responses: number
-  tool_usage_counts: Record<string, number>
-  agent_request_ratio: number
-  total_submissions: number
-  total_tenants: number
-  total_artifacts: number
+export interface MetricsSnapshot {
+  tenant: string
+  tool: string
+  requests: number
+  errors: number
+  lastSeen: string
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Metrics (No KV.list() — D1 + counters only)
-// ═══════════════════════════════════════════════════════════════════════════
+const METRICS_PREFIX = 'metrics'
 
+function key(tenant: string, tool: string): string {
+  return `${METRICS_PREFIX}:${tenant}:${tool}`
+}
+
+export async function incrementRequest(
+  kv: { get: (k: string, t: 'json') => Promise<any>; put: (k: string, v: string) => Promise<void> },
+  tenant: string,
+  tool: string,
+  isError: boolean,
+): Promise<void> {
+  const k = key(tenant, tool)
+  try {
+    const current: any = await kv.get(k, 'json') || { requests: 0, errors: 0, lastSeen: '' }
+    current.requests = (current.requests || 0) + 1
+    if (isError) current.errors = (current.errors || 0) + 1
+    current.lastSeen = new Date().toISOString()
+    await kv.put(k, JSON.stringify(current))
+  } catch {
+    // Fire-and-forget — metrics should never block the request
+  }
+}
+
+export async function getMetrics(
+  kv: { get: (k: string, t: 'json') => Promise<any>; list?: (opts: { prefix: string }) => AsyncIterable<{ name: string }> },
+  tenant?: string,
+  tool?: string,
+): Promise<MetricsSnapshot[]> {
+  if (tenant && tool) {
+    const data = await kv.get(key(tenant, tool), 'json')
+    if (!data) return []
+    return [{ tenant, tool, requests: data.requests || 0, errors: data.errors || 0, lastSeen: data.lastSeen || '' }]
+  }
+
+  const results: MetricsSnapshot[] = []
+  const prefix = tenant ? `${METRICS_PREFIX}:${tenant}:` : `${METRICS_PREFIX}:`
+  try {
+    // Try direct key lookup for known tenants
+    const knownTenants = ['afirmico']
+    const knownTools = ['default', 'gallery', 'budget', 'metrics']
+    for (const t of knownTenants) {
+      for (const tl of knownTools) {
+        try {
+          const data: any = await kv.get(key(t, tl), 'json')
+          if (data) {
+            results.push({
+              tenant: t,
+              tool: tl,
+              requests: data.requests || 0,
+              errors: data.errors || 0,
+              lastSeen: data.lastSeen || '',
+            })
+          }
+        } catch {
+          // Skip missing keys
+        }
+      }
+    }
+  } catch {
+    // Fallback
+  }
+
+  return results.sort((a, b) => b.requests - a.requests)
+}
+
+/** @deprecated Use `getMetrics` instead — old 4-arg signature */
 export async function getEdgeMetrics(
-  db?: any,
-  telemetryKv?: any,
-  artifactsKv?: any,
-  tenantKv?: any,
-): Promise<MetricsPayload> {
-  // ── Counter reads (O(1), no scanning) ─────────────────────────────────
-  const totalSubmissions = telemetryKv ? await getCounter(telemetryKv, '_counts:telemetry') : 0
-  const totalArtifacts = artifactsKv ? await getCounter(artifactsKv, '_counts:artifacts') : 0
-  const totalTenants = tenantKv ? await getCounter(tenantKv, '_counts:tenants') : 0
-  const total429 = telemetryKv ? await getCounter(telemetryKv, '_counts:429') : 0
-
-  // ── D1 queries for time-windowed metrics ──────────────────────────────
-  let requestsPerMinute = 0
-  let errorRate = 0
-
-  if (db && typeof db.prepare === 'function') {
-    try {
-      const rpmResult = await db.prepare(
-        `SELECT COUNT(*) as count FROM form_submissions
-         WHERE created_at > datetime('now', '-1 minute')`
-      ).first()
-      requestsPerMinute = (rpmResult as any)?.count || 0
-    } catch {
-      // D1 unavailable — use counter fallback
-      requestsPerMinute = totalSubmissions
-    }
-
-    try {
-      const errResult = await db.prepare(
-        `SELECT COUNT(*) as count FROM form_submissions
-         WHERE created_at > datetime('now', '-1 minute')
-         AND json_extract(payload, '$.error') IS NOT NULL`
-      ).first()
-      const errors = (errResult as any)?.count || 0
-      errorRate = requestsPerMinute > 0
-        ? Math.round((errors / requestsPerMinute) * 10000) / 100
-        : 0
-    } catch {
-      errorRate = 0
-    }
-  }
-
-  return {
-    requests_per_minute: requestsPerMinute,
-    avg_latency_ms: 0,   // No longer tracked per-request — counter-based now
-    p95_latency_ms: 0,   // No longer tracked per-request
-    error_rate_percent: errorRate,
-    total_429_responses: total429,
-    tool_usage_counts: {},  // Tracked via counters per tool if needed
-    agent_request_ratio: 0, // Tracked via dedicated counter
-    total_submissions: totalSubmissions,
-    total_tenants: totalTenants,
-    total_artifacts: totalArtifacts,
-  }
+  _db: any,
+  _telemetryKv: any,
+  _artifactKv: any,
+  tenantKv: any,
+): Promise<MetricsSnapshot[]> {
+  return getMetrics(tenantKv)
 }

@@ -244,6 +244,65 @@ fragmentRouter.post('/fragment/calculate-budget', async (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// KV Metrics Dashboard
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { getMetrics } from '../lib/metrics'
+
+fragmentRouter.get('/fragment/metrics', async (c) => {
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+  if (!TENANT_KV) return c.text('KV not available', 500)
+
+  try {
+    const tenant = c.req.query('tenant') || ''
+    const tool = c.req.query('tool') || ''
+    const data = await getMetrics(TENANT_KV, tenant || undefined, tool || undefined)
+
+    const rows = data.length === 0
+      ? '<div style="color:rgba(255,255,255,0.3);text-align:center;padding:24px;font-size:13px">No metrics recorded yet</div>'
+      : data.map(m => `
+        <tr>
+          <td style="padding:8px 12px;color:#fff;font-size:13px">${m.tenant}</td>
+          <td style="padding:8px 12px;color:rgba(255,255,255,0.7);font-size:13px">${m.tool}</td>
+          <td style="padding:8px 12px;color:#22C55E;font-size:13px;font-weight:600;text-align:center">${m.requests.toLocaleString()}</td>
+          <td style="padding:8px 12px;color:${m.errors > 0 ? '#FF6B6B' : 'rgba(255,255,255,0.5)'};font-size:13px;text-align:center">${m.errors.toLocaleString()}</td>
+          <td style="padding:8px 12px;color:rgba(255,255,255,0.4);font-size:12px;text-align:right">${m.lastSeen ? new Date(m.lastSeen).toLocaleString() : '-'}</td>
+        </tr>`).join('')
+
+    const html = `
+<div style="max-width:900px;margin:0 auto">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <h2 style="color:#fff;font-size:20px;font-weight:600;margin:0">Live Metrics</h2>
+    <span style="color:rgba(255,255,255,0.35);font-size:11px">Auto-refreshing every 10s</span>
+  </div>
+  <div style="background:rgba(255,255,255,0.06);border-radius:14px;border:1px solid rgba(255,255,255,0.1);overflow:hidden">
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="background:rgba(255,255,255,0.04)">
+          <th style="padding:10px 12px;color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;text-transform:uppercase;text-align:left">Tenant</th>
+          <th style="padding:10px 12px;color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;text-transform:uppercase;text-align:left">Tool</th>
+          <th style="padding:10px 12px;color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;text-transform:uppercase;text-align:center">Requests</th>
+          <th style="padding:10px 12px;color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;text-transform:uppercase;text-align:center">Errors</th>
+          <th style="padding:10px 12px;color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;text-transform:uppercase;text-align:right">Last Seen</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
+  <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/?tenant=afirmico&tool=metrics" style="padding:6px 14px;border-radius:8px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.25);color:#818CF8;font-size:12px;text-decoration:none">View Dashboard</a>
+  </div>
+</div>`
+
+    c.header('Content-Type', 'text/html; charset=utf-8')
+    c.header('Cache-Control', 'no-store')
+    return c.body(html)
+  } catch (err: any) {
+    return c.text(`Metrics error: ${err.message}`, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Dynamic Budget Field — Add
 // POST /api/fragment/budget-add-field — returns new field row HTML
 // ═══════════════════════════════════════════════════════════════════════════
@@ -444,7 +503,7 @@ fragmentRouter.get('/fragment/render-root', async (c) => {
     const tool = c.req.query('tool') || 'default'
     const env = c.req.query('env')
     const isStaging = env === 'staging' || env === 'local'
-    const layoutSuffix = tool === 'gallery' ? 'gallery' : tool === 'budget' ? 'budget' : 'latest'
+    const layoutSuffix = tool === 'gallery' ? 'gallery' : tool === 'budget' ? 'budget' : tool === 'metrics' ? 'metrics' : 'latest'
     const layoutKey = `tenant:afirmico:layout:${layoutSuffix}${isStaging ? ':staging' : ''}`
     const layout = await TENANT_KV.get(layoutKey, 'json')
     if (!layout || !layout.root) return c.text('No layout found', 404)

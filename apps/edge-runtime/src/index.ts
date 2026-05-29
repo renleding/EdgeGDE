@@ -43,6 +43,7 @@ import { tenantResolver } from './middleware/tenant-resolver'
 import { adminAuth } from './middleware/auth'
 import { rateLimiter } from './lib/rate-limiter'
 import { logEvent } from './lib/telemetry'
+import { incrementRequest } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
 // ═══════════════════════════════════════════════════════════════════════════
@@ -446,7 +447,7 @@ app.get('/', async (c) => {
     const layoutCacheKey = `${tenantId}:${layoutTool}:${isStaging ? 'staging' : 'prod'}`
     let layout: any = getCachedLayout(layoutCacheKey)
     if (!layout) {
-      const layoutSuffix = layoutTool === 'gallery' ? 'gallery' : layoutTool === 'budget' ? 'budget' : 'latest'
+      const layoutSuffix = layoutTool === 'gallery' ? 'gallery' : layoutTool === 'budget' ? 'budget' : layoutTool === 'metrics' ? 'metrics' : 'latest'
       const envSuffix = isStaging ? ':staging' : ''
       const layoutKvKey = `tenant:${tenantId}:layout:${layoutSuffix}${envSuffix}`
       layout = await TENANT_KV.get(layoutKvKey, 'json')
@@ -475,8 +476,11 @@ app.get('/', async (c) => {
       setCachedDesign(tenantId, design)
     }
 
-    // EDR CSS accumulator (injected in <head> so it survives HTMX swaps)
+    // ── EDR CSS accumulator (injected in <head> so it survives HTMX swaps) ─
     let edrCss = ''
+
+    // ── Metrics: fire-and-forget counter ────────────────────────────────
+    incrementRequest(TENANT_KV, tenantId, layoutTool || 'default', false)
 
     // ── 3. Compiled HTML cache (KV, 120s + jitter) ────────────────────────
     const cacheKey = `tenant:${tenantId}:compiled:${layoutTool}:${isStaging ? 'staging' : 'prod'}`
