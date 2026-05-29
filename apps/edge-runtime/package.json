@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --port 8787",
     "deploy": "wrangler deploy",
-    "test": "npx tsx tests/compiler/edr-engine.test.ts",
+    "test": "tsx tests/compiler/edr-engine.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260525.1",
+    "tsx": "^4.22.3",
     "typescript": "^5.5.0",
     "wrangler": "^4.0.0"
   }
