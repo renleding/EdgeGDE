@@ -25,6 +25,7 @@ import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { fragmentRouter } from './routes/fragment'
+import { stagingRouter } from './routes/staging'
 import {
   getCachedLayout,
   setCachedLayout,
@@ -286,6 +287,7 @@ app.route('/api/v1/admin', scoringAdminRouter)
 app.route('/api/v1', scoringTenantRouter)
 app.route('/api/v1/admin', reportAdminRouter)
 app.route('/api/v1', reportCronHandler)
+app.route('/api', stagingRouter)
 
 // Tenant provisioning (admin)
 app.route('/api/tenants', tenantRouter)
@@ -439,17 +441,20 @@ app.get('/', async (c) => {
 
     // ── 1. Layout (memory → KV) ──────────────────────────────────────────
     const layoutTool = c.req.query('tool') || 'default'
-    const layoutCacheKey = `${tenantId}:${layoutTool}`
+    const queryEnv = c.req.query('env')
+    const isStaging = queryEnv === 'staging' || queryEnv === 'local'
+    const layoutCacheKey = `${tenantId}:${layoutTool}:${isStaging ? 'staging' : 'prod'}`
     let layout: any = getCachedLayout(layoutCacheKey)
     if (!layout) {
-      const layoutKvKey = layoutTool === 'gallery'
-        ? `tenant:${tenantId}:layout:gallery`
-        : layoutTool === 'budget'
-          ? `tenant:${tenantId}:layout:budget`
-          : `tenant:${tenantId}:layout:latest`
+      const layoutSuffix = layoutTool === 'gallery' ? 'gallery' : layoutTool === 'budget' ? 'budget' : 'latest'
+      const envSuffix = isStaging ? ':staging' : ''
+      const layoutKvKey = `tenant:${tenantId}:layout:${layoutSuffix}${envSuffix}`
       layout = await TENANT_KV.get(layoutKvKey, 'json')
       if (layout) setCachedLayout(layoutCacheKey, layout)
     }
+
+    // Also determine env for badge/compiled cache (reuse isStaging from above)
+    const envBadgeText = isStaging ? 'STAGING' : ''
 
     if (!layout) return c.text('No layout found for tenant', 404)
 
@@ -474,7 +479,7 @@ app.get('/', async (c) => {
     let edrCss = ''
 
     // ── 3. Compiled HTML cache (KV, 120s + jitter) ────────────────────────
-    const cacheKey = `tenant:${tenantId}:compiled:${layoutTool}`
+    const cacheKey = `tenant:${tenantId}:compiled:${layoutTool}:${isStaging ? 'staging' : 'prod'}`
     let html = await TENANT_KV.get(cacheKey)
 
     if (!html) {
@@ -510,9 +515,6 @@ app.get('/', async (c) => {
 
     // ── Environment badge ───────────────────────────────────────────────
     // Only show for non-production environments
-    const queryEnv = c.req.query('env')
-    const envBadgeText = queryEnv === 'staging' ? 'STAGING' : ''
-
     const title = `${tenant.name} — EdgeGDE`
 
     const page = `<!DOCTYPE html>
@@ -571,6 +573,14 @@ app.get('/', async (c) => {
     <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
       <span class="text-lg font-semibold text-white">${tenant.name}</span>
       ${envBadgeText ? `<span id="env-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-400/20 text-yellow-400 uppercase tracking-wider">${envBadgeText}</span>` : ''}
+      ${isStaging ? `
+      <div style="display:flex;gap:4px;align-items:center">
+        <button hx-post="/api/staging/undo" hx-target="body" hx-swap="innerHTML" style="padding:4px 8px;border-radius:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer" title="Undo last change">&#8617;</button>
+        <button hx-post="/api/staging/redo" hx-target="body" hx-swap="innerHTML" style="padding:4px 8px;border-radius:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer" title="Redo">&#8618;</button>
+        <button hx-post="/api/staging/save-version" hx-target="body" hx-swap="beforeend" style="padding:4px 10px;border-radius:6px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.25);color:#818CF8;font-size:11px;cursor:pointer" title="Save current version as a named snapshot">Save</button>
+        <button hx-get="/api/staging/versions" hx-target="#version-panel" hx-swap="innerHTML" style="padding:4px 10px;border-radius:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.6);font-size:11px;cursor:pointer" title="Browse saved versions">Versions</button>
+        <button hx-post="/api/staging/promote" hx-target="body" hx-swap="beforeend" style="padding:4px 12px;border-radius:6px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);color:#22C55E;font-size:11px;font-weight:600;cursor:pointer" title="Promote staging layout to production">Go Live</button>
+      </div>` : ''}
     </div>
   </header>
   <main id="app-root"
@@ -580,14 +590,15 @@ app.get('/', async (c) => {
         hx-swap="innerHTML">
     ${html}
   </main>
-  ${queryEnv === 'staging' || queryEnv === 'local' ? `
+  ${isStaging ? `<div id="version-panel" style="position:fixed;top:60px;right:16px;width:320px;max-height:60vh;overflow-y:auto;background:rgba(15,15,26,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px;display:none;z-index:1000;backdrop-filter:blur(12px)"></div>` : ''}
+  ${isStaging ? `
   <div id="dev-sentinel"
        hx-get="/api/fragment/dev-hash"
        hx-trigger="every 0.5s"
        hx-swap="outerHTML"
        hx-headers='{"X-Current-Hash": "${await getLatestHash({ kv: (c.env as any)?.TENANT_KV, dev: true })}"}'>
   </div>` : ''}
-  ${queryEnv === 'staging' || queryEnv === 'local' ? `
+  ${isStaging ? `
   <script>
     (function() {
       const SENTINEL_ID = 'dev-sentinel'
@@ -616,6 +627,12 @@ app.get('/', async (c) => {
       document.addEventListener('click', function onAnyClick() {
         if (isActive) { resetIdleTimer(); return }
         setPolling(true)
+      })
+
+      // Version panel toggle
+      document.querySelector('[hx-get=\"/api/staging/versions\"]')?.addEventListener('click', function(e) {
+        const panel = document.getElementById('version-panel')
+        if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none'
       })
 
       setPolling(true)
