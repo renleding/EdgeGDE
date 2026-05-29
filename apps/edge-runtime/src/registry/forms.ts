@@ -16,11 +16,25 @@ import { calculateLoanMetrics } from '../lib/calculator'
 
 const mortgageFields: FormFieldDef[] = [
   {
+    fieldName: 'propertyValue',
+    label: 'Property Value',
+    fieldType: 'number',
+    validation: { required: true, min: 1, max: 100_000_000 },
+    placeholder: 'e.g. 800000',
+  },
+  {
     fieldName: 'loanAmount',
     label: 'Loan Amount',
     fieldType: 'number',
     validation: { required: true, min: 1, max: 100_000_000 },
     placeholder: 'e.g. 500000',
+  },
+  {
+    fieldName: 'deposit',
+    label: 'Deposit Amount',
+    fieldType: 'number',
+    validation: { required: true, min: 0, max: 100_000_000 },
+    placeholder: 'e.g. 120000',
   },
   {
     fieldName: 'interestRate',
@@ -49,6 +63,14 @@ const mortgageFields: FormFieldDef[] = [
     fieldType: 'number',
     validation: { min: 0 },
     placeholder: 'e.g. 3000',
+  },
+  {
+    fieldName: 'employmentType',
+    label: 'Employment Type',
+    fieldType: 'select',
+    validation: { required: true },
+    options: ['PAYG', 'Self-Employed'],
+    placeholder: 'Select employment type',
   },
 ]
 

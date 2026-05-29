@@ -24,8 +24,10 @@ import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
+import { vaultRouter } from './api/vault'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
+import leadScorer from './queues/lead-scorer'
 import {
   getCachedLayout,
   setCachedLayout,
@@ -46,6 +48,7 @@ import { logEvent } from './lib/telemetry'
 import { incrementRequest } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
+import { runDispatcher } from './crons/dispatcher'
 // ═══════════════════════════════════════════════════════════════════════════
 // Form Registry (Phase 29)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -288,7 +291,10 @@ app.route('/api/v1/admin', scoringAdminRouter)
 app.route('/api/v1', scoringTenantRouter)
 app.route('/api/v1/admin', reportAdminRouter)
 app.route('/api/v1', reportCronHandler)
-app.route('/api', stagingRouter)
+app.route('/api/v1', stagingRouter)
+
+// Document Vault (admin auth applied within vaultRouter)
+app.route('/api/v1/vault', vaultRouter)
 
 // Tenant provisioning (admin)
 app.route('/api/tenants', tenantRouter)
@@ -487,23 +493,34 @@ app.get('/', async (c) => {
     let html = await TENANT_KV.get(cacheKey)
 
     if (!html) {
-      // Detect EDR-based layout vs legacy OpenPencil layout
-      if (layout && layout.root) {
-        // EDR pipeline: compile via pure_compiler
-        const { transform } = await import('./edr/compiler/synthesis')
-        const synthesized = transform(layout.root)
-        const edrDef: import('./edr/compiler/engine').EDR = {
-          components: layout.edr?.components || {},
-          global: layout.edr?.global || {},
+      try {
+        // Detect EDR-based layout vs legacy OpenPencil layout
+        if (layout && layout.root) {
+          // EDR pipeline: compile via pure_compiler
+          const { transform } = await import('./edr/compiler/synthesis')
+          const synthesized = transform(layout.root)
+          const edrDef: import('./edr/compiler/engine').EDR = {
+            components: layout.edr?.components || {},
+            global: layout.edr?.global || {},
+          }
+          const { compile: edrCompile } = await import('./edr/compiler/engine')
+          html = edrCompile(synthesized, edrDef, layout.edrHash || 'default', 'edr')
+        } else {
+          // Legacy OpenPencil pipeline
+          html = compileLayout(layout, design)
         }
-        const { compile: edrCompile } = await import('./edr/compiler/engine')
-        html = edrCompile(synthesized, edrDef, layout.edrHash || 'default', 'edr')
-      } else {
-        // Legacy OpenPencil pipeline
-        html = compileLayout(layout, design)
+        const ttl = 120 + Math.floor(Math.random() * 20)
+        await TENANT_KV.put(cacheKey, html, { expirationTtl: ttl })
+      } catch (compileErr) {
+        // ══════════════════════════════════════════════════════════════════
+        // CIRCUIT BREAKER: compilation failed — serve stale cache or safe default
+        // ══════════════════════════════════════════════════════════════════
+        console.warn(`[circuit-breaker] compileLayout failed for ${cacheKey}:`, compileErr)
+        html = await TENANT_KV.get(cacheKey)
+        if (!html) {
+          html = `<div class="p-4 text-red-600">Temporary service degradation — please refresh.</div>`
+        }
       }
-      const ttl = 120 + Math.floor(Math.random() * 20)
-      await TENANT_KV.put(cacheKey, html, { expirationTtl: ttl })
     }
 
     // Generate EDR CSS for <head> injection (always runs, even on cache hit)
@@ -670,5 +687,25 @@ app.get('/', async (c) => {
 // Exports
 // ═══════════════════════════════════════════════════════════════════════════
 
-export default app
+export default {
+  async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
+    return app.fetch(request, env, ctx)
+  },
+
+  async queue(batch: any, env: any, ctx: ExecutionContext): Promise<void> {
+    try {
+      console.warn('[queue] batch received', { size: batch.messages.length })
+      await leadScorer.queue(batch, env, ctx)
+    } catch (err) {
+      console.error('[queue] fatal handler failure:', err)
+      // do not throw
+    }
+  },
+
+  async scheduled(_event: any, env: any, _ctx: ExecutionContext): Promise<void> {
+    console.log('[cron] dispatcher triggered')
+    await runDispatcher(env)
+  },
+}
 export { RateLimiter } from './objects/RateLimiter'
+export { AuditLedger } from './objects/AuditLedger'

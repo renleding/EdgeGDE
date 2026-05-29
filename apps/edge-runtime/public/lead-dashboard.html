@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lead Dashboard — EdgeGDE</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1117;
+      color: #e1e4e8;
+      min-height: 100vh;
+      padding: 12px;
+    }
+    h1 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #f0f2f5;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    h1 svg { width: 14px; height: 14px; }
+    .controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+    .filter-group {
+      display: flex;
+      gap: 4px;
+    }
+    .filter-btn {
+      background: #1c1e26;
+      border: 1px solid #2d3140;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 11px;
+      color: #8b949e;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .filter-btn:hover { border-color: #58a6ff; color: #e1e4e8; }
+    .filter-btn.active {
+      background: #1f3a5f;
+      border-color: #58a6ff;
+      color: #58a6ff;
+    }
+    .filter-btn .count {
+      margin-left: 4px;
+      opacity: 0.6;
+    }
+    .badge-hot { color: #f85149; }
+    .badge-warm { color: #d29922; }
+    .badge-cold { color: #8b949e; }
+    .last-updated {
+      font-size: 11px;
+      color: #8b949e;
+      margin-left: auto;
+    }
+    .summary-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .summary-card {
+      background: #1c1e26;
+      border: 1px solid #2d3140;
+      border-radius: 6px;
+      padding: 8px 14px;
+      flex: 1;
+    }
+    .summary-card .label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #8b949e;
+    }
+    .summary-card .value {
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid #2d3140;
+      color: #8b949e;
+      font-weight: 600;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #1c1e26;
+      vertical-align: middle;
+    }
+    tr:hover td { background: #161b22; }
+    .lead-name { color: #f0f2f5; font-weight: 500; }
+    .lead-email { color: #8b949e; font-size: 11px; }
+    .score-cell {
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .score-hot { color: #f85149; }
+    .score-warm { color: #d29922; }
+    .score-cold { color: #8b949e; }
+    .band-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .band-hot { background: #3d1320; color: #f85149; border: 1px solid #5c1d30; }
+    .band-warm { background: #2d2410; color: #d29922; border: 1px solid #4d3a1a; }
+    .band-cold { background: #1c1e26; color: #8b949e; border: 1px solid #2d3140; }
+    .rationale-cell {
+      color: #8b949e;
+      font-size: 11px;
+      max-width: 280px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: #8b949e;
+    }
+    .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
+    .empty-state p { font-size: 13px; }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #8b949e;
+      margin-top: 12px;
+    }
+    .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #3fb950;
+      display: inline-block;
+    }
+    .dot.error { background: #f85149; }
+    .dot.pending { background: #d29922; }
+    .tenant-id {
+      color: #58a6ff;
+      font-size: 10px;
+      font-family: monospace;
+    }
+    .alerts-panel {
+      background: #1c0f15;
+      border: 1px solid #5c1d30;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+    }
+    .alerts-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .alerts-header .title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #f85149;
+    }
+    .alerts-header .count-badge {
+      background: #3d1320;
+      color: #f85149;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .alert-card {
+      background: #1c1e26;
+      border: 1px solid #2d3140;
+      border-left: 3px solid #f85149;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .alert-card:last-child { margin-bottom: 0; }
+    .alert-card .alert-score {
+      font-size: 18px;
+      font-weight: 700;
+      color: #f85149;
+      min-width: 36px;
+    }
+    .alert-card .alert-body { flex: 1; min-width: 0; }
+    .alert-card .alert-tenant {
+      font-size: 10px;
+      color: #58a6ff;
+      font-family: monospace;
+    }
+    .alert-card .alert-rationale {
+      font-size: 11px;
+      color: #e1e4e8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .alert-card .alert-time {
+      font-size: 10px;
+      color: #8b949e;
+      white-space: nowrap;
+    }
+    .dismiss-btn {
+      background: none;
+      border: 1px solid #2d3140;
+      border-radius: 4px;
+      color: #8b949e;
+      cursor: pointer;
+      font-size: 10px;
+      padding: 3px 8px;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .dismiss-btn:hover {
+      border-color: #f85149;
+      color: #f85149;
+      background: #3d1320;
+    }
+    .alerts-empty {
+      font-size: 11px;
+      color: #8b949e;
+      text-align: center;
+      padding: 4px 0;
+    }
+    .alerts-panel.hidden { display: none; }
+
+    /* Toast notifications */
+    #toast-container {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 360px;
+    }
+    .toast {
+      background: #3d1320;
+      border: 1px solid #f85149;
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #e1e4e8;
+      font-size: 12px;
+      animation: toast-in 0.3s ease-out;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      cursor: pointer;
+    }
+    .toast .toast-title { font-weight: 700; color: #f85149; margin-bottom: 2px; }
+    .toast .toast-score { font-size: 16px; font-weight: 700; color: #f85149; }
+    .toast .toast-body { color: #8b949e; margin-top: 2px; }
+    @keyframes toast-in {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .toast.dismissing { animation: toast-out 0.3s ease-in forwards; }
+    @keyframes toast-out {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+
+    /* Replay area */
+    .replay-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #1c1e26;
+      border: 1px solid #2d3140;
+      border-radius: 6px;
+    }
+    .replay-bar .replay-btn {
+      background: #1c1e26;
+      border: 1px solid #2d3140;
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 11px;
+      color: #8b949e;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .replay-bar .replay-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    .replay-bar .replay-status { font-size: 11px; color: #8b949e; }
+
+    /* Scoring Sandbox */
+    .sandbox-body {
+      background: #161b22;
+      border: 1px solid #2d3140;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .sandbox-body.collapsed { display: none; }
+    .sandbox-container {}
+    .sandbox-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; margin-bottom: 4px; }
+    .sandbox-value { font-size: 16px; font-weight: 700; color: #f0f2f5; margin-bottom: 6px; }
+    .sandbox-slider { width: 100%; accent-color: #4ade80; height: 6px; cursor: pointer; }
+    .sandbox-range { font-size: 10px; color: #8b949e; margin-top: 2px; }
+    .sandbox-select { width: 100%; padding: 6px 8px; background: #0f1117; color: #e1e4e8; border: 1px solid #2d3140; border-radius: 6px; font-size: 12px; font-family: inherit; }
+    .sandbox-results { display: flex; gap: 8px; margin-top: 14px; }
+    .sandbox-result-card {
+      background: #0f1117;
+      border: 1px solid #2d3140;
+      border-radius: 8px;
+      padding: 10px 14px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .sandbox-result-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; }
+    .sandbox-result-score { font-size: 22px; font-weight: 700; color: #4ade80; margin-top: 2px; }
+    .sandbox-result-max { font-size: 12px; font-weight: 400; color: #8b949e; margin-left: 2px; }
+    .sandbox-result-detail { font-size: 12px; color: #e1e4e8; margin-top: 4px; }
+    .sandbox-footnote { font-size: 10px; color: #8b949e; font-style: italic; margin-top: 10px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f85149" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 20V10M18 20V4M6 20v-4"/>
+    </svg>
+    Lead Dashboard
+    <small>scored submissions</small>
+  </h1>
+
+  <div class="controls">
+    <div class="filter-group" id="band-filters">
+      <button class="filter-btn active" data-band="">All <span class="count" id="count-all"></span></button>
+      <button class="filter-btn" data-band="hot">🔥 Hot <span class="count badge-hot" id="count-hot"></span></button>
+      <button class="filter-btn" data-band="warm">Warm <span class="count badge-warm" id="count-warm"></span></button>
+      <button class="filter-btn" data-band="cold">Cold <span class="count badge-cold" id="count-cold"></span></button>
+    </div>
+    <div class="last-updated" id="last-updated"></div>
+  </div>
+
+  <div class="summary-row" id="summary-row"></div>
+
+  <!-- ═══ Hot Alerts Panel ═══ -->
+  <div id="alerts-panel" class="alerts-panel">
+    <div class="alerts-header">
+      <span class="title">🔥 Hot Alerts</span>
+      <span class="count-badge" id="alert-count-badge">0</span>
+    </div>
+    <div id="alerts-list"></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Score</th>
+        <th>Band</th>
+        <th>Rationale</th>
+        <th>Tenant</th>
+        <th>Submitted</th>
+      </tr>
+    </thead>
+    <tbody id="leads-body">
+      <tr><td colspan="6" class="empty-state"><div class="icon">⏳</div><p>Loading leads...</p></td></tr>
+    </tbody>
+  </table>
+
+  <div class="status-bar">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">Polling...</span>
+  </div>
+
+  <div class="replay-bar">
+    <button class="replay-btn" id="replay-btn">↻ Replay Deadletters</button>
+    <span class="replay-status" id="replay-status"></span>
+  </div>
+
+  <!-- ═══ Deterministic Scoring Sandbox ═══ -->
+  <div class="replay-bar" style="margin-top:12px;display:flex;justify-content:space-between;cursor:pointer" id="sandbox-toggle">
+    <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#4ade80">🧮 Scoring Sandbox</span>
+    <span style="font-size:10px;color:#8b949e" id="sandbox-chevron">▼</span>
+  </div>
+  <div id="sandbox-body" class="sandbox-body">
+    <div class="sandbox-container">
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div class="sandbox-label">Property Value</div>
+          <div class="sandbox-value" id="propValDisplay">$800,000</div>
+          <input type="range" id="propValue" min="100000" max="2000000" step="10000" value="800000" class="sandbox-slider">
+          <div class="sandbox-range">100k — 2M</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div class="sandbox-label">Loan Amount</div>
+          <div class="sandbox-value" id="loanValDisplay">$640,000</div>
+          <input type="range" id="loanValue" min="50000" max="2000000" step="10000" value="640000" class="sandbox-slider">
+          <div class="sandbox-range">50k — 2M</div>
+        </div>
+        <div style="flex:1;min-width:160px">
+          <div class="sandbox-label">Employment</div>
+          <select id="empType" class="sandbox-select">
+            <option value="payg">PAYG</option>
+            <option value="self-employed">Self-Employed</option>
+          </select>
+          <div class="sandbox-label" style="margin-top:12px">Urgency (AI hint)</div>
+          <select id="urgencyType" class="sandbox-select">
+            <option value="asap">ASAP</option>
+            <option value="next-month">Next Month</option>
+            <option value="browsing" selected>Just Browsing</option>
+          </select>
+        </div>
+      </div>
+      <div class="sandbox-results">
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">Deterministic Score</span>
+          <span class="sandbox-result-score" id="scoreDisplay">70</span>
+          <span class="sandbox-result-max">/70</span>
+        </div>
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">LVR</span>
+          <span class="sandbox-result-score" id="lvrDisplay" style="color:#58a6ff">80.00%</span>
+        </div>
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">Breakdown</span>
+          <span class="sandbox-result-detail" id="breakdownDisplay">Base 30 + LVR 10 + PAYG 20</span>
+        </div>
+      </div>
+      <div class="sandbox-footnote">Up to +30 points added server-side by DeepSeek AI based on urgency and intent signals.</div>
+    </div>
+  </div>
+
+  <!-- ═══ Insights Panel ═══ -->
+  <div class="replay-bar" style="margin-top:12px;display:flex;justify-content:space-between;cursor:pointer" id="insights-toggle">
+    <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#58a6ff">📊 Scoring Insights</span>
+    <span style="font-size:10px;color:#8b949e" id="insights-chevron">▶</span>
+  </div>
+  <div id="insights-body" class="sandbox-body collapsed">
+    <div class="sandbox-container">
+      <div class="sandbox-results" id="insights-cards">
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">Total Leads</span>
+          <span class="sandbox-result-score" style="color:#58a6ff" id="insights-total">—</span>
+        </div>
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">Avg Score (Total)</span>
+          <span class="sandbox-result-score" id="insights-avg-total">—</span>
+        </div>
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">Avg Score (FNS40821)</span>
+          <span class="sandbox-result-score" style="color:#4ade80" id="insights-avg-det">—</span>
+        </div>
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">LLM Uplift</span>
+          <span class="sandbox-result-score" style="color:#d29922" id="insights-llm-uplift">—</span>
+        </div>
+      </div>
+      <div class="sandbox-results" style="margin-top:8px">
+        <div class="sandbox-result-card" style="border-left:3px solid #f85149">
+          <span class="sandbox-result-label">🔥 Hot</span>
+          <span class="sandbox-result-score" style="color:#f85149" id="insights-hot">0</span>
+        </div>
+        <div class="sandbox-result-card" style="border-left:3px solid #d29922">
+          <span class="sandbox-result-label">Warm</span>
+          <span class="sandbox-result-score" style="color:#d29922" id="insights-warm">0</span>
+        </div>
+        <div class="sandbox-result-card" style="border-left:3px solid #8b949e">
+          <span class="sandbox-result-label">Cold</span>
+          <span class="sandbox-result-score" style="color:#8b949e" id="insights-cold">0</span>
+        </div>
+        <div class="sandbox-result-card">
+          <span class="sandbox-result-label">LLM Success</span>
+          <span class="sandbox-result-score" id="insights-llm-rate" style="color:#3fb950">—</span>
+        </div>
+      </div>
+      <div class="sandbox-footnote" id="insights-footnote"></div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script>
+    // Read admin token from URL query param ?token=xxx
+    const urlParams = new URLSearchParams(window.location.search)
+    const ADMIN_TOKEN = urlParams.get('token') || ''
+    function apiUrl(path) {
+      return path + (ADMIN_TOKEN ? (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(ADMIN_TOKEN) : '')
+    }
+
+    let currentBand = ''
+    let allLeads = []
+    let allAlerts = []
+
+    // ── Filter buttons ──────────────────────────────────────────────────
+    document.getElementById('band-filters').addEventListener('click', (e) => {
+      const btn = e.target.closest('.filter-btn')
+      if (!btn) return
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      currentBand = btn.dataset.band
+      render()
+    })
+
+    // ── Summary cards ───────────────────────────────────────────────────
+    function renderSummary(leads) {
+      const total = leads.length
+      const hot = leads.filter(l => l.band === 'hot').length
+      const warm = leads.filter(l => l.band === 'warm').length
+      const cold = leads.filter(l => l.band === 'cold').length
+      const avgScore = total > 0 ? Math.round(leads.reduce((s, l) => s + l.score, 0) / total) : 0
+      const hotPct = total > 0 ? Math.round(hot / total * 100) : 0
+
+      document.getElementById('summary-row').innerHTML = `
+        <div class="summary-card">
+          <div class="label">Total Leads</div>
+          <div class="value">${total}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">🔥 Hot <span style="color:#8b949e;font-weight:400">(${hotPct}%)</span></div>
+          <div class="value" style="color:#f85149">${hot}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Average Score</div>
+          <div class="value">${avgScore}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Warm</div>
+          <div class="value" style="color:#d29922">${warm}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Cold</div>
+          <div class="value" style="color:#8b949e">${cold}</div>
+        </div>
+      `
+    }
+
+    // ── Render table ────────────────────────────────────────────────────
+    function render() {
+      const filtered = currentBand
+        ? allLeads.filter(l => l.band === currentBand)
+        : allLeads
+
+      document.getElementById('count-all').textContent = allLeads.length
+      document.getElementById('count-hot').textContent = allLeads.filter(l => l.band === 'hot').length
+      document.getElementById('count-warm').textContent = allLeads.filter(l => l.band === 'warm').length
+      document.getElementById('count-cold').textContent = allLeads.filter(l => l.band === 'cold').length
+
+      renderSummary(filtered)
+
+      const tbody = document.getElementById('leads-body')
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="icon">📭</div><p>No leads ' + (currentBand ? 'in this band' : 'yet') + '. Submit some lead data to see it here.</p></td></tr>'
+        return
+      }
+
+      tbody.innerHTML = filtered.map(l => {
+        const scoreClass = 'score-' + l.band
+        const bandClass = 'band-' + l.band
+        const created = l.createdAt ? new Date(l.createdAt + 'Z').toLocaleDateString() : '\u2014'
+        return '<tr>' +
+          '<td><div class="lead-name">' + esc(l.name || '\u2014') + '</div><div class="lead-email">' + esc(l.email || '') + '</div></td>' +
+          '<td class="score-cell ' + scoreClass + '">' + l.score + '</td>' +
+          '<td><span class="band-tag ' + bandClass + '">' + l.band + '</span></td>' +
+          '<td class="rationale-cell" title="' + esc(l.rationale) + '">' + esc(l.rationale || '\u2014') + '</td>' +
+          '<td><span class="tenant-id">' + esc(l.tenantId) + '</span></td>' +
+          '<td style="color:#8b949e;font-size:11px">' + created + '</td>' +
+        '</tr>'
+      }).join('')
+    }
+
+    function esc(s) {
+      if (!s) return ''
+      const d = document.createElement('div')
+      d.textContent = String(s)
+      return d.innerHTML
+    }
+
+    // ── Hot Alerts ──────────────────────────────────────────────────────
+    async function pollAlerts() {
+      try {
+        const res = await fetch(apiUrl('/api/v1/admin/hot-alerts?tenant=afirmico'))
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        allAlerts = data.alerts || []
+        renderAlerts()
+      } catch (err) {
+        document.getElementById('alerts-list').innerHTML =
+          '<div class="alerts-empty">\u26a0\ufe0f ' + esc(err.message) + '</div>'
+      }
+    }
+
+    function renderAlerts() {
+      const badge = document.getElementById('alert-count-badge')
+      const list = document.getElementById('alerts-list')
+
+      if (allAlerts.length === 0) {
+        badge.textContent = '0'
+        list.innerHTML = '<div class="alerts-empty">\u2705 No active hot alerts</div>'
+        return
+      }
+
+      badge.textContent = allAlerts.length
+
+      list.innerHTML = allAlerts.map(function(a) {
+        const time = a.timestamp ? new Date(a.timestamp).toLocaleString() : '\u2014'
+        return '<div class="alert-card" data-id="' + esc(a.submissionId) + '">' +
+          '<div class="alert-score">' + a.score + '</div>' +
+          '<div class="alert-body">' +
+            '<div class="alert-tenant">' + esc(a.tenantId) + '</div>' +
+            '<div class="alert-rationale" title="' + esc(a.rationale) + '">' + esc(a.rationale || '\u2014') + '</div>' +
+          '</div>' +
+          '<div class="alert-time">' + time + '</div>' +
+          '<button class="dismiss-btn" data-dismiss="' + esc(a.submissionId) + '">Dismiss</button>' +
+        '</div>'
+      }).join('')
+
+      // Attach dismiss handlers
+      list.querySelectorAll('.dismiss-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function(e) {
+          e.stopPropagation()
+          const id = btn.dataset.dismiss
+          try {
+            const res = await fetch(apiUrl('/api/v1/admin/hot-alerts/' + encodeURIComponent(id) + '?tenant=afirmico'), { method: 'DELETE' })
+            if (!res.ok) throw new Error('HTTP ' + res.status)
+            allAlerts = allAlerts.filter(function(a) { return a.submissionId !== id })
+            renderAlerts()
+          } catch (err) {
+            console.error('Dismiss failed:', err)
+          }
+        })
+      })
+    }
+
+    pollAlerts()
+    setInterval(pollAlerts, 10000)
+
+    // ── Leads polling ───────────────────────────────────────────────────
+    async function poll() {
+      try {
+        const res = await fetch(apiUrl('/api/v1/admin/leads'))
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        allLeads = data.leads || []
+        render()
+        document.getElementById('last-updated').textContent = 'updated ' + new Date().toLocaleTimeString()
+        const dot = document.getElementById('status-dot')
+        dot.className = 'dot'
+        document.getElementById('status-text').textContent = 'OK'
+      } catch (err) {
+        document.getElementById('leads-body').innerHTML =
+          '<tr><td colspan="6" class="empty-state"><div class="icon">\u26a0\ufe0f</div><p>Connection error: ' + esc(err.message) + '</p></td></tr>'
+        const dot = document.getElementById('status-dot')
+        dot.className = 'dot error'
+        document.getElementById('status-text').textContent = 'Error: ' + err.message
+      }
+    }
+
+    poll()
+    setInterval(poll, 10000)
+
+    // ── SSE Stream — real-time hot lead toasts ──────────────────────────
+    if (ADMIN_TOKEN) {
+      try {
+        const sseUrl = apiUrl('/api/v1/admin/leads/stream?tenant=afirmico')
+        const evtSource = new EventSource(sseUrl)
+
+        evtSource.addEventListener('connected', function() {
+          console.log('[SSE] connected')
+        })
+
+        evtSource.addEventListener('hot_lead', function(e) {
+          try {
+            const data = JSON.parse(e.data)
+            showToast(data)
+          } catch (err) {
+            console.error('[SSE] parse error:', err)
+          }
+        })
+
+        evtSource.onerror = function() {
+          console.warn('[SSE] connection error — will retry automatically')
+        }
+      } catch (err) {
+        console.warn('[SSE] setup failed:', err)
+      }
+    }
+
+    function showToast(data) {
+      const container = document.getElementById('toast-container')
+      const toast = document.createElement('div')
+      toast.className = 'toast'
+      toast.innerHTML =
+        '<div class="toast-title">🔥 New Hot Lead</div>' +
+        '<div class="toast-score">' + esc(String(data.score || '')) + '</div>' +
+        '<div class="toast-body">' + esc(data.rationale || '') + '</div>'
+      toast.addEventListener('click', function() {
+        toast.classList.add('dismissing')
+        setTimeout(function() { toast.remove() }, 300)
+      })
+      container.appendChild(toast)
+      // Auto-dismiss after 8s
+      setTimeout(function() {
+        if (toast.parentNode) {
+          toast.classList.add('dismissing')
+          setTimeout(function() { toast.remove() }, 300)
+        }
+      }, 8000)
+    }
+
+    // ── Replay Deadletters ──────────────────────────────────────────────
+    document.getElementById('replay-btn').addEventListener('click', async function() {
+      const btn = document.getElementById('replay-btn')
+      const status = document.getElementById('replay-status')
+      btn.disabled = true
+      status.textContent = 'Replaying...'
+      try {
+        const res = await fetch(apiUrl('/api/v1/admin/replay-deadletters?tenant=afirmico'), { method: 'POST' })
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        status.textContent = 'Replayed ' + data.replayed + ', failed ' + data.failed + (data.message ? ' (' + data.message + ')' : '')
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message
+      }
+      btn.disabled = false
+    })
+
+    // ── Scoring Sandbox ─────────────────────────────────────────────────
+    const propValue = document.getElementById('propValue')
+    const loanValue = document.getElementById('loanValue')
+    const empType = document.getElementById('empType')
+    const propValDisplay = document.getElementById('propValDisplay')
+    const loanValDisplay = document.getElementById('loanValDisplay')
+    const scoreDisplay = document.getElementById('scoreDisplay')
+    const lvrDisplay = document.getElementById('lvrDisplay')
+    const breakdownDisplay = document.getElementById('breakdownDisplay')
+
+    function calculateScore() {
+      const pv = parseFloat(propValue.value)
+      const la = parseFloat(loanValue.value)
+      const emp = empType.value
+
+      propValDisplay.textContent = '$' + pv.toLocaleString()
+      loanValDisplay.textContent = '$' + la.toLocaleString()
+
+      let lvr = 0
+      if (pv > 0) lvr = (la / pv) * 100
+      lvrDisplay.textContent = lvr.toFixed(2) + '%'
+
+      let score = 30
+      const parts = ['Base 30']
+
+      if (lvr < 80) { score += 20; parts.push('LVR <80%: +20') }
+      else if (lvr <= 90) { score += 10; parts.push('LVR 80-90%: +10') }
+      else { parts.push('LVR >90%: +0') }
+
+      if (emp === 'payg') { score += 20; parts.push('PAYG: +20') }
+      else { parts.push('Self-employed: +0') }
+
+      score = Math.min(score, 70)
+      scoreDisplay.textContent = score
+      breakdownDisplay.textContent = parts.join(' + ')
+    }
+
+    propValue.addEventListener('input', calculateScore)
+    loanValue.addEventListener('input', calculateScore)
+    empType.addEventListener('change', calculateScore)
+    calculateScore()
+
+    // ── Sandbox collapsible toggle ─────────────────────────────────────
+    const sandboxToggle = document.getElementById('sandbox-toggle')
+    const sandboxBody = document.getElementById('sandbox-body')
+    const sandboxChevron = document.getElementById('sandbox-chevron')
+    let sandboxOpen = true
+
+    sandboxToggle.addEventListener('click', function() {
+      sandboxOpen = !sandboxOpen
+      sandboxBody.classList.toggle('collapsed', !sandboxOpen)
+      sandboxChevron.textContent = sandboxOpen ? '▼' : '▶'
+    })
+
+    // ── Insights Polling ────────────────────────────────────────────────
+    async function pollInsights() {
+      try {
+        const [insightsRes, telemetryRes] = await Promise.all([
+          fetch(apiUrl('/api/v1/admin/insights?tenant=afirmico')),
+          fetch(apiUrl('/api/v1/admin/telemetry')),
+        ])
+
+        if (insightsRes.ok) {
+          const d = await insightsRes.json()
+          document.getElementById('insights-total').textContent = d.totalLeads || '0'
+          document.getElementById('insights-avg-total').textContent = d.averageTotalScore !== null ? String(d.averageTotalScore) : '\u2014'
+          document.getElementById('insights-avg-det').textContent = d.averageDeterministicScore !== null ? String(d.averageDeterministicScore) : '\u2014'
+          document.getElementById('insights-llm-uplift').textContent = d.averageLlmContribution !== null ? '+' + String(d.averageLlmContribution) : '\u2014'
+          document.getElementById('insights-hot').textContent = (d.bandDistribution?.hot || 0)
+          document.getElementById('insights-warm').textContent = (d.bandDistribution?.warm || 0)
+          document.getElementById('insights-cold').textContent = (d.bandDistribution?.cold || 0)
+        }
+
+        if (telemetryRes.ok) {
+          const t = await telemetryRes.json()
+          const rate = t.summary?.successRate
+          const latency = t.summary?.avgLatencyMs
+          document.getElementById('insights-llm-rate').textContent = rate !== null ? String(rate) + '%' : '\u2014'
+          const footnote = document.getElementById('insights-footnote')
+          const parts = []
+          if (t.summary?.totalEntries > 0) parts.push(t.summary.totalEntries + ' LLM calls')
+          if (latency !== null) parts.push('avg ' + latency + 'ms')
+          if (t.summary?.daysScanned > 0) parts.push(t.summary.daysScanned + ' days')
+          footnote.textContent = parts.join(' · ')
+        }
+      } catch (err) {
+        console.warn('[insights] poll failed:', err)
+      }
+    }
+
+    pollInsights()
+    setInterval(pollInsights, 30000)
+
+    // ── Insights collapsible toggle ─────────────────────────────────────
+    const insightsToggle = document.getElementById('insights-toggle')
+    const insightsBody = document.getElementById('insights-body')
+    const insightsChevron = document.getElementById('insights-chevron')
+    let insightsOpen = false
+
+    insightsToggle.addEventListener('click', function() {
+      insightsOpen = !insightsOpen
+      insightsBody.classList.toggle('collapsed', !insightsOpen)
+      insightsChevron.textContent = insightsOpen ? '▼' : '▶'
+      if (insightsOpen) pollInsights()
+    })
+  </script>
+</body>
+</html>
