@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leads — EdgeGDE</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #0a0a0f 0%, #1a1035 40%, #0f1b2d 70%, #0a0a0f 100%);
+      padding: 24px;
+      color: #e8e8f0;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.06) 0%, transparent 50%),
+                  radial-gradient(ellipse at 80% 20%, rgba(244,63,94,0.04) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container { max-width: 1000px; margin: 0 auto; position: relative; z-index: 1; }
+
+    /* ── Glass Header ── */
+    .glass-header {
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 20px 28px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .glass-header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      background: linear-gradient(135deg, #f0f0ff, #a5b4fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .glass-header .badge {
+      background: rgba(244,63,94,0.15);
+      border: 1px solid rgba(244,63,94,0.25);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 11px;
+      color: #fb7185;
+      font-weight: 600;
+    }
+    .glass-header .status {
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    /* ── Glass Card ── */
+    .glass-card {
+      background: rgba(255,255,255,0.03);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 18px 22px;
+      margin-bottom: 12px;
+      transition: all 0.2s;
+    }
+    .glass-card:hover {
+      background: rgba(255,255,255,0.05);
+      border-color: rgba(255,255,255,0.1);
+    }
+    .glass-card.hot {
+      border-left: 3px solid rgba(244,63,94,0.7);
+    }
+
+    .lead-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .lead-score {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fb7185;
+      min-width: 48px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .lead-body { flex: 1; min-width: 0; }
+    .lead-tenant {
+      font-size: 10px;
+      color: rgba(165,180,252,0.7);
+      font-family: monospace;
+      letter-spacing: 0.3px;
+    }
+    .lead-rationale {
+      font-size: 12px;
+      color: rgba(255,255,255,0.65);
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .lead-time {
+      font-size: 10px;
+      color: rgba(255,255,255,0.3);
+      white-space: nowrap;
+    }
+
+    /* ── Empty State ── */
+    .empty {
+      text-align: center;
+      padding: 60px 24px;
+    }
+    .empty .icon { font-size: 36px; margin-bottom: 12px; opacity: 0.4; }
+    .empty p { font-size: 13px; color: rgba(255,255,255,0.3); }
+    .empty .sub { font-size: 11px; color: rgba(255,255,255,0.2); margin-top: 6px; }
+
+    /* ── Toasts ── */
+    #toast-container {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 340px;
+    }
+    .toast {
+      background: rgba(30,15,25,0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(244,63,94,0.3);
+      border-radius: 12px;
+      padding: 12px 16px;
+      animation: slideIn 0.35s ease-out;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .toast .toast-score { font-size: 20px; font-weight: 700; color: #fb7185; }
+    .toast .toast-msg { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .toast.out { animation: slideOut 0.3s ease-in forwards; }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+
+    /* ── Pulse dot ── */
+    .pulse {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+    .pulse.off { background: rgba(255,255,255,0.15); animation: none; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="glass-header">
+      <h1>⌘ Hot Lead Stream</h1>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="badge" id="count-badge">0</span>
+        <span class="status" id="status"><span class="pulse" id="pulse-dot"></span>Listening</span>
+      </div>
+    </div>
+    <div id="leads-container"></div>
+  </div>
+  <div id="toast-container"></div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search)
+    const TOKEN = urlParams.get('token') || ''
+    function apiUrl(path) {
+      return path + (TOKEN ? (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN) : '')
+    }
+
+    let allAlerts = []
+    let evtSource = null
+
+    function esc(s) {
+      if (!s) return ''
+      const d = document.createElement('div')
+      d.textContent = String(s)
+      return d.innerHTML
+    }
+
+    function fmtTime(ts) {
+      if (!ts) return '—'
+      return new Date(ts).toLocaleString()
+    }
+
+    function render() {
+      const container = document.getElementById('leads-container')
+      const badge = document.getElementById('count-badge')
+      badge.textContent = allAlerts.length
+
+      if (allAlerts.length === 0) {
+        container.innerHTML = '<div class="glass-card"><div class="empty"><div class="icon">◈</div><p>No hot leads yet</p><div class="sub">Waiting for a score ≥ 80 to appear</div></div></div>'
+        return
+      }
+
+      container.innerHTML = allAlerts.map(a =>
+        '<div class="glass-card hot">' +
+        '<div class="lead-row">' +
+        '<div class="lead-score">' + a.score + '</div>' +
+        '<div class="lead-body">' +
+        '<div class="lead-tenant">' + esc(a.tenantId) + '</div>' +
+        '<div class="lead-rationale">' + esc(a.rationale || '—') + '</div>' +
+        '</div>' +
+        '<div class="lead-time">' + fmtTime(a.timestamp) + '</div>' +
+        '</div>' +
+        '</div>'
+      ).join('')
+    }
+
+    function showToast(a) {
+      const container = document.getElementById('toast-container')
+      const t = document.createElement('div')
+      t.className = 'toast'
+      t.innerHTML = '<div class="toast-score">' + a.score + '</div><div class="toast-msg">' + esc(a.rationale || '') + '</div>'
+      container.appendChild(t)
+      setTimeout(() => {
+        t.classList.add('out')
+        setTimeout(() => t.remove(), 300)
+      }, 6000)
+    }
+
+    // ── Polling (fallback) ────────────────────────────────────────────────
+    async function poll() {
+      try {
+        const res = await fetch(apiUrl('/api/v1/admin/hot-alerts?tenant=afirmico'))
+        if (!res.ok) throw new Error(String(res.status))
+        const data = await res.json()
+        // Detect new alerts
+        const incoming = data.alerts || []
+        for (const a of incoming) {
+          if (!allAlerts.find(x => x.submissionId === a.submissionId)) {
+            showToast(a)
+          }
+        }
+        allAlerts = incoming
+        render()
+        document.getElementById('status').innerHTML = '<span class="pulse"></span>' + allAlerts.length + ' alerts'
+      } catch (err) {
+        document.getElementById('pulse-dot').className = 'pulse off'
+        document.getElementById('status').textContent = 'Disconnected'
+      }
+    }
+
+    // ── SSE (primary) ────────────────────────────────────────────────────
+    function connectSSE() {
+      if (!TOKEN) return
+      try {
+        evtSource = new EventSource(apiUrl('/api/v1/admin/leads/stream?tenant=afirmico'))
+        evtSource.addEventListener('hot_lead', function(e) {
+          try {
+            const data = JSON.parse(e.data)
+            showToast(data)
+            poll() // refresh the list
+          } catch {}
+        })
+        evtSource.onerror = function() {
+          // EventSource auto-reconnects
+        }
+      } catch {}
+    }
+
+    poll()
+    setInterval(poll, 10000)
+    connectSSE()
+  </script>
+</body>
+</html>

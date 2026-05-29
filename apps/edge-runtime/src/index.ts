@@ -165,6 +165,20 @@ app.get('/healthz', (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Webhook Endpoint — receives hot lead dispatch from cron
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.post('/api/webhook/leads', async (c) => {
+  try {
+    const body = await c.req.json()
+    console.log(JSON.stringify({ event: 'webhook_received', ...body }))
+    return c.json({ received: true })
+  } catch {
+    return c.json({ error: 'Invalid JSON' }, 400)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MCP Discovery Document — dynamically derived from CALCULATOR_REGISTRY
 // ═══════════════════════════════════════════════════════════════════════════
 
