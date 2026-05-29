@@ -127,8 +127,9 @@ export function mountFormRoutes(app: Hono): void {
           ((c as any).get('tenant')?.tenantId) || 'default'
 
         c.executionCtx.waitUntil((async () => {
+          let payloadStr = ''
           try {
-            const payloadStr = JSON.stringify(result.data)
+            payloadStr = JSON.stringify(result.data)
 
             // CRITICAL: prevent abuse / oversized payloads
             if (payloadStr.length > 50000) {
@@ -144,35 +145,21 @@ export function mountFormRoutes(app: Hono): void {
               .bind(submissionId, tenantId, def.id, payloadStr)
               .run()
 
-            // ══════════════════════════════════════════════════════════════
-            // Lead Scoring (Track 4 Phase 5) — fire after D1 + webhook
+            // ══════════════════════════════════════════════════════════════════
+            // Lead Scoring (Track 4 Phase 5) — enqueue for async processing
             // ══════════════════════════════════════════════════════════════
             try {
-              const db = (c.env as any)?.DB
-              if (db && typeof db.prepare === 'function') {
-                const activeRubric = await db.prepare(
-                  `SELECT id, ruleset_json FROM scoring_rubrics
-                   WHERE tenant_id = ? AND is_active = 1 LIMIT 1`
-                ).bind(tenantId).first()
-
-                if (activeRubric) {
-                  let ruleset: any
-                  try { ruleset = JSON.parse((activeRubric as any).ruleset_json) } catch { ruleset = null }
-
-                  if (ruleset && ruleset.rules) {
-                    const { scoreLead } = await import('../lib/scoring-engine')
-                    // Use validated form data directly (result.data = parsed form fields)
-                    const scoreResult = scoreLead(result.data, ruleset)
-
-                    await db.prepare(
-                      `INSERT OR IGNORE INTO lead_scores (id, tenant_id, lead_id, rubric_id, score)
-                       VALUES (?, ?, ?, ?, ?)`
-                    ).bind(crypto.randomUUID(), tenantId, submissionId, (activeRubric as any).id, scoreResult.score).run()
-                  }
-                }
+              const queue = (c.env as any)?.LEAD_SCORING_QUEUE
+              if (queue && typeof queue.send === 'function') {
+                await queue.send({
+                  submissionId,
+                  tenantId,
+                  formId: def.id,
+                  payload: result.data,
+                })
               }
             } catch {
-              // Scoring failure is non-blocking — never breaks the response
+              // Queue send failure is non-blocking — never breaks the response
             }
             // ══════════════════════════════════════════════════════════════
             // Webhook Dispatch (Track 4 Phase 1) — fire after scoring + D1
@@ -202,8 +189,27 @@ export function mountFormRoutes(app: Hono): void {
               // Webhook failure is non-blocking
             }
 
-          } catch (error) {
-            console.error('[D1 Persistence Failure]', error)
+          } catch (dbErr) {
+            // ══════════════════════════════════════════════════════════════
+            // CIRCUIT BREAKER: D1 insert failed — park in tenant's dead-letter KV
+            // ══════════════════════════════════════════════════════════════
+            console.warn(`[circuit-breaker] D1 insert failed for ${def.id}:`, dbErr)
+            try {
+              const TENANT_KV = (c.env as any)?.TENANT_KV
+              if (TENANT_KV && typeof TENANT_KV.put === 'function') {
+                const dlKey = `tenant:${tenantId}:deadletter:${submissionId}`
+                await TENANT_KV.put(dlKey, payloadStr, { expirationTtl: 604800 })
+
+                // Maintain deadletter index pointer
+                const indexKey = `tenant:${tenantId}:deadletter:index`
+                const existingRaw = await TENANT_KV.get(indexKey)
+                const existing: string[] = existingRaw
+                  ? JSON.parse(existingRaw)
+                  : []
+                const updated = [submissionId, ...existing.filter((id: string) => id !== submissionId)].slice(0, 100)
+                await TENANT_KV.put(indexKey, JSON.stringify(updated))
+              }
+            } catch { /* non-blocking — best effort dead-letter */ }
           }
         })())
 

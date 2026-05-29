@@ -36,6 +36,10 @@
       {
         "name": "RATE_LIMITER",
         "class_name": "RateLimiter"
+      },
+      {
+        "name": "AUDIT_LEDGER",
+        "class_name": "AuditLedger"
       }
     ]
   },
@@ -43,10 +47,13 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["RateLimiter"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["AuditLedger"]
     }
   ],
   "vars": {
-    "ADMIN_API_TOKEN": "edgegde-dev-token-2026"
   },
   "d1_databases": [
     {
@@ -54,5 +61,30 @@
       "database_name": "ebroker_leads",
       "database_id": "1d24d306-9537-4386-929c-60c9e6d882b1"
     }
-  ]
+  ],
+  "r2_buckets": [
+    {
+      "binding": "VAULT_BUCKET",
+      "bucket_name": "edgegde-vault"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "LEAD_SCORING_QUEUE",
+        "queue": "edgegde-lead-scoring"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "edgegde-lead-scoring",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3
+      }
+    ]
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
 }
