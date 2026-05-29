@@ -292,7 +292,114 @@ fragmentRouter.post('/fragment/budget-add-field', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fragmentRouter.post('/fragment/budget-remove-field', async () => {
-  return new Response(null, { status: 204 })
+  // Return empty content — HTMX swaps the target out of the DOM
+  return new Response('', { status: 200, headers: { 'Content-Type': 'text/html' } })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Swatch Detail Fragment
+// POST /api/fragment/swatch-detail — returns full design system detail view
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { getSwatchById } from '../edr/themes/swatches'
+
+fragmentRouter.post('/fragment/swatch-detail', async (c) => {
+  const body = await c.req.parseBody() as Record<string, string>
+  const swatchId = body.id || ''
+  const swatch = getSwatchById(swatchId)
+
+  if (!swatch) {
+    c.header('Content-Type', 'text/html')
+    return c.body('<div style="color:rgba(255,255,255,0.5);padding:40px;text-align:center">Design system not found</div>')
+  }
+
+  const backBtn = `<button hx-post="/api/fragment/swatch-gallery" hx-target="#swatch-gallery" hx-swap="outerHTML" style="padding:8px 16px;border-radius:8px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);font-size:13px;cursor:pointer;margin-bottom:16px">&larr; Back to Gallery</button>`
+
+  const colorSwatches = swatch.colors.palette.map(c => `
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:8px">
+      <div style="width:36px;height:36px;border-radius:8px;background:${c.value};border:1px solid rgba(255,255,255,0.1);flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div style="color:#fff;font-size:13px;font-weight:500">${c.name}</div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.description}</div>
+      </div>
+      <code style="color:rgba(255,255,255,0.5);font-size:11px;font-family:monospace;background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:4px">${c.value}</code>
+    </div>`).join('')
+
+  const typography = swatch.typography.map(t => `
+    <div style="padding:12px;background:rgba(255,255,255,0.04);border-radius:8px">
+      <div style="color:#fff;font-size:14px;font-weight:600;margin-bottom:4px">${t.font}</div>
+      <div style="color:rgba(255,255,255,0.4);font-size:11px;text-transform:capitalize;margin-bottom:8px">${t.category} &middot; Weights: ${t.weights.join(', ')}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${t.sizes.map(s => `<span style="padding:4px 10px;background:rgba(255,255,255,0.06);border-radius:4px;color:rgba(255,255,255,0.6);font-size:11px">${s.name}: ${s.value}</span>`).join('')}
+      </div>
+    </div>`).join('')
+
+  const spacing = `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0">
+    ${swatch.spacing.scale.map(s => `<span style="padding:6px 12px;background:rgba(255,255,255,0.06);border-radius:6px;color:rgba(255,255,255,0.6);font-size:12px;font-family:monospace">${s}</span>`).join('')}
+  </div>`
+
+  const components = swatch.components.map(c => `
+    <div style="padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:8px">
+      <div style="color:#fff;font-size:13px;font-weight:500;margin-bottom:2px">${c.name}</div>
+      <div style="color:rgba(255,255,255,0.4);font-size:11px">${c.preview}</div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        ${c.variants.map(v => `<span style="padding:2px 8px;background:rgba(255,255,255,0.06);border-radius:4px;color:rgba(255,255,255,0.4);font-size:10px">${v}</span>`).join('')}
+      </div>
+    </div>`).join('')
+
+  const elevations = swatch.elevation.map(e => `
+    <div style="padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:8px">
+      <div style="color:#fff;font-size:13px;font-weight:500;margin-bottom:4px">${e.name}</div>
+      <code style="color:rgba(255,255,255,0.4);font-size:11px;font-family:monospace">${e.shadow}</code>
+    </div>`).join('')
+
+  const dosList = swatch.dos.map(d => `<li style="color:rgba(81,207,102,0.8);font-size:13px;padding:4px 0">&check; ${d}</li>`).join('')
+  const dontsList = swatch.donts.map(d => `<li style="color:rgba(255,107,107,0.8);font-size:13px;padding:4px 0">&times; ${d}</li>`).join('')
+
+  const section = (title: string, content: string) => `
+    <div style="margin-top:24px">
+      <h3 style="color:rgba(255,255,255,0.85);font-size:16px;font-weight:600;margin:0 0 12px 0;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.08)">${title}</h3>
+      ${content}
+    </div>`
+
+  const html = `
+<div style="max-width:900px;margin:0 auto">
+  ${backBtn}
+  <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:24px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <h1 style="color:#fff;font-size:32px;font-weight:700;margin:0">${swatch.name}</h1>
+      <span style="padding:2px 10px;border-radius:6px;background:rgba(99,102,241,0.2);color:#818CF8;font-size:12px;font-weight:500">v${swatch.version}</span>
+    </div>
+    <p style="color:rgba(255,255,255,0.55);font-size:14px;margin:4px 0 0 0;max-width:600px">${swatch.description}</p>
+    <div style="display:flex;gap:16px;margin-top:4px;color:rgba(255,255,255,0.4);font-size:12px">
+      <span>by ${swatch.author}</span>
+      <span>${swatch.downloads.toLocaleString()} downloads</span>
+      <span>${swatch.likes.toLocaleString()} likes</span>
+    </div>
+  </div>
+
+  ${section('Color Palette', colorSwatches)}
+  ${section('Typography', typography)}
+  ${section('Spacing Scale <span style="color:rgba(255,255,255,0.3);font-weight:400;font-size:12px">(base: ' + swatch.spacing.base + ')</span>', spacing)}
+  ${section('Components', components)}
+  ${section('Elevation & Depth', elevations)}
+  ${section('Do\'s', '<ul style="list-style:none;padding:0;margin:0">' + dosList + '</ul>')}
+  ${section('Don\'ts', '<ul style="list-style:none;padding:0;margin:0">' + dontsList + '</ul>')}
+</div>`
+
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  c.header('Cache-Control', 'no-store')
+  return c.body(html)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Swatch Gallery — Back navigation
+// POST /api/fragment/swatch-gallery — returns gallery grid
+// ═══════════════════════════════════════════════════════════════════════════
+
+fragmentRouter.post('/fragment/swatch-gallery', async () => {
+  // Returns empty with HX-Trigger to reload the page (simple back navigation)
+  return new Response('', { status: 200, headers: { 'Content-Type': 'text/html' } })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
