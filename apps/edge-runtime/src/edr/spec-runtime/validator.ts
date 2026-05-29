@@ -70,3 +70,34 @@ export function validateThemeTokens(tokens: Record<string, string>): ValidationR
   }
   return { valid: errors.length === 0, errors, warnings: [] }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP Collision Validation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Validate an AST node tree, enforcing MCP param uniqueness.
+ * Throws on the first mcp-param collision found in any subtree.
+ */
+export function validate(node: any): void {
+  const seen = new Set<string>()
+
+  function walk(n: any): void {
+    const key = n.props?.['mcp-param']
+    if (key) {
+      if (seen.has(key)) {
+        throw new Error(`mcp-param collision: ${key}`)
+      }
+      seen.add(key)
+    }
+    if (Array.isArray(n.children)) {
+      for (const child of n.children) {
+        if (typeof child === 'object' && child !== null) {
+          walk(child)
+        }
+      }
+    }
+  }
+
+  walk(node)
+}

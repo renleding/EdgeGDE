@@ -44,14 +44,16 @@ export async function getLatestHash(
   opts?: {
     kv?: { get: (key: string, type: 'json') => Promise<any> }
     dev?: boolean
+    manifestKey?: string
   },
 ): Promise<string> {
   const kv = opts?.kv
+  const key = opts?.manifestKey || 'latest_ast_manifest'
 
   // ── DEV MODE: always read fresh from KV ─────────────────────────────
   if (opts?.dev && kv) {
     try {
-      const manifest = await kv.get('latest_ast_manifest', 'json')
+      const manifest = await kv.get(key, 'json')
       if (manifest?.hash) {
         // Update warm cache for consistency, but still return fresh value
         globalThis.EDR_LATEST_HASH = manifest.hash
@@ -71,7 +73,7 @@ export async function getLatestHash(
   // Cold start — hydrate from KV (once per isolate lifecycle)
   if (kv) {
     try {
-      const manifest = await kv.get('latest_ast_manifest', 'json')
+      const manifest = await kv.get(key, 'json')
       if (manifest?.hash) {
         globalThis.EDR_LATEST_HASH = manifest.hash
         return manifest.hash

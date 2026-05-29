@@ -408,20 +408,23 @@ fragmentRouter.post('/fragment/swatch-gallery', async () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fragmentRouter.get('/fragment/dev-hash', async (c) => {
-  const serverHash = await getLatestHash({ kv: (c.env as any)?.TENANT_KV, dev: true })
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const env = c.req.query('env')
+  const manifestKey = (env === 'staging' || env === 'local') ? 'staging:latest_ast_manifest' : 'latest_ast_manifest'
+  const serverHash = await getLatestHash({ kv: TENANT_KV, dev: true, manifestKey })
   const clientHash = c.req.header('X-Current-Hash')
 
   // Mismatch detected — emit trigger, return updated sentinel
   if (clientHash !== undefined && serverHash !== clientHash) {
     c.header('HX-Trigger', 'ui-schema-mutated')
+    const envQ = env === 'staging' ? '?env=staging' : ''
     return c.html(`
       <div id="dev-sentinel"
-           hx-get="/api/fragment/dev-hash"
+           hx-get="/api/fragment/dev-hash${envQ}"
            hx-trigger="every 0.5s"
            hx-swap="outerHTML"
            hx-headers='{"X-Current-Hash": "${serverHash}"}'>
-      </div>
-    `)
+      </div>`)
   }
 
   // Idle — hashes match
@@ -439,11 +442,10 @@ fragmentRouter.get('/fragment/render-root', async (c) => {
 
   try {
     const tool = c.req.query('tool') || 'default'
-    const layoutKey = tool === 'gallery'
-      ? 'tenant:afirmico:layout:gallery'
-      : tool === 'budget'
-        ? 'tenant:afirmico:layout:budget'
-        : 'tenant:afirmico:layout:latest'
+    const env = c.req.query('env')
+    const isStaging = env === 'staging' || env === 'local'
+    const layoutSuffix = tool === 'gallery' ? 'gallery' : tool === 'budget' ? 'budget' : 'latest'
+    const layoutKey = `tenant:afirmico:layout:${layoutSuffix}${isStaging ? ':staging' : ''}`
     const layout = await TENANT_KV.get(layoutKey, 'json')
     if (!layout || !layout.root) return c.text('No layout found', 404)
 

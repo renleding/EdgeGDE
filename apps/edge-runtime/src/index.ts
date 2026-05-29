@@ -585,7 +585,7 @@ app.get('/', async (c) => {
   </header>
   <main id="app-root"
         class="max-w-4xl mx-auto"
-        hx-get="/api/fragment/render-root${layoutTool !== 'default' ? `?tool=${layoutTool}` : ''}"
+        hx-get="/api/fragment/render-root${layoutTool !== 'default' ? `?tool=${layoutTool}` : ''}${isStaging ? `${layoutTool !== 'default' ? '&' : '?'}env=staging` : ''}"
         hx-trigger="ui-schema-mutated from:body"
         hx-swap="innerHTML">
     ${html}
@@ -593,10 +593,10 @@ app.get('/', async (c) => {
   ${isStaging ? `<div id="version-panel" style="position:fixed;top:60px;right:16px;width:320px;max-height:60vh;overflow-y:auto;background:rgba(15,15,26,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px;display:none;z-index:1000;backdrop-filter:blur(12px)"></div>` : ''}
   ${isStaging ? `
   <div id="dev-sentinel"
-       hx-get="/api/fragment/dev-hash"
+       hx-get="/api/fragment/dev-hash${isStaging ? '?env=staging' : ''}"
        hx-trigger="every 0.5s"
        hx-swap="outerHTML"
-       hx-headers='{"X-Current-Hash": "${await getLatestHash({ kv: (c.env as any)?.TENANT_KV, dev: true })}"}'>
+       hx-headers='{"X-Current-Hash": "${await getLatestHash({ kv: (c.env as any)?.TENANT_KV, dev: true, manifestKey: isStaging ? 'staging:latest_ast_manifest' : 'latest_ast_manifest' })}"}'>
   </div>` : ''}
   ${isStaging ? `
   <script>
@@ -627,6 +627,19 @@ app.get('/', async (c) => {
       document.addEventListener('click', function onAnyClick() {
         if (isActive) { resetIdleTimer(); return }
         setPolling(true)
+      })
+
+      // Pause polling when tab is hidden, resume when visible
+      document.addEventListener('visibilitychange', () => {
+        const el = document.getElementById(SENTINEL_ID)
+        if (!el) return
+        if (document.hidden) {
+          el.setAttribute('hx-trigger', 'never')
+          if (window.htmx) htmx.process(el)
+        } else if (isActive) {
+          el.setAttribute('hx-trigger', 'every 0.5s')
+          if (window.htmx) htmx.process(el)
+        }
       })
 
       // Version panel toggle
