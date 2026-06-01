@@ -58,6 +58,9 @@ chatRouter.post('/chat/init', async (c) => {
       tenantId,
       status: 'active',
     })
+
+    // Audit — session created
+    c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'chat_message', '', sessionId, { text: `Session started: ${body.objective || 'mortgage_application'}` }))
   } catch (err: any) {
     return c.json({ error: 'Failed to create session', details: err.message }, 500)
   }
@@ -166,6 +169,11 @@ chatRouter.post('/chat/tool', async (c) => {
           now,
           sessionId,
         ).run()
+
+        // Audit — field_updated event per valid field
+        for (const f of validFields) {
+          c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'field_updated', '', sessionId, { field: f, value: updatedCollected[f] }))
+        }
 
         // If complete, trigger scoring
         if (finalState.state.phase === 'complete') {
@@ -305,6 +313,10 @@ chatRouter.post('/chat/tool', async (c) => {
             sessionId,
           ).run()
 
+          // Audit — chat_message + field_updated
+          c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'chat_message', '', sessionId, { text: userText }))
+          c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'field_updated', '', sessionId, { field: parsed.field, value: result.collected[parsed.field] }))
+
           if (result.state.phase === 'complete') {
             c.executionCtx.waitUntil(triggerScoring(db, c.env, sessionId, tenantId, result.collected))
             return c.json({
@@ -397,27 +409,101 @@ chatRouter.get('/chat/stream/:sessionId', async (c) => {
 })
 
 // ═════════════════════════════════════════════════════════════════════════════
+// GET /timeline/stream/:sessionId — unified timeline SSE (replaces chat stream)
+// ═════════════════════════════════════════════════════════════════════════════
+
+chatRouter.get('/timeline/stream/:sessionId', async (c) => {
+  const sessionId = c.req.param('sessionId')
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  const auditDo = (c.env as any)?.AUDIT_LEDGER
+  if (!auditDo || typeof auditDo.idFromName !== 'function') {
+    return c.json({ error: 'AUDIT_LEDGER binding required' }, 500)
+  }
+
+  try {
+    const doId = auditDo.idFromName(`tenant:${tenantId}`)
+    const stub = auditDo.get(doId)
+
+    // Proxy to DO's SSE stream handler
+    const doResponse = await stub.fetch(
+      `http://do/stream?tenantId=${encodeURIComponent(tenantId)}&sessionId=${encodeURIComponent(sessionId)}`
+    )
+
+    return doResponse
+  } catch (err: any) {
+    return c.json({ error: 'Timeline stream failed', details: err.message }, 500)
+  }
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Helper — append event to AuditLedger DO (async, non-blocking)
+// ═════════════════════════════════════════════════════════════════════════════
+
+async function logAuditEvent(env: any, tenantId: string | undefined, action: string, submissionId: string, sessionId: string | undefined, metadata?: Record<string, unknown>): Promise<void> {
+  try {
+    const auditDo = (env as any)?.AUDIT_LEDGER
+    if (!auditDo || typeof auditDo.idFromName !== 'function') return
+    if (!tenantId) return
+
+    const doId = auditDo.idFromName(`tenant:${tenantId}`)
+    const stub = auditDo.get(doId)
+    await stub.fetch('http://do/append', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: action,
+        actor: 'system',
+        tenantId,
+        sessionId,
+        submissionId: submissionId || '',
+        data: metadata || {},
+      }),
+    })
+  } catch (err) {
+    console.warn('[audit] append failed:', err)
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Helper — trigger scoring when collection is complete
 // ═════════════════════════════════════════════════════════════════════════════
 
 async function triggerScoring(db: any, env: any, sessionId: string, tenantId: string, collected: Record<string, unknown>): Promise<void> {
   try {
-    // Create form submission record
     const submissionId = crypto.randomUUID()
-    await db.prepare(
+    console.log('[triggerScoring] starting', { sessionId, tenantId, submissionId })
+
+    // Check D1 binding
+    if (!db || typeof db.prepare !== 'function') {
+      console.error('[triggerScoring] D1 binding not available')
+      return
+    }
+
+    // 1. Insert form submission
+    const payloadStr = JSON.stringify(collected)
+    if (payloadStr.length > 50000) {
+      console.error('[triggerScoring] payload too large', { bytes: payloadStr.length })
+      return
+    }
+
+    const insertResult = await db.prepare(
       `INSERT INTO form_submissions (id, tenant_id, form_id, payload)
        VALUES (?, ?, 'mortgage_chat', ?)`
-    ).bind(submissionId, tenantId, JSON.stringify(collected)).run()
+    ).bind(submissionId, tenantId, payloadStr).run()
+    console.log('[triggerScoring] D1 insert complete', { submissionId, success: !!insertResult })
 
-    // Link session to submission
+    // 2. Link session to submission
     await db.prepare(
       `UPDATE chat_sessions SET submission_id = ?, status = 'complete', updated_at = ? WHERE id = ?`
     ).bind(submissionId, Date.now(), sessionId).run()
+    console.log('[triggerScoring] session linked', { sessionId, submissionId })
 
-    // Enqueue for scoring
+    // 3. Enqueue for scoring
     const queue = (env as any)?.LEAD_SCORING_QUEUE
     if (queue && typeof queue.send === 'function') {
-      await queue.send({
+      const msg = {
         submissionId,
         tenantId,
         formId: 'mortgage_chat',
@@ -427,9 +513,24 @@ async function triggerScoring(db: any, env: any, sessionId: string, tenantId: st
           email: String(collected.email || ''),
           phone: String(collected.phone || ''),
         },
-      })
+      }
+      await queue.send(msg)
+      console.log('[triggerScoring] queued for scoring', { submissionId })
+    } else {
+      console.warn('[triggerScoring] LEAD_SCORING_QUEUE binding not available')
     }
   } catch (err) {
-    console.error('[chat] triggerScoring failed:', err)
+    console.error('[triggerScoring] FAILED:', err)
+    // Attempt to store failure diagnostic in TELEMETRY_KV
+    try {
+      const kv = (env as any)?.TELEMETRY_KV
+      if (kv && typeof kv.put === 'function') {
+        await kv.put(
+          `diagnostic:chat:failed:${sessionId}`,
+          JSON.stringify({ sessionId, err: String(err), ts: Date.now() }),
+          { expirationTtl: 86400 }
+        )
+      }
+    } catch {}
   }
 }

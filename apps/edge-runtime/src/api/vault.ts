@@ -75,12 +75,13 @@ vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
 
     // 3. Fire-and-forget audit event
     c.executionCtx.waitUntil(logAudit(c.env, {
-      action: 'upload',
+      type: 'upload',
+      actor: 'system',
       tenantId,
       submissionId,
       file_name: filename,
       object_key: objectKey,
-      size_bytes: sizeBytes,
+      data: { file_name: filename, object_key: objectKey, size_bytes: sizeBytes },
     }))
 
     console.log(JSON.stringify({
@@ -142,11 +143,13 @@ vaultRouter.delete('/download/:submissionId/:filename', async (c) => {
 
     // 4. Fire-and-forget audit event
     c.executionCtx.waitUntil(logAudit(c.env, {
-      action: 'delete',
+      type: 'delete',
+      actor: 'system',
       tenantId,
       submissionId,
       file_name: filename,
       object_key: doc.object_key,
+      data: { file_name: filename, object_key: doc.object_key },
     }))
 
     return c.json({ success: true, deleted: filename, docId: doc.id })
@@ -246,11 +249,13 @@ vaultRouter.get('/download/:submissionId/:filename', async (c) => {
 
     // 3. Fire-and-forget audit event
     c.executionCtx.waitUntil(logAudit(c.env, {
-      action: 'download',
+      type: 'download',
+      actor: 'system',
       tenantId,
       submissionId,
       file_name: filename,
       object_key: doc.object_key,
+      data: { file_name: filename, object_key: doc.object_key },
     }))
 
     return new Response(object.body, { headers })
@@ -264,12 +269,13 @@ vaultRouter.get('/download/:submissionId/:filename', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface AuditEvent {
-  action: 'upload' | 'download' | 'delete'
+  type: string
+  actor: string
   tenantId: string
   submissionId: string
   file_name: string
   object_key: string
-  size_bytes?: number
+  data: Record<string, unknown>
 }
 
 async function logAudit(env: any, event: AuditEvent): Promise<void> {
@@ -282,7 +288,13 @@ async function logAudit(env: any, event: AuditEvent): Promise<void> {
     await stub.fetch('http://do/append', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(event),
+      body: JSON.stringify({
+        type: event.type,
+        actor: event.actor,
+        tenantId: event.tenantId,
+        submissionId: event.submissionId,
+        data: event.data,
+      }),
     })
   } catch {
     // Audit failure is non-blocking

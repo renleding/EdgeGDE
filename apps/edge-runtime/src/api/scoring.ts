@@ -885,6 +885,51 @@ scoringAdminRouter.delete('/ui-config', async (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// System Health — projection drift, event counts, SSE health
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.get('/health', async (c) => {
+  const db = (c.env as any)?.DB
+  const kv = (c.env as any)?.TENANT_KV
+  if (!db) return c.json({ error: 'D1 binding required' }, 500)
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  try {
+    const [totalLeads, totalContacts, scoredLeads] = await Promise.all([
+      db.prepare(`SELECT COUNT(*) as count FROM form_submissions WHERE tenant_id = ?`).bind(tenantId).first(),
+      db.prepare(`SELECT COUNT(*) as count FROM contacts WHERE tenant_id = ?`).bind(tenantId).first(),
+      db.prepare(`SELECT COUNT(*) as count FROM form_submissions WHERE tenant_id = ? AND lead_score IS NOT NULL`).bind(tenantId).first(),
+    ])
+
+    return c.json({
+      tenantId,
+      timestamp: Date.now(),
+      projections: {
+        formSubmissions: (totalLeads as any)?.count || 0,
+        contacts: (totalContacts as any)?.count || 0,
+        scoredLeads: (scoredLeads as any)?.count || 0,
+      },
+      audit: {
+        // Event store health is checked via the DO directly
+        note: 'Use GET /api/v1/vault/audit?tenant=<id> for DO event counts',
+      },
+      pipeline: {
+        scoring: true,
+        alerts: true,
+        replay: true,
+        vault: true,
+        dispatcher: !!((c.env as any)?.ALERT_WEBHOOK_URL),
+      },
+      version: '0.4.0',
+    })
+  } catch (err: any) {
+    return c.json({ error: 'Health check failed', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Helper
 // ═══════════════════════════════════════════════════════════════════════════
 

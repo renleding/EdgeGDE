@@ -115,8 +115,15 @@ export interface LeadMessage {
 
 async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void> {
   for (const msg of batch.messages) {
-    const body = msg.body as LeadMessage
+    const body = msg.body as any
     const { submissionId, tenantId, payload } = body
+
+    // ═══ TYPE-BASED ROUTING ═══ — support automation events on the same queue
+    if (body.type === 'execute_automation') {
+      console.log('[queue] automation event', { ruleId: body.ruleId, tenantId })
+      msg.ack()
+      continue
+    }
 
     try {
       // ── 1. Deterministic 70% ──────────────────────────────────────────
