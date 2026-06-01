@@ -256,6 +256,7 @@ workspaceRouter.get('/workspace/pipeline', async (c) => {
     const { results } = await db.prepare(`
       SELECT a.id, a.target_loan_amount, a.workflow_stage, a.created_ts,
              c.name as full_name, c.email, c.phone,
+             a.affordability_score, a.risk_level, a.readiness_status,
              (SELECT verification_status FROM application_documents WHERE application_id = a.id LIMIT 1) as kyc_status
       FROM applications a
       JOIN contacts c ON a.contact_id = c.id

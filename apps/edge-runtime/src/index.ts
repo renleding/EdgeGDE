@@ -27,6 +27,7 @@ import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { vaultRouter } from './api/vault'
 import { chatRouter } from './api/chat'
 import { workspaceRouter } from './api/workspace'
+import { swarmRouter } from './api/swarm'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
 import leadScorer from './queues/lead-scorer'
@@ -388,6 +389,9 @@ app.route('/api/v1', chatRouter)
 
 // Workspace Origination (Phase 18-20)
 app.route('/api/v1', workspaceRouter)
+
+// MCP Swarm Intelligence Ingress (Phase 21)
+app.route('/api/v1', swarmRouter)
 
 // Tenant provisioning (admin)
 app.route('/api/tenants', tenantRouter)

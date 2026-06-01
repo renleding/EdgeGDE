@@ -118,9 +118,84 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
     const body = msg.body as any
     const { submissionId, tenantId, payload } = body
 
-    // ═══ TYPE-BASED ROUTING ═══ — support automation events on the same queue
+    // ═══ TYPE-BASED ROUTING ═══
     if (body.type === 'execute_automation') {
-      console.log('[queue] automation event', { ruleId: body.ruleId, tenantId })
+      const eventType = body.eventType
+      const appId = body.sessionId || ''
+
+      if (eventType === 'financial_baseline_declared' && appId) {
+        // Run affordability + risk agents
+        console.log('[swarm] running affordability + risk for app', appId)
+        try {
+          const row: any = await env.DB.prepare(
+            `SELECT target_loan_amount, collected_financials_json, 
+                    (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status
+             FROM applications WHERE id = ?`
+          ).bind(appId, appId).first()
+
+          if (row?.collected_financials_json) {
+            const fin: any = JSON.parse(row.collected_financials_json)
+            const { computeAffordability } = await import('../lib/agents')
+            const { computeRisk } = await import('../lib/agents')
+
+            const aff = computeAffordability({
+              income: fin.income || 0, expenses: fin.expenses || 0,
+              targetLoanAmount: row.target_loan_amount || 0,
+            })
+
+            const risk = computeRisk({
+              kycStatus: (row as any).kyc_status || 'pending',
+              debtRatio: aff.debtRatio, affordabilityScore: aff.affordabilityScore,
+            })
+
+            const doBinding = env.AUDIT_LEDGER
+            if (doBinding?.idFromName) {
+              const doId = doBinding.idFromName('tenant:afirmico')
+              const stub = doBinding.get(doId)
+              stub.fetch('http://do/append', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'affordability_assessed', actor: 'mcp_swarm_engine', tenantId: 'afirmico', sessionId: appId, submissionId: appId, data: { application_id: appId, ...aff } }),
+              }).catch(() => {})
+              stub.fetch('http://do/append', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'risk_profile_generated', actor: 'mcp_swarm_engine', tenantId: 'afirmico', sessionId: appId, submissionId: appId, data: { application_id: appId, ...risk } }),
+              }).catch(() => {})
+            }
+          }
+        } catch (e) { console.warn('[swarm] agent execution failed:', e) }
+      }
+
+      if (eventType === 'document_securely_stored' && appId) {
+        // Run readiness agent
+        console.log('[swarm] running readiness for app', appId)
+        try {
+          const docsResult: any = await env.DB.prepare(
+            `SELECT document_type, verification_status FROM application_documents WHERE application_id = ?`
+          ).bind(appId).all()
+          const docs = docsResult?.results || []
+
+          const row: any = await env.DB.prepare(
+            `SELECT (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status`
+          ).bind(appId).first()
+
+          const { computeReadiness } = await import('../lib/agents')
+          const ready = computeReadiness({
+            kycStatus: (row as any)?.kyc_status || 'pending',
+            documentRecords: docs.map((d: any) => d.document_type),
+          })
+
+          const doBinding = env.AUDIT_LEDGER
+          if (doBinding?.idFromName) {
+            const doId = doBinding.idFromName('tenant:afirmico')
+            const stub = doBinding.get(doId)
+            stub.fetch('http://do/append', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'application_readiness_evaluated', actor: 'mcp_swarm_engine', tenantId: 'afirmico', sessionId: appId, submissionId: appId, data: { application_id: appId, ...ready } }),
+            }).catch(() => {})
+          }
+        } catch (e) { console.warn('[swarm] readiness execution failed:', e) }
+      }
+
       msg.ack()
       continue
     }
