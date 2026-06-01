@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "title": "Broker Pipeline View",
+  "root": {
+    "type": "container",
+    "direction": "column",
+    "gap": "24px",
+    "children": [
+      {
+        "type": "heading",
+        "level": "h2",
+        "text": "Pipeline"
+      },
+      {
+        "type": "container",
+        "id": "cards-intake",
+        "direction": "row",
+        "gap": "12px",
+        "children": [
+          {
+            "type": "badge",
+            "text": "Intake",
+            "variant": "info"
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "cards-assessment",
+        "direction": "row",
+        "gap": "12px",
+        "children": [
+          {
+            "type": "badge",
+            "text": "Assessment",
+            "variant": "neutral"
+          }
+        ]
+      },
+      {
+        "type": "container",
+        "id": "cards-submission",
+        "direction": "row",
+        "gap": "12px",
+        "children": [
+          {
+            "type": "badge",
+            "text": "Submission",
+            "variant": "neutral"
+          }
+        ]
+      }
+    ]
+  }
+}

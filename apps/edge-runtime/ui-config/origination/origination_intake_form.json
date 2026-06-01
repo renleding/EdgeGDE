@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "title": "Origination Intake Form",
+  "root": {
+    "type": "container",
+    "direction": "column",
+    "gap": "16px",
+    "children": [
+      {
+        "type": "heading",
+        "level": "h2",
+        "text": "Mortgage Application"
+      },
+      {
+        "type": "form",
+        "action": "/api/v1/chat/action",
+        "method": "POST",
+        "children": [
+          { "type": "text_input", "id": "full-name", "name": "fullName", "label": "Full Name", "placeholder": "e.g. John Smith", "required": true },
+          { "type": "text_input", "id": "email", "name": "email", "label": "Email", "placeholder": "e.g. john@example.com", "required": true },
+          { "type": "text_input", "id": "phone", "name": "phone", "label": "Phone", "placeholder": "e.g. 0412 345 678", "required": true },
+          { "type": "number_input", "id": "property-value", "name": "propertyValue", "label": "Property Value", "placeholder": "e.g. 750000", "prefix": "$", "required": true },
+          { "type": "number_input", "id": "loan-amount", "name": "loanAmount", "label": "Loan Amount", "placeholder": "e.g. 500000", "prefix": "$", "required": true },
+          { "type": "number_input", "id": "deposit", "name": "deposit", "label": "Deposit", "placeholder": "e.g. 250000", "prefix": "$", "required": true },
+          {
+            "type": "select",
+            "id": "employment-type",
+            "name": "employmentType",
+            "label": "Employment Type",
+            "required": true,
+            "options": [
+              { "value": "PAYG", "label": "PAYG / Full-Time" },
+              { "value": "Self-Employed", "label": "Self-Employed" }
+            ]
+          }
+        ],
+        "submitLabel": "Start Assessment"
+      }
+    ]
+  }
+}

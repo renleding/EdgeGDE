@@ -26,6 +26,7 @@ import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { vaultRouter } from './api/vault'
 import { chatRouter } from './api/chat'
+import { workspaceRouter } from './api/workspace'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
 import leadScorer from './queues/lead-scorer'
@@ -384,6 +385,9 @@ app.route('/api/v1/vault', vaultRouter)
 
 // Conversational Chat (tool auth applied within chatRouter)
 app.route('/api/v1', chatRouter)
+
+// Workspace Origination (Phase 18-20)
+app.route('/api/v1', workspaceRouter)
 
 // Tenant provisioning (admin)
 app.route('/api/tenants', tenantRouter)

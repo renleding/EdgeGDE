@@ -1,0 +1,1 @@
+{"version":"1.0","title":"Application Card","root":{"type":"card","id":"app-card-{{application_id}}","title":"{{full_name}}","subtitle":"${{target_loan_amount}}","children":[{"type":"badge","text":"{{workflow_stage}}","variant":"info"}]}}
