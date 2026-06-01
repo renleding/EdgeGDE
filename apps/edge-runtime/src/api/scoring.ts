@@ -6,6 +6,7 @@
 import { Hono } from 'hono'
 import { scoreLead, type Ruleset, type RulesetRule, type ScoreResult } from '../lib/scoring-engine'
 import { addSubscriber, removeSubscriber } from '../lib/sse'
+import { validateUiConfig, validateUiConfigSafe } from '../lib/ui-primitives'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -189,26 +190,28 @@ scoringAdminRouter.post('/scoring/execute', async (c) => {
      VALUES (?, ?, ?, ?, ?)`
   ).bind(scoreId, tenantId, leadId, rubric.id, result.score).run()
 
-  // Store trace in KV
-  const TENANT_KV = (c.env as any)?.TENANT_KV
-  if (TENANT_KV) {
+  // Store trace in D1 (replaces TENANT_KV score_trace:{tenant}:{lead}:{rubric})
+  const db2 = (c.env as any)?.DB
+  if (db2 && typeof db2.prepare === 'function') {
     try {
-      await TENANT_KV.put(
-        `score_trace:${tenantId}:${leadId}:${rubric.id}`,
-        JSON.stringify({
-          score: result.score,
-          maxScore: 100,
-          classification: result.classification,
-          rubricVersion: rubric.version,
-          matchedRules: result.matchedRules,
-          scoreBreakdown: result.scoreBreakdown,
-          trace: result.trace,
-          timestamp: Date.now(),
-        }),
-      )
+      await db2.prepare(
+        `INSERT INTO score_traces (id, tenant_id, lead_id, rubric_id, score, max_score, classification, rubric_version, matched_rules, score_breakdown, trace)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        crypto.randomUUID(),
+        tenantId,
+        leadId,
+        rubric.id,
+        result.score,
+        100,
+        result.classification,
+        rubric.version,
+        JSON.stringify(result.matchedRules),
+        JSON.stringify(result.scoreBreakdown),
+        JSON.stringify(result.trace),
+      ).run()
     } catch { /* non-fatal */ }
   }
-
   console.log(JSON.stringify({
     event: 'lead_scored', tenantId, leadId,
     rubricId: rubric.id, score: result.score,
@@ -404,6 +407,7 @@ scoringAdminRouter.get('/leads', async (c) => {
 
   let sql = `SELECT id, tenant_id, form_id, created_at,
                     lead_score, score_band, score_rationale,
+                    current_stage,
                     payload
              FROM form_submissions WHERE 1=1`
   const binds: any[] = []
@@ -441,6 +445,7 @@ scoringAdminRouter.get('/leads', async (c) => {
         email,
         score: r.lead_score ?? 0,
         band: r.score_band ?? 'cold',
+        stage: r.current_stage ?? 'new_lead',
         rationale: r.score_rationale ?? '',
         createdAt: r.created_at,
       }
@@ -588,10 +593,10 @@ scoringAdminRouter.post('/replay-deadletters', async (c) => {
       }
     }
 
-    // 6. Update index — remove successfully replayed entries
+    // 6. Update index — remove successfully replayed AND skipped (phantom) entries
     const remaining = submissionIds.filter((id: string) => {
       const result = results.find((r) => r.submissionId === id)
-      return !result || result.status !== 'replayed'
+      return result && (result.status === 'failed')
     })
     await TENANT_KV.put(indexKey, JSON.stringify(remaining))
 
@@ -656,60 +661,226 @@ scoringAdminRouter.get('/insights', async (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Telemetry — read LLM metrics from TELEMETRY_KV via daily index pointer
+// Telemetry — read LLM metrics from D1 telemetry_daily (was TELEMETRY_KV)
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/telemetry', async (c) => {
-  const telemetryKv = (c.env as any)?.TELEMETRY_KV
-  if (!telemetryKv) return c.json({ error: 'TELEMETRY_KV binding required' }, 500)
+  const db = (c.env as any)?.DB
+  if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantIdQuery = c.req.query('tenant')
   if (!tenantIdQuery) return c.json({ error: 'tenant query parameter required' }, 400)
 
   try {
-    // 1. Read daily index pointer
-    const indexKey = `tenant:${tenantIdQuery}:telemetry:llm:days:index`
-    const indexRaw = await telemetryKv.get(indexKey)
-    if (!indexRaw) {
-      return c.json({ entries: [], summary: { totalEntries: 0, avgLatencyMs: null, successRate: null } })
-    }
+    // Single D1 query replaces KV index scan + N× KV reads
+    const { results } = await db.prepare(
+      `SELECT date, llm_calls, llm_success, llm_fail, total_latency_ms, avg_latency_ms,
+              red_flag_count, total_agentic_score
+       FROM telemetry_daily
+       WHERE tenant_id = ?
+       ORDER BY date DESC
+       LIMIT 30`
+    ).bind(tenantIdQuery).all()
 
-    const days: string[] = JSON.parse(indexRaw)
-    if (!Array.isArray(days) || days.length === 0) {
-      return c.json({ entries: [], summary: { totalEntries: 0, avgLatencyMs: null, successRate: null } })
-    }
-
-    // 2. Fetch each day's entries, newest first
-    const allEntries: any[] = []
-    for (const day of days) {
-      try {
-        const raw = await telemetryKv.get(`tenant:telemetry:llm:${day}`)
-        if (raw) {
-          const dayEntries = JSON.parse(raw)
-          if (Array.isArray(dayEntries)) {
-            allEntries.push(...dayEntries.map((e: any) => ({ ...e, day })))
-          }
-        }
-      } catch { /* skip corrupt day */ }
-    }
-
-    // 3. Return last 50 entries, newest first
-    const entries = allEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 50)
-    const total = entries.length
-    const avgLatency = total > 0 ? Math.round(entries.reduce((s, e) => s + (e.latencyMs || 0), 0) / total) : null
-    const successCount = entries.filter((e) => e.success === true).length
+    const days = results || []
+    const totalCalls = days.reduce((s: number, r: any) => s + (r.llm_calls || 0), 0)
+    const totalSuccess = days.reduce((s: number, r: any) => s + (r.llm_success || 0), 0)
+    const totalLatency = days.reduce((s: number, r: any) => s + (r.total_latency_ms || 0), 0)
 
     return c.json({
-      entries,
+      days,
       summary: {
-        totalEntries: total,
-        avgLatencyMs: avgLatency,
-        successRate: total > 0 ? Math.round((successCount / total) * 1000) / 10 : null,
-        daysScanned: days.length,
+        totalCalls,
+        totalSuccess,
+        totalFail: totalCalls - totalSuccess,
+        avgLatencyMs: totalCalls > 0 ? Math.round(totalLatency / totalCalls) : null,
+        successRate: totalCalls > 0 ? Math.round((totalSuccess / totalCalls) * 1000) / 10 : null,
+        redFlagCount: days.reduce((s: number, r: any) => s + (r.red_flag_count || 0), 0),
+        daysTracked: days.length,
       },
     })
   } catch (err: any) {
     return c.json({ error: 'Telemetry query failed', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Contacts — list contacts for a tenant
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.get('/contacts', async (c) => {
+  const db = (c.env as any)?.DB
+  if (!db) return c.json({ error: 'D1 binding required' }, 500)
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  try {
+    const { results } = await db.prepare(
+      `SELECT c.id, c.name, c.email, c.phone, c.created_at,
+              COUNT(s.id) as submission_count,
+              MAX(s.lead_score) as max_score
+       FROM contacts c
+       LEFT JOIN form_submissions s ON s.contact_id = c.id AND s.tenant_id = c.tenant_id
+       WHERE c.tenant_id = ?
+       GROUP BY c.id
+       ORDER BY c.updated_at DESC
+       LIMIT 100`
+    ).bind(tenantId).all()
+
+    return c.json({ contacts: results || [] })
+  } catch (err: any) {
+    return c.json({ error: 'Query failed', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pipeline Stages — list and manage deal stages per tenant
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.get('/stages', async (c) => {
+  const db = (c.env as any)?.DB
+  if (!db) return c.json({ error: 'D1 binding required' }, 500)
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  try {
+    const { results } = await db.prepare(
+      `SELECT id, name, position FROM pipeline_stages
+       WHERE tenant_id = ? ORDER BY position ASC`
+    ).bind(tenantId).all()
+
+    return c.json({ stages: results || [] })
+  } catch (err: any) {
+    return c.json({ error: 'Query failed', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PATCH /admin/leads/:id/stage — move a lead through the pipeline
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.patch('/leads/:id/stage', async (c) => {
+  const db = (c.env as any)?.DB
+  if (!db) return c.json({ error: 'D1 binding required' }, 500)
+
+  const submissionId = c.req.param('id')
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  let body: { stage?: string }
+  try { body = await c.req.json() } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+  if (!body.stage) return c.json({ error: 'stage field required' }, 400)
+
+  try {
+    // 1. Verify submission exists and belongs to tenant
+    const current: any = await db.prepare(
+      `SELECT current_stage FROM form_submissions WHERE id = ? AND tenant_id = ? LIMIT 1`
+    ).bind(submissionId, tenantId).first()
+
+    if (!current) return c.json({ error: 'Submission not found' }, 404)
+
+    const fromStage = (current.current_stage as string) || 'new_lead'
+    const toStage = body.stage
+
+    // 2. Update stage
+    await db.prepare(
+      `UPDATE form_submissions SET current_stage = ? WHERE id = ? AND tenant_id = ?`
+    ).bind(toStage, submissionId, tenantId).run()
+
+    // 3. Audit event
+    const auditDo = (c.env as any)?.AUDIT_LEDGER
+    if (auditDo && typeof auditDo.idFromName === 'function') {
+      c.executionCtx.waitUntil((async () => {
+        try {
+          const doId = auditDo.idFromName(`tenant:${tenantId}`)
+          const stub = auditDo.get(doId)
+          await stub.fetch('http://do/append', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'stage_change',
+              tenantId,
+              submissionId,
+              file_name: '',
+              object_key: '',
+              metadata: { from_stage: fromStage, to_stage: toStage },
+            }),
+          })
+        } catch {}
+      })())
+    }
+
+    return c.json({ success: true, submissionId, fromStage, toStage })
+  } catch (err: any) {
+    return c.json({ error: 'Stage update failed', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI Config — self-assembling frontend configuration
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.get('/ui-config', async (c) => {
+  const kv = (c.env as any)?.TENANT_KV
+  if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  try {
+    const config = await kv.get(`tenant:${tenantId}:ui:config`, 'json')
+    return c.json({ config: config || null })
+  } catch (err: any) {
+    return c.json({ error: 'Failed to read UI config', details: err.message }, 500)
+  }
+})
+
+scoringAdminRouter.put('/ui-config', async (c) => {
+  const kv = (c.env as any)?.TENANT_KV
+  if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  let body: unknown
+  try { body = await c.req.json() } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400)
+  }
+
+  // ═══ JUDGE GATE ═══ — validate before any KV write
+  const validation = validateUiConfigSafe(body)
+  if (!validation.success) {
+    return c.json({
+      error: 'UI config validation failed',
+      details: validation.error,
+      hint: 'The LLM generated an invalid config. Review the schema and regenerate.',
+    }, 400)
+  }
+
+  try {
+    await kv.put(`tenant:${tenantId}:ui:config`, JSON.stringify(validation.data))
+    return c.json({ success: true, tenantId, version: '1.0' })
+  } catch (err: any) {
+    return c.json({ error: 'Failed to save UI config', details: err.message }, 500)
+  }
+})
+
+scoringAdminRouter.delete('/ui-config', async (c) => {
+  const kv = (c.env as any)?.TENANT_KV
+  if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  try {
+    await kv.delete(`tenant:${tenantId}:ui:config`)
+    return c.json({ success: true, message: 'UI config reset to default' })
+  } catch (err: any) {
+    return c.json({ error: 'Failed to delete UI config', details: err.message }, 500)
   }
 })
 

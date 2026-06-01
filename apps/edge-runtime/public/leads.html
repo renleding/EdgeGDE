@@ -247,7 +247,7 @@
     // ── Polling (fallback) ────────────────────────────────────────────────
     async function poll() {
       try {
-        const res = await fetch(apiUrl('/api/v1/admin/hot-alerts?tenant=afirmico'))
+        const res = await fetch('/api/leads/feed?tenant=afirmico')
         if (!res.ok) throw new Error(String(res.status))
         const data = await res.json()
         // Detect new alerts
@@ -270,7 +270,7 @@
     function connectSSE() {
       if (!TOKEN) return
       try {
-        evtSource = new EventSource(apiUrl('/api/v1/admin/leads/stream?tenant=afirmico'))
+        evtSource = new EventSource('/api/v1/admin/leads/stream?tenant=afirmico&token=' + encodeURIComponent(TOKEN))
         evtSource.addEventListener('hot_lead', function(e) {
           try {
             const data = JSON.parse(e.data)

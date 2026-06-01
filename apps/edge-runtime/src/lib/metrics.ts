@@ -15,10 +15,49 @@ export interface MetricsSnapshot {
 }
 
 const METRICS_PREFIX = 'metrics'
+const METRICS_FLUSH_INTERVAL_MS = 60_000
 
 function key(tenant: string, tool: string): string {
   return `${METRICS_PREFIX}:${tenant}:${tool}`
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// In-memory accumulator — batch writes, flush periodically
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface MetricsAccum {
+  requests: number
+  errors: number
+  lastSeen: string
+}
+
+const pending = new Map<string, MetricsAccum>()
+let flushTimer: ReturnType<typeof setInterval> | null = null
+
+function ensureFlushScheduler(kv: { get: (k: string, t: 'json') => Promise<any>; put: (k: string, v: string) => Promise<void> }): void {
+  if (flushTimer) return
+  flushTimer = setInterval(() => flushAll(kv), METRICS_FLUSH_INTERVAL_MS)
+}
+
+async function flushAll(kv: { get: (k: string, t: 'json') => Promise<any>; put: (k: string, v: string) => Promise<void> }): Promise<void> {
+  if (pending.size === 0) return
+  const snapshot = Array.from(pending.entries())
+  pending.clear()
+  for (const [k, acc] of snapshot) {
+    try {
+      const current = await kv.get(k, 'json') || { requests: 0, errors: 0 }
+      await kv.put(k, JSON.stringify({
+        requests: (current.requests || 0) + acc.requests,
+        errors: (current.errors || 0) + acc.errors,
+        lastSeen: acc.lastSeen,
+      }))
+    } catch { /* non-blocking */ }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// incrementRequest — fire-and-forget in-memory counter (batched KV write)
+// ═══════════════════════════════════════════════════════════════════════════
 
 export async function incrementRequest(
   kv: { get: (k: string, t: 'json') => Promise<any>; put: (k: string, v: string) => Promise<void> },
@@ -26,17 +65,28 @@ export async function incrementRequest(
   tool: string,
   isError: boolean,
 ): Promise<void> {
+  ensureFlushScheduler(kv)
   const k = key(tenant, tool)
-  try {
-    const current: any = await kv.get(k, 'json') || { requests: 0, errors: 0, lastSeen: '' }
-    current.requests = (current.requests || 0) + 1
-    if (isError) current.errors = (current.errors || 0) + 1
-    current.lastSeen = new Date().toISOString()
-    await kv.put(k, JSON.stringify(current))
-  } catch {
-    // Fire-and-forget — metrics should never block the request
-  }
+  const existing = pending.get(k) || { requests: 0, errors: 0, lastSeen: '' }
+  existing.requests++
+  if (isError) existing.errors++
+  existing.lastSeen = new Date().toISOString()
+  pending.set(k, existing)
 }
+
+/**
+ * Flush pending metrics to KV immediately.
+ * Call from the scheduled() handler so cron-triggered metrics persist.
+ */
+export async function flushMetrics(
+  kv: { get: (k: string, t: 'json') => Promise<any>; put: (k: string, v: string) => Promise<void> },
+): Promise<void> {
+  await flushAll(kv)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// getMetrics — read directly from KV (dashboard reads are infrequent)
+// ═══════════════════════════════════════════════════════════════════════════
 
 export async function getMetrics(
   kv: { get: (k: string, t: 'json') => Promise<any>; list?: (opts: { prefix: string }) => AsyncIterable<{ name: string }> },

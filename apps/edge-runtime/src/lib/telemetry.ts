@@ -43,6 +43,10 @@ export function logEvent(
   eventType: string,
   data?: Record<string, unknown>,
 ): void {
+  // Sampling: 5% of non-error requests, 100% of errors (status >= 400)
+  const isError = data?.statusCode != null && Number(data.statusCode) >= 400
+  if (!isError && Math.random() > 0.05) return
+
   const now = new Date()
   const timestamp = now.toISOString()
   const host = new URL(c.req.url).hostname

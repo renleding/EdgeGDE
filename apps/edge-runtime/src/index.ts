@@ -25,6 +25,7 @@ import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { vaultRouter } from './api/vault'
+import { chatRouter } from './api/chat'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
 import leadScorer from './queues/lead-scorer'
@@ -45,7 +46,7 @@ import { tenantResolver } from './middleware/tenant-resolver'
 import { adminAuth } from './middleware/auth'
 import { rateLimiter } from './lib/rate-limiter'
 import { logEvent } from './lib/telemetry'
-import { incrementRequest } from './lib/metrics'
+import { incrementRequest, flushMetrics } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
 import { runDispatcher } from './crons/dispatcher'
@@ -171,11 +172,56 @@ app.get('/healthz', (c) => {
 app.post('/api/webhook/leads', async (c) => {
   try {
     const body = await c.req.json()
-    console.log(JSON.stringify({ event: 'webhook_received', ...body }))
-    return c.json({ received: true })
+    const eventId = crypto.randomUUID()
+    const tenantId = body.tenantId || 'unknown'
+
+    console.log(JSON.stringify({ event: 'webhook_received', eventId, ...body }))
+
+    // Persist to D1 for audit trail
+    const db = (c.env as any)?.DB
+    if (db && typeof db.prepare === 'function') {
+      c.executionCtx.waitUntil(
+        db.prepare(
+          `INSERT INTO webhook_events (id, event_type, tenant_id, submission_id, payload)
+           VALUES (?, ?, ?, ?, ?)`
+        ).bind(eventId, 'hot_lead', tenantId, body.submissionId || '', JSON.stringify(body)).run().catch(() => {})
+      )
+    }
+
+    return c.json({ received: true, eventId })
   } catch {
     return c.json({ error: 'Invalid JSON' }, 400)
   }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Public Leads Feed — unauthenticated hot alert data for the glass dashboard
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.get('/api/leads/feed', async (c) => {
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+  if (!TENANT_KV) return c.json({ alerts: [] })
+
+  const tenantId = c.req.query('tenant') || 'afirmico'
+  const indexKey = `tenant:${tenantId}:alerts:hot:index`
+  const raw = await TENANT_KV.get(indexKey)
+  if (!raw) return c.json({ alerts: [] })
+
+  let ids: string[]
+  try { ids = JSON.parse(raw) } catch { return c.json({ alerts: [] }) }
+  if (!Array.isArray(ids)) return c.json({ alerts: [] })
+
+  const results = await Promise.allSettled(
+    ids.map((id: string) =>
+      TENANT_KV.get(`tenant:${tenantId}:alert:hot:${id}`).then((r: string | null) => {
+        if (!r) return null
+        const p = JSON.parse(r)
+        return { submissionId: id, tenantId, score: p.score ?? 0, rationale: p.rationale ?? '', timestamp: p.ts ?? null }
+      })
+    )
+  )
+  const alerts = results.map((r: any) => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
+  return c.json({ alerts })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -310,6 +356,9 @@ app.route('/api/v1', stagingRouter)
 // Document Vault (admin auth applied within vaultRouter)
 app.route('/api/v1/vault', vaultRouter)
 
+// Conversational Chat (tool auth applied within chatRouter)
+app.route('/api/v1', chatRouter)
+
 // Tenant provisioning (admin)
 app.route('/api/tenants', tenantRouter)
 
@@ -403,7 +452,9 @@ app.get('/api/admin/leads/:tenantId', async (c) => {
     }
 
     const { results } = await db.prepare(`
-      SELECT * FROM form_submissions
+      SELECT id, tenant_id, form_id, lead_score, deterministic_score,
+             score_band, score_rationale, contact_id, current_stage, created_at
+      FROM form_submissions
       WHERE tenant_id = ?
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
@@ -523,7 +574,9 @@ app.get('/', async (c) => {
           // Legacy OpenPencil pipeline
           html = compileLayout(layout, design)
         }
-        const ttl = 120 + Math.floor(Math.random() * 20)
+        // FIX #3: 3600s + jitter (was 120s) — 30× reduction in cache re-write churn
+        // SSE stream pushes updates, so 1h TTL is safe for compiled config
+        const ttl = 3600 + Math.floor(Math.random() * 600)
         await TENANT_KV.put(cacheKey, html, { expirationTtl: ttl })
       } catch (compileErr) {
         // ══════════════════════════════════════════════════════════════════
@@ -719,6 +772,8 @@ export default {
   async scheduled(_event: any, env: any, _ctx: ExecutionContext): Promise<void> {
     console.log('[cron] dispatcher triggered')
     await runDispatcher(env)
+    // Flush any accumulated metrics to KV before the isolate is reclaimed
+    try { await flushMetrics(env.TENANT_KV) } catch { /* non-blocking */ }
   },
 }
 export { RateLimiter } from './objects/RateLimiter'

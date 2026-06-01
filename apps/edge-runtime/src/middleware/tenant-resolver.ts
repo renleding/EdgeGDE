@@ -55,10 +55,18 @@ async function attemptLegacyLookup(
   )
 
   if (oldLayout) {
-    await TENANT_KV.put(
+    // FIX #1: Conditional write — only bootstrap if target key doesn't exist
+    // Prevents a KV write on every request for legacy tenants
+    const existingLatest = await TENANT_KV.get(
       `tenant:${tenantId}:layout:latest`,
-      JSON.stringify(oldLayout)
+      'json'
     )
+    if (!existingLatest) {
+      await TENANT_KV.put(
+        `tenant:${tenantId}:layout:latest`,
+        JSON.stringify(oldLayout)
+      )
+    }
   }
 
   return {
@@ -78,9 +86,21 @@ export async function tenantResolver(
   c: Context,
   next: Next,
 ): Promise<Response | void> {
-  // ── Skip tenant resolution for admin and agent endpoints ────────────────
+  // ── Skip tenant resolution for non-tenant endpoints ─────────────────────
   const path = c.req.path
-  if (path.startsWith('/api/v1/agent/') || path.startsWith('/api/v1/admin/') || path.startsWith('/api/tenants/') || path === '/healthz' || path === '/favicon.ico' || path.startsWith('/api/dashboard/') || path.startsWith('/api/fragment/')) {
+  if (
+    path.startsWith('/api/v1/agent/') ||
+    path.startsWith('/api/v1/admin/') ||
+    path.startsWith('/api/tenants/') ||
+    path.startsWith('/api/webhook/') ||
+    path.startsWith('/.well-known/') ||
+    path.startsWith('/assets/') ||
+    path === '/healthz' ||
+    path === '/favicon.ico' ||
+    path.startsWith('/api/dashboard/') ||
+    path.startsWith('/api/fragment/') ||
+    path.match(/\.(js|css|png|jpg|svg|ico|woff2?)$/)
+  ) {
     return next()
   }
 
@@ -108,7 +128,12 @@ export async function tenantResolver(
     try {
       const TELEMETRY_KV = c.env?.TELEMETRY_KV as any
       if (TELEMETRY_KV && typeof TELEMETRY_KV.put === 'function') {
-        await TELEMETRY_KV.put(`deprecated:tenant_query:${Date.now()}`, slug)
+        // FIX #2: Daily-gated telemetry — one write per day, not per request
+        const todayKey = `deprecated:tenant_query:${new Date().toISOString().slice(0, 10)}`
+        const todayCount = await TELEMETRY_KV.get(todayKey)
+        if (!todayCount) {
+          await TELEMETRY_KV.put(todayKey, slug, { expirationTtl: 86400 })
+        }
       }
     } catch { /* non-blocking */ }
   }
@@ -150,7 +175,12 @@ export async function tenantResolver(
           try {
             const TELEMETRY_KV = c.env?.TELEMETRY_KV as any
             if (TELEMETRY_KV && typeof TELEMETRY_KV.put === 'function') {
-              await TELEMETRY_KV.put(`deprecated:tenant_query:${Date.now()}`, slug)
+              // FIX #2: Daily-gated telemetry — one write per day, not per request
+              const todayKey = `deprecated:tenant_query:${new Date().toISOString().slice(0, 10)}`
+              const todayCount = await TELEMETRY_KV.get(todayKey)
+              if (!todayCount) {
+                await TELEMETRY_KV.put(todayKey, slug, { expirationTtl: 86400 })
+              }
             }
           } catch { /* non-blocking */ }
         }

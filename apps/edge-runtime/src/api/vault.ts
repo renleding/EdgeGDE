@@ -36,6 +36,12 @@ vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
   const tenantId = c.req.query('tenant')
   if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
 
+  // Size limit check before streaming
+  const contentLength = c.req.header('content-length')
+  if (contentLength && parseInt(contentLength) > 100 * 1024 * 1024) {
+    return c.json({ error: 'File exceeds 100MB maximum upload size' }, 413)
+  }
+
   // Sanitise filename: strip path separators, collapse whitespace
   filename = filename.replace(/[/\\]/g, '_').replace(/\s+/g, '_').replace(/\.\./g, '')
   if (!filename) return c.json({ error: 'Invalid filename after sanitization' }, 400)

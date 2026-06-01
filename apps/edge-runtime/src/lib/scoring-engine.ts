@@ -119,6 +119,61 @@ function classifyScore(score: number, classifications: Classification[]): string
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// FNS40821 Deterministic Engine (0-70)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface DeterministicInput {
+  propertyValue?: number
+  loanAmount?: number
+  deposit?: number
+  employmentType?: string
+}
+
+export interface DeterministicResult {
+  score: number
+  details: string[]
+}
+
+/**
+ * FNS40821-compliant deterministic scoring.
+ * Pure function — no side effects, no external calls.
+ * Returns { score: 0-70, details: string[] }.
+ */
+export function computeDeterministic(input: DeterministicInput): DeterministicResult {
+  let score = 30          // base
+  const details: string[] = [`Base: 30`]
+
+  // LVR
+  const lvr =
+    input.loanAmount && input.propertyValue
+      ? (input.loanAmount / input.propertyValue) * 100
+      : null
+
+  if (lvr !== null) {
+    if (lvr < 80) {
+      score += 20
+      details.push(`LVR ${lvr.toFixed(1)}% < 80%: +20`)
+    } else if (lvr <= 90) {
+      score += 10
+      details.push(`LVR ${lvr.toFixed(1)}% 80–90%: +10`)
+    } else {
+      details.push(`LVR ${lvr.toFixed(1)}% > 90%: +0 (high risk)`)
+    }
+  }
+
+  // Employment type
+  const emp = (input.employmentType || '').toLowerCase()
+  if (emp === 'payg' || emp === 'full-time' || emp === 'part-time') {
+    score += 20
+    details.push(`Employment ${emp}: +20`)
+  } else if (emp === 'self-employed' || emp === 'self employed') {
+    details.push(`Employment self-employed: +0 (requires BAS review)`)
+  }
+
+  return { score: Math.min(score, 70), details }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Main Scoring Function
 // ═══════════════════════════════════════════════════════════════════════════
 

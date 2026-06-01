@@ -11,12 +11,13 @@
 interface AuditEntry {
   id: string
   ts: number
-  action: 'upload' | 'download' | 'delete'
+  action: string
   tenantId: string
   submissionId: string
   file_name: string
   object_key: string
   size_bytes?: number
+  metadata?: Record<string, unknown>
 }
 
 const STORAGE_KEY = 'audit:entries'
@@ -46,9 +47,10 @@ export class AuditLedger {
           file_name: body.file_name || '',
           object_key: body.object_key || '',
           size_bytes: body.size_bytes,
+          metadata: body.metadata || undefined,
         }
 
-        if (!entry.tenantId || !entry.submissionId || !entry.file_name) {
+        if (!entry.tenantId || !entry.submissionId) {
           return Response.json({ error: 'Missing required fields: tenantId, submissionId, file_name' }, { status: 400 })
         }
 

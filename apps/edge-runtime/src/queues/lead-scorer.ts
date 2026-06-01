@@ -9,56 +9,8 @@
  */
 
 import { broadcast } from '../lib/sse'
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Deterministic Engine (70 points — FNS40821 baseline)
-// ═══════════════════════════════════════════════════════════════════════════
-
-interface DeterministicInput {
-  propertyValue?: number
-  loanAmount?: number
-  deposit?: number
-  employmentType?: string
-}
-
-interface DeterministicResult {
-  score: number
-  details: string[]
-}
-
-function computeDeterministic(input: DeterministicInput): DeterministicResult {
-  let score = 30          // base
-  const details: string[] = [`Base: 30`]
-
-  // LVR
-  const lvr =
-    input.loanAmount && input.propertyValue
-      ? (input.loanAmount / input.propertyValue) * 100
-      : null
-
-  if (lvr !== null) {
-    if (lvr < 80) {
-      score += 20
-      details.push(`LVR ${lvr.toFixed(1)}% < 80%: +20`)
-    } else if (lvr <= 90) {
-      score += 10
-      details.push(`LVR ${lvr.toFixed(1)}% 80–90%: +10`)
-    } else {
-      details.push(`LVR ${lvr.toFixed(1)}% > 90%: +0 (high risk)`)
-    }
-  }
-
-  // Employment type
-  const emp = (input.employmentType || '').toLowerCase()
-  if (emp === 'payg' || emp === 'full-time' || emp === 'part-time') {
-    score += 20
-    details.push(`Employment ${emp}: +20`)
-  } else if (emp === 'self-employed' || emp === 'self employed') {
-    details.push(`Employment self-employed: +0 (requires BAS review)`)
-  }
-
-  return { score: Math.min(score, 70), details }
-}
+import { computeDeterministic } from '../lib/scoring-engine'
+import type { DeterministicInput } from '../lib/scoring-engine'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LLM Agentic Signal (30 points)
@@ -150,6 +102,11 @@ export interface LeadMessage {
   tenantId: string
   formId: string
   payload: Record<string, unknown>
+  contactInfo?: {
+    name: string
+    email: string
+    phone: string
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -174,37 +131,35 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
         : { agenticScore: 0, rationale: 'LLM scoring not configured.', redFlag: false }
       llmLatency = Date.now() - llmStart
 
-      // ── Telemetry: log LLM metrics to TELEMETRY_KV ───────────────────
+      // ── Telemetry: aggregate to D1 (replaces per-call TELEMETRY_KV append) ──
+      // Uses atomic UPSERT — single write per LLM call vs KV read-modify-write
       try {
-        const telemetryKv = env.TELEMETRY_KV as any
-        if (telemetryKv && typeof telemetryKv.put === 'function') {
+        const db2 = env.DB as any
+        if (db2 && typeof db2.prepare === 'function') {
           const today = new Date().toISOString().slice(0, 10)
-          const telemetryKey = `tenant:${tenantId}:telemetry:llm:${today}`
-          const existingRaw = await telemetryKv.get(telemetryKey)
-          const existing: any[] = existingRaw ? JSON.parse(existingRaw) : []
-          existing.push({
-            submissionId,
+          const isSuccess = llm.rationale !== 'LLM unavailable — scored deterministically only.' && llm.rationale !== 'LLM response parse failure.'
+          await db2.prepare(`
+            INSERT INTO telemetry_daily (tenant_id, date, llm_calls, llm_success, llm_fail, total_latency_ms, red_flag_count, total_agentic_score, updated_at)
+            VALUES (?, ?, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(tenant_id, date) DO UPDATE SET
+              llm_calls = llm_calls + 1,
+              llm_success = llm_success + excluded.llm_success,
+              llm_fail = llm_fail + excluded.llm_fail,
+              total_latency_ms = total_latency_ms + excluded.total_latency_ms,
+              red_flag_count = red_flag_count + excluded.red_flag_count,
+              total_agentic_score = total_agentic_score + excluded.total_agentic_score,
+              updated_at = CURRENT_TIMESTAMP
+          `).bind(
             tenantId,
-            success: llm.rationale !== 'LLM unavailable — scored deterministically only.' && llm.rationale !== 'LLM response parse failure.',
-            latencyMs: llmLatency,
-            agenticScore: llm.agenticScore,
-            redFlag: llm.redFlag,
-            ts: Date.now(),
-          })
-          // Cap to 500 entries per day
-          const pruned = existing.slice(-500)
-          await telemetryKv.put(telemetryKey, JSON.stringify(pruned), { expirationTtl: 86400 * 90 })
-
-          // Maintain daily index pointer (last 30 days)
-          const indexKey = `tenant:${tenantId}:telemetry:llm:days:index`
-          const indexRaw = await telemetryKv.get(indexKey)
-          const days: string[] = indexRaw ? JSON.parse(indexRaw) : []
-          if (!days.includes(today)) {
-            const updated = [today, ...days].slice(0, 30)
-            await telemetryKv.put(indexKey, JSON.stringify(updated))
-          }
+            today,
+            isSuccess ? 1 : 0,
+            isSuccess ? 0 : 1,
+            llmLatency,
+            llm.redFlag ? 1 : 0,
+            llm.agenticScore,
+          ).run()
         }
-      } catch { /* non-blocking */ }
+      } catch { /* non-blocking — telemetry loss is acceptable */ }
 
       // ── 3. Composite score ────────────────────────────────────────────
       let totalScore = det.score + llm.agenticScore
@@ -220,16 +175,60 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
         llm.rationale,
       ].join(' ')
 
-      // ── 4. Persist to D1 ──────────────────────────────────────────────
+      // ── 4. Contact Resolution ─────────────────────────────────────────
+      let contactId = ''
+      const contactInfo = body.contactInfo
+      if (contactInfo && (contactInfo.email || contactInfo.phone)) {
+        try {
+          const db2 = env.DB as any
+          if (db2 && typeof db2.prepare === 'function') {
+            const email = contactInfo.email.toLowerCase().trim()
+            const phone = contactInfo.phone.replace(/\D/g, '')
+            const name = contactInfo.name.trim() || 'Unknown'
+
+            // Try email match first, then phone
+            let contact: any = null
+            if (email) {
+              contact = await db2.prepare(
+                `SELECT id, name FROM contacts WHERE tenant_id = ? AND email = ? LIMIT 1`
+              ).bind(tenantId, email).first()
+            }
+            if (!contact && phone) {
+              contact = await db2.prepare(
+                `SELECT id, name FROM contacts WHERE tenant_id = ? AND phone = ? LIMIT 1`
+              ).bind(tenantId, phone).first()
+            }
+
+            if (contact) {
+              contactId = contact.id as string
+              // Update name if richer
+              if (name.length > (contact.name as string).length) {
+                await db2.prepare(
+                  `UPDATE contacts SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+                ).bind(name, contactId).run()
+              }
+            } else {
+              // Create new contact
+              contactId = crypto.randomUUID()
+              await db2.prepare(
+                `INSERT INTO contacts (id, tenant_id, name, email, phone) VALUES (?, ?, ?, ?, ?)`
+              ).bind(contactId, tenantId, name, email, phone).run()
+            }
+          }
+        } catch (err) { console.warn('[contact] resolution failed:', err) }
+      }
+
+      // ── 5. Persist to D1 ──────────────────────────────────────────────
       const db = env.DB as any
       if (db && typeof db.prepare === 'function') {
         await db
           .prepare(
             `UPDATE form_submissions
-             SET lead_score = ?, deterministic_score = ?, score_band = ?, score_rationale = ?
+             SET lead_score = ?, deterministic_score = ?, score_band = ?, score_rationale = ?,
+                 contact_id = ?, current_stage = ?
              WHERE id = ?`,
           )
-          .bind(totalScore, det.score, band, rationale, submissionId)
+          .bind(totalScore, det.score, band, rationale, contactId, 'new_lead', submissionId)
           .run()
 
         // ── 5. Action triggers ──────────────────────────────────────────
@@ -284,8 +283,8 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
       msg.ack()
     } catch (err) {
       console.error(`[lead-scorer] Failed for ${submissionId}:`, err)
-      // Retry up to 3 times, then send to dead-letter
-      msg.retry({ retriesLeft: msg.attempts < 3 ? 3 - msg.attempts : 0 })
+      // Platform manages retries via wrangler.json max_retries: 3
+      msg.retry()
     }
   }
 }

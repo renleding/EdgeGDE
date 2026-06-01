@@ -344,6 +344,20 @@
     .sandbox-result-max { font-size: 12px; font-weight: 400; color: #8b949e; margin-left: 2px; }
     .sandbox-result-detail { font-size: 12px; color: #e1e4e8; margin-top: 4px; }
     .sandbox-footnote { font-size: 10px; color: #8b949e; font-style: italic; margin-top: 10px; text-align: center; }
+
+    .stage-select {
+      background: #0f1117;
+      color: #e1e4e8;
+      border: 1px solid #2d3140;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-family: inherit;
+      max-width: 140px;
+      cursor: pointer;
+    }
+    .stage-select:hover { border-color: #58a6ff; }
+    .stage-select option { background: #1c1e26; }
   </style>
 </head>
 <body>
@@ -381,6 +395,7 @@
       <tr>
         <th>Name</th>
         <th>Score</th>
+        <th>Stage</th>
         <th>Band</th>
         <th>Rationale</th>
         <th>Tenant</th>
@@ -388,7 +403,7 @@
       </tr>
     </thead>
     <tbody id="leads-body">
-      <tr><td colspan="6" class="empty-state"><div class="icon">⏳</div><p>Loading leads...</p></td></tr>
+      <tr><td colspan="7" class="empty-state"><div class="icon">⏳</div><p>Loading leads...</p></td></tr>
     </tbody>
   </table>
 
@@ -515,6 +530,7 @@
     let currentBand = ''
     let allLeads = []
     let allAlerts = []
+    let allStages = []
 
     // ── Filter buttons ──────────────────────────────────────────────────
     document.getElementById('band-filters').addEventListener('click', (e) => {
@@ -574,7 +590,7 @@
 
       const tbody = document.getElementById('leads-body')
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="icon">📭</div><p>No leads ' + (currentBand ? 'in this band' : 'yet') + '. Submit some lead data to see it here.</p></td></tr>'
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="icon">📭</div><p>No leads ' + (currentBand ? 'in this band' : 'yet') + '. Submit some lead data to see it here.</p></td></tr>'
         return
       }
 
@@ -582,15 +598,38 @@
         const scoreClass = 'score-' + l.band
         const bandClass = 'band-' + l.band
         const created = l.createdAt ? new Date(l.createdAt + 'Z').toLocaleDateString() : '\u2014'
+        const opts = allStages.map(s =>
+          '<option value="' + esc(s.name) + '"' + (s.name === l.stage ? ' selected' : '') + '>' + esc(s.name) + '</option>'
+        ).join('')
         return '<tr>' +
           '<td><div class="lead-name">' + esc(l.name || '\u2014') + '</div><div class="lead-email">' + esc(l.email || '') + '</div></td>' +
           '<td class="score-cell ' + scoreClass + '">' + l.score + '</td>' +
+          '<td><select class="stage-select" data-id="' + l.id + '">' + opts + '</select></td>' +
           '<td><span class="band-tag ' + bandClass + '">' + l.band + '</span></td>' +
           '<td class="rationale-cell" title="' + esc(l.rationale) + '">' + esc(l.rationale || '\u2014') + '</td>' +
           '<td><span class="tenant-id">' + esc(l.tenantId) + '</span></td>' +
           '<td style="color:#8b949e;font-size:11px">' + created + '</td>' +
         '</tr>'
       }).join('')
+
+      // Attach stage change handlers
+      document.querySelectorAll('.stage-select').forEach(function(sel) {
+        sel.addEventListener('change', async function() {
+          const id = sel.dataset.id
+          const stage = sel.value
+          try {
+            const res = await fetch(apiUrl('/api/v1/admin/leads/' + encodeURIComponent(id) + '/stage?tenant=afirmico'), {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ stage: stage }),
+            })
+            if (!res.ok) throw new Error('HTTP ' + res.status)
+          } catch (err) {
+            console.error('Stage update failed:', err)
+            poll() // refresh to reset dropdown
+          }
+        })
+      })
     }
 
     function esc(s) {
@@ -662,9 +701,16 @@
     // ── Leads polling ───────────────────────────────────────────────────
     async function poll() {
       try {
-        const res = await fetch(apiUrl('/api/v1/admin/leads'))
-        if (!res.ok) throw new Error('HTTP ' + res.status)
-        const data = await res.json()
+        const [leadsRes, stagesRes] = await Promise.all([
+          fetch(apiUrl('/api/v1/admin/leads')),
+          fetch(apiUrl('/api/v1/admin/stages?tenant=afirmico')),
+        ])
+        if (!leadsRes.ok) throw new Error('HTTP ' + leadsRes.status)
+        const data = await leadsRes.json()
+        if (stagesRes.ok) {
+          const stageData = await stagesRes.json()
+          allStages = stageData.stages || []
+        }
         allLeads = data.leads || []
         render()
         document.getElementById('last-updated').textContent = 'updated ' + new Date().toLocaleTimeString()

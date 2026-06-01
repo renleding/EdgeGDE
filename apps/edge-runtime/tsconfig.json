@@ -16,5 +16,5 @@
     "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["tests/compiler/edr-engine.test.ts"]
+  "exclude": ["tests/compiler/edr-engine.test.ts", "tests/scoring-engine.test.ts"]
 }

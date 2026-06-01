@@ -17,13 +17,29 @@ export async function runDispatcher(env: any): Promise<void> {
   }
 
   try {
-    // 1. Discover tenants from D1 (no KV.list())
-    const tenantsResult: any = await db
-      .prepare('SELECT DISTINCT tenant_id FROM form_submissions')
-      .all()
+    // 1. Discover tenants from KV cache (600s TTL) or D1 fallback
+    const cacheKey = 'tenants:active'
+    let tenants: string[] = []
+    try {
+      const cached = await kv.get(cacheKey)
+      if (cached) {
+        tenants = JSON.parse(cached)
+        console.log(`[dispatcher] cache hit: ${tenants.length} tenants`)
+      }
+    } catch { /* cache miss — fall through to D1 */ }
 
-    const tenants: string[] =
-      tenantsResult?.results?.map((r: any) => r.tenant_id) || []
+    if (tenants.length === 0) {
+      const tenantsResult: any = await db
+        .prepare('SELECT DISTINCT tenant_id FROM form_submissions')
+        .all()
+
+      tenants = tenantsResult?.results?.map((r: any) => r.tenant_id) || []
+
+      if (tenants.length > 0) {
+        // Write back to cache with 10min TTL
+        await kv.put(cacheKey, JSON.stringify(tenants), { expirationTtl: 600 })
+      }
+    }
 
     if (tenants.length === 0) {
       console.log('[dispatcher] no tenants found')

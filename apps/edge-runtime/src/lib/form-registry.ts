@@ -156,6 +156,11 @@ export function mountFormRoutes(app: Hono): void {
                   tenantId,
                   formId: def.id,
                   payload: result.data,
+                  contactInfo: {
+                    name: (result.data as any)?.fullName || (result.data as any)?.name || '',
+                    email: (result.data as any)?.email || '',
+                    phone: (result.data as any)?.phone || '',
+                  },
                 })
               }
             } catch {
