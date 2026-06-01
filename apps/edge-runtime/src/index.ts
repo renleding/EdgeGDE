@@ -95,6 +95,30 @@ function guardKvList(kvBinding: any, name: string): void {
   }
 }
 
+/**
+ * Guard against storing event data in KV.
+ * Events must live in the AuditLedger DO only.
+ */
+function guardKvEventStorage(kvBinding: any, name: string): void {
+  if (kvBinding && typeof kvBinding === 'object' && kvBinding.put) {
+    const originalPut = kvBinding.put
+    try {
+      kvBinding.put = async (key: string, value: any, options?: any) => {
+        if (typeof key === 'string' && key.startsWith('audit:')) {
+          throw new Error(
+            `🚨 KV event storage is FORBIDDEN on ${name}. ` +
+            `Tried to write key '${key.substring(0, 60)}...'. ` +
+            'Events must be stored in the AuditLedger Durable Object.'
+          )
+        }
+        return originalPut.call(kvBinding, key, value, options)
+      }
+    } catch {
+      // Binding may be frozen — guard silently skipped
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MIDDLEWARE ORDER — MUST BE STRICTLY ENFORCED
 //   1. tenantResolver — resolves tenant before ANY logic
@@ -108,6 +132,8 @@ app.use('*', async (c, next) => {
   guardKvList((c.env as any)?.TENANT_KV, 'TENANT_KV')
   guardKvList((c.env as any)?.ARTIFACT_KV, 'ARTIFACT_KV')
   guardKvList((c.env as any)?.TELEMETRY_KV, 'TELEMETRY_KV')
+  guardKvEventStorage((c.env as any)?.TENANT_KV, 'TENANT_KV')
+  guardKvEventStorage((c.env as any)?.TELEMETRY_KV, 'TELEMETRY_KV')
   await next()
 })
 

@@ -7,6 +7,7 @@ import { Hono } from 'hono'
 import { scoreLead, type Ruleset, type RulesetRule, type ScoreResult } from '../lib/scoring-engine'
 import { addSubscriber, removeSubscriber } from '../lib/sse'
 import { validateUiConfig, validateUiConfigSafe } from '../lib/ui-primitives'
+import { renderUiConfigToHtml } from '../lib/renderer'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -881,6 +882,44 @@ scoringAdminRouter.delete('/ui-config', async (c) => {
     return c.json({ success: true, message: 'UI config reset to default' })
   } catch (err: any) {
     return c.json({ error: 'Failed to delete UI config', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /admin/ui-config/render — render UI config as HTML fragment
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.get('/ui-config/render', async (c) => {
+  const kv = (c.env as any)?.TENANT_KV
+  const db = (c.env as any)?.DB
+  if (!kv) return c.json({ error: 'TENANT_KV required' }, 500)
+  if (!db) return c.json({ error: 'D1 required' }, 500)
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant required' }, 400)
+
+  try {
+    const config: any = await kv.get(`tenant:${tenantId}:ui:config`, 'json')
+    if (!config) return c.html('<div style="color:#8b949e;padding:20px;text-align:center">No UI config configured</div>')
+
+    const validation = validateUiConfigSafe(config)
+    if (!validation.success) return c.html(`<div style="color:#f85149;padding:20px">Validation failed</div>`)
+
+    // Load context from latest active chat session
+    const session: any = await db.prepare(
+      `SELECT collected_fields_json FROM chat_sessions WHERE tenant_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
+    ).bind(tenantId).first()
+
+    const collected: Record<string, unknown> = session?.collected_fields_json ? JSON.parse(session.collected_fields_json) : {}
+    const ctx: Record<string, string | number | boolean> = {}
+    for (const [k, v] of Object.entries(collected)) {
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') ctx[k] = v
+    }
+
+    const html = renderUiConfigToHtml(validation.data.root, ctx)
+    return c.html(html)
+  } catch (err: any) {
+    return c.html(`<div style="color:#f85149;padding:20px">${err.message}</div>`)
   }
 })
 
