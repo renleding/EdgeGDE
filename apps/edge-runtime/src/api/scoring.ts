@@ -961,10 +961,67 @@ scoringAdminRouter.get('/health', async (c) => {
         vault: true,
         dispatcher: !!((c.env as any)?.ALERT_WEBHOOK_URL),
       },
-      version: '0.4.0',
+      version: '0.8.1',
     })
   } catch (err: any) {
     return c.json({ error: 'Health check failed', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /admin/deploy-log — read the most recent deployment metadata
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.get('/deploy-log', async (c) => {
+  const kv = (c.env as any)?.TENANT_KV
+  if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
+
+  try {
+    const log = await kv.get('global:deploy:log', 'json')
+    if (!log) return c.json({ message: 'No deployment log found' }, 404)
+    return c.json(log)
+  } catch (err: any) {
+    return c.json({ error: 'Failed to read deploy log', details: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /admin/applications/:id/events — last N events for an application
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.get('/applications/:id/events', async (c) => {
+  const appId = c.req.param('id')
+  const limit = Math.min(parseInt(c.req.query('limit') || '5', 10), 50)
+
+  const doBinding = (c.env as any)?.AUDIT_LEDGER
+  if (!doBinding || typeof doBinding.idFromName !== 'function') {
+    return c.json({ error: 'AUDIT_LEDGER binding required' }, 500)
+  }
+
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
+
+  try {
+    const doId = doBinding.idFromName(`tenant:${tenantId}`)
+    const stub = doBinding.get(doId)
+    const res = await stub.fetch(`http://do/list?tenantId=${tenantId}&sessionId=${appId}&limit=${limit}`)
+    if (!res.ok) return c.json({ error: 'Failed to fetch events' }, 500)
+    const data: any = await res.json()
+
+    const recent = (data.entries || [])
+      .sort((a: any, b: any) => b.seq - a.seq)
+      .slice(0, limit)
+      .map((e: any) => ({
+        type: e.type,
+        ts: e.ts,
+        actor: e.actor,
+        seq: e.seq,
+        data: e.data || {},
+      }))
+
+    return c.json({ applicationId: appId, events: recent })
+  } catch (err: any) {
+    return c.json({ error: 'Failed to fetch application events', details: err.message }, 500)
   }
 })
 

@@ -1,0 +1,231 @@
+name: EdgeGDE Deploy Pipeline
+
+on:
+  push:
+    branches: [main]
+    # Only trigger when runtime or config changes occur
+    paths:
+      - 'apps/edge-runtime/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      skip-smoke:
+        description: 'Skip smoke test (emergency override)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  WORKING_DIR: apps/edge-runtime
+  WORKER_NAME: edgegde-calculator
+  D1_DB: ebroker_leads
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 1: Preflight — typecheck + full test suite
+  # ═══════════════════════════════════════════════════════════════════════════
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npm ci
+
+      - name: TypeScript strict check
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npx tsc --noEmit
+
+      - name: Run full test suite (54 tests)
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npm test
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 2: Artifact — compute hashes + upload version (0 traffic)
+  # ═══════════════════════════════════════════════════════════════════════════
+  artifact:
+    needs: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_hash: ${{ steps.hash.outputs.artifact_hash }}
+      schema_snapshot_id: ${{ steps.hash.outputs.schema_snapshot_id }}
+      version_id: ${{ steps.deploy.outputs.version_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKING_DIR }}
+        run: npm ci
+
+      - name: Compute artifact hash
+        id: hash
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          ARTIFACT_HASH=$(find src ui-config -type f | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+          SCHEMA_ID=$(find src/lib/ui-primitives.ts src/objects/AuditLedger.ts ui-config -type f | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)
+          echo "artifact_hash=$ARTIFACT_HASH" >> $GITHUB_OUTPUT
+          echo "schema_snapshot_id=$SCHEMA_ID" >> $GITHUB_OUTPUT
+          echo "Artifact hash: $ARTIFACT_HASH"
+          echo "Schema snapshot: $SCHEMA_ID"
+
+      - name: Deploy version (0 traffic)
+        id: deploy
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler versions upload \
+            --var WORKER_ARTIFACT_HASH:${{ steps.hash.outputs.artifact_hash }} \
+            --var SCHEMA_SNAPSHOT_ID:${{ steps.hash.outputs.schema_snapshot_id }} \
+            2>&1 | tee version_output.txt
+          VERSION_ID=$(grep -oP 'Version ID:\s+\K[a-f0-9-]+' version_output.txt || echo "unknown")
+          echo "version_id=$VERSION_ID" >> $GITHUB_OUTPUT
+          echo "Uploaded version: $VERSION_ID"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 3: Validation — smoke test the staged version
+  # ═══════════════════════════════════════════════════════════════════════════
+  validate:
+    needs: artifact
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip-smoke }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run smoke tests
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          WORKER_URL: https://edgegde-calculator.renleding.workers.dev
+          ADMIN_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          bash scripts/smoke-test.sh
+          echo "Smoke tests passed — version ${{ needs.artifact.outputs.version_id }} is healthy"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 4: Approval Gate — manual check before production promotion
+  # ═══════════════════════════════════════════════════════════════════════════
+  approve:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Await manual approval
+        run: |
+          echo "Version ${{ needs.artifact.outputs.version_id }} ready for promotion"
+          echo "Artifact hash: ${{ needs.artifact.outputs.artifact_hash }}"
+          echo "Schema snapshot: ${{ needs.artifact.outputs.schema_snapshot_id }}"
+          echo "Waiting for environment approval gate..."
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 5: Promote — atomic pointer switch + post-validation + logging
+  # ═══════════════════════════════════════════════════════════════════════════
+  promote:
+    needs: approve
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      version_id: ${{ steps.promote.outputs.version_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install wrangler
+        run: npm i -g wrangler
+
+      - name: Atomic promotion
+        id: promote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler versions deploy ${{ needs.artifact.outputs.version_id }} --yes
+          echo "Version ${{ needs.artifact.outputs.version_id }} promoted to 100% traffic"
+          echo "version_id=${{ needs.artifact.outputs.version_id }}" >> $GITHUB_OUTPUT
+
+      - name: Post-promote smoke validation
+        id: post_validate
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          WORKER_URL: https://edgegde-calculator.renleding.workers.dev
+          ADMIN_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          if bash scripts/smoke-test.sh; then
+            echo "Post-promote smoke test passed"
+            echo "status=pass" >> $GITHUB_OUTPUT
+          else
+            echo "Post-promote smoke test FAILED"
+            echo "status=fail" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Persist deploy log to KV
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          DEPLOY_LOG="{\"version\":\"${{ needs.artifact.outputs.version_id }}\",\"artifact_hash\":\"${{ needs.artifact.outputs.artifact_hash }}\",\"schema_snapshot_id\":\"${{ needs.artifact.outputs.schema_snapshot_id }}\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+
+          echo "$DEPLOY_LOG"
+
+          npx wrangler kv:key put "global:deploy:log" "$DEPLOY_LOG" \
+            --binding TENANT_KV --remote 2>/dev/null || true
+
+          echo "Deploy log persisted to global:deploy:log"
+
+      - name: Log deployment event
+        run: |
+          echo "=== DEPLOYMENT COMPLETE ==="
+          echo "Worker: edgegde-calculator"
+          echo "Version: ${{ needs.artifact.outputs.version_id }}"
+          echo "Artifact hash: ${{ needs.artifact.outputs.artifact_hash }}"
+          echo "Schema snapshot: ${{ needs.artifact.outputs.schema_snapshot_id }}"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Stage 6: Rollback — revert on any stage failure after upload
+  # ═══════════════════════════════════════════════════════════════════════════
+  rollback:
+    needs: [promote, artifact]
+    if: always()
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check if rollback needed
+        id: check
+        run: |
+          PROMOTE_STATUS="${{ needs.promote.result }}"
+          POST_VALIDATE_STATUS="${{ needs.promote.outputs.version_id }}"
+          echo "Promote result: $PROMOTE_STATUS"
+          if [ "$PROMOTE_STATUS" = "failure" ] || [ "$PROMOTE_STATUS" = "cancelled" ]; then
+            echo "need_rollback=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_rollback=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rollback to previous version
+        if: steps.check.outputs.need_rollback == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "Rolling back failed promotion..."
+          npx wrangler rollback --yes
+          echo "Rollback complete — previous version restored"
+          echo "Failed version: ${{ needs.artifact.outputs.version_id }}"

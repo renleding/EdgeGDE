@@ -4,6 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-05-01",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "WORKER_ARTIFACT_HASH": "development",
+    "SCHEMA_SNAPSHOT_ID": "development"
+  },
   "observability": {
     "enabled": true,
     "logs": {
