@@ -1,12 +1,17 @@
 {
   "name": "@edgegde/runtime",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787",
+    "dev": "wrangler dev --local --config wrangler.local.toml",
     "deploy": "wrangler deploy",
-    "test": "tsx tests/compiler/edr-engine.test.ts",
+    "test": "tsx tests/scoring-engine.test.ts && tsx tests/phase13-hypermedia.test.ts && tsx tests/domain-workspace.test.ts && tsx tests/domain-swarm.test.ts",
+    "test:swarm": "tsx tests/domain-swarm.test.ts",
+    "test:domain": "tsx tests/domain-workspace.test.ts",
+    "test:renderer": "tsx tests/phase13-hypermedia.test.ts",
+    "test:scoring": "tsx tests/scoring-engine.test.ts",
+    "test:edr": "tsx tests/compiler/edr-engine.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

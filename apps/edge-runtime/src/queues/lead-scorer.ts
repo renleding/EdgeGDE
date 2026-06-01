@@ -150,15 +150,15 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
 
             const doBinding = env.AUDIT_LEDGER
             if (doBinding?.idFromName) {
-              const doId = doBinding.idFromName('tenant:afirmico')
+              const doId = doBinding.idFromName(`tenant:${tenantId}`)
               const stub = doBinding.get(doId)
               stub.fetch('http://do/append', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'affordability_assessed', actor: 'mcp_swarm_engine', tenantId: 'afirmico', sessionId: appId, submissionId: appId, data: { application_id: appId, ...aff } }),
+                body: JSON.stringify({ type: 'affordability_assessed', actor: 'mcp_swarm_engine', tenantId, sessionId: appId, submissionId: appId, data: { application_id: appId, ...aff } }),
               }).catch(() => {})
               stub.fetch('http://do/append', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: 'risk_profile_generated', actor: 'mcp_swarm_engine', tenantId: 'afirmico', sessionId: appId, submissionId: appId, data: { application_id: appId, ...risk } }),
+                body: JSON.stringify({ type: 'risk_profile_generated', actor: 'mcp_swarm_engine', tenantId, sessionId: appId, submissionId: appId, data: { application_id: appId, ...risk } }),
               }).catch(() => {})
             }
           }
@@ -186,11 +186,11 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
 
           const doBinding = env.AUDIT_LEDGER
           if (doBinding?.idFromName) {
-            const doId = doBinding.idFromName('tenant:afirmico')
+            const doId = doBinding.idFromName(`tenant:${tenantId}`)
             const stub = doBinding.get(doId)
             stub.fetch('http://do/append', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'application_readiness_evaluated', actor: 'mcp_swarm_engine', tenantId: 'afirmico', sessionId: appId, submissionId: appId, data: { application_id: appId, ...ready } }),
+              body: JSON.stringify({ type: 'application_readiness_evaluated', actor: 'mcp_swarm_engine', tenantId, sessionId: appId, submissionId: appId, data: { application_id: appId, ...ready } }),
             }).catch(() => {})
           }
         } catch (e) { console.warn('[swarm] readiness execution failed:', e) }

@@ -500,6 +500,30 @@ async function triggerScoring(db: any, env: any, sessionId: string, tenantId: st
     ).bind(submissionId, Date.now(), sessionId).run()
     console.log('[triggerScoring] session linked', { sessionId, submissionId })
 
+    // ═══ BRIDGE ═══ — link this submission to applications table via email lookup
+    // Resolves contact from the completed chat session, then links the application.
+    // Idempotent: AND submission_id IS NULL prevents overwrite or duplicate links.
+    try {
+      const sessionRow: any = await db.prepare(`SELECT collected_fields_json FROM chat_sessions WHERE id = ?`).bind(sessionId).first()
+      if (sessionRow?.collected_fields_json) {
+        const fields: any = JSON.parse(sessionRow.collected_fields_json)
+        const email: string | undefined = fields.email
+        if (email) {
+          const contact: any = await db.prepare(`SELECT id FROM contacts WHERE email = ? ORDER BY last_updated_ts DESC LIMIT 1`).bind(email.toLowerCase().trim()).first()
+          if (contact?.id) {
+            const result = await db.prepare(`UPDATE applications SET submission_id = ? WHERE contact_id = ? AND submission_id IS NULL`).bind(submissionId, contact.id).run()
+            if ((result as any)?.meta?.changes === 0) {
+              console.warn('[bridge] link failed — no matching application', { sessionId, email, submissionId })
+            } else {
+              console.log('[bridge] linked submission to application', { submissionId, contactId: contact.id })
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[bridge] lookup failed:', e)
+    }
+
     // 3. Enqueue for scoring
     const queue = (env as any)?.LEAD_SCORING_QUEUE
     if (queue && typeof queue.send === 'function') {

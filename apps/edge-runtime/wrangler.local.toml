@@ -1,0 +1,51 @@
+# EdgeGDE — Local Development Configuration
+# Uses Miniflare for isolated local testing.
+#
+# Usage:
+#   npx wrangler dev --local --config wrangler.local.toml
+#   or: npm run dev
+
+name = "edgegde-calculator-dev"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+
+# Local KV namespace stubs
+kv_namespaces = [
+  { binding = "ARTIFACT_KV", id = "local", preview_id = "local" },
+  { binding = "TENANT_KV", id = "local", preview_id = "local" },
+  { binding = "TELEMETRY_KV", id = "local", preview_id = "local" },
+]
+
+# Local D1 stub
+[[d1_databases]]
+binding = "DB"
+database_name = "edgegde-local"
+database_id = "local"
+
+# Local R2 stub
+[[r2_buckets]]
+binding = "VAULT_BUCKET"
+bucket_name = "edgegde-vault-local"
+
+# Local queue stub
+[[queues.producers]]
+binding = "LEAD_SCORING_QUEUE"
+queue = "edgegde-lead-scoring-local"
+
+[[queues.consumers]]
+queue = "edgegde-lead-scoring-local"
+max_retries = 3
+max_batch_size = 10
+
+# Durable Object stubs
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[durable_objects.bindings]]
+name = "AUDIT_LEDGER"
+class_name = "AuditLedger"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter", "AuditLedger"]

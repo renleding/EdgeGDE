@@ -247,10 +247,20 @@ workspaceRouter.post('/workspace/upload', async (c) => {
 
 workspaceRouter.get('/workspace/pipeline', async (c) => {
   const db = (c.env as any)?.DB
+  const kv = (c.env as any)?.TENANT_KV
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
   if (!tenantId) return c.html('<div>Tenant query required</div>')
+
+  // ═══ PIPELINE CACHE ═══ — 15s TTL, cache-aside
+  const cacheKey = `tenant:${tenantId}:pipeline:html`
+  if (kv) {
+    try {
+      const cached = await kv.get(cacheKey)
+      if (cached) return c.html(cached)
+    } catch {}
+  }
 
   try {
     const { results } = await db.prepare(`
@@ -266,7 +276,7 @@ workspaceRouter.get('/workspace/pipeline', async (c) => {
     `).bind(tenantId).all()
 
     const apps = (results || []) as any[]
-
+    // ... (same rendering logic unchanged) ...
     const intake = apps.filter(a => a.workflow_stage === 'intake')
     const assessment = apps.filter(a => a.workflow_stage === 'assessment')
     const submission = apps.filter(a => a.workflow_stage === 'submission')
@@ -298,6 +308,13 @@ workspaceRouter.get('/workspace/pipeline', async (c) => {
           ${renderColumn('Submission', submission, 'cards-submission')}
         </div>
       </div>`
+
+    // Write to KV cache with 15s TTL
+    if (kv) {
+      c.executionCtx.waitUntil(
+        kv.put(cacheKey, html, { expirationTtl: 15 }).catch(() => {})
+      )
+    }
 
     return c.html(html)
   } catch (err: any) {
