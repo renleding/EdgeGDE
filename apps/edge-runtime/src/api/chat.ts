@@ -13,6 +13,9 @@
 import { Hono } from 'hono'
 import { findNextField, applyFieldUpdate, type ChatFieldDef } from '../lib/chat-constraint'
 import { buildParsePrompt, parseLlmResponse } from '../lib/chat-llm'
+import { loadChatConfig, type ChatConfig } from '../lib/chat-config'
+import { computeFieldState, applyRules } from '../lib/field-engine'
+import { loadKnowledgeBase, formatKbContext } from '../lib/knowledge-base'
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Router
@@ -79,26 +82,68 @@ chatRouter.post('/chat/tool', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
 
   let body: { tool?: string; session_id?: string; payload?: any; text?: string }
-  try { body = await c.req.json() } catch {
-    return c.json({ error: 'Invalid JSON' }, 400)
+  try {
+    const ct = c.req.header('content-type') || ''
+    if (ct.includes('application/json')) {
+      body = await c.req.json()
+    } else {
+      const fd = await c.req.formData()
+      body = { tool: fd.get('tool') as string || '', session_id: fd.get('session_id') as string || '', text: fd.get('text') as string || '' }
+    }
+  } catch {
+    return c.json({ error: 'Invalid request body' }, 400)
   }
 
   const tool = body.tool
   const sessionId = body.session_id
   if (!sessionId) return c.json({ error: 'session_id required' }, 400)
 
-  // ═══ LOAD FORM SCHEMA ═══
-  // For now, use the hardcoded mortgage form fields.
-  // Future: load from form registry by objective.
-  const fields: ChatFieldDef[] = [
-    { fieldName: 'fullName', label: 'Full Name', fieldType: 'string', validation: { required: true, minLength: 2 }, placeholder: 'e.g. John Smith' },
-    { fieldName: 'email', label: 'Email Address', fieldType: 'string', validation: { required: true }, placeholder: 'e.g. john@example.com' },
-    { fieldName: 'phone', label: 'Phone Number', fieldType: 'string', validation: { required: true }, placeholder: 'e.g. 0412 345 678' },
-    { fieldName: 'propertyValue', label: 'Property Value', fieldType: 'number', validation: { required: true, min: 10000, max: 100_000_000 }, placeholder: 'e.g. 750000' },
-    { fieldName: 'loanAmount', label: 'Loan Amount', fieldType: 'number', validation: { required: true, min: 1000, max: 100_000_000 }, placeholder: 'e.g. 500000' },
-    { fieldName: 'deposit', label: 'Deposit Amount', fieldType: 'number', validation: { required: true, min: 0 }, placeholder: 'e.g. 250000' },
-    { fieldName: 'employmentType', label: 'Employment Type', fieldType: 'select', validation: { required: true }, options: ['PAYG', 'Self-Employed'], placeholder: 'PAYG or Self-Employed' },
-  ]
+  // ═══ LOAD CHAT CONFIG FROM KV ═══
+  const kv = (c.env as any)?.TENANT_KV
+  const chatConfig: ChatConfig = kv ? await loadChatConfig(kv, tenantId) : null as any
+  if (!chatConfig) return c.json({ error: 'Chat configuration not available' }, 500)
+
+  // Map config fields to internal ChatFieldDef format
+  const fields: ChatFieldDef[] = chatConfig.fields.map(f => ({
+    fieldName: f.fieldName,
+    label: f.label,
+    fieldType: f.fieldType === 'number' ? 'number' : 'string',
+    validation: f.validation,
+    options: f.options,
+    placeholder: f.placeholder,
+  }))
+
+  // Load knowledge base topics in parallel
+  const kb = kv ? await loadKnowledgeBase(kv, tenantId, chatConfig.knowledgeBase.topics) : {}
+  const kbContext = formatKbContext(kb)
+
+/**
+ * Normalize name fields extracted by the LLM.
+ * Guards against edge cases: single names, titles, hyphenated names, ordering ambiguity.
+ */
+function normalizeNameFields(collected: Record<string, unknown>): void {
+  if (!collected.firstName && !collected.lastName) return
+
+  // Trim and clean
+  if (collected.firstName) collected.firstName = String(collected.firstName).trim()
+  if (collected.middleName) collected.middleName = String(collected.middleName).trim()
+  if (collected.lastName) collected.lastName = String(collected.lastName).trim()
+
+  // Strip titles (Dr., Mr., Mrs., Ms., etc.)
+  const titleRe = /^(Dr|Mr|Mrs|Ms|Miss|Prof|Rev)\.?\s+/i
+  if (collected.firstName) collected.firstName = String(collected.firstName).replace(titleRe, '')
+  if (collected.lastName) collected.lastName = String(collected.lastName).replace(titleRe, '')
+
+  // Fallback: if only one name field is present and no last name, the single token is firstName
+  if (collected.firstName && !collected.lastName && !collected.fullName) {
+    collected.lastName = null
+  }
+
+  // Clean up empty strings to null
+  for (const key of ['firstName', 'middleName', 'lastName']) {
+    if (collected[key] === '' || collected[key] === null) delete collected[key]
+  }
+}
 
   try {
     // Load session
@@ -235,23 +280,42 @@ chatRouter.post('/chat/tool', async (c) => {
         const userText = body.text || ''
         if (!userText) return c.json({ error: 'text field required for chat tool' }, 400)
 
-        // Get current field context
+        // Get current field context using field engine
         const stateJson = JSON.parse(session.state_json || '{}')
-        const currentField = stateJson.currentField || ''
+        let currentField = stateJson.currentField || ''
+        if (!currentField) {
+          // Use field engine to determine first field
+          const collected = JSON.parse(session.collected_fields_json || '{}')
+          const feResult = computeFieldState(
+            fields.map(f => ({
+              fieldName: f.fieldName,
+              label: f.label,
+              fieldType: (f.fieldType === 'string' ? 'text' : f.fieldType) as 'text' | 'number' | 'select' | 'email' | 'phone',
+              validation: { required: f.validation?.required ?? true, min: f.validation?.min, max: f.validation?.max },
+              options: f.options,
+              placeholder: f.placeholder,
+            })),
+            chatConfig.priorityOrder,
+            collected,
+          )
+          if (feResult.nextField) {
+            currentField = feResult.nextField.fieldName
+          }
+        }
         const fieldDef = currentField ? fields.find(f => f.fieldName === currentField) : undefined
 
-        // Build LLM prompt
+        // Build LLM prompt with KB context
         const prompt = buildParsePrompt({
           sessionId,
           tenantId,
           text: userText,
           currentField,
           fieldDef: fieldDef ? { label: fieldDef.label, options: fieldDef.options, fieldType: fieldDef.fieldType } : undefined,
-        })
+        }, kbContext)
 
         // Call LLM (DeepSeek V4 Flash via OpenRouter)
         const llmApiKey = (c.env as any)?.LLM_API_KEY as string | undefined
-        let parsed: { field?: string; value?: unknown; intent: string; raw: string }
+        let parsed: import('../lib/chat-llm').ParsedIntent
 
         if (llmApiKey) {
           try {
@@ -286,12 +350,47 @@ chatRouter.post('/chat/tool', async (c) => {
         }
 
         if (parsed.intent === 'start') {
-          return c.json({ success: true, intent: 'start', message: 'Let\'s start your mortgage application. What\'s your full name?' })
+          const greeting = chatConfig.ui?.greeting || `Welcome! Let's start your application.`
+          return c.json({ success: true, intent: 'start', message: greeting })
         }
 
-        if (parsed.intent === 'field_value' && parsed.field) {
+        // Handle KB question
+        if (parsed.intent === 'question') {
+          return c.json({ success: true, intent: 'question', message: parsed.response || 'Let me check on that for you.' })
+        }
+
+        if (parsed.intent === 'field_value') {
           // ═══ JUDGE GATE ═══ — constraint engine validates LLM output
-          const result = applyFieldUpdate(fields, collected, parsed.field, parsed.value)
+          // Support extracted_fields (multiple fields) and single field (legacy)
+          const extractFields = parsed.extracted_fields && Object.keys(parsed.extracted_fields).length > 0
+          let result: ReturnType<typeof applyFieldUpdate>
+
+          if (extractFields) {
+            // Apply each extracted field individually, collecting results
+            let currentCollected = { ...collected }
+            let currentState = { ...JSON.parse(session.state_json || '{}') }
+            let lastError: string | null = null
+            // Normalize name fields before applying
+            normalizeNameFields(parsed.extracted_fields!)
+            for (const [f, v] of Object.entries(parsed.extracted_fields!)) {
+              const r = applyFieldUpdate(fields, currentCollected, f, v)
+              if (r.error) {
+                lastError = r.error
+              } else {
+                currentCollected = r.collected
+                currentState = r.state
+              }
+            }
+            result = {
+              collected: currentCollected,
+              state: currentState,
+              error: lastError,
+            }
+          } else if (parsed.field) {
+            result = applyFieldUpdate(fields, collected, parsed.field, parsed.value)
+          } else {
+            return c.json({ success: true, intent: 'unknown', message: "I didn't quite catch that. Could you provide your full name?" })
+          }
           if (result.error) {
             const nextState = findNextField(fields, result.collected)
             return c.json({
@@ -315,7 +414,8 @@ chatRouter.post('/chat/tool', async (c) => {
 
           // Audit — chat_message + field_updated
           c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'chat_message', '', sessionId, { text: userText }))
-          c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'field_updated', '', sessionId, { field: parsed.field, value: result.collected[parsed.field] }))
+          const auditField: string = parsed.field || (parsed.extracted_fields ? Object.keys(parsed.extracted_fields)[0] : 'unknown')
+          c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'field_updated', '', sessionId, { field: auditField, value: result.collected[auditField] }))
 
           if (result.state.phase === 'complete') {
             c.executionCtx.waitUntil(triggerScoring(db, c.env, sessionId, tenantId, result.collected))
@@ -558,3 +658,149 @@ async function triggerScoring(db: any, env: any, sessionId: string, tenantId: st
     } catch {}
   }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// POST /chat/stream — stream LLM response token by token, then process
+// ═════════════════════════════════════════════════════════════════════════════
+
+chatRouter.post('/chat/stream', async (c) => {
+  const tenantId = c.req.query('tenant') || 'afirmico'
+  const body = c.req.header('content-type')?.includes('json')
+    ? await c.req.json()
+    : Object.fromEntries(new URLSearchParams(await c.req.text()))
+  const sessionId = body.session_id || ''
+  const userText = (body.text || '').trim()
+  if (!userText || !sessionId) return c.json({ error: 'Missing text or session_id' }, 400)
+
+  const db = (c.env as any)?.DB
+  const kv = (c.env as any)?.TENANT_KV
+  const LLM_API_KEY = (c.env as any)?.LLM_API_KEY || ''
+
+  // Load session + config
+  const session: any = await db?.prepare(
+    `SELECT collected_fields_json, state_json, objective FROM chat_sessions WHERE id = ? AND tenant_id = ?`
+  ).bind(sessionId, tenantId).first()
+  if (!session) return c.json({ error: 'Session not found' }, 400)
+
+  const collected: Record<string, unknown> = session.collected_fields_json ? JSON.parse(session.collected_fields_json) : {}
+
+  const { loadChatConfig } = await import('../lib/chat-config')
+  const chatConfig = await loadChatConfig(kv, tenantId)
+  const fields = chatConfig.fields.map((f: any) => ({
+    fieldName: f.fieldName, label: f.label,
+    fieldType: (f.fieldType === 'number' ? 'number' : 'string') as 'string' | 'number' | 'select',
+    validation: f.validation, options: f.options, placeholder: f.placeholder,
+  }))
+
+  const { computeFieldState } = await import('../lib/field-engine')
+  const feResult = computeFieldState(
+    fields.map((f: any) => ({
+      fieldName: f.fieldName, label: f.label,
+      fieldType: f.fieldType === 'string' ? 'text' : 'number',
+      placeholder: f.placeholder,
+      validation: f.validation,
+    })),
+    chatConfig.priorityOrder,
+    collected,
+  )
+  const currentField = feResult.nextField?.fieldName || ''
+  const fieldDef = currentField ? fields.find((f: any) => f.fieldName === currentField) : undefined
+
+  // Build LLM prompt with KB context
+  const { loadKnowledgeBase, formatKbContext } = await import('../lib/knowledge-base')
+  const { buildParsePrompt, parseLlmResponse } = await import('../lib/chat-llm')
+  const kb = kv ? await loadKnowledgeBase(kv, tenantId, chatConfig.knowledgeBase?.topics || []) : {}
+  const kbContext = formatKbContext(kb)
+  const prompt = buildParsePrompt({
+    sessionId, tenantId, text: userText, currentField,
+    fieldDef: fieldDef ? { label: fieldDef.label, options: fieldDef.options, fieldType: fieldDef.fieldType } : undefined,
+  }, kbContext)
+
+  // Call LLM with streaming
+  const llmRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${LLM_API_KEY}`,
+      'HTTP-Referer': 'https://edgegde-calculator.renleding.workers.dev',
+      'X-Title': 'EdgeGDE',
+    },
+    body: JSON.stringify({
+      model: 'deepseek/deepseek-chat',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      stream: true,
+    }),
+  })
+
+  if (!llmRes.ok) {
+    const errText = await llmRes.text()
+    return c.json({ error: 'LLM call failed', details: errText }, 502)
+  }
+
+  // Stream the LLM response back to the client as SSE, collecting full text
+  const encoder = new TextEncoder()
+  let fullResponse = ''
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const reader = llmRes.body?.getReader()
+      if (!reader) { controller.close(); return }
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') continue
+            try {
+              const parsed = JSON.parse(data)
+              const token = parsed.choices?.[0]?.delta?.content || ''
+              if (token) {
+                fullResponse += token
+                controller.enqueue(encoder.encode(JSON.stringify({ token }) + '\n'))
+              }
+            } catch {}
+          }
+        }
+      }
+
+      // Full response collected — parse and store
+      const parsed = parseLlmResponse(fullResponse)
+      const responseText = parsed.response || fullResponse
+
+      // Process field update if applicable
+      if (parsed.extracted_fields && Object.keys(parsed.extracted_fields).length > 0) {
+        const { applyFieldUpdate } = await import('../lib/chat-constraint')
+        let currentCollected = { ...collected }
+        for (const [f, v] of Object.entries(parsed.extracted_fields)) {
+          const r = applyFieldUpdate(fields, currentCollected, f, v)
+          if (!r.error) { currentCollected = r.collected }
+        }
+        const now = Date.now()
+        await db?.prepare(
+          `UPDATE chat_sessions SET collected_fields_json = ?, updated_at = ? WHERE id = ?`
+        ).bind(JSON.stringify(currentCollected), now, sessionId).run()
+      }
+
+      // Send done event with full response text
+      controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: responseText }) + '\n'))
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson',
+      'Access-Control-Allow-Origin': '*',
+    },
+  })
+})

@@ -248,7 +248,7 @@ export class AuditLedger {
         const activeKey = (this as any)._streamKey
         if (writer && activeKey === storageKey && typeof writer.write === 'function') {
           const encoder = new TextEncoder()
-          writer.write(encoder.encode(`event: ${envelope.type}\ndata: ${JSON.stringify(envelope)}\n\n`))
+          writer.write(encoder.encode(`data: ${JSON.stringify(envelope)}\n\n`))
         }
       } catch {}
 

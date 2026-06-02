@@ -288,5 +288,18 @@
     setInterval(poll, 10000)
     connectSSE()
   </script>
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script src="https://unpkg.com/htmx-ext-sse@2.0.4/sse.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var div = document.createElement('div');
+      div.id = 'gde-chat';
+      div.setAttribute('hx-get', '/api/v1/chat/view?tenant=afirmico');
+      div.setAttribute('hx-trigger', 'load');
+      div.setAttribute('hx-swap', 'outerHTML');
+      document.body.appendChild(div);
+      if (typeof htmx !== 'undefined') htmx.process(div);
+    });
+  </script>
 </body>
 </html>

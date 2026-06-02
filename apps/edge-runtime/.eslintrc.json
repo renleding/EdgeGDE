@@ -1,0 +1,12 @@
+{
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint", "local-rules"],
+  "rules": {
+    "local-rules/no-raw-storage-access": "error"
+  },
+  "ignorePatterns": ["dist/", "node_modules/"]
+}

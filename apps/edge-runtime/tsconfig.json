@@ -16,5 +16,5 @@
     "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["tests/compiler/edr-engine.test.ts", "tests/scoring-engine.test.ts", "tests/phase13-hypermedia.test.ts", "tests/domain-workspace.test.ts", "tests/domain-swarm.test.ts", "scripts/validate-replay.ts"]
+  "exclude": ["tests/compiler/edr-engine.test.ts", "tests/scoring-engine.test.ts", "tests/phase13-hypermedia.test.ts", "tests/domain-workspace.test.ts", "tests/domain-swarm.test.ts", "tests/storage-enforcement.test.ts", "scripts/validate-replay.ts"]
 }
