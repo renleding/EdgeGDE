@@ -41,15 +41,16 @@ npm run lint 2>&1 | grep -q "0 errors" || { echo "❌ Lint failed"; npm run lint
 npm run test > /dev/null 2>&1 || { echo "❌ Tests failed"; exit 1; }
 
 # ── Deploy ───────────────────────────────────────────────────────────────────
-echo "🚀 Deploying..."
-npx wrangler deploy 2>&1 | tail -3
+echo "🚀 Deploying v$NEW_VERSION..."
+npx wrangler deploy --var WORKER_VERSION:"$NEW_VERSION" 2>&1 | tail -3
 
 # ── Commit + tag ────────────────────────────────────────────────────────────
 AUTO_MSG="${COMMIT_MSG:-chore: release v$NEW_VERSION}"
 
-git add package.json
+git add .
 git commit -m "$AUTO_MSG"
+git pull --rebase origin main 2>/dev/null || true
 git tag -a "v$NEW_VERSION" -m "v$NEW_VERSION"
-git push origin main --tags
+git push origin main --tags 2>&1
 
 echo "✅ v$NEW_VERSION deployed, committed, and pushed."

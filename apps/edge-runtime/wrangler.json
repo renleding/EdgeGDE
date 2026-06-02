@@ -6,7 +6,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "WORKER_ARTIFACT_HASH": "development",
-    "SCHEMA_SNAPSHOT_ID": "development"
+    "SCHEMA_SNAPSHOT_ID": "development",
+    "WORKER_VERSION": "development"
   },
   "observability": {
     "enabled": true,
