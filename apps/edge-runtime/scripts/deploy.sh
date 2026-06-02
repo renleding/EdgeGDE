@@ -38,7 +38,7 @@ npx tsc --noEmit || { echo "❌ TypeScript compilation failed"; exit 1; }
 npm run lint 2>&1 | grep -q "0 errors" || { echo "❌ Lint failed"; npm run lint 2>&1 | tail -5; exit 1; }
 
 # ── Run tests ───────────────────────────────────────────────────────────────
-npm run test 2>&1 | grep -q "passed" || { echo "❌ Tests failed"; exit 1; }
+npm run test > /dev/null 2>&1 || { echo "❌ Tests failed"; exit 1; }
 
 # ── Deploy ───────────────────────────────────────────────────────────────────
 echo "🚀 Deploying..."
