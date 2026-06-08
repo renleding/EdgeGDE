@@ -46,7 +46,7 @@ swarmRouter.post('/swarm/ingress', async (c) => {
       body: JSON.stringify({
         type: event_type,
         actor: 'mcp_swarm_engine',
-        tenantId: 'afirmico',
+        tenantId: 'au-mortgage-broker-afirmico',
         sessionId: application_id,
         submissionId: application_id,
         data: { application_id, ...payload },

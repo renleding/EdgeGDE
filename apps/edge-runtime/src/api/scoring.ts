@@ -1026,6 +1026,41 @@ scoringAdminRouter.get('/applications/:id/events', async (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// POST /admin/kb/ingest — submit a URL for KB extraction
+// ═══════════════════════════════════════════════════════════════════════════
+
+scoringAdminRouter.post('/kb/ingest', async (c) => {
+  const kv = (c.env as any)?.TENANT_KV
+  const tenantId = c.req.query('tenant')
+  if (!tenantId) return c.json({ error: 'tenant query required' }, 400)
+
+  let body: { url?: string; topic?: string }
+  try { body = await c.req.json() } catch {
+    return c.json({ error: 'Invalid JSON' }, 400)
+  }
+
+  if (!body.url) return c.json({ error: 'url required' }, 400)
+
+  // Enqueue the job
+  const queue = (c.env as any)?.LEAD_SCORING_QUEUE
+  if (queue?.send) {
+    await queue.send({
+      type: 'kb_ingest',
+      tenantId,
+      url: body.url,
+      topic: body.topic,
+      sourceRef: body.url,
+    })
+    return c.json({ success: true, status: 'queued', url: body.url })
+  }
+
+  // Fallback: run inline (for local dev without queue)
+  const { handleKbIngest } = await import('../queues/kb-ingest')
+  c.executionCtx.waitUntil(handleKbIngest({ tenantId, url: body.url, topic: body.topic, sourceRef: body.url }, c.env).catch(() => {}))
+  return c.json({ success: true, status: 'processing', url: body.url })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Helper
 // ═══════════════════════════════════════════════════════════════════════════
 

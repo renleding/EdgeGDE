@@ -103,7 +103,7 @@ export async function getMetrics(
   const prefix = tenant ? `${METRICS_PREFIX}:${tenant}:` : `${METRICS_PREFIX}:`
   try {
     // Try direct key lookup for known tenants
-    const knownTenants = ['afirmico']
+    const knownTenants = ['au-mortgage-broker-afirmico']
     const knownTools = ['default', 'gallery', 'budget', 'metrics']
     for (const t of knownTenants) {
       for (const tl of knownTools) {

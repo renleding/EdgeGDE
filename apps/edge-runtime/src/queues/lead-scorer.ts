@@ -11,6 +11,8 @@
 import { broadcast } from '../lib/sse'
 import { computeDeterministic } from '../lib/scoring-engine'
 import type { DeterministicInput } from '../lib/scoring-engine'
+import { guardDB } from '../lib/db'
+import { guardKV } from '../lib/kv'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LLM Agentic Signal (30 points)
@@ -114,9 +116,15 @@ export interface LeadMessage {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void> {
+// eslint-disable-next-line local/no-raw-storage-access
+  const db = guardDB(env.DB)
+// eslint-disable-next-line local/no-raw-storage-access
+  const kv = guardKV(env.TENANT_KV)
+
   for (const msg of batch.messages) {
     const body = msg.body as any
     const { submissionId, tenantId, payload } = body
+    const ctx = { tenantId }
 
     // ═══ TYPE-BASED ROUTING ═══
     if (body.type === 'execute_automation') {
@@ -127,11 +135,13 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
         // Run affordability + risk agents
         console.log('[swarm] running affordability + risk for app', appId)
         try {
-          const row: any = await env.DB.prepare(
+          const row: any = await db.first(
+            ctx,
             `SELECT target_loan_amount, collected_financials_json, 
                     (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status
-             FROM applications WHERE id = ?`
-          ).bind(appId, appId).first()
+             FROM applications WHERE id = ?`,
+            [appId, appId],
+          )
 
           if (row?.collected_financials_json) {
             const fin: any = JSON.parse(row.collected_financials_json)
@@ -169,14 +179,18 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
         // Run readiness agent
         console.log('[swarm] running readiness for app', appId)
         try {
-          const docsResult: any = await env.DB.prepare(
-            `SELECT document_type, verification_status FROM application_documents WHERE application_id = ?`
-          ).bind(appId).all()
-          const docs = docsResult?.results || []
+          const docsResult: any = await db.all(
+            ctx,
+            `SELECT document_type, verification_status FROM application_documents WHERE application_id = ?`,
+            [appId],
+          )
+          const docs = docsResult || []
 
-          const row: any = await env.DB.prepare(
-            `SELECT (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status`
-          ).bind(appId).first()
+          const row: any = await db.first(
+            ctx,
+            `SELECT (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status`,
+            [appId],
+          )
 
           const { computeReadiness } = await import('../lib/agents')
           const ready = computeReadiness({
@@ -214,32 +228,41 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
       llmLatency = Date.now() - llmStart
 
       // ── Telemetry: aggregate to D1 (replaces per-call TELEMETRY_KV append) ──
-      // Uses atomic UPSERT — single write per LLM call vs KV read-modify-write
+      // Uses guardDB insert/update — single write per LLM call vs KV read-modify-write
       try {
-        const db2 = env.DB as any
-        if (db2 && typeof db2.prepare === 'function') {
+// eslint-disable-next-line local/no-raw-storage-access
+        if (env.DB && typeof (env.DB as any).prepare === 'function') {
           const today = new Date().toISOString().slice(0, 10)
           const isSuccess = llm.rationale !== 'LLM unavailable — scored deterministically only.' && llm.rationale !== 'LLM response parse failure.'
-          await db2.prepare(`
-            INSERT INTO telemetry_daily (tenant_id, date, llm_calls, llm_success, llm_fail, total_latency_ms, red_flag_count, total_agentic_score, updated_at)
-            VALUES (?, ?, 1, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(tenant_id, date) DO UPDATE SET
-              llm_calls = llm_calls + 1,
-              llm_success = llm_success + excluded.llm_success,
-              llm_fail = llm_fail + excluded.llm_fail,
-              total_latency_ms = total_latency_ms + excluded.total_latency_ms,
-              red_flag_count = red_flag_count + excluded.red_flag_count,
-              total_agentic_score = total_agentic_score + excluded.total_agentic_score,
-              updated_at = CURRENT_TIMESTAMP
-          `).bind(
-            tenantId,
-            today,
-            isSuccess ? 1 : 0,
-            isSuccess ? 0 : 1,
-            llmLatency,
-            llm.redFlag ? 1 : 0,
-            llm.agenticScore,
-          ).run()
+
+          // Check if telemetry row exists for this tenant+date
+          const existing = await db.first(
+            ctx,
+            'SELECT llm_calls, llm_success, llm_fail, total_latency_ms, red_flag_count, total_agentic_score FROM telemetry_daily WHERE date = ?',
+            [today],
+          )
+
+          if (existing) {
+            const e = existing as any
+            await db.update(ctx, 'telemetry_daily', {
+              llm_calls: e.llm_calls + 1,
+              llm_success: e.llm_success + (isSuccess ? 1 : 0),
+              llm_fail: e.llm_fail + (isSuccess ? 0 : 1),
+              total_latency_ms: e.total_latency_ms + llmLatency,
+              red_flag_count: e.red_flag_count + (llm.redFlag ? 1 : 0),
+              total_agentic_score: e.total_agentic_score + llm.agenticScore,
+            }, 'date = ?', [today])
+          } else {
+            await db.insert(ctx, 'telemetry_daily', {
+              date: today,
+              llm_calls: 1,
+              llm_success: isSuccess ? 1 : 0,
+              llm_fail: isSuccess ? 0 : 1,
+              total_latency_ms: llmLatency,
+              red_flag_count: llm.redFlag ? 1 : 0,
+              total_agentic_score: llm.agenticScore,
+            })
+          }
         }
       } catch { /* non-blocking — telemetry loss is acceptable */ }
 
@@ -262,8 +285,8 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
       const contactInfo = body.contactInfo
       if (contactInfo && (contactInfo.email || contactInfo.phone)) {
         try {
-          const db2 = env.DB as any
-          if (db2 && typeof db2.prepare === 'function') {
+// eslint-disable-next-line local/no-raw-storage-access
+          if (env.DB && typeof (env.DB as any).prepare === 'function') {
             const email = contactInfo.email.toLowerCase().trim()
             const phone = contactInfo.phone.replace(/\D/g, '')
             const name = contactInfo.name.trim() || 'Unknown'
@@ -271,69 +294,80 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
             // Try email match first, then phone
             let contact: any = null
             if (email) {
-              contact = await db2.prepare(
-                `SELECT id, name FROM contacts WHERE tenant_id = ? AND email = ? LIMIT 1`
-              ).bind(tenantId, email).first()
+              contact = await db.first(
+                ctx,
+                `SELECT id, name FROM contacts WHERE email = ? LIMIT 1`,
+                [email],
+              )
             }
             if (!contact && phone) {
-              contact = await db2.prepare(
-                `SELECT id, name FROM contacts WHERE tenant_id = ? AND phone = ? LIMIT 1`
-              ).bind(tenantId, phone).first()
+              contact = await db.first(
+                ctx,
+                `SELECT id, name FROM contacts WHERE phone = ? LIMIT 1`,
+                [phone],
+              )
             }
 
             if (contact) {
               contactId = contact.id as string
               // Update name if richer
               if (name.length > (contact.name as string).length) {
-                await db2.prepare(
-                  `UPDATE contacts SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-                ).bind(name, contactId).run()
+                await db.update(ctx, 'contacts', { name }, 'id = ?', [contactId])
               }
             } else {
               // Create new contact
               contactId = crypto.randomUUID()
-              await db2.prepare(
-                `INSERT INTO contacts (id, tenant_id, name, email, phone) VALUES (?, ?, ?, ?, ?)`
-              ).bind(contactId, tenantId, name, email, phone).run()
+              await db.insert(ctx, 'contacts', {
+                id: contactId,
+                name,
+                email,
+                phone,
+              })
             }
           }
         } catch (err) { console.warn('[contact] resolution failed:', err) }
       }
 
       // ── 5. Persist to D1 ──────────────────────────────────────────────
-      const db = env.DB as any
-      if (db && typeof db.prepare === 'function') {
-        await db
-          .prepare(
-            `UPDATE form_submissions
-             SET lead_score = ?, deterministic_score = ?, score_band = ?, score_rationale = ?,
-                 contact_id = ?, current_stage = ?
-             WHERE id = ?`,
-          )
-          .bind(totalScore, det.score, band, rationale, contactId, 'new_lead', submissionId)
-          .run()
+// eslint-disable-next-line local/no-raw-storage-access
+      if (env.DB && typeof (env.DB as any).prepare === 'function') {
+        await db.update(
+          ctx,
+          'form_submissions',
+          {
+            lead_score: totalScore,
+            deterministic_score: det.score,
+            score_band: band,
+            score_rationale: rationale,
+            contact_id: contactId,
+            current_stage: 'new_lead',
+          },
+          'id = ?',
+          [submissionId],
+        )
 
         // ── 5. Action triggers ──────────────────────────────────────────
         if (totalScore >= 80) {
           // Hot lead — trigger broker alert
           try {
-            const kv = env.TENANT_KV as any
-            if (kv && typeof kv.put === 'function') {
+// eslint-disable-next-line local/no-raw-storage-access
+            if (env.TENANT_KV && typeof (env.TENANT_KV as any).put === 'function') {
               await kv.put(
                 `tenant:${tenantId}:alert:hot:${submissionId}`,
                 JSON.stringify({ score: totalScore, rationale, submissionId }),
+                ctx,
                 { expirationTtl: 259200 },
               )
 
               // Maintain index pointer (prepend newest first)
               const indexKey = `tenant:${tenantId}:alerts:hot:index`
-              const existingRaw = await kv.get(indexKey)
+              const existingRaw = await kv.get(indexKey, ctx)
               const existing: string[] = existingRaw
                 ? JSON.parse(existingRaw)
                 : []
               // Prepend, dedupe, cap at 100
               const updated = [submissionId, ...existing.filter((id: string) => id !== submissionId)].slice(0, 100)
-              await kv.put(indexKey, JSON.stringify(updated))
+              await kv.put(indexKey, JSON.stringify(updated), ctx)
 
               // Broadcast to SSE subscribers
               broadcast(tenantId, 'hot_lead', {
@@ -350,11 +384,12 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
         if (totalScore < 50) {
           // Cold lead — tag for nurture sequence
           try {
-            const kv = env.TENANT_KV as any
-            if (kv && typeof kv.put === 'function') {
+// eslint-disable-next-line local/no-raw-storage-access
+            if (env.TENANT_KV && typeof (env.TENANT_KV as any).put === 'function') {
               await kv.put(
                 `tenant:${tenantId}:nurture:${submissionId}`,
                 JSON.stringify({ score: totalScore, submissionId }),
+                ctx,
                 { expirationTtl: 604800 },
               )
             }

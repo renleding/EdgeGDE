@@ -1,0 +1,26 @@
+{
+  "objective": "Qualify home loan applicants for afirmico finance",
+  "fields": [
+    { "fieldName": "fullName", "label": "Full Name", "fieldType": "text", "validation": { "required": true }, "placeholder": "Your full name" },
+    { "fieldName": "firstName", "label": "First Name", "fieldType": "text", "validation": { "required": true }, "placeholder": "First name" },
+    { "fieldName": "middleName", "label": "Middle Name", "fieldType": "text", "validation": { "required": false }, "placeholder": "Middle name (optional)" },
+    { "fieldName": "lastName", "label": "Surname", "fieldType": "text", "validation": { "required": true }, "placeholder": "Surname" },
+    { "fieldName": "email", "label": "Email Address", "fieldType": "email", "validation": { "required": true }, "placeholder": "your@email.com" },
+    { "fieldName": "phone", "label": "Phone Number", "fieldType": "phone", "validation": { "required": true }, "placeholder": "0400 000 000" },
+    { "fieldName": "loanAmount", "label": "Loan Amount", "fieldType": "number", "validation": { "required": true, "min": 1000, "max": 10000000 }, "placeholder": "e.g. 500000" },
+    { "fieldName": "annualIncome", "label": "Annual Income", "fieldType": "number", "validation": { "required": true, "min": 0 }, "placeholder": "e.g. 120000" },
+    { "fieldName": "employmentType", "label": "Employment Type", "fieldType": "select", "validation": { "required": true }, "options": ["PAYG", "Self-Employed", "Other"], "placeholder": "PAYG or Self-Employed" }
+  ],
+  "priorityOrder": ["fullName", "firstName", "middleName", "lastName", "email", "phone", "annualIncome", "employmentType", "loanAmount"],
+  "rules": [
+    { "if": "annualIncome < 30000", "set": { "field": "stage", "value": "blocked" } }
+  ],
+  "knowledgeBase": {
+    "topics": ["rates", "products", "policy"]
+  },
+  "ui": {
+    "title": "AFIRMICO Finance",
+    "greeting": "Hi! I can help you apply for a home loan with AFIRMICO.",
+    "colorAccent": "#58a6ff"
+  }
+}

@@ -61,6 +61,12 @@ export const fragmentRouter = new Hono()
  * POST /api/fragment/calculate — stateless, no KV writes.
  * Calculator fragment for HTMX swap.
  */
+// GET handler — redirects to the main glass-themed loan calculator page
+fragmentRouter.get('/fragment/calculate', async (c) => {
+  const tenant = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
+  return c.redirect(`/?tenant=${encodeURIComponent(tenant)}&tool=default`)
+})
+
 fragmentRouter.post('/fragment/calculate', async (c) => {
   let body: Record<string, string> = {}
   try {
@@ -86,7 +92,18 @@ fragmentRouter.post('/fragment/calculate', async (c) => {
 
   c.header('Content-Type', 'text/html; charset=utf-8')
   c.header('Cache-Control', 'no-store')
-  return c.body(fragment)
+  // If direct browser submission (not HTMX), wrap in full page
+  const isHtmx = c.req.header('HX-Request') === 'true'
+  if (isHtmx) {
+    return c.body(fragment)
+  }
+  return c.html(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Budget Result</title>
+<style>body{font-family:sans-serif;background:#0d1117;color:#e1e4e8;padding:20px;max-width:600px;margin:0 auto}
+a{color:#58a6ff}</style></head>
+<body>${fragment}
+<p style="margin-top:16px"><a href="/api/fragment/calculate-budget">← Back</a></p>
+</body></html>`)
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -95,6 +112,12 @@ fragmentRouter.post('/fragment/calculate', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { calculateBudget } from '../edr/domain/budget'
+
+// GET handler — redirects to the main glass-themed budget planner page
+fragmentRouter.get('/fragment/calculate-budget', async (c) => {
+  const tenant = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
+  return c.redirect(`/?tenant=${encodeURIComponent(tenant)}&tool=budget`)
+})
 
 fragmentRouter.post('/fragment/calculate-budget', async (c) => {
   let body: Record<string, string> = {}
@@ -290,7 +313,7 @@ fragmentRouter.get('/fragment/metrics', async (c) => {
     </table>
   </div>
   <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/?tenant=afirmico&tool=metrics" style="padding:6px 14px;border-radius:8px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.25);color:#818CF8;font-size:12px;text-decoration:none">View Dashboard</a>
+    <a href="/?tenant=au-mortgage-broker-afirmico&tool=metrics" style="padding:6px 14px;border-radius:8px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.25);color:#818CF8;font-size:12px;text-decoration:none">View Dashboard</a>
   </div>
 </div>`
 
