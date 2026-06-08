@@ -6,9 +6,13 @@
  * @packageDocumentation
  */
 
+import { guardDB } from '../lib/db'
+import { guardKV } from '../lib/kv'
+
 export async function runDispatcher(env: any): Promise<void> {
-  const kv = env.TENANT_KV
-  const db = env.DB
+  const rawKv = env.TENANT_KV
+  const rawDb = env.DB as any
+  const guardedDb = guardDB(rawDb)
   const webhookUrl = env.ALERT_WEBHOOK_URL as string | undefined
 
   if (!webhookUrl) {
@@ -21,7 +25,7 @@ export async function runDispatcher(env: any): Promise<void> {
     const cacheKey = 'tenants:active'
     let tenants: string[] = []
     try {
-      const cached = await kv.get(cacheKey)
+      const cached = await rawKv.get(cacheKey)
       if (cached) {
         tenants = JSON.parse(cached)
         console.log(`[dispatcher] cache hit: ${tenants.length} tenants`)
@@ -29,7 +33,8 @@ export async function runDispatcher(env: any): Promise<void> {
     } catch { /* cache miss — fall through to D1 */ }
 
     if (tenants.length === 0) {
-      const tenantsResult: any = await db
+      // Cross-tenant query — cannot use guardDB (no single tenant context)
+      const tenantsResult: any = await rawDb
         .prepare('SELECT DISTINCT tenant_id FROM form_submissions')
         .all()
 
@@ -37,7 +42,7 @@ export async function runDispatcher(env: any): Promise<void> {
 
       if (tenants.length > 0) {
         // Write back to cache with 10min TTL
-        await kv.put(cacheKey, JSON.stringify(tenants), { expirationTtl: 600 })
+        await rawKv.put(cacheKey, JSON.stringify(tenants), { expirationTtl: 600 })
       }
     }
 
@@ -49,9 +54,11 @@ export async function runDispatcher(env: any): Promise<void> {
     console.log(`[dispatcher] scanning ${tenants.length} tenants`)
 
     for (const tenantId of tenants) {
+      const ctx = { tenantId }
+      const guardedKv = guardKV(rawKv)
       const indexKey = `tenant:${tenantId}:alerts:hot:index`
 
-      const raw = await kv.get(indexKey)
+      const raw = await guardedKv.get(indexKey, ctx)
       if (!raw) continue
 
       let ids: string[]
@@ -66,7 +73,7 @@ export async function runDispatcher(env: any): Promise<void> {
         const key = `tenant:${tenantId}:alert:hot:${submissionId}`
 
         try {
-          const payloadRaw = await kv.get(key)
+          const payloadRaw = await guardedKv.get(key, ctx)
           if (!payloadRaw) continue
 
           const alert = JSON.parse(payloadRaw)
@@ -97,7 +104,7 @@ export async function runDispatcher(env: any): Promise<void> {
               dispatched: true,
               dispatched_at: Date.now(),
             }
-            await kv.put(key, JSON.stringify(updated), { expirationTtl: 259200 })
+            await guardedKv.put(key, JSON.stringify(updated), ctx)
             console.log(`[dispatcher] dispatched ${submissionId} for ${tenantId}`)
           } else {
             console.warn(`[dispatcher] webhook returned ${res.status} for ${submissionId}`)

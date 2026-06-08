@@ -301,7 +301,7 @@ workspaceRouter.get('/workspace/pipeline', async (c) => {
     }
 
     const html = `
-      <div hx-get="/api/v1/workspace/pipeline?tenant=${escapeHtml(tenantId)}" hx-trigger="every 30s" hx-swap="outerHTML">
+      <div hx-get="/api/v1/workspace/pipeline?tenant=${escapeHtml(tenantId)}" hx-swap="outerHTML">
         <div style="display:flex;gap:16px;flex-wrap:wrap">
           ${renderColumn('Intake', intake, 'cards-intake')}
           ${renderColumn('Assessment', assessment, 'cards-assessment')}

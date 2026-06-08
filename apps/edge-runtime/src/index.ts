@@ -23,9 +23,20 @@ import { tenantAuth } from './middleware/tenant-auth'
 import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
+import { adminRouter } from './api/admin-views'
+import { adminSiteRouter } from './api/admin-site'
+import { adminRulesRouter } from './api/admin-rules'
+import { adminBlueprintsRouter } from './api/admin-blueprints'
+import { adminFactoryRouter } from './api/admin-factory'
+import { adminDriftRouter } from './api/admin-drift'
+import { adminPacksRouter } from './api/admin-packs'
+import { embedRouter } from './api/embed'
+import { dashboardHtml } from './lib/dashboard-html'
+import { auditRouter } from './api/audit-export'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { vaultRouter } from './api/vault'
 import { chatRouter } from './api/chat'
+import { chatViewsRouter } from './api/chat-views'
 import { workspaceRouter } from './api/workspace'
 import { swarmRouter } from './api/swarm'
 import { fragmentRouter } from './routes/fragment'
@@ -45,6 +56,7 @@ import { getLatestVersion, getVersion } from './lib/versioning'
 import { compileLayout } from './compiler/engine'
 import { getLatestHash } from './edr/runtime/hash'
 import { tenantResolver } from './middleware/tenant-resolver'
+import { tenantResolver as tenantContextResolver } from './middleware/tenant-context'
 import { adminAuth } from './middleware/auth'
 import { rateLimiter } from './lib/rate-limiter'
 import { logEvent } from './lib/telemetry'
@@ -52,6 +64,8 @@ import { incrementRequest, flushMetrics } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
 import { runDispatcher } from './crons/dispatcher'
+import { guardDB } from './lib/db'
+import { guardKV } from './lib/kv'
 // ═══════════════════════════════════════════════════════════════════════════
 // Form Registry (Phase 29)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -141,8 +155,9 @@ app.use('*', async (c, next) => {
 
 // 2. TENANT RESOLVER — always first after guard
 app.use('*', tenantResolver)
+app.use('*', tenantContextResolver)
 
-// 2. RATE LIMITER — /api/* endpoints only (not healthz, MCP discovery, static)
+// 2. RATE LIMITER
 async function rateLimitHandler(c: any, next: any) {
   const tenant = (c as any).get('tenant') as TenantConfig | undefined
 
@@ -184,6 +199,14 @@ app.use('/api/tenants', adminAuth)
 app.use('/api/v1/admin/*', adminAuth)
 app.use('/dev/deploy-staging', adminAuth)
 app.use('/api/admin/*', adminAuth)
+app.use('/admin/kb/*', adminAuth)
+app.use('/admin/rules/*', adminAuth)
+app.use('/admin/site/*', adminAuth)
+app.use('/admin/blueprints/*', adminAuth)
+app.use('/admin/factory/*', adminAuth)
+app.use('/admin/drift/*', adminAuth)
+app.use('/admin/packs/*', adminAuth)
+app.use('/api/v1/admin/audit/*', adminAuth)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Health Check — zero dependency endpoint
@@ -206,13 +229,17 @@ app.post('/api/webhook/leads', async (c) => {
     console.log(JSON.stringify({ event: 'webhook_received', eventId, ...body }))
 
     // Persist to D1 for audit trail
-    const db = (c.env as any)?.DB
-    if (db && typeof db.prepare === 'function') {
+    const rawDb = (c.env as any)?.DB
+    if (rawDb && typeof rawDb.prepare === 'function') {
+      const db = guardDB(rawDb)
+      const ctx = { tenantId }
       c.executionCtx.waitUntil(
-        db.prepare(
-          `INSERT INTO webhook_events (id, event_type, tenant_id, submission_id, payload)
-           VALUES (?, ?, ?, ?, ?)`
-        ).bind(eventId, 'hot_lead', tenantId, body.submissionId || '', JSON.stringify(body)).run().catch(() => {})
+        db.insert(ctx, 'webhook_events', {
+          id: eventId,
+          event_type: 'hot_lead',
+          submission_id: body.submissionId || '',
+          payload: JSON.stringify(body),
+        }).catch(() => {})
       )
     }
 
@@ -227,12 +254,14 @@ app.post('/api/webhook/leads', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.get('/api/leads/feed', async (c) => {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
-  if (!TENANT_KV) return c.json({ alerts: [] })
+  const rawKv = (c.env as any)?.TENANT_KV
+  if (!rawKv) return c.json({ alerts: [] })
 
-  const tenantId = c.req.query('tenant') || 'afirmico'
+  const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
+  const ctx = { tenantId }
+  const kv = guardKV(rawKv)
   const indexKey = `tenant:${tenantId}:alerts:hot:index`
-  const raw = await TENANT_KV.get(indexKey)
+  const raw = await kv.get(indexKey, ctx)
   if (!raw) return c.json({ alerts: [] })
 
   let ids: string[]
@@ -241,7 +270,7 @@ app.get('/api/leads/feed', async (c) => {
 
   const results = await Promise.allSettled(
     ids.map((id: string) =>
-      TENANT_KV.get(`tenant:${tenantId}:alert:hot:${id}`).then((r: string | null) => {
+      kv.get(`tenant:${tenantId}:alert:hot:${id}`, ctx).then((r: string | null) => {
         if (!r) return null
         const p = JSON.parse(r)
         return { submissionId: id, tenantId, score: p.score ?? 0, rationale: p.rationale ?? '', timestamp: p.ts ?? null }
@@ -376,6 +405,31 @@ app.route('/api/v1/admin', templateRouter)
 app.route('/api/v1', instantiateRouter)
 app.route('/api/v1', builderRouter)
 app.route('/api/v1/admin', scoringAdminRouter)
+app.route('/admin/kb', adminRouter)
+app.route('/admin/rules', adminRulesRouter)
+app.route('/admin/site', adminSiteRouter)
+app.route('/admin/blueprints', adminBlueprintsRouter)
+app.route('/admin/factory', adminFactoryRouter)
+app.route('/admin/drift', adminDriftRouter)
+app.route('/admin/packs', adminPacksRouter)
+app.route('/embed', embedRouter)
+
+// Dashboard — one-page control center
+app.get('/dashboard', async (c) => {
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(dashboardHtml)
+})
+
+
+
+
+// Serve static widget script from public/ with version pinning
+app.get('/public/widget.v1.0.0.js', async (c) => {
+  const script = `(function(){'use strict';var st=document.currentScript;var tid=st.getAttribute('data-tenant');if(!tid){console.warn('[EdgeGDE] data-tenant required');return}var src=st.src||'';var base=src.split('/public/')[0]||window.location.origin;function inject(){var root=document.getElementById('edgegde-chat-root');if(!root){root=document.createElement('div');root.id='edgegde-chat-root';document.body.appendChild(root)}if(root.querySelector('iframe'))return;var ifr=document.createElement('iframe');ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);ifr.style.cssText='position:fixed;bottom:20px;right:20px;width:380px;height:600px;max-height:80vh;border:none;z-index:2147483647;background:transparent';ifr.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');ifr.setAttribute('title','Chat Assistant');root.appendChild(ifr)}inject();var mo=new MutationObserver(function(){if(!document.getElementById('edgegde-chat-root')||!document.querySelector('iframe'))setTimeout(inject,100)});mo.observe(document.body,{childList:true,subtree:true});window.addEventListener('message',function(ev){if(ev.origin!==base)return;if(ev.data&&ev.data.type==='resize'){var f=document.querySelector('iframe');if(f){f.style.height=(ev.data.height||600)+'px';f.style.width=(ev.data.width||380)+'px'}}});})();`
+  c.header('Content-Type', 'application/javascript; charset=utf-8')
+  c.header('Cache-Control', 'public, max-age=31536000, immutable')
+  return c.body(script.trim())
+})
 app.route('/api/v1', scoringTenantRouter)
 app.route('/api/v1/admin', reportAdminRouter)
 app.route('/api/v1', reportCronHandler)
@@ -393,6 +447,9 @@ app.route('/api/v1', workspaceRouter)
 // MCP Swarm Intelligence Ingress (Phase 21)
 app.route('/api/v1', swarmRouter)
 
+// Chat Widget Views + Identity (Phase 2.7)
+app.route('/api/v1', chatViewsRouter)
+
 // Tenant provisioning (admin)
 app.route('/api/tenants', tenantRouter)
 
@@ -402,10 +459,11 @@ app.route('/api/tenants', tenantRouter)
 
 app.put('/api/tenants/:slug', adminAuth, async (c) => {
   const slug = c.req.param('slug')
-  const TENANT_KV = (c.env as any)?.TENANT_KV
-  if (!TENANT_KV) return c.json({ error: 'TENANT_KV not available' }, 500)
+  const rawKv = (c.env as any)?.TENANT_KV
+  if (!rawKv) return c.json({ error: 'TENANT_KV not available' }, 500)
 
-  const existing = await TENANT_KV.get(`tenant:${slug}`, 'json')
+  const kv = guardKV(rawKv)
+  const existing = await kv.getJson(`tenant:${slug}`, { tenantId: slug })
   if (!existing) return c.json({ error: 'Not found' }, 404)
 
   let body: Record<string, unknown>
@@ -420,7 +478,7 @@ app.put('/api/tenants/:slug', adminAuth, async (c) => {
     updatedAt: new Date().toISOString(),
   }
 
-  await TENANT_KV.put(`tenant:${slug}`, JSON.stringify(updated))
+  await kv.put(`tenant:${slug}`, JSON.stringify(updated), { tenantId: slug })
 
   // Bust in-memory cache
   const { clearTenant } = await import('./lib/cache')
@@ -480,23 +538,18 @@ app.get('/api/admin/leads/:tenantId', async (c) => {
   const limit = 100
 
   try {
-    const db = (c.env as any)?.DB
-    if (!db || typeof db.prepare !== 'function') {
-      return c.json({ error: 'D1 not available' }, 500)
-    }
+    const db = guardDB((c.env as any)?.DB)
+    const ctx = { tenantId }
 
-    const { results } = await db.prepare(`
+    const rows = await db.all(ctx, `
       SELECT id, tenant_id, form_id, lead_score, deterministic_score,
              score_band, score_rationale, contact_id, current_stage, created_at
       FROM form_submissions
-      WHERE tenant_id = ?
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
-    `)
-      .bind(tenantId, limit, offset)
-      .all()
+    `, [limit, offset])
 
-    return c.json({ leads: results })
+    return c.json({ leads: rows })
   } catch (err: any) {
     return c.json({ error: 'Query failed', details: err.message }, 500)
   }
@@ -539,12 +592,14 @@ app.get('/', async (c) => {
   const tenant = (c as any).get('tenant') as TenantConfig | undefined
   if (!tenant) return c.text('Tenant not resolved', 500)
 
-  const TENANT_KV = (c.env as any)?.TENANT_KV
-  if (!TENANT_KV) return c.text('TENANT_KV not available', 500)
+  const rawKv = (c.env as any)?.TENANT_KV
+  if (!rawKv) return c.text('TENANT_KV not available', 500)
+
+  const kv = guardKV(rawKv)
+  const tenantId = tenant.tenantId
+  const ctx = { tenantId }
 
   try {
-    const tenantId = tenant.tenantId
-
     // ── 1. Layout (memory → KV) ──────────────────────────────────────────
     const layoutTool = c.req.query('tool') || 'default'
     const queryEnv = c.req.query('env')
@@ -555,7 +610,7 @@ app.get('/', async (c) => {
       const layoutSuffix = layoutTool === 'gallery' ? 'gallery' : layoutTool === 'budget' ? 'budget' : layoutTool === 'metrics' ? 'metrics' : 'latest'
       const envSuffix = isStaging ? ':staging' : ''
       const layoutKvKey = `tenant:${tenantId}:layout:${layoutSuffix}${envSuffix}`
-      layout = await TENANT_KV.get(layoutKvKey, 'json')
+      layout = await kv.getJson(layoutKvKey, ctx)
       if (layout) setCachedLayout(layoutCacheKey, layout)
     }
 
@@ -575,7 +630,7 @@ app.get('/', async (c) => {
     // ── 2. Design (memory → KV → parse) ──────────────────────────────────
     let design = getCachedDesign(tenantId)
     if (!design) {
-      const designMd = await TENANT_KV.get(`tenant:${tenantId}:design`)
+      const designMd = await kv.get(`tenant:${tenantId}:design`, ctx)
       const { parseDesignMd } = await import('./lib/design-parser')
       design = parseDesignMd(designMd || '')
       setCachedDesign(tenantId, design)
@@ -585,11 +640,11 @@ app.get('/', async (c) => {
     let edrCss = ''
 
     // ── Metrics: fire-and-forget counter ────────────────────────────────
-    incrementRequest(TENANT_KV, tenantId, layoutTool || 'default', false)
+    incrementRequest(rawKv, tenantId, layoutTool || 'default', false)
 
     // ── 3. Compiled HTML cache (KV, 120s + jitter) ────────────────────────
     const cacheKey = `tenant:${tenantId}:compiled:${layoutTool}:${isStaging ? 'staging' : 'prod'}`
-    let html = await TENANT_KV.get(cacheKey)
+    let html = await kv.get(cacheKey, ctx)
 
     if (!html) {
       try {
@@ -611,13 +666,13 @@ app.get('/', async (c) => {
         // FIX #3: 3600s + jitter (was 120s) — 30× reduction in cache re-write churn
         // SSE stream pushes updates, so 1h TTL is safe for compiled config
         const ttl = 3600 + Math.floor(Math.random() * 600)
-        await TENANT_KV.put(cacheKey, html, { expirationTtl: ttl })
+        await kv.put(cacheKey, html, ctx, { expirationTtl: ttl })
       } catch (compileErr) {
         // ══════════════════════════════════════════════════════════════════
         // CIRCUIT BREAKER: compilation failed — serve stale cache or safe default
         // ══════════════════════════════════════════════════════════════════
         console.warn(`[circuit-breaker] compileLayout failed for ${cacheKey}:`, compileErr)
-        html = await TENANT_KV.get(cacheKey)
+        html = await kv.get(cacheKey, ctx)
         if (!html) {
           html = `<div class="p-4 text-red-600">Temporary service degradation — please refresh.</div>`
         }
@@ -712,13 +767,14 @@ app.get('/', async (c) => {
         hx-swap="innerHTML">
     ${html}
   </main>
+  <script src="/public/widget.v1.0.0.js" data-tenant="au-mortgage-broker-afirmico"></script>
   ${isStaging ? `<div id="version-panel" style="position:fixed;top:60px;right:16px;width:320px;max-height:60vh;overflow-y:auto;background:rgba(15,15,26,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px;display:none;z-index:1000;backdrop-filter:blur(12px)"></div>` : ''}
   ${isStaging ? `
   <div id="dev-sentinel"
        hx-get="/api/fragment/dev-hash${isStaging ? '?env=staging' : ''}"
        hx-trigger="every 0.5s"
        hx-swap="outerHTML"
-       hx-headers='{"X-Current-Hash": "${await getLatestHash({ kv: (c.env as any)?.TENANT_KV, dev: true, manifestKey: isStaging ? 'staging:latest_ast_manifest' : 'latest_ast_manifest' })}"}'>
+       hx-headers='{"X-Current-Hash": "${await getLatestHash({ kv: rawKv, dev: true, manifestKey: isStaging ? 'staging:latest_ast_manifest' : 'latest_ast_manifest' })}"}'>
   </div>` : ''}
   ${isStaging ? `
   <script>
@@ -773,7 +829,69 @@ app.get('/', async (c) => {
       setPolling(true)
     })()
   </script>` : ''}
-</body>
+  <!-- EdgeGDE Chat Widget -->
+  <script>
+    (function() {
+      function setupWidget() {
+        var w = document.getElementById('gde-chat');
+        if (!w) return;
+        // Minimize
+        var minBtn = document.getElementById('gde-minimize-btn');
+        var body = document.getElementById('gde-chat-body');
+        if (minBtn && body) {
+          minBtn.onclick = function(e) {
+            e.stopPropagation();
+            body.style.display = body.style.display === 'none' ? 'block' : 'none';
+          };
+        }
+        // Close
+        var closeBtn = document.getElementById('gde-close-btn');
+        if (closeBtn) {
+          closeBtn.onclick = function(e) {
+            e.stopPropagation();
+            w.style.display = 'none';
+          };
+        }
+        // Drag
+        var header = document.getElementById('gde-chat-header');
+        if (header) {
+          var dx = 0, dy = 0, mx = 0, my = 0;
+          header.onmousedown = function(e) {
+            e.preventDefault();
+            dx = e.clientX; dy = e.clientY;
+            mx = w.offsetLeft || 0; my = w.offsetTop || 0;
+            document.onmousemove = function(ev) {
+              w.style.left = Math.max(0, Math.min(window.innerWidth - 100, mx + ev.clientX - dx)) + 'px';
+              w.style.top = Math.max(0, Math.min(window.innerHeight - 50, my + ev.clientY - dy)) + 'px';
+              w.style.right = 'auto'; w.style.bottom = 'auto';
+            };
+            document.onmouseup = function() { document.onmousemove = null; document.onmouseup = null; };
+          };
+        }
+        // Resize
+        var handles = w.querySelectorAll('.resize-handle');
+        var rx = 0, ry = 0, rw = 0, rh = 0, rt = 0, rl = 0;
+        handles.forEach(function(h) {
+          h.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            var rect = w.getBoundingClientRect();
+            rx = e.clientX; ry = e.clientY;
+            rw = w.offsetWidth; rh = w.offsetHeight;
+            rt = rect.top; rl = rect.left;
+            w.style.width = rw + 'px'; w.style.height = rh + 'px'; w.style.maxHeight = 'none';
+            var cls = h.className;
+            document.onmousemove = function(ev) {
+              var dx = ev.clientX - rx, dy = ev.clientY - ry;
+              if (cls.indexOf('resize-e') >= 0 || cls.indexOf('resize-se') >= 0 || cls.indexOf('resize-ne') >= 0) w.style.width = Math.max(200, rw + dx) + 'px';
+              if (cls.indexOf('resize-w') >= 0 || cls.indexOf('resize-sw') >= 0 || cls.indexOf('resize-nw') >= 0) { w.style.width = Math.max(200, rw - dx) + 'px'; w.style.left = Math.max(0, rl + dx) + 'px'; w.style.right = ''; }
+              if (cls.indexOf('resize-s') >= 0 || cls.indexOf('resize-se') >= 0 || cls.indexOf('resize-sw') >= 0) w.style.height = Math.max(200, rh + dy) + 'px';
+              if (cls.indexOf('resize-n') >= 0 || cls.indexOf('resize-ne') >= 0 || cls.indexOf('resize-nw') >= 0) { w.style.height = Math.max(200, rh - dy) + 'px'; w.style.top = Math.max(0, rt + dy) + 'px'; w.style.bottom = ''; }
+            };
+            document.onmouseup = function() { document.onmousemove = null; document.onmouseup = null; };
+          });
+        });
+      }
+  </body>
 </html>`
 
     c.header('Content-Type', 'text/html; charset=utf-8')
@@ -796,10 +914,16 @@ export default {
   async queue(batch: any, env: any, ctx: ExecutionContext): Promise<void> {
     try {
       console.warn('[queue] batch received', { size: batch.messages.length })
+      for (const msg of batch.messages) {
+        const body = msg.body
+        if (body?.type === 'kb_ingest') {
+          const { handleKbIngest } = await import('./queues/kb-ingest')
+          await handleKbIngest(body, env)
+        }
+      }
       await leadScorer.queue(batch, env, ctx)
     } catch (err) {
       console.error('[queue] fatal handler failure:', err)
-      // do not throw
     }
   },
 
@@ -807,6 +931,7 @@ export default {
     console.log('[cron] dispatcher triggered')
     await runDispatcher(env)
     // Flush any accumulated metrics to KV before the isolate is reclaimed
+  // eslint-disable-next-line local/no-raw-storage-access
     try { await flushMetrics(env.TENANT_KV) } catch { /* non-blocking */ }
   },
 }

@@ -16,6 +16,7 @@ import type { Context, Next } from 'hono'
 import type { TenantConfig } from '../lib/tenant'
 import devSeed from '../lib/dev_seed.json'
 import { getCachedTenant, setCachedTenant } from '../lib/cache'
+import { guardKV } from '../lib/kv'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Dev Detection
@@ -62,9 +63,12 @@ async function attemptLegacyLookup(
       'json'
     )
     if (!existingLatest) {
-      await TENANT_KV.put(
+      const localKV = guardKV(TENANT_KV)
+      const lctx = { tenantId }
+      await localKV.put(
         `tenant:${tenantId}:layout:latest`,
-        JSON.stringify(oldLayout)
+        JSON.stringify(oldLayout),
+        lctx,
       )
     }
   }
@@ -91,7 +95,12 @@ export async function tenantResolver(
   if (
     path.startsWith('/api/v1/agent/') ||
     path.startsWith('/api/v1/admin/') ||
+    path === '/api/tenants' ||
     path.startsWith('/api/tenants/') ||
+    path.startsWith('/admin/blueprints') ||
+    path.startsWith('/admin/factory') ||
+    path.startsWith('/admin/drift') ||
+    path.startsWith('/admin/packs') ||
     path.startsWith('/api/webhook/') ||
     path.startsWith('/.well-known/') ||
     path.startsWith('/assets/') ||

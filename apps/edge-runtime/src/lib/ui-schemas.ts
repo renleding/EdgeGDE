@@ -10,6 +10,7 @@ import pipelineView from '../../ui-config/origination/broker_pipeline_view.json'
 import appCard from '../../ui-config/origination/application_card_component.json'
 import uploadDoc from '../../ui-config/origination/document_upload_component.json'
 import pipelineCard from '../../ui-config/origination/application_pipeline_card.json'
+import { guardKV } from '../lib/kv'
 
 export const STATIC_SCHEMAS: Record<string, any> = {
   'origination_intake_form': intakeForm,
@@ -30,8 +31,9 @@ export async function loadSchema(env: any, name: string, tenantId?: string): Pro
   // 2. Fallback to TENANT_KV
   if (tenantId && env?.TENANT_KV) {
     try {
+      const kv = guardKV(env.TENANT_KV)
       const key = `tenant:${tenantId}:schema:v1:${name}`
-      return await env.TENANT_KV.get(key, 'json')
+      return await kv.getJson(key, { tenantId })
     } catch {}
   }
 

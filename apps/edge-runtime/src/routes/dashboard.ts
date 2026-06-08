@@ -159,7 +159,7 @@ dashboardRouter.get('/dashboard/runtime', async (c) => {
     telemetry: { log_entries: logCount },
     kv: 'TENANT_KV',
     d1: 'ebroker_leads',
-    afirmico_url: '/?tenant=afirmico',
+    afirmico_url: '/?tenant=au-mortgage-broker-afirmico',
     timestamp: new Date().toISOString(),
   })
 })

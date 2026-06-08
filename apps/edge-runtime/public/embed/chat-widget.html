@@ -1,0 +1,34 @@
+<!--
+  EdgeGDE Chat Widget — universal embed snippet
+  Paste this anywhere on any website to embed the chat widget.
+  Configure TENANT and WORKER_URL for your environment.
+-->
+<script>
+  (function() {
+    // ── Configuration ──────────────────────────────────────────────────
+    var TENANT = '%%TENANT%%';         // Replace with your tenant ID
+    var WORKER_URL = '%%WORKER_URL%%'; // Replace with worker URL
+    // ──────────────────────────────────────────────────────────────────
+
+    if (document.getElementById('gde-chat')) return;
+
+    // Load HTMX + SSE extension
+    var s = document.createElement('script');
+    s.src = 'https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js';
+    s.onload = function() {
+      var sse = document.createElement('script');
+      sse.src = 'https://unpkg.com/htmx-ext-sse@2.0.4/sse.js';
+      sse.onload = function() {
+        var div = document.createElement('div');
+        div.id = 'gde-chat';
+        div.setAttribute('hx-get', WORKER_URL + '/api/v1/chat/view?tenant=' + TENANT);
+        div.setAttribute('hx-trigger', 'load');
+        div.setAttribute('hx-swap', 'outerHTML');
+        document.body.appendChild(div);
+        htmx.process(div);
+      };
+      document.head.appendChild(sse);
+    };
+    document.head.appendChild(s);
+  })();
+</script>

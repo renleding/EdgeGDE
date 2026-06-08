@@ -79,9 +79,10 @@ async function main() {
   await run('2.2 OOB injection purity', async () => {
     const res = await api('/api/v1/workspace/pipeline')
     const html = await res.text()
-    assert.ok(html.includes('hx-trigger'))
     assert.ok(html.includes('hx-swap'))
     assert.ok(html.includes('hx-get'))
+    // Polling replaced by SSE — no hx-trigger needed
+    assert.ok(html.includes('pipeline'), 'Pipeline HTML rendered')
   })
 
   await run('2.3 stage advancement', async () => {
