@@ -58,6 +58,7 @@ import { getLatestHash } from './edr/runtime/hash'
 import { tenantResolver } from './middleware/tenant-resolver'
 import { tenantResolver as tenantContextResolver } from './middleware/tenant-context'
 import { adminAuth } from './middleware/auth'
+import { tenantQueryAuth } from './middleware/tenant-query-auth'
 import { rateLimiter } from './lib/rate-limiter'
 import { logEvent } from './lib/telemetry'
 import { incrementRequest, flushMetrics } from './lib/metrics'
@@ -220,7 +221,7 @@ app.get('/healthz', (c) => {
 // Webhook Endpoint — receives hot lead dispatch from cron
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.post('/api/webhook/leads', async (c) => {
+app.post('/api/webhook/leads', adminAuth, async (c) => {
   try {
     const body = await c.req.json()
     const eventId = crypto.randomUUID()
@@ -253,7 +254,7 @@ app.post('/api/webhook/leads', async (c) => {
 // Public Leads Feed — unauthenticated hot alert data for the glass dashboard
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.get('/api/leads/feed', async (c) => {
+app.get('/api/leads/feed', adminAuth, async (c) => {
   const rawKv = (c.env as any)?.TENANT_KV
   if (!rawKv) return c.json({ alerts: [] })
 
@@ -442,6 +443,8 @@ app.route('/api/v1/vault', vaultRouter)
 app.route('/api/v1', chatRouter)
 
 // Workspace Origination (Phase 18-20)
+app.use('/api/v1/chat/*', tenantQueryAuth)
+app.use('/api/v1/workspace/*', adminAuth)
 app.route('/api/v1', workspaceRouter)
 
 // MCP Swarm Intelligence Ingress (Phase 21)
