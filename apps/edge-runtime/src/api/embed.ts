@@ -130,7 +130,7 @@ embedRouter.get('/chat', async (c) => {
 
   <template id="debug-data"></template>
     <span id="chat-tenant-id" data-tenant="${escapeHtml(tenantId)}" style="display:none"></span>
-    <script src="/widget.js?v=v1.0.0"></script>
+    <script src="/widget.js?v=v1.1.0"></script>
 </body>
 </html>`
 

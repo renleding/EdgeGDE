@@ -1,4 +1,4 @@
-console.log("EdgeGDE Widget v1.0.0");
+console.log("EdgeGDE Widget v1.1.0");
 /**
  * EdgeGDE — Chat Widget Runtime (client-side)
  * Loaded by /embed/chat endpoint. Handles drag, resize, streaming, label updates.
@@ -220,6 +220,28 @@ console.log("EdgeGDE Widget v1.0.0");
                   for (var ui = 0; ui < labels.length; ui++) {
                     if (labels[ui].textContent === 'You') labels[ui].textContent = parsed.firstName;
                   }
+                }
+                // Render option pills if present
+                if (parsed.options && parsed.options.length > 0 && typingEl) {
+                  var pillContainer = document.createElement('div');
+                  pillContainer.className = 'option-pills';
+                  pillContainer.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px';
+                  for (var oi = 0; oi < parsed.options.length; oi++) {
+                    (function(opt) {
+                      var pill = document.createElement('button');
+                      pill.textContent = opt;
+                      pill.className = 'option-pill';
+                      pill.style.cssText = 'background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:16px;padding:6px 14px;cursor:pointer;font-size:13px;transition:all 0.15s';
+                      pill.addEventListener('mouseenter', function() { this.style.background = '#334155'; });
+                      pill.addEventListener('mouseleave', function() { this.style.background = '#1e293b'; });
+                      pill.addEventListener('click', function() {
+                        tx.value = opt;
+                        chatSend();
+                      });
+                      pillContainer.appendChild(pill);
+                    })(parsed.options[oi]);
+                  }
+                  typingEl.querySelector('.msg-bubble').after(pillContainer);
                 }
                 if (isDebug && parsed.debug) {
                   try {

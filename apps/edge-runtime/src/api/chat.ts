@@ -887,6 +887,7 @@ chatRouter.post('/chat/stream', async (c) => {
   // Stream the LLM response back to the client as ndjson tokens
   const encoder = new TextEncoder()
   let fullResponse = ''
+  let nextFieldOptions: string[] | undefined
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -959,7 +960,9 @@ chatRouter.post('/chat/stream', async (c) => {
             const firstName = typeof raw?.fullName === 'string' ? raw.fullName.split(' ')[0] : ''
             const prefix = firstName ? `Thanks ${firstName}! ` : 'Thank you! '
             const base = feResult.nextField.prompt
-            const suffix = feResult.nextField.options?.length ? ` Options: ${feResult.nextField.options.join(', ')}.` : ''
+            const options = feResult.nextField.options
+            nextFieldOptions = options?.length ? options.slice() : undefined
+            const suffix = options?.length ? ` Options: ${options.join(', ')}.` : ''
             responseText = `${prefix}${base}${suffix}`
           }
         } catch { /* non-blocking */ }
@@ -986,7 +989,7 @@ chatRouter.post('/chat/stream', async (c) => {
         if (raw?.fullName && typeof raw.fullName === 'string') return raw.fullName.split(' ')[0]
         return null
       })()
-      controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: responseText, firstName: computedFirstName, fullName: (currentCollected as any)?.fullName || null }) + '\n'))
+      controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: responseText, firstName: computedFirstName, fullName: (currentCollected as any)?.fullName || null, options: nextFieldOptions }) + '\n'))
       controller.close()
     },
   })
