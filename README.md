@@ -19,44 +19,51 @@
                                      │ HTTPS
                                      ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                        CLOUDFLARE WORKER (Hono)                             │
-│                     edgegde-calculator.renleding.workers.dev                │
+│                     CLOUDFLARE WORKER (Hono)                                │
+│                  edgegde-calculator.renleding.workers.dev                   │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
+│  ┌─── AUTH LAYER ───────────────────────────────────────────────────────┐   │
+│  │  tenantQueryAuth (query param → KV)   │   adminAuth (bearer token)   │   │
+│  └───────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
 │  ┌──────────────────────┐   ┌──────────────────────┐                        │
-│  │    CHAT ENDPOINTS     │   │   ADMIN ENDPOINTS    │                        │
+│  │    PUBLIC ROUTES      │   │   ADMIN ROUTES       │                        │
 │  │  POST /chat/init      │   │  /admin/*            │                        │
-│  │  POST /chat/tool      │   │  /admin/blueprints   │   adminAuth (token)   │
+│  │  POST /chat/tool      │   │  /admin/blueprints   │                        │
 │  │  POST /chat/stream    │   │  /admin/packs        │                        │
 │  │  GET  /chat/stream/:id│   │  /admin/drift        │                        │
-│  │                       │   │  /admin/site         │                        │
-│  │  tenantQueryAuth (kv) │   └──────────┬───────────┘                        │
-│  └──────────┬────────────┘              │                                    │
+│  │  GET  /embed/chat     │   │  /admin/site         │                        │
+│  └──────────┬────────────┘   └──────────┬───────────┘                        │
 │             │                           │                                    │
 │             ▼                           ▼                                    │
-│  ┌──────────────────────┐   ┌──────────────────────┐                        │
-│  │    CHAT PROCESSING    │   │   FACTORY SYSTEM     │                        │
-│  │                       │   │  P7: Blueprint→Tenant│                        │
-│  │  FieldEngine          │   │  P8: Pack Upgrade    │                        │
-│  │  ├─ nextField()       │   │  ├─ Dry Run          │                        │
-│  │  ├─ priorityOrder()   │   │  ├─ Execute (batch)  │                        │
-│  │  └─ phases()          │   │  ├─ Rollback (batch) │                        │
-│  │                       │   │  └─ Snapshot         │                        │
-│  │  RuleEngine           │   └──────────────────────┘                        │
-│  │  ├─ evaluateCondition()│                                                │
-│  │  ├─ evaluateRules()   │                                                │
-│  │  └─ RuleOutput        │                                                │
-│  │                       │                                                │
-│  │  ComplianceEngine     │                                                │
-│  │  ├─ disclosures       │                                                │
-│  │  └─ audit logging     │                                                │
-│  │                       │                                                │
-│  │  AuditLedger_DO       │                                                │
-│  │  ├─ rule_evaluated    │                                                │
-│  │  └─ disclosure_shown  │                                                │
-│  └──────────┬────────────┘                                                │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │             processChatState()  ← Shared Deterministic Pipeline      │   │
+│  │                                                                      │   │
+│  │  FieldEngine          RuleEngine           ComplianceEngine          │   │
+│  │  ├─ nextField()       ├─ evaluateCondition ├─ disclosures            │   │
+│  │  ├─ priorityOrder()   ├─ evaluateRules()   └─ inject before LLM     │   │
+│  │  └─ phases()          └─ RuleOutput                                  │   │
+│  │                                                                      │   │
+│  │  AuditLedger_DO (async, waitUntil — zero latency impact)             │   │
+│  │  ├─ rule_evaluated                                                   │   │
+│  │  └─ disclosure_shown                                                 │   │
+│  │                                                                      │   │
+│  │  Deterministic Guarantees:                                           │   │
+│  │  ├─ same input → same output                                         │   │
+│  │  ├─ rules always enforced                                            │   │
+│  │  └─ audit always emitted                                             │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
 │             │                                                              │
-└─────────────┼──────────────────────────────────────────────────────────────┘
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  FACTORY SYSTEM     │  P8 UPGRADE ENGINE                             │   │
+│  │  P7: Blueprint→Tenant│  ├─ Dry Run (compatibility check)             │   │
+│  │  ├─ validate schema  │  ├─ Execute (atomic D1 batch)                 │   │
+│  │  ├─ install packs    │  ├─ Rollback (atomic from snapshot)           │   │
+│  │  ├─ detect drift     │  └─ upgrade_status gate (pending→complete)    │   │
+│  │  └─ commit config    │                                               │   │
+│  └──────────────────────┘  └────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
               │
     ┌─────────┴─────────┬──────────────┬──────────────────┐
     ▼                   ▼              ▼                  ▼
@@ -71,9 +78,10 @@
 │ pack:    │  │              │  │          │  │ json_object      │
 │          │  │              │  │          │  │                  │
 │ guardKV  │  │ upgrade:     │  │          │  │ stream: true     │
-│ blocks   │  │ snapshot     │  │          │  │                  │
-│ blueprint│  │ status=pending│  │          │  └──────────────────┘
-│ & pack   │  │              │  │          │
+│ prevents │  │ snapshot     │  │          │  │                  │
+│ unauth'd │  │ status=pending│  │          │  └──────────────────┘
+│ access   │  │              │  │          │
+│ to bp+pk │  │              │  │          │
 └────┬─────┘  └──────┬───────┘  └──────────┘
      │               │
      ▼               ▼
@@ -88,7 +96,7 @@
 └──────────────────────────────────────┘
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                              SDLC PIPELINE                                  ║
+║                           SDLC + AUTONOMOUS CORRECTION                     ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
   ┌────────┐  ┌────────┐  ┌────────┐  ┌───────┐  ┌───────┐  ┌────────┐  ┌────────┐
@@ -96,32 +104,45 @@
   │ spec   │  │work/   │  │        │  │ tsx    │  │gh run │  │review  │  │ squash │
   └────────┘  └────────┘  └────────┘  └───────┘  └───────┘  └────────┘  └────────┘
                                                                               │
-                                                                              ▼
-                                      ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
-                                      │ Tag    │→ │ Deploy │→ │Verify  │→ │  Doc   │
-                                      │vX.X.X  │  │wrangler│  │smoke   │  │        │
-                                      └────────┘  └────────┘  └────────┘  └────────┘
+                         ┌────────────────────────────────────────────────────┘
+                         ▼
+              ┌──────────────────────────────────────┐
+              │     CI FAIL → AUTONOMOUS CORRECTION  │
+              │                                      │
+              │  Hermes diagnoses → Mempalace stores │
+              │  → Aider fixes → re-runs CI          │
+              │  → If green, PR auto-updates         │
+              └──────────────────────────────────────┘
+                         │
+                         ▼
+              ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+              │ Tag    │→ │ Deploy │→ │Verify  │→ │  Doc   │
+              │vX.X.X  │  │wrangler│  │smoke   │  │        │
+              └────────┘  └────────┘  └────────┘  └────────┘
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                        DATA FLOW — STREAMING CHAT                           ║
+║           (both /chat/stream and /chat/tool use the same pipeline)          ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
   User ──→ /chat/stream ──→ Load Session (D1)
                    │
-                   ├──→ [Rules Mode] Evaluate D1 rules → RuleOutput
-                   │       ├──→ disclosureTexts from KV
-                   │       └──→ audit: rule_evaluated
+                   ├──→ [RULES] Evaluate D1 rules → RuleOutput
+                   │       └──→ audit: rule_evaluated (async, waitUntil)
                    │
-                   ├──→ Build LLM Prompt (KB + rules + disclosures)
+                   ├──→ [COMPLIANCE] Resolve disclosure texts from KV
+                   │       └──→ Inject into LLM prompt BEFORE streaming
                    │
-                   ├──→ [Stream Mode] Fetch LLM (stream: true)
+                   ├──→ [BUILD PROMPT] KB context + rule context + disclosures
+                   │
+                   ├──→ [STREAM] Fetch LLM (stream: true)
                    │       └──→ SSE ndjson tokens to client
                    │
-                   └──→ [Post-Stream] Parse response
-                           ├──→ applyFieldUpdate
-                           ├──→ compliance fallback
+                   └──→ [POST-STREAM] Parse response
+                           ├──→ applyFieldUpdate (constraint engine)
+                           ├──→ compliance fallback (append if LLM omitted)
                            ├──→ update D1 session
-                           └──→ audit: disclosure_shown
+                           └──→ audit: disclosure_shown (async, waitUntil)
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                           TEST MATRIX (157+ tests)                          ║
@@ -141,7 +162,7 @@
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
   EdgeGDE Worker:  v0.9.7  (monorepo — apps/edge-runtime + apps/ui-builder)
-  Chat Widget:     v1.0.0  (independent — public/widget.js)
+  Chat Widget:     v1.0.0  (independent — public/widget.js, bumped separately)
   UI Builder:      v0.1.0  (separate app, early stage)
 
   Widget version = behaviour contract. Bump on ANY change. Never reuse.
@@ -170,7 +191,8 @@ npx wrangler deploy
 
 ## Key Principles
 
-- **Deterministic by design** — field engine, rule engine, compliance engine are pure functions
-- **Audit over UI** — the audit ledger is the source of truth, not the chat interface
-- **SDLC-governed** — all changes flow through `work/` branches → CI → PR → merge → tag → deploy
-- **Widget versioned independently** — `widget.js?v=vX.X.X`, bumped on any change, never reused
+- **Deterministic by design** — field engine, rule engine, compliance engine are pure functions; same input always produces same output
+- **Audit over UI** — the audit ledger (`AuditLedger_DO`) is the source of truth, not the chat interface
+- **Compliance before LLM** — disclosures are resolved and injected into the prompt before streaming begins; post-stream validation is a safety net
+- **SDLC-governed** — all changes flow through `work/` branches → CI → PR → merge → tag → deploy; CI failures trigger an autonomous correction loop (Hermes → Mempalace → Aider)
+- **Widget versioned independently** — `widget.js?v=vX.X.X`, bumped on any change, never reused; must be backwards-compatible with runtime API unless both are bumped in coordination
