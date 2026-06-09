@@ -115,16 +115,18 @@ export function buildFormSchema(fields: FormFieldDef[]): z.ZodObject<any> {
     let zod: z.ZodTypeAny
 
     if (field.fieldType === 'number' || field.fieldType === 'range') {
-      zod = z.coerce.number().refine((n) => !isNaN(n), { message: `${field.label} must be a valid number` })
-      if (field.validation.min != null) zod = (zod as any).min(field.validation.min)
-      if (field.validation.max != null) zod = (zod as any).max(field.validation.max)
+      let base = z.coerce.number().refine((n) => !isNaN(n), { message: `${field.label} must be a valid number` })
+      if (field.validation.min != null) base = base.refine((n: any) => n >= field.validation.min!, { message: `Minimum ${field.label} is ${field.validation.min}` })
+      if (field.validation.max != null) base = base.refine((n: any) => n <= field.validation.max!, { message: `Maximum ${field.label} is ${field.validation.max}` })
+      zod = base as any
     } else if (field.fieldType === 'email') {
-      zod = z.string().email()
+      zod = z.string().email() as any
     } else {
-      zod = z.string()
-      if (field.validation.minLength != null) zod = (zod as any).min(field.validation.minLength)
-      if (field.validation.maxLength != null) zod = (zod as any).max(field.validation.maxLength)
-      if (field.validation.pattern) zod = (zod as any).regex(new RegExp(field.validation.pattern))
+      let base = z.string()
+      if (field.validation.minLength != null) base = base.refine((s: any) => (s as string).length >= field.validation.minLength!, { message: `Minimum length is ${field.validation.minLength}` })
+      if (field.validation.maxLength != null) base = base.refine((s: any) => (s as string).length <= field.validation.maxLength!, { message: `Maximum length is ${field.validation.maxLength}` })
+      if (field.validation.pattern) base = base.refine((s: any) => new RegExp(field.validation.pattern!).test(s as string), { message: `Invalid format for ${field.label}` })
+      zod = base as any
     }
 
     if (field.validation.required) {
