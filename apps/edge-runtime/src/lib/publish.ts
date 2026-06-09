@@ -62,7 +62,7 @@ export const designArtifactTypeSchema = z.enum(['page', 'calculator', 'theme'])
 export const designArtifactSchema = z.object({
   id: z.string().min(1),
   type: designArtifactTypeSchema,
-  layout: layoutDefinitionSchema,
+  layout: layoutDefinitionSchema as any,
   schema: z.record(z.string(), z.unknown()).optional(),
   theme: z.record(z.string(), z.unknown()).optional(),
 })
