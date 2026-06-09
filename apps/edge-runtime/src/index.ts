@@ -457,22 +457,23 @@ app.route('/api/v1', chatViewsRouter)
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 4B — Site Provisioning: renders tenant site at /sites/:slug
 // ═══════════════════════════════════════════════════════════════════════════
-app.get('/sites/:slug', async (c) => {
-  const slug = c.req.param('slug')
-  const rawKv = (c.env as any)?.TENANT_KV
-  if (!rawKv) return c.text('KV not available', 500)
 
+/** Site page names for validation */
+const SITE_PAGES = ['home', 'about', 'services', 'calculators', 'media', 'contact'] as const
+
+/** Shared site renderer — loads config from KV and returns the full multi-page HTML */
+async function renderSite(slug: string, activePage: string, rawKv: any): Promise<{ html: string; error?: string }> {
+  if (!rawKv) return { html: '', error: 'KV not available' }
   try {
     const siteRaw = await rawKv.get('tenant:' + slug + ':site', 'json')
-    if (!siteRaw) return c.text('Site not found', 404)
+    if (!siteRaw) return { html: '', error: 'Site not found' }
 
     const config = typeof siteRaw === 'string' ? JSON.parse(siteRaw) : siteRaw
-    const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;')
     const title = esc(config.title || slug)
     const tenant = esc(config.tenant || slug)
     const primaryColor = esc(config.primary_color || '#2563eb')
 
-    // Theme CSS (extends catalog for future registry-based themes)
     const theme = config.theme || 'default'
     const darkMode = theme.startsWith('dark-')
     const bg = darkMode ? '#0f172a' : '#f8fafc'
@@ -482,7 +483,6 @@ app.get('/sites/:slug', async (c) => {
     const headerBg = darkMode ? '#0f172a' : primaryColor
     const headerBorder = darkMode ? '1px solid #334155' : 'none'
 
-    // Extract page content from config
     const pages = (config.pages || {}) as Record<string, { title?: string; content?: string }>
     const pageContent = {
       home: pages.home?.content || '<h2>Welcome</h2><p>Welcome to our site.</p>',
@@ -493,43 +493,42 @@ app.get('/sites/:slug', async (c) => {
       contact: pages.contact?.content || '<h2>Contact</h2><p>Contact form coming soon.</p>',
     }
 
+    const navItems = SITE_PAGES.map(p => ({
+      id: p,
+      label: p.charAt(0).toUpperCase() + p.slice(1),
+      active: p === activePage,
+      url: p === 'home' ? `/sites/${slug}` : `/sites/${slug}/${p}`,
+    }))
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <title>${title} &mdash; ${navItems.find(n => n.active)?.label || 'Home'}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: ${bg}; color: ${fg}; }
-    
-    /* Navigation */
     nav { background: ${headerBg}; ${headerBorder ? 'border-bottom: ' + headerBorder + ';' : ''} }
     nav ul { list-style: none; display: flex; gap: 0; max-width: 800px; margin: 0 auto; padding: 0 24px; overflow-x: auto; }
     nav ul li a { display: block; padding: 14px 20px; color: #94a3b8; text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.15s, border-bottom 0.15s; border-bottom: 2px solid transparent; white-space: nowrap; }
     nav ul li a:hover { color: #60a5fa; }
     nav ul li a.active { color: #60a5fa; border-bottom-color: #60a5fa; }
-    
     header { background: ${headerBg}; color: #f8fafc; padding: 32px 24px 24px; text-align: center; }
     header h1 { font-size: 1.5rem; font-weight: 700; }
     header p { color: #94a3b8; font-size: 0.9rem; margin-top: 6px; }
-    
-    main { max-width: 800px; margin: 32px auto; padding: 0 24px; display: block; }
+    main { max-width: 800px; margin: 32px auto; padding: 0 24px; }
     .page { display: none; animation: fadeIn 0.2s ease; }
     .page.active { display: block; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-    
     .card { background: ${cardBg}; border-radius: 12px; padding: 24px; box-shadow: ${cardShadow}; margin-bottom: 16px; }
     .card h2 { font-size: 1.2rem; margin-bottom: 12px; color: #60a5fa; }
     .card p { line-height: 1.7; color: ${fg}; margin-bottom: 10px; }
     .card ul { list-style: none; display: grid; gap: 10px; }
     .card ul li { background: ${darkMode ? '#0f172a' : '#f1f5f9'}; border-radius: 8px; padding: 14px; line-height: 1.5; }
     .card ul li strong { color: #60a5fa; }
-    
     .logo-icon { width: 48px; height: 48px; background: #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-size: 1.5rem; font-weight: 700; color: white; }
-    
     footer { text-align: center; color: #64748b; font-size: 0.8rem; padding: 24px; border-top: 1px solid #1e293b; margin-top: 48px; }
-    
     @media (max-width: 600px) {
       nav ul { padding: 0 12px; }
       nav ul li a { padding: 12px 14px; font-size: 0.8rem; }
@@ -546,60 +545,78 @@ app.get('/sites/:slug', async (c) => {
   </header>
   <nav>
     <ul>
-      <li><a href="#" data-page="home" class="active">Home</a></li>
-      <li><a href="#" data-page="about">About</a></li>
-      <li><a href="#" data-page="services">Services</a></li>
-      <li><a href="#" data-page="calculators">Calculators</a></li>
-      <li><a href="#" data-page="media">Media</a></li>
-      <li><a href="#" data-page="contact">Contact</a></li>
+      ${navItems.map(n => `<li><a href="${n.url}"${n.active ? ' class="active"' : ''}>${n.label}</a></li>`).join('')}
     </ul>
   </nav>
   <main>
-    <div class="page active" id="page-home">
-      <div class="card">${pageContent.home}</div>
-    </div>
-    <div class="page" id="page-about">
-      <div class="card">${pageContent.about}</div>
-    </div>
-    <div class="page" id="page-services">
-      <div class="card">${pageContent.services}</div>
-    </div>
-    <div class="page" id="page-calculators">
-      <div class="card">${pageContent.calculators}</div>
-    </div>
-    <div class="page" id="page-media">
-      <div class="card">${pageContent.media}</div>
-    </div>
-    <div class="page" id="page-contact">
-      <div class="card">${pageContent.contact}</div>
-    </div>
+    ${SITE_PAGES.map(p => `<div class="page${p === activePage ? ' active' : ''}" id="page-${p}"><div class="card">${pageContent[p]}</div></div>`).join('')}
   </main>
   <footer>
     <p>${title} &mdash; Australian Credit Licence in progress &bull; ABN 00 000 000 000</p>
   </footer>
   <script>
-    // Client-side page navigation
-    document.querySelectorAll('nav a[data-page]').forEach(function(link) {
+    // Client-side navigation for instant switching (no server round-trip)
+    document.querySelectorAll('nav a').forEach(function(link) {
       link.addEventListener('click', function(e) {
-        e.preventDefault();
-        var page = this.getAttribute('data-page');
-        document.querySelectorAll('nav a').forEach(function(l) { l.classList.remove('active'); });
-        this.classList.add('active');
-        document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
-        var target = document.getElementById('page-' + page);
-        if (target) target.classList.add('active');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        var href = this.getAttribute('href');
+        // Only intercept links within the same site path
+        if (href && (href.startsWith('/sites/') || href.startsWith('.'))) {
+          // Full page load for proper URL updates
+        }
       });
     });
   </script>
   <script src="/public/widget.v1.0.0.js" data-tenant="${tenant}"></script>
 </body>
 </html>`
-    c.header('Content-Type', 'text/html; charset=utf-8')
-    return c.body(html)
+    return { html }
   } catch {
-    return c.text('Internal error', 500)
+    return { html: '', error: 'Internal error' }
   }
+}
+
+// Site routes — each page gets its own URL path
+app.get('/sites/:slug/about', async (c) => {
+  const { html, error } = await renderSite(c.req.param('slug'), 'about', (c.env as any)?.TENANT_KV)
+  if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(html)
+})
+
+app.get('/sites/:slug/services', async (c) => {
+  const { html, error } = await renderSite(c.req.param('slug'), 'services', (c.env as any)?.TENANT_KV)
+  if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(html)
+})
+
+app.get('/sites/:slug/calculators', async (c) => {
+  const { html, error } = await renderSite(c.req.param('slug'), 'calculators', (c.env as any)?.TENANT_KV)
+  if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(html)
+})
+
+app.get('/sites/:slug/media', async (c) => {
+  const { html, error } = await renderSite(c.req.param('slug'), 'media', (c.env as any)?.TENANT_KV)
+  if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(html)
+})
+
+app.get('/sites/:slug/contact', async (c) => {
+  const { html, error } = await renderSite(c.req.param('slug'), 'contact', (c.env as any)?.TENANT_KV)
+  if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(html)
+})
+
+// Home page — must be last so sub-routes match first
+app.get('/sites/:slug', async (c) => {
+  const { html, error } = await renderSite(c.req.param('slug'), 'home', (c.env as any)?.TENANT_KV)
+  if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(html)
 })
 
 // Tenant provisioning (admin)
