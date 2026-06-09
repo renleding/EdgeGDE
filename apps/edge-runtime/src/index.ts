@@ -471,6 +471,16 @@ app.get('/sites/:slug', async (c) => {
     const tenant = esc(config.tenant || slug)
     const primaryColor = esc(config.primary_color || '#2563eb')
 
+    // Theme CSS (extends catalog for future registry-based themes)
+    const theme = config.theme || 'default'
+    const darkMode = theme.startsWith('dark-')
+    const bg = darkMode ? '#0f172a' : '#f8fafc'
+    const fg = darkMode ? '#e2e8f0' : '#1e293b'
+    const cardBg = darkMode ? '#1e293b' : '#ffffff'
+    const cardShadow = darkMode ? '0 1px 3px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.1)'
+    const headerBg = darkMode ? '#0f172a' : primaryColor
+    const headerBorder = darkMode ? '1px solid #334155' : 'none'
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -479,12 +489,13 @@ app.get('/sites/:slug', async (c) => {
   <title>${title}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
-    header { background: ${primaryColor}; color: white; padding: 24px 32px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: ${bg}; color: ${fg}; }
+    header { background: ${headerBg}; color: #f8fafc; padding: 24px 32px; ${headerBorder ? 'border-bottom: ' + headerBorder + ';' : ''} }
     header h1 { font-size: 1.5rem; font-weight: 600; }
     main { max-width: 800px; margin: 40px auto; padding: 0 24px; }
-    .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: ${primaryColor}; }
+    .card { background: ${cardBg}; border-radius: 12px; padding: 24px; box-shadow: ${cardShadow}; }
+    .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: #60a5fa; }
+    .card p { line-height: 1.6; }
   </style>
 </head>
 <body>
@@ -497,7 +508,7 @@ app.get('/sites/:slug', async (c) => {
       <p>Your mortgage application is ready. Click the chat button to get started.</p>
     </div>
   </main>
-  <script src="/widget.js?v=v1.0.0" data-tenant="${tenant}" defer></script>
+  <script src="/public/widget.v1.0.0.js" data-tenant="${tenant}"></script>
 </body>
 </html>`
     c.header('Content-Type', 'text/html; charset=utf-8')
