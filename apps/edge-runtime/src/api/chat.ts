@@ -806,7 +806,7 @@ chatRouter.post('/chat/stream', async (c) => {
       'X-Title': 'EdgeGDE',
     },
     body: JSON.stringify({
-      model: 'deepseek/deepseek-chat',
+      model: 'deepseek/deepseek-v4-flash',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
       temperature: 0.1,

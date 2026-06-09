@@ -107,23 +107,22 @@ export async function executeUpgrade(
     await rawKv.put('tenant:' + tenantId + ':chat:config', JSON.stringify(config))
   }
 
-  // 3c. Install new rules (D1)
+  // 3c. Install new rules (D1) — atomic batch transaction
   if (rulePackName && db && typeof db.prepare === 'function') {
     const rules = await loadRulePack(rawKv, rulePackName)
     if (rules.length > 0) {
       const validated = validateRulePackData(rules)
-      // Delete existing
-      try { await db.prepare('DELETE FROM rules WHERE tenant_id = ?').bind(tenantId).run() } catch {}
-      // Insert new
       const now = Math.floor(Date.now() / 1000)
+      const ops: any[] = [db.prepare('DELETE FROM rules WHERE tenant_id = ?').bind(tenantId)]
       for (const rule of validated) {
-        try {
-          await db.prepare(
-            'INSERT INTO rules (id, tenant_id, condition, output, priority, active, created_at, source_pack) VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
-          ).bind(crypto.randomUUID(), tenantId, rule.condition, rule.output || '', rule.priority ?? 50, now, rulePackName).run()
-          result.rulesInstalled++
-        } catch {}
+        ops.push(db.prepare(
+          'INSERT INTO rules (id, tenant_id, condition, output, priority, active, created_at, source_pack) VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
+        ).bind(crypto.randomUUID(), tenantId, rule.condition, rule.output || '', rule.priority ?? 50, now, rulePackName))
       }
+      try {
+        await db.batch(ops)
+        result.rulesInstalled = validated.length
+      } catch {}
     }
   }
 
@@ -206,19 +205,20 @@ export async function rollbackUpgrade(
     await rawKv.put('tenant:' + tenantId + ':chat:config', JSON.stringify(config))
   }
 
-  // Restore rules
+  // Restore rules — atomic batch transaction
   if (snapshot.rules && db && typeof db.prepare === 'function') {
     const validated = validateRulePackData(snapshot.rules)
-    try { await db.prepare('DELETE FROM rules WHERE tenant_id = ?').bind(tenantId).run() } catch {}
     const now = Math.floor(Date.now() / 1000)
+    const ops: any[] = [db.prepare('DELETE FROM rules WHERE tenant_id = ?').bind(tenantId)]
     for (const rule of validated) {
-      try {
-        await db.prepare(
-          'INSERT INTO rules (id, tenant_id, condition, output, priority, active, created_at, source_pack) VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
-        ).bind(crypto.randomUUID(), tenantId, rule.condition, rule.output || '', rule.priority ?? 50, now, packName).run()
-        result.rulesInstalled++
-      } catch {}
+      ops.push(db.prepare(
+        'INSERT INTO rules (id, tenant_id, condition, output, priority, active, created_at, source_pack) VALUES (?, ?, ?, ?, ?, 1, ?, ?)'
+      ).bind(crypto.randomUUID(), tenantId, rule.condition, rule.output || '', rule.priority ?? 50, now, packName))
     }
+    try {
+      await db.batch(ops)
+      result.rulesInstalled = validated.length
+    } catch {}
   }
 
   // Restore compliance
