@@ -786,15 +786,64 @@ chatRouter.post('/chat/stream', async (c) => {
   const currentField = feResult.nextField?.fieldName || ''
   const fieldDef = currentField ? fields.find((f: any) => f.fieldName === currentField) : undefined
 
-  // Build LLM prompt with KB context
+  // ═══ RULE EVALUATION (pre-stream) ═══
+  let ruleContext = ''
+  let disclosureTexts: string[] = []
+  const ruleOutputs: any = { stage: '', flags: [], required_disclosures: [], required_fields: [] }
+  if (Object.keys(collected).length > 0) {
+    try {
+      const ruleRows: any[] = await db?.prepare(
+        'SELECT * FROM rules WHERE tenant_id = ? AND active = 1 ORDER BY priority DESC'
+      ).bind(tenantId).all() || []
+      if (ruleRows?.length) {
+        const { evaluateRules } = await import('../lib/rule-engine')
+        const ruleResult = evaluateRules(ruleRows, collected)
+        if (ruleResult) {
+          Object.assign(ruleOutputs, ruleResult)
+          if (ruleResult.stage || ruleResult.flags.length) {
+            ruleContext = '\n[Rules Active:'
+            if (ruleResult.stage) ruleContext += ` stage=${ruleResult.stage}`
+            if (ruleResult.flags.length) ruleContext += ` flags=${ruleResult.flags.join(',')}`
+            if (ruleResult.required_disclosures.length) ruleContext += ` disclosures=${ruleResult.required_disclosures.join(',')}`
+            ruleContext += ']'
+          }
+        }
+      }
+    } catch { /* rules are non-blocking for streaming */ }
+
+    // ═══ COMPLIANCE CONTEXT ═══
+    if (ruleOutputs.required_disclosures.length > 0) {
+      try {
+        const complianceRaw = await kv?.get(`tenant:${tenantId}:kb:compliance`, 'json')
+        if (complianceRaw) {
+          const complianceEntries = Array.isArray(complianceRaw) ? complianceRaw :
+            typeof complianceRaw === 'object' ? (complianceRaw as any).entries || [] : []
+          for (const discId of ruleOutputs.required_disclosures) {
+            const entry = complianceEntries.find((e: any) => e.id === discId || e.name === discId)
+            if (entry?.value) disclosureTexts.push(entry.value)
+          }
+        }
+      } catch { /* non-blocking */ }
+    }
+  }
+
+  // ═══ BUILD LLM PROMPT ═══
   const { loadKnowledgeBase, formatKbContext } = await import('../lib/knowledge-base')
   const { buildParsePrompt, parseLlmResponse } = await import('../lib/chat-llm')
   const kb = kv ? await loadKnowledgeBase(kv, tenantId, chatConfig.knowledgeBase?.topics || []) : {}
   const kbContext = formatKbContext(kb)
+
+  // Append compliance instructions to prompt
+  let compliancePrompt = kbContext + ruleContext
+  if (disclosureTexts.length > 0) {
+    compliancePrompt += '\n\nYou MUST include the following disclosures in your response:\n' +
+      disclosureTexts.map((d: string) => '- ' + d).join('\n')
+  }
+
   const prompt = buildParsePrompt({
     sessionId, tenantId, text: userText, currentField,
     fieldDef: fieldDef ? { label: fieldDef.label, options: fieldDef.options, fieldType: fieldDef.fieldType } : undefined,
-  }, kbContext)
+  }, compliancePrompt)
 
   // Call LLM with streaming
   const llmRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -876,6 +925,14 @@ chatRouter.post('/chat/stream', async (c) => {
         }
       } catch {}
 
+      // ═══ POST-STREAM COMPLIANCE VALIDATION ═══
+      if (disclosureTexts.length > 0) {
+        const missing = disclosureTexts.filter((d: string) => !responseText.includes(d.substring(0, 30)))
+        if (missing.length > 0) {
+          responseText += '\n\n---\n' + missing.join('\n')
+        }
+      }
+
       // Stream the response text word by word for a smooth typing effect
       const words = responseText.split(' ')
       for (let i = 0; i < words.length; i++) {
@@ -883,7 +940,13 @@ chatRouter.post('/chat/stream', async (c) => {
       }
 
       // Send done event
-      controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: responseText, firstName: (currentCollected as any)?.firstName || null, fullName: (currentCollected as any)?.fullName || null }) + '\n'))
+      const computedFirstName = (() => {
+        const raw = (currentCollected as any)
+        if (raw?.firstName && typeof raw.firstName === 'string') return raw.firstName
+        if (raw?.fullName && typeof raw.fullName === 'string') return raw.fullName.split(' ')[0]
+        return null
+      })()
+      controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: responseText, firstName: computedFirstName, fullName: (currentCollected as any)?.fullName || null }) + '\n'))
       controller.close()
     },
   })
