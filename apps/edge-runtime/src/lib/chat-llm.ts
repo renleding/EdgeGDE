@@ -48,7 +48,7 @@ ${kbSection}
 Conversation context: ${ctx}${optionsHint}
 
 Instructions:
-- If the user gives their name, you MUST set ALL these in extracted_fields at once: fullName, firstName, middleName (if present), lastName. Example: "Warren G" → {"fullName":"Warren G","firstName":"Warren","lastName":"G"}. "John Michael Smith" → {"fullName":"John Michael Smith","firstName":"John","middleName":"Michael","lastName":"Smith"}
+- If the user gives their name, set fullName accordingly (the firstName is derived for personalization, not a separate field). Example: "Warren G" → {"fullName":"Warren G"}. "John Michael Smith" → {"fullName":"John Michael Smith"}
 - If the user asks a question → answer it from the knowledge base and set intent "question"
 - If the user provides data → set ALL related fields in extracted_fields
 - If the user provided the requested field, thank them and ask for the NEXT field that hasn't been collected yet.
