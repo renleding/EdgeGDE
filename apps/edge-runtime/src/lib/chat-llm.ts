@@ -38,7 +38,7 @@ export function buildParsePrompt(msg: UserMessage, kbContext?: string): string {
     : ' Collect any fields the user provides.'
 
   const optionsHint = msg.fieldDef?.options?.length
-    ? ` Valid options for "${msg.currentField}": ${msg.fieldDef.options.join(', ')}.`
+    ? ` Valid options for "${msg.currentField}": ${msg.fieldDef.options.join(', ')}. Match case-insensitively — "refinance" = "Refinance". Set the value to the EXACT option text.`
     : ''
 
   const kbSection = kbContext
@@ -53,6 +53,7 @@ Collection status:${collectedSummary}${nextFieldHint}${optionsHint}
 
 Instructions:
 - If the user gives their name, set fullName accordingly (the firstName is derived for personalization, not a separate field). Example: "Warren G" → {"fullName":"Warren G"}. "John Michael Smith" → {"fullName":"John Michael Smith"}
+- Match options case-insensitively — user's "refinance" matches option "Refinance"
 - If the user asks a question → answer it from the knowledge base and set intent "question"
 - If the user provides data → set ALL related fields in extracted_fields
 - If the user provided the requested field, thank them and ask for the NEXT field that hasn't been collected yet.
