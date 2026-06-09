@@ -43,6 +43,10 @@
       {
         "name": "AUDIT_LEDGER",
         "class_name": "AuditLedger"
+      },
+      {
+        "name": "CHAT_SESSION",
+        "class_name": "ChatSession_DO"
       }
     ]
   },
@@ -57,6 +61,12 @@
       "tag": "v2",
       "new_sqlite_classes": [
         "AuditLedger"
+      ]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": [
+        "ChatSession_DO"
       ]
     }
   ],

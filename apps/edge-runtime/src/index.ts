@@ -38,6 +38,7 @@ import { vaultRouter } from './api/vault'
 import { chatRouter } from './api/chat'
 import { chatViewsRouter } from './api/chat-views'
 import { workspaceRouter } from './api/workspace'
+import { ChatSession_DO } from './do/chat-session.do'
 import { swarmRouter } from './api/swarm'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
@@ -1005,3 +1006,4 @@ export default {
 }
 export { RateLimiter } from './objects/RateLimiter'
 export { AuditLedger } from './objects/AuditLedger'
+export { ChatSession_DO } from './do/chat-session.do'

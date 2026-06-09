@@ -762,6 +762,19 @@ chatRouter.post('/chat/stream', async (c) => {
   ).bind(sessionId, tenantId).first()
   if (!session) return c.json({ error: 'Session not found' }, 400)
 
+  // Route through ChatSession_DO for state consistency
+  const doId = (c.env as any)?.CHAT_SESSION?.idFromName(sessionId)
+  const doStub = doId ? (c.env as any)?.CHAT_SESSION?.get(doId) : null
+  if (doStub) {
+    try {
+      await doStub.fetch('http://do/hydrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      })
+    } catch { /* non-blocking */ }
+  }
+
   const collected: Record<string, unknown> = session.collected_fields_json ? JSON.parse(session.collected_fields_json) : {}
 
   const { loadChatConfig } = await import('../lib/chat-config')
