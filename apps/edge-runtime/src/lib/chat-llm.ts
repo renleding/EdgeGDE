@@ -11,8 +11,9 @@ export interface UserMessage {
   sessionId: string
   tenantId: string
   text: string
-  currentField?: string // the field the system is currently asking about
+  currentField?: string
   fieldDef?: { label: string; options?: string[]; fieldType: string }
+  collectedFields?: string[]  // fields already collected, for LLM context
 }
 
 export interface ParsedIntent {
@@ -29,12 +30,15 @@ export interface ParsedIntent {
  * The LLM sees ONLY: user message, current field context, and strict JSON schema.
  */
 export function buildParsePrompt(msg: UserMessage, kbContext?: string): string {
-  const ctx = msg.currentField
-    ? `The system is currently asking about "${msg.currentField}" (label: "${msg.fieldDef?.label || msg.currentField}"). Use the field name "${msg.currentField}" in your response.`
-    : 'The user is starting a new conversation.'
+  const collectedSummary = msg.collectedFields?.length
+    ? `\nAlready collected fields: ${msg.collectedFields.join(', ')}.`
+    : ''
+  const nextFieldHint = msg.currentField
+    ? ` The NEXT field to ask for is "${msg.currentField}" (label: "${msg.fieldDef?.label || msg.currentField}"). If the user provides a value for this field, set extracted_fields["${msg.currentField}"] = the value.`
+    : ' Collect any fields the user provides.'
 
   const optionsHint = msg.fieldDef?.options?.length
-    ? ` Valid options: ${msg.fieldDef.options.join(', ')}. If the user's answer matches one of these, set "field" to "${msg.currentField}" and "value" to the option.`
+    ? ` Valid options for "${msg.currentField}": ${msg.fieldDef.options.join(', ')}.`
     : ''
 
   const kbSection = kbContext
@@ -45,7 +49,7 @@ export function buildParsePrompt(msg: UserMessage, kbContext?: string): string {
 
 ${kbSection}
 
-Conversation context: ${ctx}${optionsHint}
+Collection status:${collectedSummary}${nextFieldHint}${optionsHint}
 
 Instructions:
 - If the user gives their name, set fullName accordingly (the firstName is derived for personalization, not a separate field). Example: "Warren G" → {"fullName":"Warren G"}. "John Michael Smith" → {"fullName":"John Michael Smith"}

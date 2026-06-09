@@ -61,6 +61,7 @@ export async function processChatMessage(
     sessionId, tenantId, text: userText,
     currentField: input.currentField,
     fieldDef: input.fieldDef ? { label: input.fieldDef.label, options: input.fieldDef.options, fieldType: input.fieldDef.fieldType } : undefined,
+    collectedFields: Object.keys(collected),
   }, kbContext + ruleContext)
 
   // Resolve disclosure texts

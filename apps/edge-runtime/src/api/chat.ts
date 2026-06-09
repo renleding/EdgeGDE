@@ -858,6 +858,7 @@ chatRouter.post('/chat/stream', async (c) => {
   const prompt = buildParsePrompt({
     sessionId, tenantId, text: userText, currentField,
     fieldDef: fieldDef ? { label: fieldDef.label, options: fieldDef.options, fieldType: fieldDef.fieldType } : undefined,
+    collectedFields: Object.keys(collected),
   }, compliancePrompt)
 
   // Call LLM with streaming
