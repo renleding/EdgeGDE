@@ -769,7 +769,7 @@ chatRouter.post('/chat/stream', async (c) => {
   const fields = chatConfig.fields.map((f: any) => ({
     fieldName: f.fieldName, label: f.label,
     fieldType: (f.fieldType === 'number' ? 'number' : 'string') as 'string' | 'number' | 'select',
-    validation: f.validation, options: f.options, placeholder: f.placeholder,
+    validation: f.validation, options: f.options, placeholder: f.placeholder, prompt: f.prompt,
   }))
 
   const { computeFieldState } = await import('../lib/field-engine')
@@ -777,7 +777,7 @@ chatRouter.post('/chat/stream', async (c) => {
     fields.map((f: any) => ({
       fieldName: f.fieldName, label: f.label,
       fieldType: f.fieldType === 'string' ? 'text' : 'number',
-      placeholder: f.placeholder,
+      placeholder: f.placeholder, prompt: f.prompt,
       validation: f.validation,
     })),
     chatConfig.priorityOrder,
@@ -939,6 +939,30 @@ chatRouter.post('/chat/stream', async (c) => {
           ).bind(JSON.stringify(currentCollected), now, sessionId).run()
         }
       } catch {}
+
+      // ═══ DETERMINISTIC RESPONSE WITH PROMPTS ═══
+      if (Object.keys(collected).length > 0 || Object.keys(currentCollected).length > 0) {
+        try {
+          const { computeFieldState } = await import('../lib/field-engine')
+          const feResult = computeFieldState(
+            fields.map((f: any) => ({
+              fieldName: f.fieldName, label: f.label,
+              fieldType: f.fieldType === 'string' ? 'text' : 'number',
+              validation: f.validation, options: f.options, prompt: f.prompt,
+            })),
+            chatConfig.priorityOrder,
+            currentCollected,
+          )
+          if (feResult.nextField?.prompt) {
+            const raw = currentCollected
+            const firstName = typeof raw?.fullName === 'string' ? raw.fullName.split(' ')[0] : ''
+            const prefix = firstName ? `Thanks ${firstName}! ` : 'Thank you! '
+            const base = feResult.nextField.prompt
+            const suffix = feResult.nextField.options?.length ? ` Options: ${feResult.nextField.options.join(', ')}.` : ''
+            responseText = `${prefix}${base}${suffix}`
+          }
+        } catch { /* non-blocking */ }
+      }
 
       // ═══ POST-STREAM COMPLIANCE VALIDATION ═══
       if (disclosureTexts.length > 0) {
