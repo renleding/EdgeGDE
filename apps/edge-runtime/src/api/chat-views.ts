@@ -19,7 +19,14 @@ chatViewsRouter.use('*', async (c, next) => {
   await next()
 })
 
-const HMAC_KEY = 'edgegde-idai-hmac-v1'  // TODO: move to secret
+// HMAC_KEY is injected via env.HMAC_KEY at runtime
+function getHmacKey(env?: Record<string, unknown>): string {
+  const key = env?.HMAC_KEY
+  if (!key || typeof key !== 'string') {
+    throw new Error('HMAC_KEY environment variable is required')
+  }
+  return key
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Session cookie helpers
@@ -39,21 +46,21 @@ function getSessionIdFromCookie(c: any): string | undefined {
 // id.ai token generation
 // ═════════════════════════════════════════════════════════════════════════════
 
-async function signToken(sessionId: string, email: string): Promise<string> {
+async function signToken(sessionId: string, email: string, env?: Record<string, unknown>): Promise<string> {
   const encoder = new TextEncoder()
-  const key = await crypto.subtle.importKey('raw', encoder.encode(HMAC_KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const key = await crypto.subtle.importKey('raw', encoder.encode(getHmacKey(env)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
   const data = encoder.encode(`${sessionId}:${email}:${Math.floor(Date.now() / 1000) + 300}`)
   const sig = await crypto.subtle.sign('HMAC', key, data)
   const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('')
   return `${sessionId}:${email}:${hex.substring(0, 16)}`
 }
 
-async function verifyToken(token: string): Promise<{ sessionId: string; email: string; valid: boolean }> {
+async function verifyToken(token: string, env?: Record<string, unknown>): Promise<{ sessionId: string; email: string; valid: boolean }> {
   try {
     const parts = token.split(':')
     if (parts.length !== 3) return { sessionId: '', email: '', valid: false }
     const [sessionId, email] = parts
-    const expected = await signToken(sessionId, email)
+    const expected = await signToken(sessionId, email, env)
     return { sessionId, email, valid: token === expected }
   } catch {
     return { sessionId: '', email: '', valid: false }
