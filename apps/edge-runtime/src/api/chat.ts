@@ -825,6 +825,21 @@ chatRouter.post('/chat/stream', async (c) => {
         }
       } catch { /* non-blocking */ }
     }
+
+    // ═══ AUDIT LOGGING (shared with non-streaming path) ═══
+    try {
+      const { logAuditEvent } = await import('../lib/audit')
+      c.executionCtx.waitUntil(logAuditEvent(db, tenantId, sessionId, 'rule_evaluated', {
+        stage: ruleOutputs.stage,
+        flags: ruleOutputs.flags,
+        required_disclosures: ruleOutputs.required_disclosures,
+      }))
+      if (disclosureTexts.length > 0) {
+        for (const d of ruleOutputs.required_disclosures) {
+          c.executionCtx.waitUntil(logAuditEvent(db, tenantId, sessionId, 'disclosure_shown', { disclosure_id: d }))
+        }
+      }
+    } catch { /* audit is non-blocking */ }
   }
 
   // ═══ BUILD LLM PROMPT ═══
