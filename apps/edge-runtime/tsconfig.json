@@ -35,6 +35,18 @@
     "tests/e2e",
     "tests/domain-workspace.test.ts",
     "tests/domain-swarm.test.ts",
+    "tests/e2e-widget.test.ts",
+    "tests/audit-events.test.ts",
+    "tests/compliance-e2e.test.ts",
+    "tests/contract-stream-api.test.ts",
+    "tests/integration-chat-flow.test.ts",
+    "tests/p8-upgrade-lifecycle.test.ts",
+    "tests/security-admin-auth.test.ts",
+    "tests/unit-chat-constraint.test.ts",
+    "tests/unit-field-engine.test.ts",
+    "tests/unit-rule-engine.test.ts",
+    "tests/unit-schema.test.ts",
+    "tests/unit-upgrade-validator.test.ts",
     "tests/admin-*.test.ts",
     "tests/admin-diag.ts"
   ]
