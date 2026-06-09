@@ -3,12 +3,10 @@
   "name": "edgegde-calculator",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "vars": {
-    "WORKER_ARTIFACT_HASH": "development",
-    "SCHEMA_SNAPSHOT_ID": "development",
-    "WORKER_VERSION": "development"
-  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {},
   "observability": {
     "enabled": true,
     "logs": {
@@ -51,15 +49,17 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["RateLimiter"]
+      "new_sqlite_classes": [
+        "RateLimiter"
+      ]
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["AuditLedger"]
+      "new_sqlite_classes": [
+        "AuditLedger"
+      ]
     }
   ],
-  "vars": {
-  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -90,6 +90,8 @@
     ]
   },
   "triggers": {
-    "crons": ["0 8,20 * * *"]
+    "crons": [
+      "0 8,20 * * *"
+    ]
   }
 }

@@ -95,7 +95,7 @@ export async function processChatMessage(
         'X-Title': 'EdgeGDE',
       },
       body: JSON.stringify({
-        model: 'deepseek/deepseek-chat',
+        model: 'deepseek/deepseek-v4-flash',
         messages: [{ role: 'user', content: enhancedPrompt }],
         response_format: { type: 'json_object' },
         temperature: 0.1,

@@ -169,8 +169,8 @@ async function rateLimitHandler(c: any, next: any) {
   const ip = c.req.header('cf-connecting-ip') || 'unknown'
   const path = c.req.path
 
-  // Key includes tenantId (immutable), endpoint path, and IP
-  const key = `rate:${tenant.tenantId}:${path}:${ip}`
+  // Key = tenantId only (per-tenant bucket, shared across all paths)
+  const key = tenant.tenantId
   const result = await rateLimiter.check(key)
 
   if (!result.allowed) {
@@ -425,7 +425,7 @@ app.get('/dashboard', async (c) => {
 
 // Serve static widget script from public/ with version pinning
 app.get('/public/widget.v1.0.0.js', async (c) => {
-  const script = `(function(){'use strict';var st=document.currentScript;var tid=st.getAttribute('data-tenant');if(!tid){console.warn('[EdgeGDE] data-tenant required');return}var src=st.src||'';var base=src.split('/public/')[0]||window.location.origin;function inject(){var root=document.getElementById('edgegde-chat-root');if(!root){root=document.createElement('div');root.id='edgegde-chat-root';document.body.appendChild(root)}if(root.querySelector('iframe'))return;var ifr=document.createElement('iframe');ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);ifr.style.cssText='position:fixed;bottom:20px;right:20px;width:380px;height:600px;max-height:80vh;border:none;z-index:2147483647;background:transparent';ifr.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');ifr.setAttribute('title','Chat Assistant');root.appendChild(ifr)}inject();var mo=new MutationObserver(function(){if(!document.getElementById('edgegde-chat-root')||!document.querySelector('iframe'))setTimeout(inject,100)});mo.observe(document.body,{childList:true,subtree:true});window.addEventListener('message',function(ev){if(ev.origin!==base)return;if(ev.data&&ev.data.type==='resize'){var f=document.querySelector('iframe');if(f){f.style.height=(ev.data.height||600)+'px';f.style.width=(ev.data.width||380)+'px'}}});})();`
+  const script = `(function(){'use strict';var st=document.currentScript;var tid=st.getAttribute('data-tenant');if(!tid){console.warn('[EdgeGDE] data-tenant required');return}var src=st.src||'';var base=src.split('/public/')[0]||window.location.origin;function inject(){var root=document.getElementById('edgegde-chat-root');if(!root){root=document.createElement('div');root.id='edgegde-chat-root';document.body.appendChild(root)}if(root.querySelector('iframe'))return;var ifr=document.createElement('iframe');ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);ifr.style.cssText='position:fixed;bottom:20px;right:20px;width:380px;height:600px;max-height:80vh;border:none;z-index:2147483647;background:transparent';ifr.setAttribute('sandbox','allow-scripts allow-forms');ifr.setAttribute('title','Chat Assistant');root.appendChild(ifr)}inject();var mo=new MutationObserver(function(){if(!document.getElementById('edgegde-chat-root')||!document.querySelector('iframe'))setTimeout(inject,100)});mo.observe(document.body,{childList:true,subtree:true});window.addEventListener('message',function(ev){if(ev.origin!==base)return;if(ev.data&&ev.data.type==='resize'){var f=document.querySelector('iframe');if(f){f.style.height=(ev.data.height||600)+'px';f.style.width=(ev.data.width||380)+'px'}}});})();`
   c.header('Content-Type', 'application/javascript; charset=utf-8')
   c.header('Cache-Control', 'public, max-age=31536000, immutable')
   return c.body(script.trim())
