@@ -9,6 +9,7 @@ export interface FieldDef {
   label: string
   fieldType: 'text' | 'number' | 'select' | 'email' | 'phone'
   options?: string[]
+  prompt?: string
   validation: { required: boolean; min?: number; max?: number }
   placeholder?: string
 }

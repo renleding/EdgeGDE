@@ -15,6 +15,7 @@ export const BlueprintFieldSchema = z.object({
   label: z.string().min(1),
   fieldType: z.enum(['text', 'number', 'select', 'email', 'phone']).default('text'),
   options: z.array(z.string()).optional(),
+  prompt: z.string().optional(),
   validation: z.object({
     required: z.boolean().default(true),
     min: z.number().optional(),

@@ -12,6 +12,8 @@ export interface ChatFieldDef {
   fieldName: string
   label: string
   fieldType: 'string' | 'number' | 'select'
+  options?: string[]
+  prompt?: string
   validation?: {
     required?: boolean
     min?: number
@@ -19,7 +21,6 @@ export interface ChatFieldDef {
     minLength?: number
     maxLength?: number
   }
-  options?: string[]
   placeholder?: string
 }
 
