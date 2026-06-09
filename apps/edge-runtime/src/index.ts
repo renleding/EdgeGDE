@@ -453,6 +453,60 @@ app.route('/api/v1', swarmRouter)
 // Chat Widget Views + Identity (Phase 2.7)
 app.route('/api/v1', chatViewsRouter)
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 4B — Site Provisioning: renders tenant site at /sites/:slug
+// ═══════════════════════════════════════════════════════════════════════════
+app.get('/sites/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const rawKv = (c.env as any)?.TENANT_KV
+  if (!rawKv) return c.text('KV not available', 500)
+
+  try {
+    const siteRaw = await rawKv.get('tenant:' + slug + ':site', 'json')
+    if (!siteRaw) return c.text('Site not found', 404)
+
+    const config = typeof siteRaw === 'string' ? JSON.parse(siteRaw) : siteRaw
+    const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    const title = esc(config.title || slug)
+    const tenant = esc(config.tenant || slug)
+    const primaryColor = esc(config.primary_color || '#2563eb')
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
+    header { background: ${primaryColor}; color: white; padding: 24px 32px; }
+    header h1 { font-size: 1.5rem; font-weight: 600; }
+    main { max-width: 800px; margin: 40px auto; padding: 0 24px; }
+    .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: ${primaryColor}; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${title}</h1>
+  </header>
+  <main>
+    <div class="card">
+      <h2>Welcome</h2>
+      <p>Your mortgage application is ready. Click the chat button to get started.</p>
+    </div>
+  </main>
+  <script src="/widget.js?v=v1.0.0" data-tenant="${tenant}" defer></script>
+</body>
+</html>`
+    c.header('Content-Type', 'text/html; charset=utf-8')
+    return c.body(html)
+  } catch {
+    return c.text('Internal error', 500)
+  }
+})
+
 // Tenant provisioning (admin)
 app.route('/api/tenants', tenantRouter)
 

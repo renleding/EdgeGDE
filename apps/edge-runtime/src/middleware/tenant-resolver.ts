@@ -108,6 +108,7 @@ export async function tenantResolver(
     path === '/favicon.ico' ||
     path.startsWith('/api/dashboard/') ||
     path.startsWith('/api/fragment/') ||
+    path.startsWith('/sites/') ||
     path.match(/\.(js|css|png|jpg|svg|ico|woff2?)$/)
   ) {
     return next()
