@@ -3,6 +3,8 @@
 > How the system maps to Cloudflare's infrastructure.
 > Every box is a real Cloudflare product or service.
 
+**System type:** Edge-native deterministic decision system running on Cloudflare Workers.
+
 ```
                             INTERNET
                                │
@@ -31,9 +33,23 @@
                │  │  GET  /embed/chat       │  │
                │  │  GET  /widget.js        │  │
                │  │  GET  /api/v1/models    │  │
-               │  └─────────────────────────┘  │
-               │                               │
-               │  ┌─────────────────────────┐  │
+               │  └──────────┬──────────────┘  │
+               │             │                 │
+               │  ┌──────────▼──────────────┐  │
+               │  │  AUTH LAYER              │  │
+               │  │  ─ tenantQueryAuth       │  │
+               │  │    (validates tenant     │  │
+               │  │     exists in KV via     │  │
+               │  │     query param)         │  │
+               │  │  ─ adminAuth             │  │
+               │  │    (validates bearer     │  │
+               │  │     token)               │  │
+               │  │  ─ webhook HMAC          │  │
+               │  │    (signature            │  │
+               │  │     verification)        │  │
+               │  └──────────┬──────────────┘  │
+               │             │                 │
+               │  ┌──────────▼──────────────┐  │
                │  │  ADMIN ENDPOINTS         │  │
                │  │  /admin/*               │  │
                │  │  /api/tenants           │  │
@@ -44,36 +60,43 @@
                │  ┌─────────────────────────┐  │
                │  │  DURABLE OBJECT          │  │
                │  │  AuditLedger_DO          │  │
-               │  │  (event log + timeline)  │  │
+               │  │  (primary event log via  │  │
+               │  │   waitUntil — async,     │  │
+               │  │   non-blocking)          │  │
+               │  │                         │  │
+               │  │  ─ real-time SSE        │  │
+               │  │    timeline             │  │
+               │  │  ─ strongly consistent  │  │
+               │  │    event ordering       │  │
                │  └─────────────────────────┘  │
                └──────────────┬───────────────┘
                               │
-         ┌────────────────────┼────────────────────┐
-         │                    │                    │
-         ▼                    ▼                    ▼
-┌────────────────┐  ┌────────────────┐  ┌────────────────────┐
-│  CLOUDFLARE KV  │  │  CLOUDFLARE D1  │  │  CLOUDFLARE R2    │
-│  (TENANT_KV)    │  │  (ebroker_leads)│  │  (VAULT_BUCKET)   │
-│                 │  │                 │  │                   │
-│  Global key-    │  │  SQL database   │  │  Object storage   │
-│  value store    │  │  (read-after-   │  │                   │
-│  10M reads/day  │  │  write)         │  │  kb documents     │
-│  1M writes/day  │  │                 │  │  file uploads     │
-│                 │  │  Tables:        │  │  static assets    │
-│  Keys:          │  │  ─ chat_sessions│  │                   │
-│  ─ tenant:      │  │  ─ rules        │  │                   │
-│     {slug}:     │  │  ─ audit_events │  │                   │
-│     config      │  │  ─ webhook_logs │  │                   │
-│  ─ tenant:      │  │  ─ agents       │  │                   │
-│     {slug}:     │  │                 │  │                   │
-│     kb:         │  │  Located:       │  │  Located:         │
-│     compliance  │  │  ap-southeast-4 │  │  ap-southeast-4   │
-│  ─ tenant:      │  │  (Sydney)       │  │  (Sydney)         │
-│     {UUID}:     │  │                 │  │                   │
-│     chat:config │  │                 │  │                   │
-│  ─ blueprint:   │  │                 │  │                   │
-│     {id}:latest │  │                 │  │                   │
-│  ─ pack:{name}  │  │                 │  │                   │
+         ┌────────────────────┼────────────────────┬──────────────────┐
+         │  ╔═ READ ════════╗ │  ╔═ READ/WRITE ══╗ │  ╔═ READ ═════╗  │
+         ▼  ╚═══════════════╝ ▼  ╚══════════════╝ ▼  ╚════════════╝  ▼
+┌────────────────┐  ┌────────────────┐  ┌────────────────────┐  ┌────────────┐
+│  CLOUDFLARE KV  │  │  CLOUDFLARE D1  │  │  CLOUDFLARE R2    │  │  LLM LAYER │
+│  (TENANT_KV)    │  │  (ebroker_leads)│  │  (VAULT_BUCKET)   │  │            │
+│                 │  │                 │  │                   │  │  ┌────────┐ │
+│  Global key-    │  │  SQL database   │  │  Object storage   │  │  │ OPEN-  │ │
+│  value store    │  │  (read-after-   │  │                   │  │  │ ROUTER │ │
+│  10M reads/day  │  │  write)         │  │  kb documents     │  │  │        │ │
+│  1M writes/day  │  │                 │  │  file uploads     │  │  │ deep-  │ │
+│                 │  │  Tables:        │  │  static assets    │  │  │ seek/  │ │
+│  Keys:          │  │  ─ chat_sessions│  │                   │  │  │ v4-    │ │
+│  ─ tenant:      │  │  ─ rules        │  │  Located:         │  │  │ flash  │ │
+│     {slug}:     │  │  ─ audit_events │  │  ap-southeast-4  │  │  │        │ │
+│     config      │  │    (persisted    │  │  (Sydney)        │  │  ├────────┤ │
+│  ─ tenant:      │  │     snapshot     │  │                   │  │  │ OLLAMA │ │
+│     {slug}:     │  │     of DO log)   │  │                   │  │  │ (local)│ │
+│     kb:         │  │  ─ webhook_logs │  │                   │  │  │        │ │
+│     compliance  │  │  ─ agents       │  │                   │  │  │ qwen3- │ │
+│  ─ tenant:      │  │                 │  │                   │  │  │ vl:4b  │ │
+│     {UUID}:     │  │  Located:       │  │                   │  │  │        │ │
+│     chat:config │  │  ap-southeast-4 │  │                   │  │  │ vision │ │
+│  ─ blueprint:   │  │  (Sydney)       │  │                   │  │  │ only   │ │
+│     {id}:latest │  │                 │  │                   │  │  └────────┘ │
+│  ─ pack:{name}  │  │                 │  │                   │  └────────────┘
 │     _v{version} │  │                 │  │                   │
 │                 │  │                 │  │                   │
 │  guardKV class  │  │                 │  │                   │
@@ -82,26 +105,35 @@
 │  and pack:      │  │                 │  │                   │
 │  prefixes       │  │                 │  │                   │
 └────────────────┘  └────────────────┘  └────────────────────┘
-         │                    │
-         │                    │
-         ▼                    ▼
-┌─────────────────────────────────────────────────────┐
-│                  EXTERNAL NETWORK                     │
-│                                                      │
-│  ┌──────────────────────┐  ┌────────────────────┐   │
-│  │  OPENROUTER           │  │  OLLAMA (local)    │   │
-│  │                       │  │                    │   │
-│  │  deepseek/            │  │  qwen3-vl:4b       │   │
-│  │  deepseek-v4-flash    │  │  (localhost:11434) │   │
-│  │                       │  │                    │   │
-│  │  response_format:     │  │  Vision only       │   │
-│  │  json_object          │  │  (Hermes auxiliary) │   │
-│  │                       │  │                    │   │
-│  │  temperature: 0.1    │  │  Not part of       │   │
-│  │                       │  │  EdgeGDE runtime   │   │
-│  └──────────────────────┘  └────────────────────┘   │
-│                                                      │
-└─────────────────────────────────────────────────────┘
+
+│  DATA FLOW KEY:  ───→ synchronous   ─ ─ → async (waitUntil)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         AUDIT ARCHITECTURE                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  Audit has TWO layers — they serve different purposes:
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  AuditLedger_DO (Durable Object) — PRIMARY SOURCE OF TRUTH  │
+  │                                                              │
+  │  ├─ Real-time event stream via SSE (/timeline/stream/:id)    │
+  │  ├─ Strongly consistent event ordering (single DO instance)  │
+  │  ├─ Written via c.executionCtx.waitUntil (async, non-block) │
+  │  └─ Events: rule_evaluated, disclosure_shown                │
+  └──────────────────────────────────────────────────────────────┘
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  audit_events table (D1) — PERSISTED SNAPSHOT / QUERY LAYER │
+  │                                                              │
+  │  ├─ Durable, queryable via SQL (JOIN with sessions/rules)    │
+  │  ├─ Eventually consistent (written after DO)                 │
+  │  ├─ Used for: admin dashboards, audit reports, forensics     │
+  │  └─ Not the source of truth — DO is                         │
+  └──────────────────────────────────────────────────────────────┘
+
+  Rule: AuditLedger_DO is the source of truth. D1 is the query layer.
 
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -123,8 +155,8 @@
   │ VAULT_BUCKET     │ R2 Bucket                │ Document storage,       │
   │                  │ (edgegde-vault)           │ KB file uploads        │
   ├──────────────────┼──────────────────────────┼─────────────────────────┤
-  │ AUDIT_DO         │ Durable Object           │ Audit event timeline    │
-  │                  │ (AuditLedger_DO)          │ with real-time SSE      │
+  │ AUDIT_DO         │ Durable Object           │ Primary audit event log │
+  │                  │ (AuditLedger_DO)          │ (async, waitUntil)      │
   ├──────────────────┼──────────────────────────┼─────────────────────────┤
   │ LLM_API_KEY      │ Secret (env var)         │ OpenRouter API key      │
   │                  │                          │ Bearer token            │
@@ -138,7 +170,7 @@
 
 
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                       DEPLOYMENT ARCHITECTURE                               ║
+║                       DEPLOYMENT + AUTONOMOUS CORRECTION                     ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
   ┌──────────────────────────────────────────────────────────────────────────┐
@@ -159,20 +191,25 @@
   │                    │  ├─ bun install (frozen lockfile)│                  │
   │                    │  ├─ bun run typecheck            │                  │
   │                    │  ├─ bun run test                 │                  │
-  │                    │  ├─ npx wrangler deploy          │                  │
-  │                    │  └─ (autonomous fix loop)        │                  │
+  │                    │  └─ npx wrangler deploy          │                  │
   │                    └──────────────┬───────────────────┘                  │
   │                                   │                                      │
-  │                                   ▼                                      │
+  │                         ┌─────────▼──────────┐                           │
+  │                         │  CI PASSED?        │                           │
+  │                         └────┬───────────────┘                           │
+  │                          YES │             │ NO                          │
+  │                              ▼             ▼                              │
   │                    ┌──────────────────────────────────┐                  │
-  │                    │  CLOUDFLARE WORKERS               │                  │
-  │                    │  (deployed via wrangler)          │                  │
-  │                    │                                  │                  │
-  │                    │  ├─ Version: v0.9.7              │                  │
-  │                    │  ├─ Routes: *.workers.dev        │                  │
-  │                    │  ├─ Tags: git tag + auto-tag     │                  │
-  │                    │  └─ Secrets: wrangler secret put │                  │
-  │                    └──────────────────────────────────┘                  │
+  │                    │  DEPLOY TO WORKER   │  AUTONOMOUS CORRECTION LOOP  │
+  │                    │                    │                                │
+  │                    │  ├─ wrangler deploy│  ├─ Hermes diagnoses failure  │
+  │                    │  ├─ git tag vX.X.X │  ├─ Query Mempalace for       │
+  │                    │  └─ smoke test     │  │  similar patterns          │
+  │                    │                    │  ├─ Aider generates fix        │
+  │                    │                    │  ├─ Re-run CI                 │
+  │                    │                    │  ├─ If green → PR auto-update│
+  │                    │                    │  └─ If fails → manual branch │
+  │                    └────────────────────┴────────────────────────────────┘
   └──────────────────────────────────────────────────────────────────────────┘
 
 
