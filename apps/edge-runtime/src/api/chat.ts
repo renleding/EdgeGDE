@@ -936,9 +936,20 @@ chatRouter.post('/chat/stream', async (c) => {
             if (!r.error) { currentCollected = r.collected }
           }
           const now = Date.now()
-          await db?.prepare(
+          const stmt = db?.prepare(
             `UPDATE chat_sessions SET collected_fields_json = ?, updated_at = ? WHERE id = ?`
-          ).bind(JSON.stringify(currentCollected), now, sessionId).run()
+          )
+          if (stmt) {
+            // Retry D1 write up to 3 times on failure
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                await stmt.bind(JSON.stringify(currentCollected), now, sessionId).run()
+                break  // success
+              } catch (e) {
+                if (attempt === 2) console.error('D1 write failed after 3 attempts:', e)
+              }
+            }
+          }
         }
       } catch {}
 
