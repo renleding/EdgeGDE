@@ -865,7 +865,80 @@ chatRouter.post('/chat/stream', async (c) => {
     } catch { /* audit is non-blocking */ }
   }
 
-  // ═══ BUILD LLM PROMPT ═══
+  // ═══ DETERMINISTIC FIELD PARSING (SAVE BEFORE LLM) ═══
+  const { parseField } = await import('../lib/field-parser')
+  let parsedField = null
+  let fieldContext = ''
+  let promptCollected = { ...collected }
+  let promptCurrentField = currentField
+  let promptFieldDef = fieldDef
+  
+  if (currentField && userText) {
+    parsedField = parseField(currentField, userText, fieldDef?.options)
+    if (parsedField.status === 'ok') {
+      fieldContext = `\nThe field "${currentField}" has been collected. Value: ${JSON.stringify(parsedField.value)}.`
+      // Always update local state immediately (guaranteed)
+      promptCollected[currentField] = parsedField.value
+      if (doStub) {
+        try {
+          await doStub.fetch('http://do/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ collected: { [currentField]: parsedField.value }, nextField: '' }),
+          })
+          const doResp = await doStub.fetch('http://do/state')
+          if (doResp.ok) {
+            const doState = await doResp.json()
+            promptCollected = doState.globalCollected || doState.collected || {}
+          }
+        } catch {}
+      }
+      // Recompute next field with updated state
+      const feResult = computeFieldState(
+        fields.map((f2) => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: f2.validation, options: f2.options, prompt: f2.prompt })),
+        chatConfig.priorityOrder,
+        promptCollected,
+      )
+      promptCurrentField = feResult.nextField?.fieldName || ''
+      promptFieldDef = promptCurrentField ? fields.find((f3) => f3.fieldName === promptCurrentField) : undefined
+    } else if (parsedField.status === 'unknown') {
+      if (doStub) {
+        try {
+          await doStub.fetch('http://do/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ collected: { [currentField]: '__UNKNOWN__' }, nextField: '' }),
+          })
+        } catch {}
+      }
+      promptCollected[currentField] = '__UNKNOWN__'
+      fieldContext = `\nThe user could not provide "${currentField}". Do NOT ask again.`
+      // Recompute next field
+      const feResult = computeFieldState(
+        fields.map((f2) => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: f2.validation, options: f2.options, prompt: f2.prompt })),
+        chatConfig.priorityOrder,
+        promptCollected,
+      )
+      promptCurrentField = feResult.nextField?.fieldName || ''
+      promptFieldDef = promptCurrentField ? fields.find((f3) => f3.fieldName === promptCurrentField) : undefined
+    }
+  }
+  
+  if (parsedField && parsedField.status === 'error') {
+    const errStream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder()
+        controller.enqueue(encoder.encode(JSON.stringify({ token: '***' }) + String.fromCharCode(10)))
+        controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: parsedField.error + ' Please try again.', firstName: null, fullName: null }) + String.fromCharCode(10)))
+        controller.close()
+      },
+    })
+    return new Response(errStream, {
+      headers: { 'Content-Type': 'application/x-ndjson', 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
+  // ═══ BUILD LLM PROMPT (with UPDATED state) ═══
   const { loadKnowledgeBase, formatKbContext } = await import('../lib/knowledge-base')
   const { buildParsePrompt, parseLlmResponse } = await import('../lib/chat-llm')
   const kb = kv ? await loadKnowledgeBase(kv, tenantId, chatConfig.knowledgeBase?.topics || []) : {}
@@ -879,36 +952,12 @@ chatRouter.post('/chat/stream', async (c) => {
   }
 
   const prompt = buildParsePrompt({
-    sessionId, tenantId, text: userText, currentField,
-    fieldDef: fieldDef ? { label: fieldDef.label, options: fieldDef.options, fieldType: fieldDef.fieldType } : undefined,
-    collectedFields: Object.keys(collected),
-  }, compliancePrompt)
+    sessionId, tenantId, text: userText, currentField: promptCurrentField,
+    fieldDef: promptFieldDef ? { label: promptFieldDef.label, options: promptFieldDef.options, fieldType: promptFieldDef.fieldType } : undefined,
+    collectedFields: Object.keys(promptCollected),
+  }, compliancePrompt + fieldContext)
 
-  // ── PRE-LLM VALIDATION ──────────────────────────────────────────────
-  // Validate user input against the current field BEFORE calling LLM.
-  // If invalid, skip LLM and return error message directly.
-  let validationError = ''
-  if (currentField && userText && userText.length > 1) {
-    const { validateField } = await import('../lib/chat-constraint')
-    const fe = fields.find((f2: any) => f2.fieldName === currentField)
-    if (fe) {
-      const err = validateField(fe, userText)
-      if (err) validationError = err
-    }
-  }
-  if (validationError) {
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder()
-        controller.enqueue(encoder.encode(JSON.stringify({ token: '***' }) + '\n'))
-        controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: validationError + ' Please try again.', firstName: null, fullName: null }) + '\n'))
-        controller.close()
-      },
-    })
-    return new Response(stream, {
-      headers: { 'Content-Type': 'application/x-ndjson', 'Access-Control-Allow-Origin': '*' },
-    })
-  }
+  // ── PRE-LLM VALIDATION (handled by field-parser above) ──────────────
 
   // Call LLM with streaming
   const llmRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -921,9 +970,8 @@ chatRouter.post('/chat/stream', async (c) => {
     },
     body: JSON.stringify({
       model: 'deepseek/deepseek-v4-flash',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-      temperature: 0.1,
+      messages: [{ role: 'user', content: prompt + fieldContext }],
+      temperature: 0.7,
       stream: true,
     }),
   })
