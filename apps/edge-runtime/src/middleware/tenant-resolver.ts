@@ -94,6 +94,8 @@ export async function tenantResolver(
   const path = c.req.path
   if (
     path.startsWith('/api/v1/agent/') ||
+    path.startsWith('/api/v1/ocr/') ||
+    path.startsWith('/api/v1/chat/') ||
     path.startsWith('/api/v1/admin/') ||
     path === '/api/tenants' ||
     path.startsWith('/api/tenants/') ||
