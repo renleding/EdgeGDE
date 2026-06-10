@@ -970,7 +970,7 @@ chatRouter.post('/chat/stream', async (c) => {
     },
     body: JSON.stringify({
       model: 'deepseek/deepseek-v4-flash',
-      messages: [{ role: 'user', content: prompt + fieldContext }],
+      messages: [{ role: 'user', content: prompt }],
       temperature: 0.7,
       stream: true,
     }),

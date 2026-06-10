@@ -141,9 +141,9 @@ export function parseField(
 
   switch (fieldName) {
     case 'fullName': {
-      // Greetings are not valid names
+      // Greetings are not valid names — return error, not unknown
       for (const p of GREETING_PATTERNS) {
-        if (p.test(raw)) return UNKNOWN_RESULT(fieldName, raw)
+        if (p.test(raw)) return ERROR_RESULT(fieldName, raw, 'Please provide your full name')
       }
       if (raw.length < 2) return ERROR_RESULT(fieldName, raw, 'Name must be at least 2 characters')
       return OK_RESULT(fieldName, raw, raw)
