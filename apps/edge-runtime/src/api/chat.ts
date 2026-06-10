@@ -765,21 +765,26 @@ chatRouter.post('/chat/stream', async (c) => {
   // Route through ChatSession_DO for state consistency
   const doId = (c.env as any)?.CHAT_SESSION?.idFromName(sessionId)
   const doStub = doId ? (c.env as any)?.CHAT_SESSION?.get(doId) : null
-  // Read collected state from D1 (persisted synchronously after each stream)
-  // DO is used for hydrate/update orchestration but D1 is the authoritative read
-  // because D1 writes are synchronously awaited before the response returns
-  let collected: Record<string, unknown> = session.collected_fields_json
-    ? JSON.parse(session.collected_fields_json as string)
-    : {}
-  // Also attempt DO init for session consistency
+  let collected: Record<string, unknown> = {}
   if (doStub) {
     try {
+      // Hydrate DO from D1 if this is a cold start
       await doStub.fetch('http://do/hydrate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId }),
       })
-    } catch { /* non-blocking */ }
+      // Read state from DO (source of truth) — always fresh
+      const doResp = await doStub.fetch('http://do/state')
+      if (doResp.ok) {
+        const doState = await doResp.json()
+        collected = doState.globalCollected || doState.collected || {}
+      }
+    } catch { /* non-blocking — fall through to D1 */ }
+  }
+  // Fallback only if DO unavailable AND D1 has data
+  if (Object.keys(collected).length === 0 && session.collected_fields_json) {
+    collected = JSON.parse(session.collected_fields_json as string)
   }
 
   const { loadChatConfig } = await import('../lib/chat-config')

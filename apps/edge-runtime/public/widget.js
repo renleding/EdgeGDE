@@ -36,6 +36,10 @@ console.log("EdgeGDE Widget v1.1.0");
     }).catch(function() { /* non-blocking */ });
   }
 
+  // Send guard — prevents sending while a stream is in progress
+  var isStreaming = false;
+  var sendBtn = document.getElementById('chat-send-btn');
+
   function getDisplayName() {
     if (gn && gn.value) return gn.value;
     return 'You';
@@ -146,6 +150,9 @@ console.log("EdgeGDE Widget v1.1.0");
 
   // ═══ SEND ═══
   function chatSend() {
+    if (isStreaming) return;
+    isStreaming = true;
+    if (sendBtn) sendBtn.disabled = true;
     var msg = tx.value.trim();
     if (!msg) return;
     tx.value = '';
@@ -163,6 +170,8 @@ console.log("EdgeGDE Widget v1.1.0");
     var streamAborted = false;
     var streamTimeout = setTimeout(function() {
       streamAborted = true;
+      isStreaming = false;
+      if (sendBtn) sendBtn.disabled = false;
       var te = document.getElementById(typingId);
       if (te) { te.remove(); }
       ml.insertAdjacentHTML('beforeend', '<div class=msg msg-bot><span class=msg-label style=color:#da3633>AFIRMICO</span><div class=msg-bubble style=color:#da3633>\u26a0 Connection lost. Please try again.</div></div>');
@@ -182,6 +191,8 @@ console.log("EdgeGDE Widget v1.1.0");
         reader.read().then(function(result) {
           clearTimeout(streamTimeout);
           if (result.done) {
+            isStreaming = false;
+            if (sendBtn) sendBtn.disabled = false;
             if (responseText) {
               try {
                 var d = JSON.parse(responseText);
@@ -286,6 +297,8 @@ console.log("EdgeGDE Widget v1.1.0");
       read();
     }).catch(function() {
       clearTimeout(streamTimeout);
+      isStreaming = false;
+      if (sendBtn) sendBtn.disabled = false;
       var te = document.getElementById(typingId);
       if (te) te.remove();
     });
