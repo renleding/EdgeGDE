@@ -490,10 +490,10 @@ function inject(){
   if(root.querySelector('iframe'))return;
   ifr=document.createElement('iframe');
   ifr=document.createElement('iframe');ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);
-  ifr.style.cssText='position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:2147483647;pointer-events:none;background:transparent';
+  ifr.style.cssText='position:fixed;top:0;left:0;width:380px;height:600px;border:none;z-index:2147483647;background:transparent';
   ifr.setAttribute('sandbox','allow-scripts allow-forms');ifr.setAttribute('title','Chat Assistant');
   root.appendChild(ifr);
-  // Position overlays
+  // Drag handle (covers header area)
   dh=document.createElement('div');dh.id='edgegde-drag-handle';
   dh.style.cssText='position:fixed;z-index:2147483648;cursor:move;background:transparent';
   dh.addEventListener('mousedown',startDrag);
@@ -519,7 +519,8 @@ function inject(){
   window.addEventListener('message',function(ev){
     if(ev.origin!==base&&ev.origin!=='null')return;
     if(ev.data&&ev.data.type==='hide'){ifr.style.display='none';showReopenBtn()}
-    if(ev.data&&ev.data.type==='show'){ifr.style.display='block';hideReopenBtn();updateOverlays();setTimeout(function(){if(ifr)updateOverlays()},500)}
+    if(ev.data&&ev.data.type==='move'){ifr.style.left=(ev.data.left||0)+'px';ifr.style.top=(ev.data.top||0)+'px';ifr.style.width=(ev.data.width||380)+'px';ifr.style.height=(ev.data.height||600)+'px'}
+  });
   });
   // Remove any stale reopen button
   hideReopenBtn();

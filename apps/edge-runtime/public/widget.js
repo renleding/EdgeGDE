@@ -53,6 +53,8 @@ console.log("EdgeGDE Widget v1.1.0");
     chat.style.top = ny + 'px';
     chat.style.right = 'auto';
     chat.style.bottom = 'auto';
+    // Sync parent iframe position (iframe is at 0,0 so coords match)
+    window.parent.postMessage({ type: 'move', left: nx, top: ny, width: w, height: h }, '*');
   });
   document.addEventListener('mouseup', function() { isDragging = false; });
 
