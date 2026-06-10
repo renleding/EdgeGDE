@@ -9,7 +9,7 @@ console.log("EdgeGDE Widget v1.1.0");
 (function() {
   'use strict';
   var baseUrl = window.location.origin;
-  var tenantId = document.getElementById('chat-tenant-id')?.getAttribute('data-tenant') || '';
+  var tenantId = document.getElementById('chat-tenant-id')?.value || '';
   var sid = '';
   var chat = document.getElementById('gde-chat');
   var header = document.getElementById('gde-header');
@@ -17,8 +17,24 @@ console.log("EdgeGDE Widget v1.1.0");
   var ml = document.getElementById('message-list');
   var tx = document.getElementById('chat-text-input');
   var gn = document.getElementById('chat-guest-name');
-  var minBtn = document.getElementById('gde-minimize-btn');
   var closeBtn = document.getElementById('gde-close-btn');
+
+  // Initialize session if not already set
+  var sidInput = document.getElementById('chat-session-id');
+  if (sidInput && sidInput.value) {
+    sid = sidInput.value;
+  } else if (tenantId) {
+    fetch(baseUrl + '/api/v1/chat/init?tenant=' + tenantId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}'
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.sessionId) {
+        sid = d.sessionId;
+        if (sidInput) sidInput.value = d.sessionId;
+      }
+    }).catch(function() { /* non-blocking */ });
+  }
 
   function getDisplayName() {
     if (gn && gn.value) return gn.value;
@@ -96,16 +112,23 @@ console.log("EdgeGDE Widget v1.1.0");
   document.addEventListener('mouseup', function() { isResizing = false; });
 
   // ═══ MINIMIZE / CLOSE ═══
-  // Direct DOM manipulation (no iframe, no postMessage needed)
-  var isMinimized = false;
-  chat.style.minWidth = '260px'; chat.style.minHeight = '300px';
-  minBtn.addEventListener('click', function() {
-    isMinimized = !isMinimized;
-    body.style.display = isMinimized ? 'none' : 'flex';
-    minBtn.textContent = isMinimized ? '+' : '_';
-  });
+  // Close hides the chat window, shows reopen icon.
+  // Reopen icon click restores the chat.
+  var reopenBtn = null;
+  function showReopen() {
+    if (reopenBtn) { reopenBtn.style.display = 'flex'; return; }
+    reopenBtn = document.createElement('div');
+    reopenBtn.textContent = '💬';
+    reopenBtn.style.cssText = 'position:fixed;bottom:20px;right:20px;width:52px;height:52px;border-radius:50%;background:#3b82f6;color:white;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+    document.body.appendChild(reopenBtn);
+    reopenBtn.onclick = function() {
+      reopenBtn.style.display = 'none';
+      chat.style.display = 'flex';
+    };
+  }
   closeBtn.addEventListener('click', function() {
     chat.style.display = 'none';
+    showReopen();
   });
 
   // ═══ SESSION INIT ═══

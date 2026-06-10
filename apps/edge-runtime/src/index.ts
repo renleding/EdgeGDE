@@ -31,6 +31,7 @@ import { adminFactoryRouter } from './api/admin-factory'
 import { adminDriftRouter } from './api/admin-drift'
 import { adminPacksRouter } from './api/admin-packs'
 import { embedRouter } from './api/embed'
+import { ocrRouter } from './api/ocr'
 import { dashboardHtml } from './lib/dashboard-html'
 import { auditRouter } from './api/audit-export'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
@@ -451,11 +452,11 @@ document.head.appendChild(css);
 // Inject chat HTML
 var root=document.createElement('div');root.id='edgegde-chat-root';
 document.body.appendChild(root);
-root.innerHTML='<div id="gde-chat"><div id="gde-header"><h1>AFIRMICO Finance</h1><div class="hdr-btns"><button id="gde-close-btn" title="Close">&#x2715;</button></div></div><div id="gde-body"><div id="message-list"><div class="welcome">Welcome! Let&#39;s get started with your application. What is your full name?</div></div><div id="chat-input-area"><input type="hidden" id="chat-session-id" value=""><input type="hidden" id="chat-guest-name" value=""><input type="text" id="chat-text-input" placeholder="Type a message..." autocomplete="off"><button id="chat-send-btn">&#x2192;</button></div></div><div class="resize-handle rh-nw"></div><div class="resize-handle rh-n"></div><div class="resize-handle rh-ne"></div><div class="resize-handle rh-e"></div><div class="resize-handle rh-se"></div><div class="resize-handle rh-s"></div><div class="resize-handle rh-sw"></div><div class="resize-handle rh-w"></div><div class="resize-grip"></div></div>';
+root.innerHTML='<div id="gde-chat"><div id="gde-header"><h1>AFIRMICO Finance</h1><div class="hdr-btns"><button id="gde-close-btn" title="Close">&#x2715;</button></div></div><div id="gde-body"><div id="message-list"><div class="welcome">Welcome! Let&#39;s get started with your application. What is your full name?</div></div><div id="chat-input-area"><input type="hidden" id="chat-session-id" value=""><input type="hidden" id="chat-tenant-id" value="'+tid+'"><input type="hidden" id="chat-guest-name" value=""><input type="text" id="chat-text-input" placeholder="Type a message..." autocomplete="off"><button id="chat-send-btn">&#x2192;</button></div></div><div class="resize-handle rh-nw"></div><div class="resize-handle rh-n"></div><div class="resize-handle rh-ne"></div><div class="resize-handle rh-e"></div><div class="resize-handle rh-se"></div><div class="resize-handle rh-s"></div><div class="resize-handle rh-sw"></div><div class="resize-handle rh-w"></div><div class="resize-grip"></div></div>';
 
 // Load widget.js into parent page context
 var ws=document.createElement('script');
-ws.src='/widget.js?v=v1.1.0';
+ws.src='/widget.js?v=v1.2.0';
 document.body.appendChild(ws);
 
 }catch(e){console.error('[EdgeGDE]',e&&e.message?e.message:e)}})();`
@@ -485,6 +486,9 @@ app.route('/api/v1', swarmRouter)
 
 // Chat Widget Views + Identity (Phase 2.7)
 app.route('/api/v1', chatViewsRouter)
+
+// OCR Processing (Phase 1)
+app.route('/api/v1', ocrRouter)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 4B — Site Provisioning: renders tenant site at /sites/:slug
@@ -587,7 +591,7 @@ async function renderSite(slug: string, activePage: string, rawKv: any, isHtmx =
   <footer>
     <p>${title} &mdash; Australian Credit Licence in progress &bull; ABN 00 000 000 000</p>
   </footer>
-  <script src="/public/widget.v1.1.0.js?v=2" data-tenant="${tenant}"></script>
+  <script src="/public/widget.v1.1.0.js?v=3" data-tenant="${tenant}"></script>
 </body>
 </html>`
 
@@ -976,7 +980,7 @@ app.get('/', async (c) => {
         hx-swap="innerHTML">
     ${html}
   </main>
-  <script src="/public/widget.v1.1.0.js?v=2" data-tenant="au-mortgage-broker-afirmico"></script>
+  <script src="/public/widget.v1.1.0.js?v=3" data-tenant="au-mortgage-broker-afirmico"></script>
   ${isStaging ? `<div id="version-panel" style="position:fixed;top:60px;right:16px;width:320px;max-height:60vh;overflow-y:auto;background:rgba(15,15,26,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px;display:none;z-index:1000;backdrop-filter:blur(12px)"></div>` : ''}
   ${isStaging ? `
   <div id="dev-sentinel"
