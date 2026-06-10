@@ -219,6 +219,14 @@ app.get('/healthz', (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// System Health Dashboard
+// ═══════════════════════════════════════════════════════════════════════════
+app.get('/dashboard', async (c) => {
+  // Redirect to the static HTML file in public/
+  return c.redirect('/dashboard.html')
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Webhook Endpoint — receives hot lead dispatch from cron
 // ═══════════════════════════════════════════════════════════════════════════
 
