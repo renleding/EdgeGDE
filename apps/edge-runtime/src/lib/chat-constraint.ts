@@ -134,6 +134,30 @@ export function validateField(field: ChatFieldDef, value: unknown): string | nul
     }
   }
 
+  // ── Email validation ──────────────────────────────────────────────────
+  const fn = field.fieldName?.toLowerCase()
+  if (fn === 'email' || fn === 'emailaddress') {
+    const str = String(value).trim()
+    if (!str.includes('@') || !str.includes('.')) {
+      return 'Please provide a valid email address'
+    }
+    const parts = str.split('@')
+    if (parts.length !== 2 || !parts[0] || !parts[1].includes('.')) {
+      return 'Please provide a valid email address'
+    }
+  }
+
+  // ── Australian mobile validation ──────────────────────────────────────
+  if (fn === 'phone') {
+    const digits = String(value).replace(/\D/g, '')
+    if (digits.length !== 10) {
+      return 'Phone number must be exactly 10 digits'
+    }
+    if (!digits.startsWith('04')) {
+      return 'Phone number must start with 04'
+    }
+  }
+
   return null
 }
 

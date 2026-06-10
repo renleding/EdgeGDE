@@ -884,6 +884,32 @@ chatRouter.post('/chat/stream', async (c) => {
     collectedFields: Object.keys(collected),
   }, compliancePrompt)
 
+  // ── PRE-LLM VALIDATION ──────────────────────────────────────────────
+  // Validate user input against the current field BEFORE calling LLM.
+  // If invalid, skip LLM and return error message directly.
+  let validationError = ''
+  if (currentField && userText && userText.length > 1) {
+    const { validateField } = await import('../lib/chat-constraint')
+    const fe = fields.find((f2: any) => f2.fieldName === currentField)
+    if (fe) {
+      const err = validateField(fe, userText)
+      if (err) validationError = err
+    }
+  }
+  if (validationError) {
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder()
+        controller.enqueue(encoder.encode(JSON.stringify({ token: '***' }) + '\n'))
+        controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: validationError + ' Please try again.', firstName: null, fullName: null }) + '\n'))
+        controller.close()
+      },
+    })
+    return new Response(stream, {
+      headers: { 'Content-Type': 'application/x-ndjson', 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
   // Call LLM with streaming
   const llmRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -975,7 +1001,7 @@ chatRouter.post('/chat/stream', async (c) => {
           const { applyFieldUpdate } = await import('../lib/chat-constraint')
           for (const [f, v] of Object.entries(extractedFields)) {
             const r = applyFieldUpdate(fields, currentCollected, f, v)
-            if (!r.error) { currentCollected = r.collected }
+            if (!r.error) { currentCollected = r.collected; }
           }
         }
         // Always persist, whether LLM extracted fields or fallback was used

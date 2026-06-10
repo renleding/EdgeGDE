@@ -168,17 +168,7 @@ console.log("EdgeGDE Widget v1.1.0");
     var isDebug = window.location.search.indexOf('debug=true') >= 0;
     var streamUrl = baseUrl + '/api/v1/chat/stream?tenant=' + tenantId + (isDebug ? '&debug=true' : '');
     var streamAborted = false;
-    var streamTimeout = setTimeout(function() {
-      streamAborted = true;
-      isStreaming = false;
-      if (sendBtn) sendBtn.disabled = false;
-      var te = document.getElementById(typingId);
-      if (te) { te.remove(); }
-      ml.insertAdjacentHTML('beforeend', '<div class=msg msg-bot><span class=msg-label style=color:#da3633>AFIRMICO</span><div class=msg-bubble style=color:#da3633>\u26a0 Connection lost. Please try again.</div></div>');
-      if (body) body.scrollTop = body.scrollHeight;
-    }, 15000);
     fetch(streamUrl, {
-      method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'session_id=' + encodeURIComponent(sid) + '&text=' + encodeURIComponent(msg)
     }).then(function(r) {
