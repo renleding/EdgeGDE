@@ -59,27 +59,42 @@ console.log("EdgeGDE Widget v1.1.0");
   document.addEventListener('mouseup', function() { isDragging = false; });
 
   // ═══ RESIZE ═══
-  var isResizing = false, resizeStart = {}, startRect = {};
+  var isResizing = false, resizeEdge = '', resizeStart = {};
   document.querySelectorAll('.resize-handle, .resize-grip').forEach(function(h) {
     h.addEventListener('mousedown', function(e) {
       isResizing = true;
+      resizeEdge = h.className.indexOf('rh-nw')>=0?'nw':h.className.indexOf('rh-n')>=0&&h.className.indexOf('rh-ne')<0?'n':
+                  h.className.indexOf('rh-ne')>=0?'ne':h.className.indexOf('rh-e')>=0?'e':
+                  h.className.indexOf('rh-se')>=0||h.className.indexOf('grip')>=0?'se':
+                  h.className.indexOf('rh-s')>=0?'s':h.className.indexOf('rh-sw')>=0?'sw':
+                  h.className.indexOf('rh-w')>=0?'w':'se';
       var rect = chat.getBoundingClientRect();
-      startRect = { w: rect.width, h: rect.height };
-      resizeStart = { x: e.clientX, y: e.clientY };
+      resizeStart = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height, l: rect.left, t: rect.top };
       e.preventDefault();
     });
   });
   document.addEventListener('mousemove', function(e) {
     if (!isResizing) return;
-    var dw = e.clientX - resizeStart.x;
-    var dh = e.clientY - resizeStart.y;
-    var newW = Math.max(260, Math.min(800, startRect.w + dw));
-    var newH = Math.max(300, Math.min(window.innerHeight, startRect.h + dh));
-    window.parent.postMessage({
-      type: 'resize',
-      width: Math.round(newW),
-      height: Math.round(newH),
-    }, '*');
+    var dx = e.clientX - resizeStart.x, dy = e.clientY - resizeStart.y;
+    var minW = 260, minH = 300;
+    var nw = resizeStart.w, nh = resizeStart.h, nl = resizeStart.l, nt = resizeStart.t;
+    if (resizeEdge.indexOf('e')>=0) { nw = Math.max(minW, resizeStart.w + dx); }
+    if (resizeEdge.indexOf('s')>=0) { nh = Math.max(minH, resizeStart.h + dy); }
+    if (resizeEdge.indexOf('w')>=0) {
+      var rw = Math.max(minW, resizeStart.w - dx);
+      nl = resizeStart.l + resizeStart.w - rw;
+      nw = rw;
+    }
+    if (resizeEdge.indexOf('n')>=0) {
+      var rh = Math.max(minH, resizeStart.h - dy);
+      nt = resizeStart.t + resizeStart.h - rh;
+      nh = rh;
+    }
+    chat.style.position = 'fixed';
+    chat.style.left = nl + 'px'; chat.style.top = nt + 'px';
+    chat.style.width = nw + 'px'; chat.style.height = nh + 'px';
+    chat.style.right = 'auto'; chat.style.bottom = 'auto';
+    window.parent.postMessage({ type: 'resize', width: Math.round(nw), height: Math.round(nh) }, '*');
   });
   document.addEventListener('mouseup', function() { isResizing = false; });
 
@@ -88,10 +103,20 @@ console.log("EdgeGDE Widget v1.1.0");
   chat.style.minWidth = '260px'; chat.style.minHeight = '300px';
   minBtn.addEventListener('click', function() {
     isMinimized = !isMinimized;
-    body.style.display = isMinimized ? 'none' : 'flex';
-    minBtn.textContent = isMinimized ? '+' : '_';
+    if (isMinimized) {
+      // Hide the iframe on parent, show reopen icon
+      window.parent.postMessage({ type: 'toggle', show: false }, '*');
+      window.parent.postMessage({ type: 'reopen-btn', show: true }, '*');
+    } else {
+      window.parent.postMessage({ type: 'toggle', show: true }, '*');
+      window.parent.postMessage({ type: 'reopen-btn', show: false }, '*');
+    }
   });
-  closeBtn.addEventListener('click', function() { chat.style.display = 'none'; });
+  closeBtn.addEventListener('click', function() {
+    // Fully close: hide iframe, show reopen icon
+    window.parent.postMessage({ type: 'toggle', show: false }, '*');
+    window.parent.postMessage({ type: 'reopen-btn', show: true }, '*');
+  });
 
   // ═══ SESSION INIT ═══
   function initSession() {
