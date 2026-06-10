@@ -490,9 +490,11 @@ function inject(){
   if(root.querySelector('iframe'))return;
   ifr=document.createElement('iframe');
   ifr=document.createElement('iframe');ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);
-  ifr.style.cssText='position:fixed;top:0;left:0;width:380px;height:600px;border:none;z-index:2147483647;background:transparent';
+  ifr.style.cssText='position:fixed;bottom:20px;right:20px;width:380px;height:600px;border:none;z-index:2147483647;background:transparent';
   ifr.setAttribute('sandbox','allow-scripts allow-forms');ifr.setAttribute('title','Chat Assistant');
   root.appendChild(ifr);
+  // Store initial position for coordinate sync on first drag
+  ifr._initPos = { bottom: 20, right: 20 };
   // Drag handle (covers header area)
   dh=document.createElement('div');dh.id='edgegde-drag-handle';
   dh.style.cssText='position:fixed;z-index:2147483648;cursor:move;background:transparent';
@@ -519,7 +521,7 @@ function inject(){
   window.addEventListener('message',function(ev){
     if(ev.origin!==base&&ev.origin!=='null')return;
     if(ev.data&&ev.data.type==='hide'){ifr.style.display='none';showReopenBtn()}
-    if(ev.data&&ev.data.type==='move'){ifr.style.left=(ev.data.left||0)+'px';ifr.style.top=(ev.data.top||0)+'px';ifr.style.width=(ev.data.width||380)+'px';ifr.style.height=(ev.data.height||600)+'px'}
+    if(ev.data&&ev.data.type==='move'){var r=ifr.getBoundingClientRect();var nx=Math.max(0,Math.min(window.innerWidth-r.width,r.left+ev.data.dx));var ny=Math.max(0,Math.min(window.innerHeight-r.height,r.top+ev.data.dy));ifr.style.left=nx+'px';ifr.style.top=ny+'px';ifr.style.bottom='auto';ifr.style.right='auto'}
   });
   });
   // Remove any stale reopen button
