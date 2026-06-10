@@ -97,7 +97,13 @@ export function validateField(field: ChatFieldDef, value: unknown): string | nul
     return null
   }
 
-  const v = field.fieldType === 'number' ? Number(value) : String(value).trim()
+  // Strip commas and currency symbols from number values
+  let cleanedValue = value
+  if (field.fieldType === 'number' && typeof value === 'string') {
+    cleanedValue = value.replace(/[,/$]/g, '').trim()
+  }
+
+  const v = field.fieldType === 'number' ? Number(cleanedValue) : String(cleanedValue).trim()
 
   if (field.fieldType === 'number') {
     if (isNaN(v as number)) return `${field.label} must be a number`
@@ -150,7 +156,11 @@ export function applyFieldUpdate(
     return { collected, error: err, state: { currentField: fieldName, completedFields: Object.keys(collected), errors: [err], phase: 'collecting' } }
   }
 
-  const updated = { ...collected, [fieldName]: field.fieldType === 'number' ? Number(value) : value }
+  // Strip commas and currency symbols from number values before storage
+  const storeValue = field.fieldType === 'number' && typeof value === 'string'
+    ? Number(value.replace(/[,/$]/g, '').trim())
+    : field.fieldType === 'number' ? Number(value) : value
+  const updated = { ...collected, [fieldName]: storeValue }
   const next = findNextField(fields, updated)
 
   return { collected: updated, error: null, state: next.state }
