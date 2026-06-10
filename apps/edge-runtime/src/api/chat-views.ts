@@ -305,14 +305,14 @@ chatViewsRouter.get('/chat/view', async (c) => {
     }
   } catch {}
 
-  return c.html(renderChat(uiMode, collected, sessionId || '', chatTitle, chatColor))
+  return c.html(renderChat(uiMode, collected, sessionId || '', chatTitle, chatColor, tenantId))
 })
 
 // ═════════════════════════════════════════════════════════════════════════════
 // renderChat — produce HTMX chat widget HTML based on UI mode
 // ═════════════════════════════════════════════════════════════════════════════
 
-function renderChat(uiMode: string, collected: Record<string, unknown>, sessionId: string, title: string = 'AFIRMICO', colorAccent: string = '#58a6ff'): string {
+function renderChat(uiMode: string, collected: Record<string, unknown>, sessionId: string, title: string = 'AFIRMICO', colorAccent: string = '#58a6ff', tenantId: string = ''): string {
   const messages = renderMessages(collected)
 
   switch (uiMode) {
@@ -322,7 +322,8 @@ function renderChat(uiMode: string, collected: Record<string, unknown>, sessionI
         'awaiting-identity',
         sessionId,
         title,
-        colorAccent
+        colorAccent,
+        tenantId
       )
 
     case 'identity_verifying':
@@ -334,7 +335,8 @@ function renderChat(uiMode: string, collected: Record<string, unknown>, sessionI
         'verifying',
         sessionId,
         title,
-        colorAccent
+        colorAccent,
+        tenantId
       )
 
     case 'resumed_session':
@@ -344,7 +346,8 @@ function renderChat(uiMode: string, collected: Record<string, unknown>, sessionI
         'resumed',
         sessionId,
         title,
-        colorAccent
+        colorAccent,
+        tenantId
       )
 
     default:
@@ -354,7 +357,8 @@ function renderChat(uiMode: string, collected: Record<string, unknown>, sessionI
         'chat',
         sessionId,
         title,
-        colorAccent
+        colorAccent,
+        tenantId
       )
   }
 }
@@ -390,7 +394,7 @@ function renderIdAiStep(sessionId: string, email: string): string {
   </div>`
 }
 
-function renderWidget(content: string, mode: string, widgetSessionId: string = '', title: string = 'AFIRMICO', colorAccent: string = '#58a6ff'): string {
+function renderWidget(content: string, mode: string, widgetSessionId: string = '', title: string = 'AFIRMICO', colorAccent: string = '#58a6ff', tenantId: string = ''): string {
   return `<div id="gde-chat" style="position:fixed;bottom:20px;right:20px;width:360px;min-width:200px;min-height:200px;max-height:80vh;background:#161b22;border:1px solid #2d3140;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);z-index:9999;display:flex;flex-direction:column;overflow:hidden;resize:none;color:#e1e4e8;font-size:14px">
     <style>
       #gde-chat ::-webkit-scrollbar{width:4px}#gde-chat ::-webkit-scrollbar-track{background:transparent}#gde-chat ::-webkit-scrollbar-thumb{background:#2d3140;border-radius:2px}
@@ -430,9 +434,10 @@ function renderWidget(content: string, mode: string, widgetSessionId: string = '
       <div id="chat-input-area" style="padding:12px 0 0;border-top:1px solid #2d3140;margin-top:8px">
         <div style="display:flex;gap:6px">
           <input type="hidden" id="chat-session-id" value="${escapeHtml(widgetSessionId)}">
+     <input type="hidden" id="chat-tenant-id" value="${escapeHtml(tenantId)}">
           <input type="hidden" id="chat-guest-name" value="">
           <input type="text" id="chat-text-input" placeholder="Type a message..." style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid #2d3140;background:#0f1117;color:#e1e4e8" autocomplete="off" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();document.getElementById('chat-send-btn').click()}">
-          <button id="chat-send-btn" style="padding:8px 12px;border-radius:8px;border:1px solid #2d3140;background:#1c2128;color:${escapeHtml(colorAccent)};cursor:pointer;font-size:16px;line-height:1" onclick="var si=document.getElementById('chat-session-id').value,tx=document.getElementById('chat-text-input'),msg=tx.value.trim();if(!msg)return;tx.value='';var um=msg,ml=document.getElementById('message-list'),bd=document.getElementById('gde-chat-body');if(!ml)return;var gn=document.getElementById('chat-guest-name'),lb=(gn&&gn.value)?gn.value:'You';ml.insertAdjacentHTML('beforeend','<div style=margin-bottom:8px><span style=font-size:12px;color:#FFBF00>'+lb+'</span><div style=padding:8px 12px;background:#2d3140;border-radius:8px;margin-top:2px;font-size:13px>'+um.replace(/</g,'&lt;')+'</div></div>');if(bd)bd.scrollTop=bd.scrollHeight;fetch('/api/v1/chat/tool?tenant='+encodeURIComponent(tenantId),{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'tool=chat&session_id='+encodeURIComponent(sid)+'&text='+encodeURIComponent(msg)}).then(function(r){return r.json()}).then(function(d){var rp=d.message;if(!rp&&d.nextLabel)rp='Thanks! Could you provide your '+d.nextLabel.toLowerCase()+'?';if(!rp)rp='Thanks!';ml.insertAdjacentHTML('beforeend','<div style=margin-bottom:8px><span style=font-size:12px;color:#58a6ff>AFIRMICO</span><div style=padding:8px 12px;background:#1c2128;border:1px solid #2d3140;border-radius:8px;margin-top:2px;font-size:13px>'+rp.replace(/</g,'&lt;')+'</div></div>');if(bd)bd.scrollTop=bd.scrollHeight;if(gn&&!gn.value){var cf=d.state&&d.state.completedFields;if(cf&&cf.indexOf('firstName')>=0){var nw=um.split(' ')[0];if(nw.length>1)gn.value=nw}}})">→</button>
+          <button id="chat-send-btn" style="padding:8px 12px;border-radius:8px;border:1px solid #2d3140;background:#1c2128;color:${escapeHtml(colorAccent)};cursor:pointer;font-size:16px;line-height:1" onclick="var si=document.getElementById('chat-session-id').value,tx=document.getElementById('chat-text-input'),msg=tx.value.trim();if(!msg)return;tx.value='';var um=msg,ml=document.getElementById('message-list'),bd=document.getElementById('gde-chat-body');if(!ml)return;var gn=document.getElementById('chat-guest-name'),lb=(gn&&gn.value)?gn.value:'You';ml.insertAdjacentHTML('beforeend','<div style=margin-bottom:8px><span style=font-size:12px;color:#FFBF00>'+lb+'</span><div style=padding:8px 12px;background:#2d3140;border-radius:8px;margin-top:2px;font-size:13px>'+um.replace(/</g,'&lt;')+'</div></div>');if(bd)bd.scrollTop=bd.scrollHeight;fetch('/api/v1/chat/tool?tenant='+encodeURIComponent(document.getElementById('chat-tenant-id').value),{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'tool=chat&session_id='+encodeURIComponent(sid)+'&text='+encodeURIComponent(msg)}).then(function(r){return r.json()}).then(function(d){var rp=d.message;if(!rp&&d.nextLabel)rp='Thanks! Could you provide your '+d.nextLabel.toLowerCase()+'?';if(!rp)rp='Thanks!';ml.insertAdjacentHTML('beforeend','<div style=margin-bottom:8px><span style=font-size:12px;color:#58a6ff>AFIRMICO</span><div style=padding:8px 12px;background:#1c2128;border:1px solid #2d3140;border-radius:8px;margin-top:2px;font-size:13px>'+rp.replace(/</g,'&lt;')+'</div></div>');if(bd)bd.scrollTop=bd.scrollHeight;if(gn&&!gn.value){var cf=d.state&&d.state.completedFields;if(cf&&cf.indexOf('firstName')>=0){var nw=um.split(' ')[0];if(nw.length>1)gn.value=nw}}})">→</button>
         </div>
       </div>
     </div>
@@ -538,7 +543,7 @@ function renderWidget(content: string, mode: string, widgetSessionId: string = '
         var uHtml='<div style=margin-bottom:8px><span style=font-size:12px;color:#FFBF00>'+label+'</span><div style=padding:8px 12px;background:#2d3140;border-radius:8px;margin-top:2px;font-size:13px>'+userMsg.replace(/</g,'&lt;')+'</div></div>';
         ml.insertAdjacentHTML('beforeend',uHtml);
         if(bd)bd.scrollTop=bd.scrollHeight;
-        fetch('/api/v1/chat/tool?tenant=${encodeURIComponent(tenantId)}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'tool=chat&session_id='+encodeURIComponent(sid)+'&text='+encodeURIComponent(msg)}).then(function(r){return r.json()}).then(function(d){var rp=d.message;if(!rp&&d.nextLabel)rp='Thanks! Could you provide your '+d.nextLabel.toLowerCase()+'?';if(!rp)rp='Thanks!';ml.insertAdjacentHTML('beforeend','<div style=margin-bottom:8px><span style=font-size:12px;color:#58a6ff>AFIRMICO</span><div style=padding:8px 12px;background:#1c2128;border:1px solid #2d3140;border-radius:8px;margin-top:2px;font-size:13px>'+rp.replace(/</g,'&lt;')+'</div></div>');if(bd)bd.scrollTop=bd.scrollHeight;if(gn&&!gn.value){var cf=d.state&&d.state.completedFields;if(cf&&cf.indexOf('firstName')>=0){var nw=um.split(' ')[0];if(nw.length>1)gn.value=nw}}})
+        fetch('/api/v1/chat/tool?tenant='+encodeURIComponent(document.getElementById('chat-tenant-id').value),{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'tool=chat&session_id='+encodeURIComponent(sid)+'&text='+encodeURIComponent(msg)}).then(function(r){return r.json()}).then(function(d){var rp=d.message;if(!rp&&d.nextLabel)rp='Thanks! Could you provide your '+d.nextLabel.toLowerCase()+'?';if(!rp)rp='Thanks!';ml.insertAdjacentHTML('beforeend','<div style=margin-bottom:8px><span style=font-size:12px;color:#58a6ff>AFIRMICO</span><div style=padding:8px 12px;background:#1c2128;border:1px solid #2d3140;border-radius:8px;margin-top:2px;font-size:13px>'+rp.replace(/</g,'&lt;')+'</div></div>');if(bd)bd.scrollTop=bd.scrollHeight;if(gn&&!gn.value){var cf=d.state&&d.state.completedFields;if(cf&&cf.indexOf('firstName')>=0){var nw=um.split(' ')[0];if(nw.length>1)gn.value=nw}}})
     })();
   </script>
   </div>`
