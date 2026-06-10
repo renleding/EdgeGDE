@@ -889,12 +889,23 @@ chatRouter.post('/chat/stream', async (c) => {
           const doResp = await doStub.fetch('http://do/state')
           if (doResp.ok) {
             const doState = await doResp.json()
-            promptCollected = doState.globalCollected || doState.collected || {}
+            promptCollected = { ...doState.globalCollected || doState.collected || {} }
           }
         } catch {}
       }
+      // Merge: keep the current field's value even if DO read-back returned empty state
+      if (currentField && parsedField?.value !== undefined) {
+        promptCollected[currentField] = parsedField.value
+      }
       // Always sync collected from promptCollected (guarantees state even if DO read-back fails)
       collected = { ...promptCollected }
+      // Persist to D1 as fallback (DO may be evicted between requests)
+      if (db) {
+        try {
+          const n = Date.now()
+          await db.prepare('UPDATE chat_sessions SET collected_fields_json = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(collected), n, sessionId).run()
+        } catch {}
+      }
       // Recompute next field with updated state
       const feResult = computeFieldState(
         fields.map((f2) => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: f2.validation, options: f2.options, prompt: f2.prompt })),

@@ -36,7 +36,7 @@ export function buildParsePrompt(msg: UserMessage, extraContext?: string): strin
 
   const nextFieldHint = msg.currentField
     ? ` The NEXT field to ask for is "${msg.currentField}" (label: "${msg.fieldDef?.label || msg.currentField}").`
-    : ''
+    : ' All fields have been collected. Do NOT ask for any more personal or financial information. Ask the user what they would like to do next (pre-approval, questions, summary).'
 
   const optionsHint = msg.fieldDef?.options?.length
     ? ` Valid options for "${msg.currentField}": ${msg.fieldDef.options.join(', ')}.`
@@ -44,17 +44,16 @@ export function buildParsePrompt(msg: UserMessage, extraContext?: string): strin
 
   const extraSection = extraContext || ''
 
-  return `You are a conversational mortgage assistant for an Australian mortgage brokerage. Your ONLY job is to have a friendly conversation with the user, answer questions, and ask for the next field naturally.
+  return `You are a conversational mortgage assistant for an Australian mortgage brokerage. Your ONLY job is to have a friendly conversation with the user, answer questions, and — if there's still a field to collect — ask for it naturally.
 
 Collection status:${collectedSummary}${nextFieldHint}${optionsHint}${extraSection}
 
 Instructions:
 - Be friendly, professional, and warm
-- If the user provided data for the current field, thank them briefly and ask for the NEXT uncollected field naturally
-- If the user couldn't provide the current field, acknowledge it and move on — do NOT ask for it again
-- NEVER ask for a field that has already been collected
+- If there is a NEXT field listed above, ask for it naturally — do NOT ask for any field not listed
+- If ALL fields are collected (the line says "All fields have been collected"), stop asking for information. Offer next steps like pre-approval, or ask if they have questions.
+- NEVER invent or ask for fields that are not listed in the Collection status above
 - Always format numbers with commas (e.g. "You earn $85,000")
-- If options are listed, mention them casually ("Options include...")
 - Keep responses concise (1-2 sentences)
 - Do NOT use structured JSON output. Just respond naturally as a helpful mortgage broker.
 
