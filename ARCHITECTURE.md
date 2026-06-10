@@ -48,6 +48,7 @@
 ### Durable Objects
 | DO | Scope | Purpose |
 |----|-------|---------|
+| `ChatSession_DO` | per-session | Active chat state — strongly consistent, single-threaded. Eliminates D1 race conditions. |
 | `RateLimiter` | global | Token bucket rate limiter |
 | `AuditLedger` | per-tenant | Immutable, append-only event log |
 
@@ -55,17 +56,18 @@
 
 ## Storage Architecture
 
-| Layer | Role | Tables / Patterns |
-|-------|------|-------------------|
-| **D1** | Source of truth + relational | `form_submissions`, `contacts`, `brokers`, `pipeline_stages`, `document_vault`, `webhook_events` |
-| **KV** | Pointer layer only | `tenant:{id}:alerts:hot:index`, `tenant:{id}:deadletter:index`, `tenant:{id}:telemetry:llm:days:index` |
-| **R2** | Binary storage | EdgeGDE vault, max upload 100MB |
-| **DO** | Immutable event log | Per-tenant audit trail |
+| Layer | Role | Stores |
+|-------|------|--------|
+| **DO** | Active session state (mutable, strongly consistent) | `ChatSession_DO` per-session state, `AuditLedger` (per-tenant immutable events), `RateLimiter` (global) |
+| **D1** | Structured relational persistence (immutable ledgers, finalized data) | `form_submissions`, `contacts`, `brokers`, `pipeline_stages`, `document_vault`, `webhook_events` |
+| **KV** | Configuration + pointers only (fast-read, globally distributed) | Tenant configs (`tenant:{id}:site`), layout/design metadata, alert pointers, deadletter pointers, telemetry indices. No payload data. No large JSON blobs. |
+| **R2** | Object/blob storage (large payloads, binary, versioned) | Document vault (ID photos, uploads), generated report artifacts (`report/{tenant}/{schedule}/{date}/{uuid}.json`). Max 100MB per upload. |
 
 ### KV Constraints
 - No `KV.list()` usage — enforced at runtime by `guardKvList()`
 - Pointers only — never store payload data in KV
 - Low write frequency, TTL with jitter
+- Do NOT store large JSON payloads or binary blobs in KV or D1 — those go to R2
 
 ---
 
@@ -259,3 +261,29 @@ Form Submit
 | `public/leads.html` | Glass-themed hot lead monitor |
 | `wrangler.json` | CF Workers config |
 | `AUDIT.md` | Full audit report |
+
+## System Constraints (Locked)
+
+> These constraints are non-negotiable. Any architecture proposal that violates them must be rejected.
+
+### 1. State & Storage Routing
+- **Active Sessions (Mutable):** MUST use Durable Objects (DO) for strongly consistent, single-threaded state during active chats to eliminate read/write race conditions.
+- **Immutable Records:** MUST use Cloudflare D1 for structured ledgers, audit events, and finalized relational data.
+- **Tenant Configuration:** MUST use Cloudflare KV strictly for fast-read, globally distributed configuration parameters (e.g., site layouts, themes). 
+- **Object Storage (Blobs):** MUST use Cloudflare R2 for large payloads, generated reports (`report_artifact`), user-uploaded documents (ID photos), and any binary data. Do NOT store large JSON payloads or binary blobs in KV or D1.
+
+### 2. Privacy & Local-First Processing
+- **Zero Third-Party Leaks:** Sensitive KYC data, PII, and user-uploaded document images must NEVER be sent to third-party commercial APIs (e.g., OpenAI, AWS Textract).
+- **Secure Vision:** All document OCR and data extraction must be routed to our private, locally-hosted model instances (e.g., `qwen3-vl` running over the Tailscale mesh).
+
+### 3. Front-End Stack
+- **Edge Rendering:** MUST use Hono JSX rendered natively at the edge. No compiled HTML caching.
+- **Client Interactivity:** MUST use HTMX for dynamic partial swaps, form submissions, and UI updates (like the OCR Verification Card and Progress Bar).
+- **Strictly Banned:** NO heavy client-side SPA frameworks (React/Vue/Svelte) and NO manual Vanilla JS DOM manipulation (e.g., `querySelectorAll`) for routing.
+
+### Chat Widget Exemption
+- NO iframes — inject HTML/CSS/JS directly into the parent page
+- CSS must be scoped to `#gde-chat` to prevent parent-page style leakage
+- Drag/resize must use direct style mutation (not postMessage)
+- Minimal vanilla JS is permitted ONLY for: chat widget drag/resize, injector bootstrapping, and option pills click handlers. All other UI must use HTMX.
+
