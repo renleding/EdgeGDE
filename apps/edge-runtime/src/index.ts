@@ -489,11 +489,11 @@ function inject(){
   if(!root){root=document.createElement('div');root.id='edgegde-chat-root';document.body.appendChild(root)}
   if(root.querySelector('iframe'))return;
   ifr=document.createElement('iframe');
-  ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);
-  ifr.style.cssText='position:fixed;bottom:20px;right:20px;width:380px;height:600px;max-height:80vh;border:none;z-index:2147483647;background:transparent';
+  ifr=document.createElement('iframe');ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);
+  ifr.style.cssText='position:fixed;top:0;left:0;width:100vw;height:100vh;border:none;z-index:2147483647;pointer-events:none;background:transparent';
   ifr.setAttribute('sandbox','allow-scripts allow-forms');ifr.setAttribute('title','Chat Assistant');
   root.appendChild(ifr);
-  // Drag handle (covers header area)
+  // Position overlays
   dh=document.createElement('div');dh.id='edgegde-drag-handle';
   dh.style.cssText='position:fixed;z-index:2147483648;cursor:move;background:transparent';
   dh.addEventListener('mousedown',startDrag);

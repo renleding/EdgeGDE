@@ -52,8 +52,8 @@ embedRouter.get('/chat', async (c) => {
   <title>${escapeHtml(title)}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{background:transparent;color:#e1e4e8;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px}
-    #gde-chat{display:flex;flex-direction:column;height:100vh;max-height:100vh;position:relative;background:#0d1117;border-radius:12px;border:1px solid #2d3140;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+    body{background:transparent;color:#e1e4e8;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;pointer-events:none}
+    #gde-chat{display:flex;flex-direction:column;height:100vh;max-height:100vh;position:fixed;bottom:20px;right:20px;width:380px;height:600px;background:#0d1117;border-radius:12px;border:1px solid #2d3140;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);z-index:2147483647;pointer-events:auto}
     #gde-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#1c2128;border-bottom:1px solid #2d3140;cursor:move;flex-shrink:0;user-select:none}
     #gde-header h1{font-size:14px;color:#f0f6fc;font-weight:600;pointer-events:none}
     #gde-header .hdr-btns{display:flex;gap:2px}
