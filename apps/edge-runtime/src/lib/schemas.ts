@@ -115,18 +115,18 @@ export function buildFormSchema(fields: FormFieldDef[]): z.ZodObject<any> {
     let zod: z.ZodTypeAny
 
     if (field.fieldType === 'number' || field.fieldType === 'range') {
-      let base = z.coerce.number().refine((n) => !isNaN(n), { message: `${field.label} must be a valid number` })
+      let base: any = z.coerce.number().refine((n) => !isNaN(n), { message: `${field.label} must be a valid number` })
       if (field.validation.min != null) base = base.refine((n: any) => n >= field.validation.min!, { message: `Minimum ${field.label} is ${field.validation.min}` })
       if (field.validation.max != null) base = base.refine((n: any) => n <= field.validation.max!, { message: `Maximum ${field.label} is ${field.validation.max}` })
-      zod = base as any
+      zod = base
     } else if (field.fieldType === 'email') {
       zod = z.string().email() as any
     } else {
-      let base = z.string()
+      let base: any = z.string()
       if (field.validation.minLength != null) base = base.refine((s: any) => (s as string).length >= field.validation.minLength!, { message: `Minimum length is ${field.validation.minLength}` })
       if (field.validation.maxLength != null) base = base.refine((s: any) => (s as string).length <= field.validation.maxLength!, { message: `Maximum length is ${field.validation.maxLength}` })
       if (field.validation.pattern) base = base.refine((s: any) => new RegExp(field.validation.pattern!).test(s as string), { message: `Invalid format for ${field.label}` })
-      zod = base as any
+      zod = base
     }
 
     if (field.validation.required) {

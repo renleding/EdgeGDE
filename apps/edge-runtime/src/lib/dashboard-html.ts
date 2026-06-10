@@ -209,6 +209,17 @@ export const dashboardHtml = `<!DOCTYPE html>
 
   <div class="card">
     <div class="info">
+      <div class="title">System Health Dashboard <span class="badge badge-local">localhost:8899</span></div>
+      <div class="desc">Full live system dashboard with service status, resource usage, architecture diagrams, route matrix, and container health.</div>
+      <div class="url">http://localhost:8899/system-dashboard.html</div>
+    </div>
+    <div class="links">
+      <span class="btn btn-link" onclick="window.open('http://localhost:8899/system-dashboard.html','_blank')">Open</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="info">
       <div class="title">TypeScript Compile Check</div>
       <div class="desc">Run full type check across all source files.</div>
       <div class="url">npx tsc --noEmit</div>

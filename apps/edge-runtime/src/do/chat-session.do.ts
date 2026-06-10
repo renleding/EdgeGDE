@@ -12,15 +12,31 @@
 
 const SNAPSHOT_INTERVAL = 5
 
-interface ChatSessionState {
+export interface ChatSessionState {
   sessionId: string
   tenantId: string
   collected: Record<string, unknown>
   currentField: string
   status: 'active' | 'complete' | 'abandoned'
   stepCount: number
+  flowStack?: FlowStackEntry[]
+  activeFlowIndex?: number
   createdAt: number
   updatedAt: number
+}
+
+export interface FlowStackEntry {
+  flowId: string
+  scope: string
+  type: string
+  requiresAuth: boolean
+  insightId?: string
+  state: 'ACTIVE' | 'COMPLETED' | 'BLOCKED'
+  completedFields: string[]
+  completedDocs: string[]
+  authState?: 'PENDING' | 'VERIFIED'
+  blockReason?: string
+  totalWeight: { fields: number; docs: number; compliance: number }
 }
 
 export class ChatSession_DO {
@@ -39,13 +55,13 @@ export class ChatSession_DO {
     const path = url.pathname
 
     if (path === '/hydrate') {
-      const { tenantId } = await request.json()
+      const { tenantId } = await request.json() as { tenantId: string }
       await this.hydrateFromD1(tenantId)
       return new Response('OK')
     }
 
     if (path === '/init') {
-      const { sessionId, tenantId } = await request.json()
+      const { sessionId, tenantId } = await request.json() as { sessionId: string; tenantId: string }
       this.state = {
         sessionId,
         tenantId,
@@ -66,7 +82,7 @@ export class ChatSession_DO {
 
     if (path === '/update') {
       if (!this.state) return new Response('Not initialized', { status: 400 })
-      const { collected, nextField } = await request.json()
+      const { collected, nextField } = await request.json() as { collected: Record<string, unknown>; nextField: string }
       this.state.collected = { ...this.state.collected, ...(collected || {}) }
       this.state.currentField = nextField || ''
       this.state.stepCount++
