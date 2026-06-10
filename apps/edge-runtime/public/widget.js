@@ -30,20 +30,31 @@ console.log("EdgeGDE Widget v1.1.0");
   header.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON') return;
     isDragging = true;
-    dragOffX = e.clientX;
-    dragOffY = e.clientY;
+    var rect = chat.getBoundingClientRect();
+    dragOffX = e.clientX - rect.left;
+    dragOffY = e.clientY - rect.top;
+    chat.style.position = 'fixed';
+    chat.style.top = rect.top + 'px';
+    chat.style.left = rect.left + 'px';
+    chat.style.width = rect.width + 'px';
+    chat.style.height = rect.height + 'px';
+    chat.style.bottom = 'auto';
+    chat.style.right = 'auto';
     e.preventDefault();
   });
   document.addEventListener('mousemove', function(e) {
     if (!isDragging) return;
-    // Send drag delta to parent via postMessage
-    window.parent.postMessage({
-      type: 'drag',
-      dx: e.clientX - dragOffX,
-      dy: e.clientY - dragOffY,
-    }, '*');
-    dragOffX = e.clientX;
-    dragOffY = e.clientY;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var w = parseInt(chat.style.width) || chat.offsetWidth;
+    var h = parseInt(chat.style.height) || chat.offsetHeight;
+    var nx = Math.max(0, Math.min(vw - w, e.clientX - dragOffX));
+    var ny = Math.max(0, Math.min(vh - h, e.clientY - dragOffY));
+    chat.style.left = nx + 'px';
+    chat.style.top = ny + 'px';
+    chat.style.right = 'auto';
+    chat.style.bottom = 'auto';
+    // Notify parent to move iframe
+    window.parent.postMessage({ type: 'drag', left: nx, top: ny, width: chat.offsetWidth, height: chat.offsetHeight }, '*');
   });
   document.addEventListener('mouseup', function() { isDragging = false; });
 
