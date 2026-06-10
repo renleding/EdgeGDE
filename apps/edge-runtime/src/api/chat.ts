@@ -884,7 +884,7 @@ chatRouter.post('/chat/stream', async (c) => {
           await doStub.fetch('http://do/update', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ collected: { [currentField]: parsedField.value }, nextField: '' }),
+            body: JSON.stringify({ collected: { ...promptCollected }, nextField: '' }),
           })
           const doResp = await doStub.fetch('http://do/state')
           if (doResp.ok) {
@@ -893,6 +893,8 @@ chatRouter.post('/chat/stream', async (c) => {
           }
         } catch {}
       }
+      // Always sync collected from promptCollected (guarantees state even if DO read-back fails)
+      collected = { ...promptCollected }
       // Recompute next field with updated state
       const feResult = computeFieldState(
         fields.map((f2) => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: f2.validation, options: f2.options, prompt: f2.prompt })),
@@ -901,6 +903,7 @@ chatRouter.post('/chat/stream', async (c) => {
       )
       promptCurrentField = feResult.nextField?.fieldName || ''
       promptFieldDef = promptCurrentField ? fields.find((f3) => f3.fieldName === promptCurrentField) : undefined
+      global.__nextFieldOptions = promptFieldDef?.options?.length ? [...promptFieldDef.options] : undefined
     } else if (parsedField.status === 'unknown') {
       if (doStub) {
         try {

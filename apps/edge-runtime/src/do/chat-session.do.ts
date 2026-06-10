@@ -81,7 +81,22 @@ export class ChatSession_DO {
     }
 
     if (path === '/update') {
-      if (!this.state) return new Response('Not initialized', { status: 400 })
+      if (!this.state) {
+        // Auto-initialize if not yet started
+        this.state = {
+          sessionId: '',
+          tenantId: '',
+          collected: {},
+          globalCollected: {},
+          flowStack: [],
+          activeFlowIndex: 0,
+          status: 'active',
+          ocrStatus: '',
+          stepCount: 0,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }
+      }
       const { collected, nextField } = await request.json() as { collected: Record<string, unknown>; nextField: string }
       this.state.collected = { ...this.state.collected, ...(collected || {}) }
       this.state.currentField = nextField || ''
