@@ -95,14 +95,6 @@ adminSiteRouter.get('/', async (c) => {
     }
   } catch {}
 
-  try {
-    const prod = await kv.getJson(`tenant:${tenantId}:layout:latest`, ctx)
-    if (prod) {
-      prodStatus = '<span class="badge badge-live">Live</span>'
-      prodExists = true
-    }
-  } catch {}
-
   // No compiled cache — all pages are server-rendered
   prodStatus = '<span class="badge badge-live">Live (server-rendered)</span>'
 
