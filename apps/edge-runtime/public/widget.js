@@ -26,35 +26,23 @@ console.log("EdgeGDE Widget v1.1.0");
   }
 
   // ═══ DRAG ═══
-  var isDragging = false, dragOffX = 0, dragOffY = 0;
+  // Sends delta from last mouse position to parent for iframe-level positioning
+  var isDragging = false, lastMX = 0, lastMY = 0;
   header.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON') return;
     isDragging = true;
-    var rect = chat.getBoundingClientRect();
-    dragOffX = e.clientX - rect.left;
-    dragOffY = e.clientY - rect.top;
-    chat.style.position = 'fixed';
-    chat.style.top = rect.top + 'px';
-    chat.style.left = rect.left + 'px';
-    chat.style.width = rect.width + 'px';
-    chat.style.height = rect.height + 'px';
-    chat.style.bottom = 'auto';
-    chat.style.right = 'auto';
+    lastMX = e.clientX;
+    lastMY = e.clientY;
     e.preventDefault();
   });
   document.addEventListener('mousemove', function(e) {
     if (!isDragging) return;
-    var vw = window.innerWidth, vh = window.innerHeight;
-    var w = parseInt(chat.style.width) || chat.offsetWidth;
-    var h = parseInt(chat.style.height) || chat.offsetHeight;
-    var nx = Math.max(0, Math.min(vw - w, e.clientX - dragOffX));
-    var ny = Math.max(0, Math.min(vh - h, e.clientY - dragOffY));
-    chat.style.left = nx + 'px';
-    chat.style.top = ny + 'px';
-    chat.style.right = 'auto';
-    chat.style.bottom = 'auto';
-    // Notify parent to move iframe
-    window.parent.postMessage({ type: 'drag', left: nx, top: ny, width: chat.offsetWidth, height: chat.offsetHeight }, '*');
+    var dx = e.clientX - lastMX;
+    var dy = e.clientY - lastMY;
+    lastMX = e.clientX;
+    lastMY = e.clientY;
+    // Send delta to parent — parent computes new iframe position from getBoundingClientRect
+    window.parent.postMessage({ type: 'drag', dx: dx, dy: dy }, '*');
   });
   document.addEventListener('mouseup', function() { isDragging = false; });
 
