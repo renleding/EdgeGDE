@@ -959,10 +959,10 @@ chatRouter.post('/chat/stream', async (c) => {
           if (currentField && userText) {
             if (currentField === 'fullName') {
               // Check if LLM response thanks the user by name — means field was accepted
-              const thanksMatch = responseText.match(/Thanks (\w+)[!.]/i)
+              // Match: "Thanks Warren!", "Thank you, Warren.", "Thank you Warren"
+              const thanksMatch = responseText.match(/(?:Thanks|Thank you,?)\s+(\w+)[!.]?/i)
               if (thanksMatch && thanksMatch[1].length > 1) {
                 extractedFields = { fullName: userText }
-                console.log('[FALLBACK] extracted fullName from Thanks pattern:', thanksMatch[1])
               }
             } else if (userText.length > 2) {
               // Non-name field — save the user's input directly
