@@ -765,6 +765,7 @@ chatRouter.post('/chat/stream', async (c) => {
   // Route through ChatSession_DO for state consistency
   const doId = (c.env as any)?.CHAT_SESSION?.idFromName(sessionId)
   const doStub = doId ? (c.env as any)?.CHAT_SESSION?.get(doId) : null
+  let collected: Record<string, unknown> = {}
   if (doStub) {
     try {
       await doStub.fetch('http://do/hydrate', {
@@ -772,10 +773,17 @@ chatRouter.post('/chat/stream', async (c) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId }),
       })
+      // Read state from DO (source of truth), NOT from D1
+      const doResp = await doStub.fetch('http://do/state')
+      if (doResp.ok) {
+        const doState = await doResp.json()
+        collected = doState.globalCollected || doState.collected || {}
+      }
     } catch { /* non-blocking */ }
+  } else {
+    // Fallback: read from D1 if DO unavailable
+    collected = session.collected_fields_json ? JSON.parse(session.collected_fields_json) : {}
   }
-
-  const collected: Record<string, unknown> = session.collected_fields_json ? JSON.parse(session.collected_fields_json) : {}
 
   const { loadChatConfig } = await import('../lib/chat-config')
   const chatConfig = await loadChatConfig(kv, tenantId)
@@ -942,12 +950,34 @@ chatRouter.post('/chat/stream', async (c) => {
         responseText = parsed.response || fullResponse
 
         // Process field update if applicable
-        if (parsed.extracted_fields && Object.keys(parsed.extracted_fields).length > 0) {
+        let extractedFields = parsed.extracted_fields
+        if (!extractedFields || Object.keys(extractedFields).length === 0) {
+          // Fallback: extract fields from LLM response text (it often says "Thanks [Name]!")
+          // Only extract fullName when currentField is specifically fullName
+          if (currentField && userText) {
+            if (currentField === 'fullName') {
+              // Check if LLM response thanks the user by name — means field was accepted
+              const thanksMatch = responseText.match(/Thanks (\w+)[!.]/i)
+              if (thanksMatch && thanksMatch[1].length > 1) {
+                extractedFields = { fullName: userText }
+                console.log('[FALLBACK] extracted fullName from Thanks pattern:', thanksMatch[1])
+              }
+            } else if (userText.length > 2) {
+              // Non-name field — save the user's input directly
+              extractedFields = { [currentField]: userText }
+              console.log('[FALLBACK] saved', currentField, '=', userText)
+            }
+          }
+        }
+        if (extractedFields && Object.keys(extractedFields).length > 0) {
           const { applyFieldUpdate } = await import('../lib/chat-constraint')
-          for (const [f, v] of Object.entries(parsed.extracted_fields)) {
+          for (const [f, v] of Object.entries(extractedFields)) {
             const r = applyFieldUpdate(fields, currentCollected, f, v)
             if (!r.error) { currentCollected = r.collected }
           }
+        }
+        // Always persist, whether LLM extracted fields or fallback was used
+        if (Object.keys(currentCollected).length > 0) {
           const now = Date.now()
           const stmt = db?.prepare(
             `UPDATE chat_sessions SET collected_fields_json = ?, updated_at = ? WHERE id = ?`
@@ -957,6 +987,14 @@ chatRouter.post('/chat/stream', async (c) => {
             for (let attempt = 0; attempt < 3; attempt++) {
               try {
                 await stmt.bind(JSON.stringify(currentCollected), now, sessionId).run()
+                // Also persist to DO (source of truth) — after D1 succeeds
+                if (doStub) {
+                  await doStub.fetch('http://do/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ collected: currentCollected, nextField: '' }),
+                  }).catch(() => {})
+                }
                 break  // success
               } catch (e) {
                 if (attempt === 2) console.error('D1 write failed after 3 attempts:', e)
