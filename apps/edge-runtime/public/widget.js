@@ -26,21 +26,33 @@ console.log("EdgeGDE Widget v1.1.0");
   }
 
   // ═══ DRAG ═══
-  var isDragging = false, lastMX = 0, lastMY = 0;
+  var isDragging = false, dragOffX = 0, dragOffY = 0;
   header.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON') return;
     isDragging = true;
-    lastMX = e.clientX;
-    lastMY = e.clientY;
+    var rect = chat.getBoundingClientRect();
+    dragOffX = e.clientX - rect.left;
+    dragOffY = e.clientY - rect.top;
+    chat.style.position = 'fixed';
+    chat.style.top = rect.top + 'px';
+    chat.style.left = rect.left + 'px';
+    chat.style.width = rect.width + 'px';
+    chat.style.height = rect.height + 'px';
+    chat.style.bottom = 'auto';
+    chat.style.right = 'auto';
     e.preventDefault();
   });
   document.addEventListener('mousemove', function(e) {
     if (!isDragging) return;
-    var dx = e.clientX - lastMX;
-    var dy = e.clientY - lastMY;
-    lastMX = e.clientX;
-    lastMY = e.clientY;
-    window.parent.postMessage({ type: 'move', dx: dx, dy: dy }, '*');
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var w = parseInt(chat.style.width) || chat.offsetWidth;
+    var h = parseInt(chat.style.height) || chat.offsetHeight;
+    var nx = Math.max(0, Math.min(vw - w, e.clientX - dragOffX));
+    var ny = Math.max(0, Math.min(vh - h, e.clientY - dragOffY));
+    chat.style.left = nx + 'px';
+    chat.style.top = ny + 'px';
+    chat.style.right = 'auto';
+    chat.style.bottom = 'auto';
   });
   document.addEventListener('mouseup', function() { isDragging = false; });
 
@@ -84,20 +96,16 @@ console.log("EdgeGDE Widget v1.1.0");
   document.addEventListener('mouseup', function() { isResizing = false; });
 
   // ═══ MINIMIZE / CLOSE ═══
-  // Widget handles drag/resize internally. Body is transparent so
-  // only the chat element (with dark background) moves freely.
-  // Minimize/close send hide signal to parent for reopen button.
+  // Direct DOM manipulation (no iframe, no postMessage needed)
+  var isMinimized = false;
+  chat.style.minWidth = '260px'; chat.style.minHeight = '300px';
   minBtn.addEventListener('click', function() {
-    window.parent.postMessage({ type: 'hide' }, '*');
+    isMinimized = !isMinimized;
+    body.style.display = isMinimized ? 'none' : 'flex';
+    minBtn.textContent = isMinimized ? '+' : '_';
   });
   closeBtn.addEventListener('click', function() {
-    window.parent.postMessage({ type: 'hide' }, '*');
-  });
-  // Listen for parent to show us again
-  window.addEventListener('message', function(ev) {
-    if (ev.data && ev.data.type === 'show') {
-      chat.style.display = 'flex';
-    }
+    chat.style.display = 'none';
   });
 
   // ═══ SESSION INIT ═══
