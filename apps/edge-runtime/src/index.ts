@@ -519,7 +519,7 @@ function inject(){
   window.addEventListener('message',function(ev){
     if(ev.origin!==base&&ev.origin!=='null')return;
     if(ev.data&&ev.data.type==='hide'){ifr.style.display='none';showReopenBtn()}
-    if(ev.data&&ev.data.type==='show'){ifr.style.display='block';hideReopenBtn();setTimeout(updateOverlays,100)}
+    if(ev.data&&ev.data.type==='show'){ifr.style.display='block';hideReopenBtn();updateOverlays();setTimeout(function(){if(ifr)updateOverlays()},500)}
   });
   // Remove any stale reopen button
   hideReopenBtn();
