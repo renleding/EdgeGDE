@@ -63,21 +63,7 @@ export async function deployTenantLayout(
   )
   await TENANT_KV.put(`tenant:${tenantId}:design`, design)
 
-  // ── 3. Cache invalidation ──────────────────────────────────────────────
-  await TENANT_KV.delete(`tenant:${tenantId}:compiled`)
-
-  // ── 4. Cache pre-warm (compile + store with jitter TTL) ────────────────
-  try {
-    const { parseDesignMd } = await import('./design-parser')
-    const designTokens: DesignTokens = parseDesignMd(design)
-    const html = compileLayout(layout, designTokens)
-    const ttl = 120 + Math.floor(Math.random() * 20)
-    await TENANT_KV.put(`tenant:${tenantId}:compiled`, html, { expirationTtl: ttl })
-  } catch {
-    // Pre-warm failure is non-fatal — next visitor will compile on demand
-  }
-
-  // ── 5. Log ─────────────────────────────────────────────────────────────
+  // ── 3. Log ─────────────────────────────────────────────────────────────
   console.log(JSON.stringify({
     event: 'publish',
     kind: 'tenant',

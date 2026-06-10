@@ -95,19 +95,31 @@ export async function generateWeeklyDigest(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Storage (KV v1, R2 upgrade path)
+// Storage (R2 for payloads, KV for pointers)
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function storeReportArtifact(
+  R2_BUCKET: any,
   TENANT_KV: any,
   tenantId: string,
   scheduleId: string,
   targetDate: string,
   payload: ReportPayload,
 ): Promise<string> {
-  const key = `report_artifact:${tenantId}:${scheduleId}:${targetDate}`
-  await TENANT_KV.put(key, JSON.stringify(payload))
-  return key
+  // R2: immutable payload with UUID versioning
+  const uuid = crypto.randomUUID()
+  const r2Key = `report/${tenantId}/${scheduleId}/${targetDate}/${uuid}.json`
+  const body = JSON.stringify(payload)
+  await R2_BUCKET.put(r2Key, body, {
+    httpMetadata: { contentType: 'application/json' },
+    customMetadata: { generatedAt: payload.generated_at, tenantId, scheduleId, targetDate },
+  })
+
+  // KV pointer: fast lookup to latest report
+  const pointerKey = `report_artifact:${tenantId}:${scheduleId}:latest`
+  await TENANT_KV.put(pointerKey, r2Key)
+
+  return r2Key
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

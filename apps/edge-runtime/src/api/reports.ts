@@ -129,9 +129,11 @@ reportAdminRouter.get('/reports/executions', async (c) => {
 reportCronHandler.post('/cron/tick', async (c) => {
   const db = (c.env as any)?.DB
   const TENANT_KV = (c.env as any)?.TENANT_KV
+  const R2_BUCKET = (c.env as any)?.VAULT_BUCKET
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV required' }, 500)
+  if (!R2_BUCKET) return c.json({ error: 'VAULT_BUCKET required' }, 500)
 
   const now = new Date().toISOString()
   const results: Record<string, any> = { recovered: 0, triggered: 0, generated: 0 }
@@ -177,7 +179,7 @@ reportCronHandler.post('/cron/tick', async (c) => {
         if ((lockResult as any)?.changes > 0) {
           try {
             const payload = await generateWeeklyDigest(db, s.tenant_id)
-            const artifactKey = await storeReportArtifact(TENANT_KV, s.tenant_id, s.id, targetDate, payload)
+            const artifactKey = await storeReportArtifact(R2_BUCKET, TENANT_KV, s.tenant_id, s.id, targetDate, payload)
 
             // Mark generation success
             await db.prepare(

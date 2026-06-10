@@ -103,12 +103,8 @@ adminSiteRouter.get('/', async (c) => {
     }
   } catch {}
 
-  try {
-    const prodCompiled = await kv.get(`tenant:${tenantId}:compiled`, ctx)
-    if (prodCompiled) {
-      prodStatus = '<span class="badge badge-live">Live (compiled)</span>'
-    }
-  } catch {}
+  // No compiled cache — all pages are server-rendered
+  prodStatus = '<span class="badge badge-live">Live (server-rendered)</span>'
 
   // Get versions index
   let versionsHtml = '<div class="empty" style="color:#4a4d55;text-align:center;padding:16px;font-size:13px">No saved versions</div>'
@@ -210,7 +206,6 @@ adminSiteRouter.post('/promote', async (c) => {
     }
 
     await kv.put(`tenant:${tenantId}:layout:latest`, JSON.stringify(staging), ctx)
-    await (c.env as any).TENANT_KV.delete(`tenant:${tenantId}:compiled`)
 
     return c.html('<div style="color:#3fb950;font-size:13px">✅ Promoted to production</div>')
   } catch (err: any) {

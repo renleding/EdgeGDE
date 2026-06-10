@@ -145,6 +145,12 @@ function guardKvEventStorage(kvBinding: any, name: string): void {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // 1. KV LIST GUARD — patch TENANT_KV binding on first request
+// Dashboard route — must be BEFORE tenant middleware to avoid tenant resolution
+app.get('/dashboard', async (c) => {
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(dashboardHtml)
+})
+
 app.use('*', async (c, next) => {
   // This middleware is idempotent — patching a frozen binding is a no-op
   guardKvList((c.env as any)?.TENANT_KV, 'TENANT_KV')
@@ -216,14 +222,6 @@ app.use('/api/v1/admin/audit/*', adminAuth)
 
 app.get('/healthz', (c) => {
   return c.text('ok')
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// System Health Dashboard
-// ═══════════════════════════════════════════════════════════════════════════
-app.get('/dashboard', async (c) => {
-  // Redirect to the static HTML file in public/
-  return c.redirect('/dashboard.html')
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -424,15 +422,11 @@ app.route('/admin/drift', adminDriftRouter)
 app.route('/admin/packs', adminPacksRouter)
 app.route('/embed', embedRouter)
 
-// Dashboard — one-page control center
-app.get('/dashboard', async (c) => {
-  c.header('Content-Type', 'text/html; charset=utf-8')
-  return c.body(dashboardHtml)
-})
 
 
 
 
+// Serve static widget script from public/ with version pinning
 // Serve static widget script from public/ with version pinning
 // v1.0.0 redirects to v1.1.0 for cache-busting
 app.get('/public/widget.v1.0.0.js', async (c) => {
@@ -500,7 +494,7 @@ app.route('/api/v1', chatViewsRouter)
 const SITE_PAGES = ['home', 'about', 'services', 'calculators', 'media', 'contact'] as const
 
 /** Shared site renderer — loads config from KV and returns the full multi-page HTML */
-async function renderSite(slug: string, activePage: string, rawKv: any): Promise<{ html: string; error?: string }> {
+async function renderSite(slug: string, activePage: string, rawKv: any, isHtmx = false): Promise<{ html: string; error?: string }> {
   if (!rawKv) return { html: '', error: 'KV not available' }
   try {
     const siteRaw = await rawKv.get('tenant:' + slug + ':site', 'json')
@@ -544,6 +538,7 @@ async function renderSite(slug: string, activePage: string, rawKv: any): Promise
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} &mdash; ${navItems.find(n => n.active)?.label || 'Home'}</title>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: ${bg}; color: ${fg}; }
@@ -583,67 +578,73 @@ async function renderSite(slug: string, activePage: string, rawKv: any): Promise
   </header>
   <nav>
     <ul>
-      ${navItems.map(n => `<li><a href="${n.url}"${n.active ? ' class="active"' : ''}>${n.label}</a></li>`).join('')}
+      ${navItems.map(n => `<li><a href="${n.url}"${n.active ? ' class="active"' : ''} hx-get="${n.url}" hx-target="#main-content" hx-push-url="true">${n.label}</a></li>`).join('')}
     </ul>
   </nav>
-  <main>
+  <main id="main-content">
     ${SITE_PAGES.map(p => `<div class="page${p === activePage ? ' active' : ''}" id="page-${p}"><div class="card">${pageContent[p]}</div></div>`).join('')}
   </main>
   <footer>
     <p>${title} &mdash; Australian Credit Licence in progress &bull; ABN 00 000 000 000</p>
   </footer>
-  <script>
-    // Client-side navigation for instant switching (no server round-trip)
-    document.querySelectorAll('nav a').forEach(function(link) {
-      link.addEventListener('click', function(e) {
-        var href = this.getAttribute('href');
-        // Only intercept links within the same site path
-        if (href && (href.startsWith('/sites/') || href.startsWith('.'))) {
-          // Full page load for proper URL updates
-        }
-      });
-    });
-  </script>
   <script src="/public/widget.v1.1.0.js?v=2" data-tenant="${tenant}"></script>
 </body>
 </html>`
+
+    // HTMX partial: return only the main content + nav active state + title
+    if (isHtmx) {
+      const partialHtml = `<title>${title} &mdash; ${navItems.find(n => n.active)?.label || 'Home'}</title>
+<nav>
+  <ul>
+    ${navItems.map(n => `<li><a href="${n.url}"${n.active ? ' class="active"' : ''} hx-get="${n.url}" hx-target="#main-content" hx-push-url="true">${n.label}</a></li>`).join('')}
+  </ul>
+</nav>
+${SITE_PAGES.map(p => `<div class="page${p === activePage ? ' active' : ''}" id="page-${p}"><div class="card">${pageContent[p]}</div></div>`).join('')}`
+      return { html: partialHtml }
+    }
+
     return { html }
   } catch {
     return { html: '', error: 'Internal error' }
   }
 }
 
-// Site routes — each page gets its own URL path
+// Site routes — each page gets its own URL path, supports HTMX partial swaps
 app.get('/sites/:slug/about', async (c) => {
-  const { html, error } = await renderSite(c.req.param('slug'), 'about', (c.env as any)?.TENANT_KV)
+  const isHtmx = c.req.header('HX-Request') === 'true'
+  const { html, error } = await renderSite(c.req.param('slug'), 'about', (c.env as any)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
 })
 
 app.get('/sites/:slug/services', async (c) => {
-  const { html, error } = await renderSite(c.req.param('slug'), 'services', (c.env as any)?.TENANT_KV)
+  const isHtmx = c.req.header('HX-Request') === 'true'
+  const { html, error } = await renderSite(c.req.param('slug'), 'services', (c.env as any)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
 })
 
 app.get('/sites/:slug/calculators', async (c) => {
-  const { html, error } = await renderSite(c.req.param('slug'), 'calculators', (c.env as any)?.TENANT_KV)
+  const isHtmx = c.req.header('HX-Request') === 'true'
+  const { html, error } = await renderSite(c.req.param('slug'), 'calculators', (c.env as any)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
 })
 
 app.get('/sites/:slug/media', async (c) => {
-  const { html, error } = await renderSite(c.req.param('slug'), 'media', (c.env as any)?.TENANT_KV)
+  const isHtmx = c.req.header('HX-Request') === 'true'
+  const { html, error } = await renderSite(c.req.param('slug'), 'media', (c.env as any)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
 })
 
 app.get('/sites/:slug/contact', async (c) => {
-  const { html, error } = await renderSite(c.req.param('slug'), 'contact', (c.env as any)?.TENANT_KV)
+  const isHtmx = c.req.header('HX-Request') === 'true'
+  const { html, error } = await renderSite(c.req.param('slug'), 'contact', (c.env as any)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -651,7 +652,8 @@ app.get('/sites/:slug/contact', async (c) => {
 
 // Home page — must be last so sub-routes match first
 app.get('/sites/:slug', async (c) => {
-  const { html, error } = await renderSite(c.req.param('slug'), 'home', (c.env as any)?.TENANT_KV)
+  const isHtmx = c.req.header('HX-Request') === 'true'
+  const { html, error } = await renderSite(c.req.param('slug'), 'home', (c.env as any)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
