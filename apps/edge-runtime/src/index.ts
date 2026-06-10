@@ -427,7 +427,103 @@ app.get('/dashboard', async (c) => {
 
 // Serve static widget script from public/ with version pinning
 app.get('/public/widget.v1.0.0.js', async (c) => {
-  const script = `(function(){'use strict';var st=document.currentScript;var tid=st.getAttribute('data-tenant');if(!tid){console.warn('[EdgeGDE] data-tenant required');return}var src=st.src||'';var base=src.split('/public/')[0]||window.location.origin;function inject(){var root=document.getElementById('edgegde-chat-root');if(!root){root=document.createElement('div');root.id='edgegde-chat-root';document.body.appendChild(root)}if(root.querySelector('iframe'))return;var ifr=document.createElement('iframe');ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);ifr.style.cssText='position:fixed;bottom:20px;right:20px;width:380px;height:600px;max-height:80vh;border:none;z-index:2147483647;background:transparent';ifr.setAttribute('sandbox','allow-scripts allow-forms');ifr.setAttribute('title','Chat Assistant');root.appendChild(ifr)}inject();var mo=new MutationObserver(function(){if(!document.getElementById('edgegde-chat-root')||!document.querySelector('iframe'))setTimeout(inject,100)});mo.observe(document.body,{childList:true,subtree:true});window.addEventListener('message',function(ev){if(ev.origin!==base&&ev.origin!=='null')return;if(ev.data&&ev.data.type==='resize'){var f=document.querySelector('iframe');if(f){f.style.height=(ev.data.height||600)+'px';f.style.width=(ev.data.width||380)+'px'}}if(ev.data&&ev.data.type==='drag'){var f=document.querySelector('iframe');if(f){f.style.position='fixed';f.style.bottom='auto';f.style.right='auto';f.style.left=(ev.data.left||0)+'px';f.style.top=(ev.data.top||0)+'px';f.style.width=(ev.data.w||380)+'px';f.style.height=(ev.data.h||600)+'px'}}if(ev.data&&ev.data.type==='toggle'){if(ev.data.show){var r=document.getElementById('edgegde-chat-root');if(r&&r.querySelector('iframe')){r.querySelector('iframe').style.display='block';if(ev.data.visibility)r.style.display=ev.data.visibility}}else{var r=document.getElementById('edgegde-chat-root');if(r&&r.querySelector('iframe')){r.querySelector('iframe').style.display='none'}}}if(ev.data&&ev.data.type==='reopen-btn'){var existing=document.getElementById('edgegde-reopen-btn');if(ev.data.show){if(!existing){var btn=document.createElement('div');btn.id='edgegde-reopen-btn';btn.textContent='💬';btn.style.cssText='position:fixed;bottom:20px;right:20px;width:52px;height:52px;border-radius:50%;background:#3b82f6;color:white;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;box-shadow:0 4px 12px rgba(0,0,0,0.3);border:none';document.body.appendChild(btn);btn.addEventListener('click',function(){document.body.removeChild(btn);var msg=document.querySelector('iframe');if(msg){msg.style.display='block'}})}else{existing.style.display='flex'}}else{if(existing)existing.style.display='none'}}});})();`
+  const script = `(function(){'use strict';var st=document.currentScript;var tid=st.getAttribute('data-tenant');if(!tid){console.warn('[EdgeGDE] data-tenant required');return}var src=st.src||'';var base=src.split('/public/')[0]||window.location.origin;
+
+var ifr=null, dh=null, rhOverlays=[], grip=null, reopenBtn=null;
+var isDragging=false, dragOffX=0, dragOffY=0;
+var isResizing=false, resizeDir='', resizeStart={}, resizeInit={};
+
+function updateOverlays(){
+  if(!ifr)return;
+  var r=ifr.getBoundingClientRect();
+  if(dh){dh.style.top=r.top+'px';dh.style.left=r.left+'px';dh.style.width=r.width+'px'}
+  var dirs={nw:[0,0],n:[r.width/2-5,0],ne:[r.width-12,0],e:[r.width-3,r.height/2-5],se:[r.width-12,r.height-12],s:[r.width/2-5,r.height-3],sw:[0,r.height-12],w:[-3,r.height/2-5]};
+  for(var i=0;i<rhOverlays.length;i++){var o=rhOverlays[i];var p=dirs[o.d];if(p){o.el.style.top=(r.top+p[1])+'px';o.el.style.left=(r.left+p[0])+'px'}}
+  if(grip){grip.style.top=(r.top+r.height-16)+'px';grip.style.left=(r.left+r.width-16)+'px'}
+}
+
+function doDrag(e){
+  var vw=window.innerWidth,vh=window.innerHeight;
+  var fw=parseInt(ifr.style.width)||380,fh=parseInt(ifr.style.height)||600;
+  var nx=Math.max(0,Math.min(vw-fw,e.clientX-dragOffX));
+  var ny=Math.max(0,Math.min(vh-fh,e.clientY-dragOffY));
+  ifr.style.position='fixed';ifr.style.bottom='auto';ifr.style.right='auto';
+  ifr.style.left=nx+'px';ifr.style.top=ny+'px';
+  updateOverlays();
+}
+
+function startDrag(e){e.preventDefault();isDragging=true;var r=ifr.getBoundingClientRect();dragOffX=e.clientX-r.left;dragOffY=e.clientY-r.top}
+function moveDrag(e){if(isDragging)doDrag(e)}
+function stopDrag(){isDragging=false}
+
+function startResize(e,dir){e.preventDefault();isResizing=true;resizeDir=dir;var r=ifr.getBoundingClientRect();resizeStart={x:e.clientX,y:e.clientY};resizeInit={w:r.width,h:r.height,l:r.left,t:r.top}}
+function doResize(e){
+  if(!isResizing)return;
+  var dx=e.clientX-resizeStart.x,dy=e.clientY-resizeStart.y,nw=resizeInit.w,nh=resizeInit.h,nl=resizeInit.l,nt=resizeInit.t,minW=260,minH=300;
+  if(resizeDir.indexOf('e')>=0){nw=Math.max(minW,resizeInit.w+dx)}
+  if(resizeDir.indexOf('s')>=0){nh=Math.max(minH,resizeInit.h+dy)}
+  if(resizeDir.indexOf('w')>=0){var rw=Math.max(minW,resizeInit.w-dx);nl=resizeInit.l+resizeInit.w-rw;nw=rw}
+  if(resizeDir.indexOf('n')>=0){var rh=Math.max(minH,resizeInit.h-dy);nt=resizeInit.t+resizeInit.h-rh;nh=rh}
+  ifr.style.position='fixed';ifr.style.bottom='auto';ifr.style.right='auto';
+  ifr.style.left=nl+'px';ifr.style.top=nt+'px';ifr.style.width=nw+'px';ifr.style.height=nh+'px';
+  updateOverlays();
+}
+function stopResize(){isResizing=false}
+
+function showReopenBtn(){
+  if(reopenBtn){reopenBtn.style.display='flex';return}
+  reopenBtn=document.createElement('div');reopenBtn.id='edgegde-reopen-btn';reopenBtn.textContent='💬';
+  reopenBtn.style.cssText='position:fixed;bottom:20px;right:20px;width:52px;height:52px;border-radius:50%;background:#3b82f6;color:white;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;box-shadow:0 4px 12px rgba(0,0,0,0.3);border:none';
+  document.body.appendChild(reopenBtn);
+  reopenBtn.addEventListener('click',function(){reopenBtn.style.display='none';if(ifr)ifr.style.display='block';updateOverlays()});
+}
+function hideReopenBtn(){if(reopenBtn)reopenBtn.style.display='none'}
+
+function inject(){
+  var root=document.getElementById('edgegde-chat-root');
+  if(!root){root=document.createElement('div');root.id='edgegde-chat-root';document.body.appendChild(root)}
+  if(root.querySelector('iframe'))return;
+  ifr=document.createElement('iframe');
+  ifr.src=base+'/embed/chat?tenant='+encodeURIComponent(tid);
+  ifr.style.cssText='position:fixed;bottom:20px;right:20px;width:380px;height:600px;max-height:80vh;border:none;z-index:2147483647;background:transparent';
+  ifr.setAttribute('sandbox','allow-scripts allow-forms');ifr.setAttribute('title','Chat Assistant');
+  root.appendChild(ifr);
+  // Drag handle (covers header area)
+  dh=document.createElement('div');dh.id='edgegde-drag-handle';
+  dh.style.cssText='position:fixed;z-index:2147483648;cursor:move;background:transparent';
+  dh.addEventListener('mousedown',startDrag);
+  document.body.appendChild(dh);
+  // Resize handles
+  ['nw','n','ne','e','se','s','sw','w'].forEach(function(d){
+    var el=document.createElement('div');el.style.cssText='position:fixed;z-index:2147483648;background:transparent';
+    var curs=d==='n'||d==='s'?d+'-resize':d==='e'||d==='w'?d+'-resize':d+'-resize';
+    el.style.cursor=curs;
+    el.addEventListener('mousedown',function(ev){startResize(ev,d)});
+    rhOverlays.push({d:d,el:el});document.body.appendChild(el);
+  });
+  // Grip
+  grip=document.createElement('div');grip.style.cssText='position:fixed;z-index:2147483648;width:14px;height:14px;cursor:se-resize;background:transparent';
+  grip.addEventListener('mousedown',function(ev){startResize(ev,'se')});
+  document.body.appendChild(grip);
+  // Position overlays
+  setTimeout(updateOverlays,50);
+  // Global mouse events
+  document.addEventListener('mousemove',moveDrag);
+  document.addEventListener('mouseup',function(){stopDrag();stopResize()});
+  // Listen for minimize/close from iframe
+  window.addEventListener('message',function(ev){
+    if(ev.origin!==base&&ev.origin!=='null')return;
+    if(ev.data&&ev.data.type==='hide'){ifr.style.display='none';showReopenBtn()}
+    if(ev.data&&ev.data.type==='show'){ifr.style.display='block';hideReopenBtn();setTimeout(updateOverlays,100)}
+  });
+  // Remove any stale reopen button
+  hideReopenBtn();
+}
+
+inject();
+var mo=new MutationObserver(function(){if(!document.getElementById('edgegde-chat-root')||!document.querySelector('iframe'))setTimeout(inject,100)});
+mo.observe(document.body,{childList:true,subtree:true});
+})();`
   c.header('Content-Type', 'application/javascript; charset=utf-8')
   c.header('Cache-Control', 'public, max-age=3600')
   return c.body(script.trim())

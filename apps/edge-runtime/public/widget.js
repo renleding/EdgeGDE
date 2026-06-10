@@ -119,23 +119,19 @@ console.log("EdgeGDE Widget v1.1.0");
   });
 
   // ═══ MINIMIZE / CLOSE ═══
-  var isMinimized = false;
-  chat.style.minWidth = '260px'; chat.style.minHeight = '300px';
+  // Parent injector handles drag/resize on its own overlays.
+  // We just send hide/show signals for minimize/close.
   minBtn.addEventListener('click', function() {
-    isMinimized = !isMinimized;
-    if (isMinimized) {
-      // Hide the iframe on parent, show reopen icon
-      window.parent.postMessage({ type: 'toggle', show: false }, '*');
-      window.parent.postMessage({ type: 'reopen-btn', show: true }, '*');
-    } else {
-      window.parent.postMessage({ type: 'toggle', show: true }, '*');
-      window.parent.postMessage({ type: 'reopen-btn', show: false }, '*');
-    }
+    window.parent.postMessage({ type: 'hide' }, '*');
   });
   closeBtn.addEventListener('click', function() {
-    // Fully close: hide iframe, show reopen icon
-    window.parent.postMessage({ type: 'toggle', show: false }, '*');
-    window.parent.postMessage({ type: 'reopen-btn', show: true }, '*');
+    window.parent.postMessage({ type: 'hide' }, '*');
+  });
+  // Listen for parent to show us again
+  window.addEventListener('message', function(ev) {
+    if (ev.data && ev.data.type === 'show') {
+      chat.style.display = 'flex';
+    }
   });
 
   // ═══ SESSION INIT ═══
