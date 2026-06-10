@@ -426,7 +426,12 @@ app.get('/dashboard', async (c) => {
 
 
 // Serve static widget script from public/ with version pinning
+// v1.0.0 redirects to v1.1.0 for cache-busting
 app.get('/public/widget.v1.0.0.js', async (c) => {
+  return c.redirect(`/public/widget.v1.1.0.js`, 302)
+})
+
+app.get('/public/widget.v1.1.0.js', async (c) => {
   const script = `(function(){'use strict';var st=document.currentScript;var tid=st.getAttribute('data-tenant');if(!tid){console.warn('[EdgeGDE] data-tenant required');return}var src=st.src||'';var base=src.split('/public/')[0]||window.location.origin;
 
 var ifr=null, dh=null, rhOverlays=[], grip=null, reopenBtn=null;
@@ -663,7 +668,7 @@ async function renderSite(slug: string, activePage: string, rawKv: any): Promise
       });
     });
   </script>
-  <script src="/public/widget.v1.0.0.js" data-tenant="${tenant}"></script>
+  <script src="/public/widget.v1.1.0.js" data-tenant="${tenant}"></script>
 </body>
 </html>`
     return { html }
@@ -1033,7 +1038,7 @@ app.get('/', async (c) => {
         hx-swap="innerHTML">
     ${html}
   </main>
-  <script src="/public/widget.v1.0.0.js" data-tenant="au-mortgage-broker-afirmico"></script>
+  <script src="/public/widget.v1.1.0.js" data-tenant="au-mortgage-broker-afirmico"></script>
   ${isStaging ? `<div id="version-panel" style="position:fixed;top:60px;right:16px;width:320px;max-height:60vh;overflow-y:auto;background:rgba(15,15,26,0.95);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px;display:none;z-index:1000;backdrop-filter:blur(12px)"></div>` : ''}
   ${isStaging ? `
   <div id="dev-sentinel"
