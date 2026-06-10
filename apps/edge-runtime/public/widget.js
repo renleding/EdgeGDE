@@ -194,10 +194,11 @@ console.log("EdgeGDE Widget v1.1.0");
             isStreaming = false;
             if (sendBtn) sendBtn.disabled = false;
             var te2 = document.getElementById(typingId);
-            if (te2) {
-              var bubble2 = te2.querySelector('.msg-bubble');
-              if (bubble2) bubble2.textContent = responseText || '';
+            // Parse last chunk for done event (before the lines loop which never runs for the last chunk)
+            if (result.value) {
+              try { var lc2 = decoder.decode(result.value, { stream: true }); var lp2 = JSON.parse(lc2.trim()); if (lp2.done && lp2.message && typingEl) { var lb2 = typingEl.querySelector('.msg-bubble'); if (lb2) lb2.textContent = lp2.message; } } catch(e) {}
             }
+            // Don't overwrite - parsed.done already set the bubble to the final message
             if (responseText) {
               try {
                 var d = JSON.parse(responseText);
@@ -235,7 +236,7 @@ console.log("EdgeGDE Widget v1.1.0");
             return;
           }
           var chunk = decoder.decode(result.value, { stream: true });
-          var lines = chunk.split(/\n/);
+          var lines = chunk.split(String.fromCharCode(10));
           for (var i = 0; i < lines.length; i++) {
             var line = lines[i].trim();
             if (!line) continue;
