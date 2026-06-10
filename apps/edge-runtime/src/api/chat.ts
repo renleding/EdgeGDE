@@ -932,7 +932,7 @@ chatRouter.post('/chat/stream', async (c) => {
       async start(controller) {
         const encoder = new TextEncoder()
         controller.enqueue(encoder.encode(JSON.stringify({ token: '***' }) + String.fromCharCode(10)))
-        controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: parsedField.error + ' Please try again.', firstName: null, fullName: null }) + String.fromCharCode(10)))
+        controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: parsedField.error + ' Please try again.', firstName: null, fullName: null, options: typeof nextFieldOptionsForResponse !== 'undefined' ? nextFieldOptionsForResponse : undefined }) + String.fromCharCode(10)))
         controller.close()
       },
     })
