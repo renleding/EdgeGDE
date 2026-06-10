@@ -26,28 +26,51 @@ console.log("EdgeGDE Widget v1.1.0");
   }
 
   // ═══ DRAG ═══
-  // Sends delta from last mouse position to parent for iframe-level positioning
-  var isDragging = false, lastMX = 0, lastMY = 0;
+  // Moves chat internally (smooth) + thrrottles postMessage to parent (for iframe sync)
+  var isDragging = false, dragOffX = 0, dragOffY = 0, dragRAF = null;
   header.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON') return;
     isDragging = true;
-    lastMX = e.clientX;
-    lastMY = e.clientY;
+    var rect = chat.getBoundingClientRect();
+    dragOffX = e.clientX - rect.left;
+    dragOffY = e.clientY - rect.top;
+    chat.style.position = 'fixed';
+    chat.style.top = rect.top + 'px';
+    chat.style.left = rect.left + 'px';
+    chat.style.width = rect.width + 'px';
+    chat.style.height = rect.height + 'px';
+    chat.style.bottom = 'auto';
+    chat.style.right = 'auto';
     e.preventDefault();
   });
   document.addEventListener('mousemove', function(e) {
     if (!isDragging) return;
-    var dx = e.clientX - lastMX;
-    var dy = e.clientY - lastMY;
-    lastMX = e.clientX;
-    lastMY = e.clientY;
-    // Send delta to parent — parent computes new iframe position from getBoundingClientRect
-    window.parent.postMessage({ type: 'drag', dx: dx, dy: dy }, '*');
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var w = parseInt(chat.style.width) || chat.offsetWidth;
+    var h = parseInt(chat.style.height) || chat.offsetHeight;
+    var nx = Math.max(0, Math.min(vw - w, e.clientX - dragOffX));
+    var ny = Math.max(0, Math.min(vh - h, e.clientY - dragOffY));
+    chat.style.left = nx + 'px';
+    chat.style.top = ny + 'px';
+    chat.style.right = 'auto';
+    chat.style.bottom = 'auto';
+    // Throttle parent sync via requestAnimationFrame
+    if (!dragRAF) {
+      dragRAF = requestAnimationFrame(function() {
+        dragRAF = null;
+        window.parent.postMessage({ type: 'drag', left: nx, top: ny, w: w, h: h }, '*');
+      });
+    }
   });
-  document.addEventListener('mouseup', function() { isDragging = false; });
+  document.addEventListener('mouseup', function() {
+    isDragging = false;
+    if (dragRAF) { cancelAnimationFrame(dragRAF); dragRAF = null; }
+    // Final sync to parent
+    window.parent.postMessage({ type: 'drag', left: parseInt(chat.style.left) || 0, top: parseInt(chat.style.top) || 0, w: chat.offsetWidth, h: chat.offsetHeight }, '*');
+  });
 
   // ═══ RESIZE ═══
-  var isResizing = false, resizeEdge = '', resizeStart = {};
+  var isResizing = false, resizeEdge = '', resizeStart = {}, resizeRAF = null;
   document.querySelectorAll('.resize-handle, .resize-grip').forEach(function(h) {
     h.addEventListener('mousedown', function(e) {
       isResizing = true;
@@ -82,9 +105,18 @@ console.log("EdgeGDE Widget v1.1.0");
     chat.style.left = nl + 'px'; chat.style.top = nt + 'px';
     chat.style.width = nw + 'px'; chat.style.height = nh + 'px';
     chat.style.right = 'auto'; chat.style.bottom = 'auto';
-    window.parent.postMessage({ type: 'resize', width: Math.round(nw), height: Math.round(nh) }, '*');
+    if (!resizeRAF) {
+      resizeRAF = requestAnimationFrame(function() {
+        resizeRAF = null;
+        window.parent.postMessage({ type: 'resize', width: Math.round(nw), height: Math.round(nh), left: Math.round(nl), top: Math.round(nt) }, '*');
+      });
+    }
   });
-  document.addEventListener('mouseup', function() { isResizing = false; });
+  document.addEventListener('mouseup', function() {
+    isResizing = false;
+    if (resizeRAF) { cancelAnimationFrame(resizeRAF); resizeRAF = null; }
+    window.parent.postMessage({ type: 'resize', width: Math.round(parseFloat(chat.style.width)||380), height: Math.round(parseFloat(chat.style.height)||600) }, '*');
+  });
 
   // ═══ MINIMIZE / CLOSE ═══
   var isMinimized = false;
