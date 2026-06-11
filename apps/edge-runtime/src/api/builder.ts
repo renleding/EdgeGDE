@@ -353,12 +353,12 @@ builderRouter.get('/tenant/builder/drafts/:id/preview', async (c) => {
     return c.text('Preview unavailable — layout has structural errors', 400)
   }
 
-  // Compile layout to HTML
+  // Compile layout to HTML via new Canvas pipeline
   try {
-    const { compileLayout } = await import('../compiler/engine')
-    const { parseDesignMd } = await import('../lib/design-parser')
-    const designTokens = parseDesignMd(payload.design || '')
-    const content = compileLayout(payload.layout, designTokens)
+    const { openPencilToCanvas } = await import('../canvas/openpencil-migration')
+    const { compileFromCanvas } = await import('../canvas/compile-from-canvas')
+    const doc = openPencilToCanvas(payload.layout)
+    const content = compileFromCanvas(doc)
 
     const html = `<!DOCTYPE html>
 <html lang="en">

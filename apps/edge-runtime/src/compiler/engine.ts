@@ -1,4 +1,16 @@
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️  DEPRECATED — Legacy OpenPencil Compiler
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * This module is kept for backward compatibility only.
+ * All new compilation should use the CanvasDocument pipeline:
+ *   - openPencilToCanvas()   in src/canvas/openpencil-migration.ts
+ *   - compileFromCanvas()    in src/canvas/compile-from-canvas.ts
+ *
+ * Planned removal: v2.0.0
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
  * EdgeGDE Mortgage Calculator — Inline-Style Compilation Engine
  * HSAES Phase 24: Translate LayoutDefinition schemas into functional
  * inline styles (text, fills, dimensions, flex layouts) without

@@ -47,27 +47,29 @@
       {
         "name": "CHAT_SESSION",
         "class_name": "ChatSession_DO"
+      },
+      {
+        "name": "CANVAS_SESSION",
+        "class_name": "CanvasSession_DO"
       }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": [
-        "RateLimiter"
-      ]
+      "new_sqlite_classes": ["RateLimiter"]
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": [
-        "AuditLedger"
-      ]
+      "new_sqlite_classes": ["AuditLedger"]
     },
     {
       "tag": "v3",
-      "new_sqlite_classes": [
-        "ChatSession_DO"
-      ]
+      "new_sqlite_classes": ["ChatSession_DO"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["CanvasSession_DO"]
     }
   ],
   "d1_databases": [
