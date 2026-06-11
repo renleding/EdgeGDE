@@ -1,4 +1,13 @@
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️  DEPRECATED — Legacy Registry Renderer
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * This module is kept for backward compatibility only.
+ * All new compilation should use the CanvasDocument pipeline.
+ * Planned removal: v2.0.0
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
  * EdgeGDE — Registry Renderer
  * Phase 32: Typed renderer registry for all node types.
  * One compileNode() dispatches through this registry — Figma nodes,

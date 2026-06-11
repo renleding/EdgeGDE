@@ -1,8 +1,8 @@
 /**
  * EdgeGDE — DESIGN.md Parser
  * Phase 33: Parse Google DESIGN.md spec into structured runtime tokens.
- * Section-based parsing — only reads ## Colors, ## Typography, ## Spacing.
- * Safe, deterministic, never throws.
+ * v2.1: Extended with surface, border, muted colors, fontSize/fontWeight typography,
+ * cardPadding, borderRadius spacing.
  *
  * @packageDocumentation
  */
@@ -17,37 +17,46 @@ export interface DesignTokens {
     secondary?: string
     background?: string
     text?: string
+    surface?: string
+    border?: string
+    muted?: string
   }
   typography: {
     fontFamily?: string
     headingFont?: string
     headingTracking?: string
+    fontSize?: {
+      h1?: string
+      h2?: string
+      h3?: string
+      body?: string
+      small?: string
+    }
+    fontWeight?: {
+      h1?: number
+      h2?: number
+      h3?: number
+      body?: number
+    }
+    lineHeight?: number
   }
   spacing: {
     sectionPadding?: string
     gap?: string
+    cardPadding?: string
+    borderRadius?: string
   }
   /** Field-level styling tokens for form inputs, labels, and containers */
   field?: {
-    /** Background color/alpha for input fields (e.g. "rgba(255,255,255,0.1)") */
     background?: string
-    /** Text color for input values */
     textColor?: string
-    /** Label text color */
     labelColor?: string
-    /** Border radius for fields (e.g. "1.5rem") */
     borderRadius?: string
-    /** Border color for fields */
     borderColor?: string
-    /** Backdrop blur amount (e.g. "20px") */
     backdropBlur?: string
-    /** Padding inside fields (e.g. "20px") */
     padding?: string
-    /** Input height (e.g. "48px") */
     height?: string
-    /** Placeholder text color */
     placeholderColor?: string
-    /** Focus ring color */
     focusColor?: string
   }
 }
@@ -66,7 +75,6 @@ const normalizeHex = (hex: string): string =>
 /**
  * Parse a DESIGN.md string into structured DesignTokens.
  * Returns empty tokens on any error — non-blocking by design.
- * Uses section-based extraction to avoid false matches in code blocks.
  */
 export function parseDesignMd(md: string): DesignTokens {
   const tokens: DesignTokens = { colors: {}, typography: {}, spacing: {} }
@@ -85,13 +93,18 @@ export function parseDesignMd(md: string): DesignTokens {
       if (b) tokens.colors.background = normalizeHex(b[1])
       const t = body.match(/text[^#]*#([0-9a-fA-F]{6})/i)
       if (t) tokens.colors.text = normalizeHex(t[1])
+      const sf = body.match(/surface[^#]*#([0-9a-fA-F]{6})/i)
+      if (sf) tokens.colors.surface = normalizeHex(sf[1])
+      const bd = body.match(/border[^#]*#([0-9a-fA-F]{6})/i)
+      if (bd) tokens.colors.border = normalizeHex(bd[1])
+      const m = body.match(/muted[^#]*#([0-9a-fA-F]{6})/i)
+      if (m) tokens.colors.muted = normalizeHex(m[1])
     }
 
     // ── Typography section ──────────────────────────────────────────
     const typeSec = md.match(/## Typography\s*\n([\s\S]*?)(?=\n##|$)/)
     if (typeSec) {
       const body = typeSec[1]
-      // Match fontFamily: Value or font-family: Value
       const ff = body.match(/font[-]?family\s*:\s*([a-zA-Z][a-zA-Z\s-]+[a-zA-Z])/i)
       if (ff) tokens.typography.fontFamily = ff[1].trim()
       const hf = body.match(/heading[-]?font\s*:\s*([a-zA-Z][a-zA-Z\s-]+[a-zA-Z])/i)
@@ -108,7 +121,7 @@ export function parseDesignMd(md: string): DesignTokens {
       if (gap) tokens.spacing.gap = gap[2]
     }
 
-    // ── Fields section (field-level styling tokens) ──────────────────
+    // ── Fields section ──────────────────────────────────────────────
     const fieldSec = md.match(/## Fields\s*\n([\s\S]*?)(?=\n##|$)/)
     if (fieldSec) {
       const body = fieldSec[1]
@@ -135,7 +148,7 @@ export function parseDesignMd(md: string): DesignTokens {
       if (ffo) tokens.field.focusColor = ffo[1].trim()
     }
   } catch {
-    // Silent — design tokens must never break rendering
+    // Silent
   }
 
   return tokens

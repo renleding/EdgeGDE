@@ -40,6 +40,11 @@ import { chatRouter } from './api/chat'
 import { chatViewsRouter } from './api/chat-views'
 import { workspaceRouter } from './api/workspace'
 import { ChatSession_DO } from './do/chat-session.do'
+import type { CanvasDocument } from './canvas/canvas-types'
+import { compileFromCanvas } from './canvas/compile-from-canvas'
+import { CanvasSession_DO } from './do/canvas-session.do'
+import { renderEditorPage, renderCanvasLanding } from './routes/canvas-editor'
+import { handleCanvasChat } from './api/canvas-chat'
 import { swarmRouter } from './api/swarm'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
@@ -55,7 +60,6 @@ import {
 import { MemoryKvStore } from './lib/publish'
 import type { KvStore } from './lib/publish'
 import { getLatestVersion, getVersion } from './lib/versioning'
-import { compileLayout } from './compiler/engine'
 import { getLatestHash } from './edr/runtime/hash'
 import { tenantResolver } from './middleware/tenant-resolver'
 import { tenantResolver as tenantContextResolver } from './middleware/tenant-context'
@@ -423,9 +427,232 @@ app.route('/admin/drift', adminDriftRouter)
 app.route('/admin/packs', adminPacksRouter)
 app.route('/embed', embedRouter)
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Canvas Routes
+// ═══════════════════════════════════════════════════════════════════════════
 
+app.get('/canvas', async (c) => {
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(renderCanvasLanding())
+})
+// Create a new canvas session
+app.post('/api/canvas/create', async (c) => {
+  const id = crypto.randomUUID()
+  const doId = c.env.CANVAS_SESSION.idFromName(id)
+  const stub = c.env.CANVAS_SESSION.get(doId)
+  await stub.fetch('http://dO/init', {
+    method: 'POST',
+    body: JSON.stringify({ id, rootId: 'root', nodes: { root: { id: 'root', type: 'Page', parentId: null, children: [], props: {}, style: {} } } }),
+  })
+  return c.json({ id })
+})
 
+// Clone a website into a new canvas (synchronous for v1)
+app.post('/api/canvas/clone', async (c) => {
+  const { url } = await c.req.json() as { url: string }
+  if (!url) return c.json({ error: 'URL required' }, 400)
 
+  const id = crypto.randomUUID()
+  try {
+    const response = await fetch(url, { headers: { 'User-Agent': 'EdgeGDE-Cloner/1.0' } })
+    if (!response.ok) return c.json({ error: 'Fetch failed: ' + response.status }, 502)
+    const html = await response.text()
+
+    const { cloneWebsite } = await import('./cloner/website-cloner')
+    const { extractDesignTokens } = await import('./transpiler/design-extractor')
+    const doc = cloneWebsite(url, html)
+    doc.id = id
+
+    // Extract design tokens from parsed HTML styles
+    const styles = collectStyles(doc)
+    const designTokens = extractDesignTokens(styles)
+    ;(doc as any).designTokens = designTokens
+
+    const doId = c.env.CANVAS_SESSION.idFromName(id)
+    const stub = c.env.CANVAS_SESSION.get(doId)
+    await stub.fetch('http://dO/init', {
+      method: 'POST',
+      body: JSON.stringify({ id, rootId: doc.rootId, nodes: doc.nodes }),
+    })
+
+    return c.json({ id, title: doc.metadata?.name || 'Cloned Website' })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500)
+  }
+})
+
+// Collect inline styles from a CanvasDocument for token extraction
+function collectStyles(doc: CanvasDocument): Array<{ tagName: string; color?: string; backgroundColor?: string; borderColor?: string; fontFamily?: string; fontSize?: string; fontWeight?: number; borderRadius?: string; padding?: string }> {
+  const styles: any[] = []
+  for (const nodeId in doc.nodes) {
+    const n = doc.nodes[nodeId]
+    const s: any = { tagName: n.type }
+    if (n.style.color) s.color = n.style.color
+    if (n.style.backgroundColor) s.backgroundColor = n.style.backgroundColor
+    if (n.style.borderColor) s.borderColor = n.style.borderColor
+    if (n.style.fontFamily) s.fontFamily = n.style.fontFamily
+    if (n.style.fontSize) s.fontSize = n.style.fontSize
+    if (n.style.fontWeight) s.fontWeight = n.style.fontWeight
+    if (n.style.borderRadius) s.borderRadius = n.style.borderRadius
+    if (n.style.padding) s.padding = n.style.padding
+    styles.push(s)
+  }
+  return styles
+})
+
+// ── In-memory job tracker (v1 — acceptable for low traffic) ──────────────
+const generateJobs = new Map<string, {
+  status: 'processing' | 'complete' | 'error'
+  id?: string
+  title?: string
+  error?: string
+  createdAt: number
+}>()
+
+// ── Helper: hash a prompt for cache key ──────────────────────────────────
+async function hashPrompt(prompt: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(prompt.trim().toLowerCase())
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// Generate a website from a prompt (streaming — returns jobId immediately)
+app.post('/api/canvas/generate', async (c) => {
+  const { prompt } = await c.req.json() as { prompt: string }
+  if (!prompt) return c.json({ error: 'Prompt required' }, 400)
+
+  const TENANT_KV = c.env.TENANT_KV as any
+  const LLM_KEY = c.env.LLM_API_KEY as string || ''
+  const CANVAS_SESSION = c.env.CANVAS_SESSION as any
+
+  // ── Check KV cache ──────────────────────────────────────────────────
+  const pHash = await hashPrompt(prompt)
+  if (TENANT_KV && typeof TENANT_KV.get === 'function') {
+    try {
+      const cached = await TENANT_KV.get('cache:canvas:gen:' + pHash, 'json') as any
+      if (cached && cached.id) {
+        return c.json({ id: cached.id, title: cached.title, cached: true })
+      }
+    } catch { /* cache miss */ }
+  }
+
+  const jobId = crypto.randomUUID()
+
+  // Write pending job to KV (TTL 5 min)
+  if (TENANT_KV?.put) {
+    await TENANT_KV.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'processing' }), { expirationTtl: 300 }).catch(() => {})
+  }
+
+  // Background processing — capture env vars before waitUntil
+  c.executionCtx.waitUntil((async () => {
+    try {
+      const { generateCanvas } = await import('./generator/layout-generator')
+      const doc = await generateCanvas(prompt, { apiKey: LLM_KEY })
+
+      const id = crypto.randomUUID()
+      const doId = CANVAS_SESSION.idFromName(id)
+      const stub = CANVAS_SESSION.get(doId)
+      await stub.fetch('http://dO/init', {
+        method: 'POST',
+        body: JSON.stringify({ id, rootId: doc.rootId, nodes: doc.nodes }),
+      })
+
+      const result = { status: 'complete', id, title: doc.metadata?.name || 'Generated Website' }
+      if (TENANT_KV?.put) {
+        await TENANT_KV.put('job:canvas:gen:' + jobId, JSON.stringify(result), { expirationTtl: 300 }).catch(() => {})
+      }
+      if (TENANT_KV?.put) {
+        await TENANT_KV.put('cache:canvas:gen:' + pHash, JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), { expirationTtl: 86400 }).catch(() => {})
+      }
+    } catch (e: any) {
+      console.error('[CanvasGen] background error:', e.message)
+      if (TENANT_KV?.put) {
+        await TENANT_KV.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'error', error: e.message }), { expirationTtl: 300 }).catch(() => {})
+      }
+    }
+  })())
+
+  return c.json({ jobId, status: 'processing' })
+})
+
+// Poll generation status
+app.get('/api/canvas/generate/status/:jobId', async (c) => {
+  const jobId = c.req.param('jobId')
+  const TENANT_KV = c.env.TENANT_KV as any
+  if (!TENANT_KV || typeof TENANT_KV.get !== 'function') {
+    return c.json({ error: 'Storage unavailable' }, 500)
+  }
+  const job = await TENANT_KV.get('job:canvas:gen:' + jobId, 'json') as any
+  if (!job) return c.json({ error: 'Job not found' }, 404)
+  return c.json(job)
+})
+
+// Canvas Chat — LLM → AgentCommand → CanvasSession_DO
+app.post('/api/canvas/:id/chat', async (c) => {
+  const canvasId = c.req.param('id')
+  const { message, selectedNodeId } = await c.req.json() as { message: string; selectedNodeId?: string }
+  if (!message) return c.json({ error: 'Message required' }, 400)
+
+  const result = await handleCanvasChat(canvasId, message, c.env, selectedNodeId)
+  if (!result.success) return c.json(result, 400)
+  return c.json(result)
+})
+
+app.get('/canvas/:id/edit', async (c) => {
+  const canvasId = c.req.param('id')
+  const doId = c.env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = c.env.CANVAS_SESSION.get(doId)
+  const stateRes = await stub.fetch('http://dO/state')
+  if (stateRes.status === 400) {
+    // Canvas not in DO — attempt lazy migration from legacy layout
+    const TENANT_KV = c.env.TENANT_KV as any
+    const ARTIFACT_KV = c.env.ARTIFACT_KV as any
+    let layout: any = null
+
+    // Try ARTIFACT_KV legacy layout (format: layout:{tenantId}:production:latest)
+    if (ARTIFACT_KV?.get) {
+      layout = await ARTIFACT_KV.get('layout:' + canvasId + ':production:latest', 'json').catch(() => null)
+    }
+    // Fallback: TENANT_KV (format: tenant:{slug})
+    if (!layout && TENANT_KV?.get) {
+      layout = await TENANT_KV.get('tenant:' + canvasId + ':layout', 'json').catch(() => null)
+    }
+
+    if (layout && layout.rootNode) {
+      const { openPencilToCanvas } = await import('./canvas/openpencil-migration')
+      const doc = openPencilToCanvas(layout, canvasId)
+
+      await stub.fetch('http://dO/init', {
+        method: 'POST',
+        body: JSON.stringify({ id: canvasId, rootId: doc.rootId, nodes: doc.nodes }),
+      })
+
+      c.header('Content-Type', 'text/html; charset=utf-8')
+      return c.body(renderEditorPage(doc, canvasId))
+    }
+
+    return c.text('Canvas not found', 404)
+  }
+  const doc = await stateRes.json() as CanvasDocument
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(renderEditorPage(doc, canvasId))
+})
+
+app.get('/api/canvas/:id/html', async (c) => {
+  const canvasId = c.req.param('id')
+  const doId = c.env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = c.env.CANVAS_SESSION.get(doId)
+  const stateRes = await stub.fetch('http://dO/state')
+  if (stateRes.status === 400) return c.text('', 404)
+  const doc = await stateRes.json() as CanvasDocument
+  const html = compileFromCanvas(doc)
+  c.header('Content-Type', 'text/html; charset=utf-8')
+  return c.body(html)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 
 // Serve static widget script from public/ with version pinning
 // Serve static widget script from public/ with version pinning
@@ -872,9 +1099,12 @@ app.get('/', async (c) => {
           }
           const { compile: edrCompile } = await import('./edr/compiler/engine')
           html = edrCompile(synthesized, edrDef, layout.edrHash || 'default', 'edr')
-        } else {
-          // Legacy OpenPencil pipeline
-          html = compileLayout(layout, design)
+        } else if (layout && layout.rootNode) {
+          // Legacy OpenPencil → Canvas migration
+          const { openPencilToCanvas } = await import('./canvas/openpencil-migration')
+          const { compileFromCanvas } = await import('./canvas/compile-from-canvas')
+          const doc = openPencilToCanvas(layout)
+          html = compileFromCanvas(doc)
         }
         // FIX #3: 3600s + jitter (was 120s) — 30× reduction in cache re-write churn
         // SSE stream pushes updates, so 1h TTL is safe for compiled config
@@ -1151,3 +1381,4 @@ export default {
 export { RateLimiter } from './objects/RateLimiter'
 export { AuditLedger } from './objects/AuditLedger'
 export { ChatSession_DO } from './do/chat-session.do'
+export { CanvasSession_DO } from './do/canvas-session.do'
