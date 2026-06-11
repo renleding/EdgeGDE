@@ -14,7 +14,7 @@ import { Hono } from 'hono'
 import { findNextField, applyFieldUpdate, type ChatFieldDef } from '../lib/chat-constraint'
 import { buildParsePrompt, parseLlmResponse } from '../lib/chat-llm'
 import { loadChatConfig, type ChatConfig } from '../lib/chat-config'
-import { computeFieldState, applyRules } from '../lib/field-engine'
+import { computeFieldState, applyRules, type FieldDef } from '../lib/field-engine'
 import { loadKnowledgeBase, formatKbContext } from '../lib/knowledge-base'
 import { logAuditEvent as logAuditD1 } from '../lib/audit'
 
@@ -789,7 +789,7 @@ chatRouter.post('/chat/stream', async (c) => {
 
   const { loadChatConfig } = await import('../lib/chat-config')
   const chatConfig = await loadChatConfig(kv, tenantId)
-  const fields = chatConfig.fields.map((f: any) => ({
+  const fields: ChatFieldDef[] = chatConfig.fields.map((f: any) => ({
     fieldName: f.fieldName, label: f.label,
     fieldType: (f.fieldType === 'number' ? 'number' : 'string') as 'string' | 'number' | 'select',
     validation: f.validation, options: f.options, placeholder: f.placeholder, prompt: f.prompt,
@@ -909,13 +909,14 @@ chatRouter.post('/chat/stream', async (c) => {
       if (parsedField.status === 'ok') {
         // Recompute next field with updated state
         const feResult = computeFieldState(
-        fields.map((f2) => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: f2.validation, options: f2.options, prompt: f2.prompt })),
+        fields.map((f2): FieldDef => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: { required: f2.validation?.required ?? true, min: f2.validation?.min, max: f2.validation?.max }, options: f2.options, prompt: f2.prompt })),
         chatConfig.priorityOrder,
         promptCollected,
       )
       promptCurrentField = feResult.nextField?.fieldName || ''
-      promptFieldDef = promptCurrentField ? fields.find((f3) => f3.fieldName === promptCurrentField) : undefined
-      global.__nextFieldOptions = promptFieldDef?.options?.length ? [...promptFieldDef.options] : undefined
+      const foundFieldDef = fields.find((f3) => f3.fieldName === promptCurrentField) as ChatFieldDef | undefined;
+      promptFieldDef = foundFieldDef ?? undefined;
+      (globalThis as any).__nextFieldOptions = promptFieldDef?.options?.length ? [...promptFieldDef.options] : undefined
       }
     } else if (parsedField.status === 'unknown') {
       if (doStub) {
@@ -931,12 +932,13 @@ chatRouter.post('/chat/stream', async (c) => {
       fieldContext = `\nThe user could not provide "${currentField}". Do NOT ask again.`
       // Recompute next field
       const feResult = computeFieldState(
-        fields.map((f2) => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: f2.validation, options: f2.options, prompt: f2.prompt })),
+        fields.map((f2): FieldDef => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: { required: f2.validation?.required ?? true, min: f2.validation?.min, max: f2.validation?.max }, options: f2.options, prompt: f2.prompt })),
         chatConfig.priorityOrder,
         promptCollected,
       )
       promptCurrentField = feResult.nextField?.fieldName || ''
-      promptFieldDef = promptCurrentField ? fields.find((f3) => f3.fieldName === promptCurrentField) : undefined
+      const foundFieldDef = fields.find((f3) => f3.fieldName === promptCurrentField) as ChatFieldDef | undefined;
+      promptFieldDef = foundFieldDef ?? undefined;
     }
   }
   
@@ -945,7 +947,7 @@ chatRouter.post('/chat/stream', async (c) => {
       async start(controller) {
         const encoder = new TextEncoder()
         controller.enqueue(encoder.encode(JSON.stringify({ token: '***' }) + String.fromCharCode(10)))
-        controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: parsedField.error + ' Please try again.', firstName: null, fullName: null, options: typeof nextFieldOptionsForResponse !== 'undefined' ? nextFieldOptionsForResponse : undefined }) + String.fromCharCode(10)))
+        controller.enqueue(encoder.encode(JSON.stringify({ done: true, message: parsedField.error + ' Please try again.', firstName: null, fullName: null }) + String.fromCharCode(10)))
         controller.close()
       },
     })

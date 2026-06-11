@@ -21,6 +21,8 @@ export interface ChatSessionState {
   stepCount: number
   flowStack?: FlowStackEntry[]
   activeFlowIndex?: number
+  globalCollected?: Record<string, unknown>
+  ocrStatus?: string
   createdAt: number
   updatedAt: number
 }
@@ -90,6 +92,7 @@ export class ChatSession_DO {
           globalCollected: {},
           flowStack: [],
           activeFlowIndex: 0,
+          currentField: '',
           status: 'active',
           ocrStatus: '',
           stepCount: 0,
@@ -97,11 +100,12 @@ export class ChatSession_DO {
           updatedAt: Date.now(),
         }
       }
+      const state: ChatSessionState = this.state!
       const { collected, nextField } = await request.json() as { collected: Record<string, unknown>; nextField: string }
-      this.state.collected = { ...this.state.collected, ...(collected || {}) }
-      this.state.currentField = nextField || ''
-      this.state.stepCount++
-      this.state.updatedAt = Date.now()
+      state.collected = { ...state.collected, ...(collected || {}) }
+      state.currentField = nextField || ''
+      state.stepCount++
+      state.updatedAt = Date.now()
       if (this.shouldSnapshot()) this.triggerSnapshot()
       return new Response(JSON.stringify(this.state))
     }
