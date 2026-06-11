@@ -899,15 +899,16 @@ chatRouter.post('/chat/stream', async (c) => {
       }
       // Always sync collected from promptCollected (guarantees state even if DO read-back fails)
       collected = { ...promptCollected }
-      // Persist to D1 as fallback (DO may be evicted between requests)
+      // Always persist to D1 after every message (preserves full state across DO evictions)
       if (db) {
         try {
           const n = Date.now()
           await db.prepare('UPDATE chat_sessions SET collected_fields_json = ?, updated_at = ? WHERE id = ?').bind(JSON.stringify(collected), n, sessionId).run()
         } catch {}
       }
-      // Recompute next field with updated state
-      const feResult = computeFieldState(
+      if (parsedField.status === 'ok') {
+        // Recompute next field with updated state
+        const feResult = computeFieldState(
         fields.map((f2) => ({ fieldName: f2.fieldName, label: f2.label, fieldType: f2.fieldType === 'string' ? 'text' : 'number', validation: f2.validation, options: f2.options, prompt: f2.prompt })),
         chatConfig.priorityOrder,
         promptCollected,
@@ -915,6 +916,7 @@ chatRouter.post('/chat/stream', async (c) => {
       promptCurrentField = feResult.nextField?.fieldName || ''
       promptFieldDef = promptCurrentField ? fields.find((f3) => f3.fieldName === promptCurrentField) : undefined
       global.__nextFieldOptions = promptFieldDef?.options?.length ? [...promptFieldDef.options] : undefined
+      }
     } else if (parsedField.status === 'unknown') {
       if (doStub) {
         try {
