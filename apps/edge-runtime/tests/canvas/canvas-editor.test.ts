@@ -29,8 +29,8 @@ function makeDoc(overrides?: Partial<CanvasDocument>): CanvasDocument {
     history: [],
     stagingPointer: -1,
     livePointer: -1,
-    ...(overrides as CanvasDocument),
   }
+  if (overrides) Object.assign(result, overrides)
   if (overrides?.nodes) {
     result.baseNodes = JSON.parse(JSON.stringify(overrides.nodes))
   }
@@ -81,17 +81,17 @@ run('renderEditorPage — includes WebSocket endpoint', () => {
   const doc = makeDoc({ rootId: 'root', nodes: { root: makeNode('root') } })
   const html = renderEditorPage(doc, 'canvas-42')
 
-  assert.ok(html.includes('wss://'), 'Should reference WebSocket URL')
-  assert.ok(html.includes('canvas-42'), 'Should reference canvas ID in WS URL')
+  assert.ok(html.includes('data-canvas-id=\"canvas-42\"'), 'Should reference canvas ID')
+  assert.ok(html.includes('ws-client.js'), 'Should include WS client module')
+  assert.ok(html.includes('editor-config'), 'Should include config script')
 })
 
 run('renderEditorPage — includes mutation interceptors', () => {
   const doc = makeDoc({ rootId: 'root', nodes: { root: makeNode('root') } })
   const html = renderEditorPage(doc, 'canvas-1')
 
-  assert.ok(html.includes('mutation'), 'Editor JS should handle mutation messages')
-  assert.ok(html.includes('mcp_call'), 'Editor JS should handle mcp_call')
-  assert.ok(html.includes('broadcast'), 'Editor JS should handle broadcast')
+  assert.ok(html.includes('interactions.js'), 'Should include interactions module')
+  assert.ok(html.includes('mcp-runtime.js'), 'Should include MCP runtime module')
 })
 
 run('renderEditorPage — includes ID-based node binding', () => {
@@ -109,12 +109,14 @@ run('renderEditorPage — handles empty doc gracefully', () => {
   assert.ok(html.includes('canvas-root'), 'Should include canvas container')
 })
 
-run('renderEditorPage — scroll/selection/text restoration scripts present', () => {
+run('renderEditorPage — includes modular script tags', () => {
   const doc = makeDoc({ rootId: 'root', nodes: { root: makeNode('root') } })
   const html = renderEditorPage(doc, 'canvas-1')
 
-  assert.ok(html.includes('scrollY'), 'Should save scroll position')
-  assert.ok(html.includes('selectedNodeId'), 'Should track selected node')
+  assert.ok(html.includes('event-bus.js'), 'Should include EventBus')
+  assert.ok(html.includes('editor-state.js'), 'Should include EditorState')
+  assert.ok(html.includes('nodes.js'), 'Should include nodes module')
+  assert.ok(html.includes('main.js'), 'Should include main bootstrap')
 })
 
 run('renderEditorPage — nested nodes render in order', () => {

@@ -9,7 +9,7 @@
     "deploy:minor": "bash scripts/deploy.sh minor",
     "deploy:major": "bash scripts/deploy.sh major",
     "deploy:wrangler": "wrangler deploy",
-    "test": "tsx tests/scoring-engine.test.ts && tsx tests/phase13-hypermedia.test.ts && tsx tests/domain-workspace.test.ts && tsx tests/domain-swarm.test.ts",
+    "test": "bash scripts/test-local.sh",
     "test:swarm": "tsx tests/domain-swarm.test.ts",
     "test:domain": "tsx tests/domain-workspace.test.ts",
     "test:renderer": "tsx tests/phase13-hypermedia.test.ts",

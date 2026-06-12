@@ -46,29 +46,40 @@ export function guardKV(rawKV: any) {
       }
       return key
     }
-    if (key.startsWith('global:')) return key
-    if (isSystemKey(key)) return key
+    if (key.startsWith('tenant:')) {
+      throw new Error(`KV read blocked: tenant-scoped key requires tenant context: ${key}`)
+    }
+    if (key.startsWith('global:') || isSystemKey(key)) return key
+    if (!ctx) return key
     throw new Error(`KV key must start with tenant:{id}:, global:, schema:, or deploy:. Got: ${key}`)
   }
 
-  function validateWrite(key: string, ctx: TenantCtx): string {
-    const expectedPrefix = `tenant:${ctx.tenantId}:`
-    if (!key.startsWith(expectedPrefix)) {
-      throw new Error(`KV write blocked: key must start with ${expectedPrefix}. Got: ${key}`)
+  function validateWrite(key: string, ctx?: TenantCtx): string {
+    if (key.startsWith('tenant:')) {
+      if (!ctx) throw new Error(`KV write blocked: tenant-scoped key requires tenant context: ${key}`)
+      const expectedPrefix = `tenant:${ctx.tenantId}:`
+      if (!key.startsWith(expectedPrefix)) {
+        throw new Error(`KV write blocked: key must start with ${expectedPrefix}. Got: ${key}`)
+      }
+      return key
     }
-    return key
+    if (key.startsWith('global:') || isSystemKey(key)) return key
+    if (!ctx) return key
+    throw new Error(`KV write blocked: key must start with tenant:{id}:, global:, schema:, or deploy:. Got: ${key}`)
   }
 
   return {
-    async get(key: string, ctx?: TenantCtx) {
-      return rawKV.get(validateRead(key, ctx))
+    async get(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json') {
+      const ctx = typeof ctxOrType === 'object' ? ctxOrType : undefined
+      const valueType = typeof ctxOrType === 'string' ? ctxOrType : type
+      return rawKV.get(validateRead(key, ctx), valueType)
     },
 
     async getJson(key: string, ctx?: TenantCtx) {
       return rawKV.get(validateRead(key, ctx), 'json')
     },
 
-    async put(key: string, value: string | object, ctx: TenantCtx, options?: any) {
+    async put(key: string, value: string | object, ctx?: TenantCtx, options?: any) {
       const finalKey = validateWrite(key, ctx)
       const val = typeof value === 'string' ? value : JSON.stringify(value)
       const sk = shortKey(finalKey)

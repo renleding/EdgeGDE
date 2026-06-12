@@ -10,6 +10,8 @@
  * - D1 is persistence-only; DO state always wins
  */
 
+import { guardDB } from '../lib/db'
+
 const SNAPSHOT_INTERVAL = 5
 
 export interface ChatSessionState {
@@ -124,8 +126,7 @@ export class ChatSession_DO {
   private async hydrateFromD1(tenantId: string): Promise<void> {
     if (this.state) return
     try {
-      const db = this.env?.DB
-      if (!db) return
+      const db = guardDB(this.env?.['DB'])
       const row: any = await db.prepare(
         `SELECT id, collected_fields_json, state_json, status FROM chat_sessions WHERE id = ? AND tenant_id = ?`
       ).bind(this.state_.id.toString(), tenantId).first()
@@ -157,8 +158,7 @@ export class ChatSession_DO {
   private async snapshotNow(): Promise<void> {
     if (!this.state) return
     try {
-      const db = this.env?.DB
-      if (!db) return
+      const db = guardDB(this.env?.['DB'])
       const s = this.state
       await db.prepare(
         `UPDATE chat_sessions SET collected_fields_json = ?, state_json = ?, status = ?, updated_at = ? WHERE id = ?`

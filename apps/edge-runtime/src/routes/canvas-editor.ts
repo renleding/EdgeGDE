@@ -3,12 +3,8 @@
  * Canvas Platform v1.0.0
  * Phase 3: Inline visual editor with WebMCP runtime.
  *
- * Serves the editor page at GET /canvas/:id/edit
- * Includes:
- * - Compiled Canvas HTML rendered in #canvas-root
- * - Editor overlay for selection, drag, resize, text edit
- * - WebMCP runtime for intercepting mcp-tool interactions
- * - WebSocket connection to CanvasSession_DO
+ * Serves the editor page at GET /canvas/:id/edit.
+ * Client JS is loaded from public/js/canvas-editor/ as modular files.
  *
  * @packageDocumentation
  */
@@ -17,395 +13,18 @@ import type { CanvasDocument } from '../canvas/canvas-types'
 import { compileFromCanvas } from '../canvas/compile-from-canvas'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Editor Client JS (inline — served as part of the page)
+// Editor Client JS (modular — loaded from public/js/canvas-editor/)
+// Files served automatically by Cloudflare Workers static assets.
 // ═══════════════════════════════════════════════════════════════════════════
 
-function editorClientJS(canvasId: string, doId: string): string {
-  return `
-(function(){
-'use strict';
-var canvasId = ${JSON.stringify(canvasId)};
-var doId = ${JSON.stringify(doId)};
-var wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws?do=' + doId;
-
-// ── State ──────────────────────────────────────────────────────────────
-var selectedNodeId = null;
-var lastAppliedVersion = 0;
-var savedScrollY = 0;
-var activeTextNodeId = null;
-var ws = null;
-var isDragging = false;
-var dropIndicator = null;
-
-// ── WebSocket Connection ───────────────────────────────────────────────
-function connect() {
-  ws = new WebSocket(wsUrl);
-  ws.onopen = function() { console.log('[CanvasEditor] connected'); };
-  ws.onmessage = function(e) {
-    var msg = JSON.parse(e.data);
-    handleServerMessage(msg);
-  };
-  ws.onclose = function() { setTimeout(connect, 1000); };
-  ws.onerror = function() { ws.close(); };
-}
-connect();
-
-// ── Server Message Handler ─────────────────────────────────────────────
-function handleServerMessage(msg) {
-  if (msg.type === 'state') {
-    lastAppliedVersion = msg.doc.version;
-    renderCanvas(msg.doc);
-  } else if (msg.type === 'broadcast') {
-    if (msg.version <= lastAppliedVersion) return; // dedup
-    lastAppliedVersion = msg.version;
-    applyBroadcast(msg);
-  } else if (msg.type === 'mutation_rejected') {
-    console.warn('[CanvasEditor] mutation rejected:', msg.reason);
-  } else if (msg.type === 'mcp_call_accepted') {
-    console.log('[CanvasEditor] mcp_call accepted at version', msg.version);
-  } else if (msg.type === 'mcp_call_failed') {
-    console.warn('[CanvasEditor] mcp_call failed:', msg.reason);
-  } else if (msg.type === 'compiled') {
-    console.log('[CanvasEditor] compiled at livePointer', msg.livePointer);
+function editorClientScripts(canvasId: string, doId: string): string {
+  const files = ['event-bus.js','editor-state.js','ws-client.js','nodes.js','interactions.js','mcp-runtime.js','chat-panel.js','main.js']
+  // Set canvasId and doId as config before loading scripts
+  var html = '<script id="editor-config" type="application/json">' + JSON.stringify({canvasId,doId}) + '</scr' + 'ipt>\n'
+  for (const f of files) {
+    html += '<script src="/js/canvas-editor/' + f + '"></scr' + 'ipt>\n'
   }
-}
-
-// ── Broadcasting (applying mutation from server) ────────────────────────
-function applyBroadcast(msg) {
-  // Re-render by fetching state from server or applying mutation locally
-  if (msg.mutation && msg.mutation.type === 'add_node') {
-    // For v1, we re-render from scratch
-    requestState();
-  } else if (msg.mutation && msg.mutation.type === 'update_node') {
-    // For v1, re-render
-    requestState();
-  } else if (msg.mutation && msg.mutation.type === 'delete_node') {
-    requestState();
-  } else {
-    requestState();
-  }
-}
-
-function requestState() {
-  ws.send(JSON.stringify({ type: 'request_state' }));
-}
-
-// ── Render ─────────────────────────────────────────────────────────────
-function renderCanvas(doc) {
-  savedScrollY = window.scrollY;
-  var root = document.getElementById('canvas-root');
-  if (!root) return;
-
-  // Save active text edit state
-  var activeTextEl = document.activeElement;
-  var activeTextContent = '';
-  if (activeTextEl && activeTextEl.isContentEditable) {
-    activeTextNodeId = activeTextEl.getAttribute('data-node-id') || activeTextEl.id;
-    activeTextContent = activeTextEl.textContent || '';
-  }
-
-  // Fetch re-compiled HTML from server
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', '/api/canvas/' + canvasId + '/html', false);
-  xhr.send();
-  if (xhr.status === 200) {
-    root.innerHTML = xhr.responseText;
-  }
-
-  // Restore scroll
-  window.scrollTo(0, savedScrollY);
-
-  // Restore selected node highlight
-  if (selectedNodeId) {
-    highlightNode(selectedNodeId);
-  }
-
-  // Update version display
-  var verEl = document.getElementById('canvas-version');
-  if (verEl) verEl.textContent = 'v' + doc.version;
-  var rootEl = document.getElementById('canvas-root');
-  if (rootEl) rootEl.setAttribute('data-version', doc.version);
-
-  // Restore active text edit
-  if (activeTextNodeId && activeTextContent) {
-    var textEl = document.getElementById(activeTextNodeId);
-    if (textEl && textEl.isContentEditable) {
-      textEl.focus();
-      // Place cursor at end
-      var sel = window.getSelection();
-      var range = document.createRange();
-      range.selectNodeContents(textEl);
-      range.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }
-}
-
-// ── Selection ──────────────────────────────────────────────────────────
-function highlightNode(nodeId) {
-  var overlay = document.getElementById('editor-overlay');
-  if (!overlay) return;
-  var el = document.getElementById(nodeId);
-  if (!el) {
-    overlay.style.display = 'none';
-    return;
-  }
-  var rect = el.getBoundingClientRect();
-  overlay.style.display = 'block';
-  overlay.style.left = (rect.left + window.scrollX) + 'px';
-  overlay.style.top = (rect.top + window.scrollY) + 'px';
-  overlay.style.width = rect.width + 'px';
-  overlay.style.height = rect.height + 'px';
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Canvas Node Validation
-// ═══════════════════════════════════════════════════════════════════════
-
-/** IDs that belong to the editor chrome, not canvas nodes */
-var EDITOR_IDS = {'canvas-root':1, 'editor-overlay':1, 'editor-toolbar':1, 'canvas-container':1, 'drop-indicator':1};
-
-/** Returns true if the element is a valid, selectable canvas node */
-function isCanvasNode(el) {
-  if (!el || !el.id) return false;
-  if (EDITOR_IDS[el.id]) return false;
-  if (el.closest('#editor-toolbar')) return false;
-  // Must have an id that matches a canvas node (not editor chrome)
-  return true;
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Drop Indicator
-// ═══════════════════════════════════════════════════════════════════════
-
-function createDropIndicator() {
-  var el = document.getElementById('drop-indicator');
-  if (el) return el;
-  el = document.createElement('div');
-  el.id = 'drop-indicator';
-  el.style.cssText = 'position:fixed;height:3px;background:#58a6ff;border-radius:2px;z-index:101;pointer-events:none;display:none;box-shadow:0 0 8px rgba(88,166,255,0.4);';
-  document.body.appendChild(el);
-  return el;
-}
-
-function showDropIndicator(x, y) {
-  if (!dropIndicator) dropIndicator = createDropIndicator();
-  dropIndicator.style.display = 'block';
-  dropIndicator.style.left = '40px';
-  dropIndicator.style.width = (window.innerWidth - 80) + 'px';
-  dropIndicator.style.top = Math.max(0, y - 1) + 'px';
-}
-
-function hideDropIndicator() {
-  if (dropIndicator) dropIndicator.style.display = 'none';
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Click Selection
-// ═══════════════════════════════════════════════════════════════════════
-
-document.addEventListener('click', function(e) {
-  // If clicking an mcp-tool element, DO NOT select — let MCP runtime handle it
-  if (e.target.closest('[mcp-tool]')) return;
-
-  var el = e.target.closest('[id]');
-  if (!isCanvasNode(el)) return;
-
-  selectedNodeId = el.id;
-  highlightNode(el.id);
-  e.stopPropagation();
-});
-
-// Click on canvas background deselects
-document.getElementById('canvas-root')?.addEventListener('click', function(e) {
-  if (e.target === this && !e.target.closest('[id]')) {
-    selectedNodeId = null;
-    var overlay = document.getElementById('editor-overlay');
-    if (overlay) overlay.style.display = 'none';
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Drag to Reorder
-// ═══════════════════════════════════════════════════════════════════════
-
-var dragState = null;
-
-document.addEventListener('mousedown', function(e) {
-  if (!selectedNodeId) return;
-  if (e.target.closest('#editor-toolbar')) return;
-  if (e.target.closest('[contenteditable]')) return;
-  if (e.target.closest('[mcp-tool]')) return;
-
-  var el = document.getElementById(selectedNodeId);
-  if (!el || !el.contains(e.target)) return;
-
-  dragState = {
-    nodeId: selectedNodeId,
-    startX: e.clientX,
-    startY: e.clientY,
-    moved: false,
-  };
-});
-
-document.addEventListener('mousemove', function(e) {
-  if (!dragState) return;
-  var dx = e.clientX - dragState.startX;
-  var dy = e.clientY - dragState.startY;
-  if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-    dragState.moved = true;
-    isDragging = true;
-    document.body.style.cursor = 'grabbing';
-  }
-  if (isDragging) {
-    showDropIndicator(e.clientX, e.clientY);
-  }
-});
-
-document.addEventListener('mouseup', function(e) {
-  if (!dragState) return;
-  hideDropIndicator();
-  document.body.style.cursor = '';
-  isDragging = false;
-
-  if (dragState.moved) {
-    // Find the valid drop target under cursor — must be a canvas node
-    // and must NOT be the dragged node or its descendant
-    var dropEl = document.elementFromPoint(e.clientX, e.clientY);
-    var validTarget = null;
-
-    while (dropEl) {
-      if (dropEl.id && isCanvasNode(dropEl) && dropEl.id !== dragState.nodeId) {
-        // Verify we're not dropping into our own subtree
-        var ancestor = dropEl;
-        var isDescendant = false;
-        while (ancestor) {
-          if (ancestor.id === dragState.nodeId) { isDescendant = true; break; }
-          ancestor = ancestor.parentElement;
-        }
-        if (!isDescendant) { validTarget = dropEl; break; }
-      }
-      dropEl = dropEl.parentElement;
-    }
-
-    if (validTarget) {
-      ws.send(JSON.stringify({
-        type: 'mutation',
-        mutation: {
-          type: 'move_node',
-          nodeId: dragState.nodeId,
-          newParentId: validTarget.id,
-        },
-        expectedVersion: lastAppliedVersion,
-      }));
-    }
-  }
-  dragState = null;
-});
-
-// ── Text Editing ───────────────────────────────────────────────────────
-document.addEventListener('dblclick', function(e) {
-  var el = e.target.closest('[id]');
-  if (!el) return;
-
-  // Only allow text editing on Text or Button nodes
-  // (identified by tag — span = text, button = button)
-  if (el.tagName === 'SPAN' || el.tagName === 'BUTTON') {
-    el.contentEditable = 'plaintext-only';
-    el.focus();
-    selectedNodeId = el.id;
-    highlightNode(el.id);
-  }
-});
-
-document.addEventListener('blur', function(e) {
-  var el = e.target;
-  if (el.isContentEditable) {
-    el.contentEditable = 'inherit';
-    var newText = el.textContent || '';
-    ws.send(JSON.stringify({
-      type: 'mutation',
-      mutation: {
-        type: 'update_node',
-        nodeId: el.id,
-        props: { text: newText },
-      },
-      expectedVersion: lastAppliedVersion,
-    }));
-  }
-}, true); // capture phase for blur
-
-// ── Delete Node (Del key when node selected) ───────────────────────────
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (!selectedNodeId) return;
-    // Don't delete while editing text
-    if (document.activeElement && document.activeElement.isContentEditable) return;
-    e.preventDefault();
-    ws.send(JSON.stringify({
-      type: 'mutation',
-      mutation: {
-        type: 'delete_node',
-        nodeId: selectedNodeId,
-      },
-      expectedVersion: lastAppliedVersion,
-    }));
-    selectedNodeId = null;
-    var overlay = document.getElementById('editor-overlay');
-    if (overlay) overlay.style.display = 'none';
-  }
-});
-
-// ── WebMCP Runtime ─────────────────────────────────────────────────────
-function mcpExtractPayload(el) {
-  // For forms: extract form data
-  if (el.tagName === 'FORM' || el.tagName === 'FORM') {
-    var data = {};
-    var inputs = el.querySelectorAll('[name]');
-    for (var i = 0; i < inputs.length; i++) {
-      data[inputs[i].name] = inputs[i].value;
-    }
-    return data;
-  }
-  return {};
-}
-
-// Intercept form submits with mcp-tool
-document.addEventListener('submit', function(e) {
-  var el = e.target;
-  var tool = el.getAttribute('mcp-tool');
-  if (!tool) return;
-  e.preventDefault();
-  ws.send(JSON.stringify({
-    type: 'mcp_call',
-    tool: tool,
-    payload: mcpExtractPayload(el),
-    expectedVersion: lastAppliedVersion,
-  }));
-});
-
-// Intercept clicks on elements with mcp-tool
-document.addEventListener('click', function(e) {
-  var el = e.target.closest('[mcp-tool]');
-  if (!el) return;
-  // Don't intercept during drag or selection
-  if (isDragging) return;
-  if (selectedNodeId) return;
-  // Only intercept if it's a valid canvas node
-  if (!isCanvasNode(el)) return;
-  e.preventDefault();
-  e.stopPropagation();
-  ws.send(JSON.stringify({
-    type: 'mcp_call',
-    tool: el.getAttribute('mcp-tool'),
-    payload: mcpExtractPayload(el),
-    expectedVersion: lastAppliedVersion,
-  }));
-});
-
-})();
-`.trim()
+  return html
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -717,7 +336,7 @@ export function renderEditorPage(doc: CanvasDocument, canvasId: string): string 
   const doId = canvasId // DO instance ID matches canvas ID
   const version = doc.version
 
-  const clientJS = editorClientJS(canvasId, doId)
+  const clientJS = editorClientScripts(canvasId, doId)
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -866,7 +485,7 @@ body {
   <span class="status"><span id="canvas-version">v${version}</span></span>
 </div>
 <div id="canvas-container">
-  <div id="canvas-root" data-canvas-id="${canvasId}" data-version="${version}">
+  <div id="canvas-root" data-canvas-id="${canvasId}" data-do-id="${doId}" data-version="${version}">
     ${compiledHtml}
   </div>
   <div id="editor-overlay"></div>

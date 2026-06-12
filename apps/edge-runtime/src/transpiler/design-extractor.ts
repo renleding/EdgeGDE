@@ -41,6 +41,29 @@ const DEFAULTS: DesignTokens = {
   },
 }
 
+const LIGHT_DEFAULTS: DesignTokens = {
+  colors: {
+    background: '#ffffff',
+    text: '#111827',
+    primary: '#2563eb',
+    surface: '#f8fafc',
+    border: '#e5e7eb',
+    muted: '#6b7280',
+  },
+  typography: {
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontSize: { h1: '36px', h2: '24px', h3: '20px', body: '16px', small: '13px' },
+    fontWeight: { h1: 700, h2: 600, h3: 600, body: 400 },
+    lineHeight: 1.5,
+  },
+  spacing: {
+    sectionPadding: '60px 40px',
+    cardPadding: '20px',
+    gap: '16px',
+    borderRadius: '8px',
+  },
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
@@ -58,6 +81,10 @@ interface ParsedStyle {
   borderRadius?: string
   tagName: string
   text?: string
+}
+
+interface ExtractDesignTokenOptions {
+  fallback?: 'dark' | 'light'
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -91,7 +118,7 @@ function isDark(hex: string): boolean {
   return lum < 0.3
 }
 
-function extractColors(styles: ParsedStyle[]): DesignTokens['colors'] {
+function extractColors(styles: ParsedStyle[], fallback: DesignTokens = DEFAULTS): DesignTokens['colors'] {
   const allColors: string[] = []
   const textColors: string[] = []
   const bgColors: string[] = []
@@ -116,7 +143,7 @@ function extractColors(styles: ParsedStyle[]): DesignTokens['colors'] {
   }
 
   if (allColors.length === 0) {
-    return { ...DEFAULTS.colors }
+    return { ...fallback.colors }
   }
 
   // Frequency analysis
@@ -196,7 +223,19 @@ function extractColors(styles: ParsedStyle[]): DesignTokens['colors'] {
 // Typography Extraction
 // ═══════════════════════════════════════════════════════════════════════════
 
-function extractTypography(styles: ParsedStyle[]): DesignTokens['typography'] {
+function extractTypography(styles: ParsedStyle[], fallback: DesignTokens = DEFAULTS): DesignTokens['typography'] {
+  const base = fallback.typography
+  const fontSize = base.fontSize ?? DEFAULTS.typography.fontSize
+  const fontWeight = base.fontWeight ?? DEFAULTS.typography.fontWeight
+  const h1Size = fontSize?.h1 ?? '36px'
+  const h2Size = fontSize?.h2 ?? '24px'
+  const h3Size = fontSize?.h3 ?? '20px'
+  const bodySize = fontSize?.body ?? '16px'
+  const h1Weight = fontWeight?.h1 ?? 700
+  const h2Weight = fontWeight?.h2 ?? 600
+  const h3Weight = fontWeight?.h3 ?? 600
+  const bodyWeight = fontWeight?.body ?? 400
+
   // Collect font families by frequency
   const fontFreq = new Map<string, number>()
   const fontSizeByTag: Record<string, string[]> = {}
@@ -236,19 +275,19 @@ function extractTypography(styles: ParsedStyle[]): DesignTokens['typography'] {
   }
 
   return {
-    fontFamily: topFont || DEFAULTS.typography.fontFamily,
+    fontFamily: topFont || base.fontFamily || DEFAULTS.typography.fontFamily,
     fontSize: {
-      h1: commonSize('h1', DEFAULTS.typography.fontSize!.h1),
-      h2: commonSize('h2', DEFAULTS.typography.fontSize!.h2),
-      h3: commonSize('h3', DEFAULTS.typography.fontSize!.h3),
-      body: commonSize('p', DEFAULTS.typography.fontSize!.body),
+      h1: commonSize('h1', h1Size),
+      h2: commonSize('h2', h2Size),
+      h3: commonSize('h3', h3Size),
+      body: commonSize('p', bodySize),
       small: '13px',
     },
     fontWeight: {
-      h1: commonWeight('h1', DEFAULTS.typography.fontWeight!.h1),
-      h2: commonWeight('h2', DEFAULTS.typography.fontWeight!.h2),
-      h3: commonWeight('h3', DEFAULTS.typography.fontWeight!.h3),
-      body: commonWeight('p', DEFAULTS.typography.fontWeight!.body),
+      h1: commonWeight('h1', h1Weight),
+      h2: commonWeight('h2', h2Weight),
+      h3: commonWeight('h3', h3Weight),
+      body: commonWeight('p', bodyWeight),
     },
     lineHeight: 1.5,
   }
@@ -258,7 +297,8 @@ function extractTypography(styles: ParsedStyle[]): DesignTokens['typography'] {
 // Spacing Extraction
 // ═══════════════════════════════════════════════════════════════════════════
 
-function extractSpacing(styles: ParsedStyle[]): DesignTokens['spacing'] {
+function extractSpacing(styles: ParsedStyle[], fallback: DesignTokens = DEFAULTS): DesignTokens['spacing'] {
+  const base = fallback.spacing ?? DEFAULTS.spacing
   const paddings: string[] = []
   const gaps: string[] = []
   const radii: string[] = []
@@ -276,11 +316,16 @@ function extractSpacing(styles: ParsedStyle[]): DesignTokens['spacing'] {
     return [...freq.entries()].sort((a, b) => b[1] - a[1])[0][0]
   }
 
+  const sectionPadding = base.sectionPadding ?? DEFAULTS.spacing.sectionPadding ?? ''
+  const cardPadding = base.cardPadding ?? DEFAULTS.spacing.cardPadding ?? ''
+  const gap = base.gap ?? DEFAULTS.spacing.gap ?? ''
+  const borderRadius = base.borderRadius ?? DEFAULTS.spacing.borderRadius ?? ''
+
   return {
-    sectionPadding: mostCommon(paddings, DEFAULTS.spacing.sectionPadding),
-    cardPadding: mostCommon(paddings.filter(p => !p.includes('60')), DEFAULTS.spacing.cardPadding),
-    gap: mostCommon(gaps, DEFAULTS.spacing.gap),
-    borderRadius: mostCommon(radii, DEFAULTS.spacing.borderRadius),
+    sectionPadding: mostCommon(paddings, sectionPadding),
+    cardPadding: mostCommon(paddings.filter(p => !p.includes('60')), cardPadding),
+    gap: mostCommon(gaps, gap),
+    borderRadius: mostCommon(radii, borderRadius),
   }
 }
 
@@ -292,24 +337,26 @@ function extractSpacing(styles: ParsedStyle[]): DesignTokens['spacing'] {
  * Extract design tokens from a set of parsed HTML styles.
  *
  * @param styles - Array of parsed inline styles from HTML elements
+ * @param options.fallback - Default palette for clones with no extracted colors: 'dark' (EdgeGDE) or 'light' (browser/default)
  * @returns A complete DesignTokens object (missing values filled from defaults)
  */
-export function extractDesignTokens(styles: ParsedStyle[]): DesignTokens {
-  const colors = extractColors(styles)
-  const typography = extractTypography(styles)
-  const spacing = extractSpacing(styles)
+export function extractDesignTokens(styles: ParsedStyle[], options: ExtractDesignTokenOptions = {}): DesignTokens {
+  const fallback = options.fallback === 'light' ? LIGHT_DEFAULTS : DEFAULTS
+  const colors = extractColors(styles, fallback)
+  const typography = extractTypography(styles, fallback)
+  const spacing = extractSpacing(styles, fallback)
 
   return {
     colors: {
-      background: colors.background || DEFAULTS.colors.background,
-      text: colors.text || DEFAULTS.colors.text,
-      primary: colors.primary || DEFAULTS.colors.primary,
-      surface: colors.surface || DEFAULTS.colors.surface,
-      border: colors.border || DEFAULTS.colors.border,
-      muted: colors.muted || DEFAULTS.colors.muted,
+      background: colors.background || fallback.colors.background,
+      text: colors.text || fallback.colors.text,
+      primary: colors.primary || fallback.colors.primary,
+      surface: colors.surface || fallback.colors.surface,
+      border: colors.border || fallback.colors.border,
+      muted: colors.muted || fallback.colors.muted,
     },
     typography: {
-      fontFamily: typography.fontFamily,
+      fontFamily: typography.fontFamily || fallback.typography.fontFamily,
       fontSize: typography.fontSize,
       fontWeight: typography.fontWeight,
       lineHeight: typography.lineHeight,

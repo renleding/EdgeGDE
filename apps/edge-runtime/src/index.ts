@@ -167,6 +167,22 @@ app.use('*', async (c, next) => {
 })
 
 // 2. TENANT RESOLVER — always first after guard
+app.use('*', async (c, next) => {
+  // Bypass tenant resolver for MCP endpoint
+  if (c.req.path === '/api/mcp' || c.req.path === '/mcp') {
+    return next()
+  }
+  // Bypass tenant resolver for known non-tenant paths
+  if (
+    c.req.path.startsWith('/canvas') ||
+    c.req.path.startsWith('/api/canvas/') ||
+    c.req.path === '/healthz'
+  ) {
+    return next()
+  }
+  await next()
+})
+
 app.use('*', tenantResolver)
 app.use('*', tenantContextResolver)
 
@@ -437,9 +453,10 @@ app.get('/canvas', async (c) => {
 })
 // Create a new canvas session
 app.post('/api/canvas/create', async (c) => {
+  const env = (c as any).env
   const id = crypto.randomUUID()
-  const doId = c.env.CANVAS_SESSION.idFromName(id)
-  const stub = c.env.CANVAS_SESSION.get(doId)
+  const doId = env.CANVAS_SESSION.idFromName(id)
+  const stub = env.CANVAS_SESSION.get(doId)
   await stub.fetch('http://dO/init', {
     method: 'POST',
     body: JSON.stringify({ id, rootId: 'root', nodes: { root: { id: 'root', type: 'Page', parentId: null, children: [], props: {}, style: {} } } }),
@@ -454,25 +471,42 @@ app.post('/api/canvas/clone', async (c) => {
 
   const id = crypto.randomUUID()
   try {
-    const response = await fetch(url, { headers: { 'User-Agent': 'EdgeGDE-Cloner/1.0' } })
-    if (!response.ok) return c.json({ error: 'Fetch failed: ' + response.status }, 502)
-    const html = await response.text()
+    const { html, normalizedUrl } = await fetchCloneHtml(url)
 
     const { cloneWebsite } = await import('./cloner/website-cloner')
     const { extractDesignTokens } = await import('./transpiler/design-extractor')
-    const doc = cloneWebsite(url, html)
+    const { fetchStylesheets, extractClassNames, extractTokensFromCSS } = await import('./transpiler/css-token-extractor')
+    const doc = cloneWebsite(normalizedUrl, html)
     doc.id = id
 
-    // Extract design tokens from parsed HTML styles
+    // Extract design tokens from inline styles
     const styles = collectStyles(doc)
-    const designTokens = extractDesignTokens(styles)
+    const inlineTokens = extractDesignTokens(styles, { fallback: 'light' })
+
+    // Extract design tokens from CSS classes
+    let cssTokens: any = {}
+    try {
+      const cssText = await fetchStylesheets(html, url)
+      if (cssText) {
+        const classNames = extractClassNames(html)
+        cssTokens = extractTokensFromCSS(cssText, classNames)
+      }
+    } catch { /* CSS extraction is best-effort */ }
+
+    // Merge: CSS tokens win over inline tokens (CSS is more specific)
+    const designTokens = {
+      colors: { ...inlineTokens?.colors, ...cssTokens.colors },
+      typography: { ...inlineTokens?.typography, ...cssTokens.typography },
+      spacing: { ...inlineTokens?.spacing, ...cssTokens.spacing },
+    }
     ;(doc as any).designTokens = designTokens
 
-    const doId = c.env.CANVAS_SESSION.idFromName(id)
-    const stub = c.env.CANVAS_SESSION.get(doId)
+    const env = (c as any).env
+    const doId = env.CANVAS_SESSION.idFromName(id)
+    const stub = env.CANVAS_SESSION.get(doId)
     await stub.fetch('http://dO/init', {
       method: 'POST',
-      body: JSON.stringify({ id, rootId: doc.rootId, nodes: doc.nodes }),
+      body: JSON.stringify({ id, rootId: doc.rootId, nodes: doc.nodes, designTokens }),
     })
 
     return c.json({ id, title: doc.metadata?.name || 'Cloned Website' })
@@ -498,7 +532,26 @@ function collectStyles(doc: CanvasDocument): Array<{ tagName: string; color?: st
     styles.push(s)
   }
   return styles
-})
+}
+
+async function fetchCloneHtml(rawUrl: string): Promise<{ html: string; normalizedUrl: string }> {
+  const { normalizeCloneUrl } = await import('./cloner/website-cloner')
+  const normalizedUrl = normalizeCloneUrl(rawUrl)
+  const response = await fetch(normalizedUrl, {
+    headers: {
+      Accept: 'text/html,application/xhtml+xml,text/*;q=0.9,*/*;q=0.8',
+      'User-Agent': 'EdgeGDE-Cloner/1.0',
+    },
+  })
+  if (!response.ok) throw new Error(`Fetch failed: ${response.status}`)
+  const contentType = response.headers.get('content-type') || ''
+  if (contentType && !/^(text\/html|application\/xhtml\+xml|text\/plain|[^;]+; ?charset=)/i.test(contentType) && !/html/i.test(contentType)) {
+    throw new Error('Cloning is only supported for HTML pages')
+  }
+  const html = await response.text()
+  if (html.length > 2_000_000) throw new Error('Page is too large to clone')
+  return { html, normalizedUrl }
+}
 
 // ── In-memory job tracker (v1 — acceptable for low traffic) ──────────────
 const generateJobs = new Map<string, {
@@ -523,15 +576,16 @@ app.post('/api/canvas/generate', async (c) => {
   const { prompt } = await c.req.json() as { prompt: string }
   if (!prompt) return c.json({ error: 'Prompt required' }, 400)
 
-  const TENANT_KV = c.env.TENANT_KV as any
-  const LLM_KEY = c.env.LLM_API_KEY as string || ''
-  const CANVAS_SESSION = c.env.CANVAS_SESSION as any
+  const env = (c as any).env
+  const tenantKv = guardKV(env['TENANT_KV'])
+  const LLM_KEY = env.LLM_API_KEY as string || ''
+  const CANVAS_SESSION = env.CANVAS_SESSION as any
 
   // ── Check KV cache ──────────────────────────────────────────────────
   const pHash = await hashPrompt(prompt)
-  if (TENANT_KV && typeof TENANT_KV.get === 'function') {
+  if (tenantKv && typeof tenantKv.get === 'function') {
     try {
-      const cached = await TENANT_KV.get('cache:canvas:gen:' + pHash, 'json') as any
+      const cached = await tenantKv.get('cache:canvas:gen:' + pHash, 'json') as any
       if (cached && cached.id) {
         return c.json({ id: cached.id, title: cached.title, cached: true })
       }
@@ -541,8 +595,8 @@ app.post('/api/canvas/generate', async (c) => {
   const jobId = crypto.randomUUID()
 
   // Write pending job to KV (TTL 5 min)
-  if (TENANT_KV?.put) {
-    await TENANT_KV.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'processing' }), { expirationTtl: 300 }).catch(() => {})
+  if (tenantKv && typeof tenantKv.put === 'function') {
+    await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'processing' }), undefined, { expirationTtl: 300 }).catch(() => {})
   }
 
   // Background processing — capture env vars before waitUntil
@@ -560,16 +614,16 @@ app.post('/api/canvas/generate', async (c) => {
       })
 
       const result = { status: 'complete', id, title: doc.metadata?.name || 'Generated Website' }
-      if (TENANT_KV?.put) {
-        await TENANT_KV.put('job:canvas:gen:' + jobId, JSON.stringify(result), { expirationTtl: 300 }).catch(() => {})
+      if (tenantKv && typeof tenantKv.put === 'function') {
+        await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify(result), undefined, { expirationTtl: 300 }).catch(() => {})
       }
-      if (TENANT_KV?.put) {
-        await TENANT_KV.put('cache:canvas:gen:' + pHash, JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), { expirationTtl: 86400 }).catch(() => {})
+      if (tenantKv && typeof tenantKv.put === 'function') {
+        await tenantKv.put('cache:canvas:gen:' + pHash, JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), undefined, { expirationTtl: 86400 }).catch(() => {})
       }
     } catch (e: any) {
       console.error('[CanvasGen] background error:', e.message)
-      if (TENANT_KV?.put) {
-        await TENANT_KV.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'error', error: e.message }), { expirationTtl: 300 }).catch(() => {})
+      if (tenantKv && typeof tenantKv.put === 'function') {
+        await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'error', error: e.message }), undefined, { expirationTtl: 300 }).catch(() => {})
       }
     }
   })())
@@ -580,11 +634,12 @@ app.post('/api/canvas/generate', async (c) => {
 // Poll generation status
 app.get('/api/canvas/generate/status/:jobId', async (c) => {
   const jobId = c.req.param('jobId')
-  const TENANT_KV = c.env.TENANT_KV as any
-  if (!TENANT_KV || typeof TENANT_KV.get !== 'function') {
+  const env = (c as any).env
+  const tenantKv = guardKV(env['TENANT_KV'])
+  if (!tenantKv || typeof tenantKv.get !== 'function') {
     return c.json({ error: 'Storage unavailable' }, 500)
   }
-  const job = await TENANT_KV.get('job:canvas:gen:' + jobId, 'json') as any
+  const job = await tenantKv.get('job:canvas:gen:' + jobId, 'json') as any
   if (!job) return c.json({ error: 'Job not found' }, 404)
   return c.json(job)
 })
@@ -601,14 +656,26 @@ app.post('/api/canvas/:id/chat', async (c) => {
 })
 
 app.get('/canvas/:id/edit', async (c) => {
+  const env = (c as any).env
   const canvasId = c.req.param('id')
-  const doId = c.env.CANVAS_SESSION.idFromName(canvasId)
-  const stub = c.env.CANVAS_SESSION.get(doId)
+  const doId = env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = env.CANVAS_SESSION.get(doId)
   const stateRes = await stub.fetch('http://dO/state')
   if (stateRes.status === 400) {
-    // Canvas not in DO — attempt lazy migration from legacy layout
-    const TENANT_KV = c.env.TENANT_KV as any
-    const ARTIFACT_KV = c.env.ARTIFACT_KV as any
+    // Try restoring from D1 snapshot first
+    const restoreRes = await stub.fetch('http://dO/restore', {
+      method: 'POST',
+      body: JSON.stringify({ canvasId }),
+    })
+    if (restoreRes.status === 200) {
+      const doc = await restoreRes.json() as CanvasDocument
+      return c.html(renderEditorPage(doc, canvasId))
+    }
+
+    // Fallback: attempt lazy migration from legacy layout
+    const env = (c as any).env
+    const tenantKv = guardKV(env['TENANT_KV'])
+    const ARTIFACT_KV = env.ARTIFACT_KV as any
     let layout: any = null
 
     // Try ARTIFACT_KV legacy layout (format: layout:{tenantId}:production:latest)
@@ -616,8 +683,8 @@ app.get('/canvas/:id/edit', async (c) => {
       layout = await ARTIFACT_KV.get('layout:' + canvasId + ':production:latest', 'json').catch(() => null)
     }
     // Fallback: TENANT_KV (format: tenant:{slug})
-    if (!layout && TENANT_KV?.get) {
-      layout = await TENANT_KV.get('tenant:' + canvasId + ':layout', 'json').catch(() => null)
+    if (!layout && tenantKv?.get) {
+      layout = await tenantKv.get('tenant:' + canvasId + ':layout', 'json').catch(() => null)
     }
 
     if (layout && layout.rootNode) {
@@ -630,26 +697,264 @@ app.get('/canvas/:id/edit', async (c) => {
       })
 
       c.header('Content-Type', 'text/html; charset=utf-8')
-      return c.body(renderEditorPage(doc, canvasId))
+      return c.html(renderEditorPage(doc, canvasId))
     }
 
     return c.text('Canvas not found', 404)
   }
   const doc = await stateRes.json() as CanvasDocument
   c.header('Content-Type', 'text/html; charset=utf-8')
-  return c.body(renderEditorPage(doc, canvasId))
+  return c.html(renderEditorPage(doc, canvasId))
+})
+
+// Raw DO state (for debugging)
+app.get('/api/canvas/:id/state', async (c) => {
+  const env = (c as any).env
+  const canvasId = c.req.param('id')
+  const doId = env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = env.CANVAS_SESSION.get(doId)
+  const stateRes = await stub.fetch('http://dO/state')
+  if (stateRes.status === 400) return c.json({ error: 'Not found' }, 404)
+  const doc = await stateRes.json()
+  return c.json({
+    id: doc.id,
+    version: doc.version,
+    rootId: doc.rootId,
+    nodeCount: Object.keys(doc.nodes || {}).length,
+    hasDesignTokens: !!(doc as any).designTokens,
+    designTokens: (doc as any).designTokens || null,
+  })
+})
+
+// Raw DO state check
+app.get('/api/canvas/:id/debug', async (c) => {
+  const env = (c as any).env
+  const canvasId = c.req.param('id')
+  const doId = env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = env.CANVAS_SESSION.get(doId)
+  const stateRes = await stub.fetch('http://dO/state')
+  if (stateRes.status === 400) return c.json({ error: 'Not found' }, 404)
+  const doc = await stateRes.json()
+  // Return minimal debug info
+  return c.json({
+    id: doc.id,
+    version: doc.version,
+    rootId: doc.rootId,
+    nodeCount: Object.keys(doc.nodes || {}).length,
+    hasDT: !!(doc as any).designTokens,
+    dtKeys: (doc as any).designTokens ? Object.keys((doc as any).designTokens) : [],
+    colors: (doc as any).designTokens?.colors || null,
+  })
 })
 
 app.get('/api/canvas/:id/html', async (c) => {
+  const env = (c as any).env
   const canvasId = c.req.param('id')
-  const doId = c.env.CANVAS_SESSION.idFromName(canvasId)
-  const stub = c.env.CANVAS_SESSION.get(doId)
+  const doId = env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = env.CANVAS_SESSION.get(doId)
   const stateRes = await stub.fetch('http://dO/state')
   if (stateRes.status === 400) return c.text('', 404)
   const doc = await stateRes.json() as CanvasDocument
   const html = compileFromCanvas(doc)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MCP Server — JSON-RPC for AI clients
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MCP_TOOLS = [
+  {
+    name: 'canvas_create',
+    description: 'Create a new empty canvas',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Optional canvas name' },
+      },
+    },
+  },
+  {
+    name: 'canvas_clone',
+    description: 'Clone a website URL into a canvas',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Website URL to clone' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'canvas_generate',
+    description: 'Generate a canvas from a natural language prompt',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Description of the desired layout' },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
+    name: 'canvas_get_state',
+    description: 'Get current canvas state (nodes, version, metadata)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Canvas ID' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'canvas_mutate',
+    description: 'Apply mutations to a canvas',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Canvas ID' },
+        mutations: { type: 'array', description: 'Array of Mutation objects' },
+        expectedVersion: { type: 'number', description: 'Current version for conflict detection' },
+      },
+      required: ['id', 'mutations', 'expectedVersion'],
+    },
+  },
+  {
+    name: 'canvas_chat',
+    description: 'Send a natural language command to the canvas agent',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Canvas ID' },
+        message: { type: 'string', description: 'Natural language instruction' },
+        selectedNodeId: { type: 'string', description: 'Optional node ID to scope context' },
+      },
+      required: ['id', 'message'],
+    },
+  },
+]
+
+async function handleMcpTool(name: string, args: any, env: any): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  try {
+    const CANVAS_SESSION = env.CANVAS_SESSION as any
+
+    switch (name) {
+      case 'canvas_create': {
+        const id = crypto.randomUUID()
+        const doId = CANVAS_SESSION.idFromName(id)
+        const stub = CANVAS_SESSION.get(doId)
+        const rootId = 'root'
+        const nodes: Record<string, any> = {}
+        nodes[rootId] = { id: rootId, type: 'Page', parentId: null, children: [], props: {}, style: { display: 'flex', flexDirection: 'column', minHeight: '100vh' } }
+        await stub.fetch('http://dO/init', {
+          method: 'POST',
+          body: JSON.stringify({ id, rootId, nodes }),
+        })
+        return { content: [{ type: 'text', text: JSON.stringify({ id, rootId, nodeCount: 1 }) }] }
+      }
+      case 'canvas_clone': {
+        const { html, normalizedUrl } = await fetchCloneHtml(args.url)
+        const { cloneWebsite } = await import('./cloner/website-cloner')
+        const { extractDesignTokens } = await import('./transpiler/design-extractor')
+        const doc = cloneWebsite(normalizedUrl, html)
+        const id = crypto.randomUUID()
+        doc.id = id
+        const styles = collectStyles(doc)
+        const designTokens = extractDesignTokens(styles, { fallback: 'light' })
+        ;(doc as any).designTokens = designTokens
+        const doId = CANVAS_SESSION.idFromName(id)
+        const stub = CANVAS_SESSION.get(doId)
+        await stub.fetch('http://dO/init', {
+          method: 'POST',
+          body: JSON.stringify({ id, rootId: doc.rootId, nodes: doc.nodes, designTokens }),
+        })
+        return { content: [{ type: 'text', text: JSON.stringify({ id, title: doc.metadata?.name || 'Cloned', nodeCount: Object.keys(doc.nodes).length }) }] }
+      }
+      case 'canvas_generate': {
+        const { generateCanvas } = await import('./generator/layout-generator')
+        const llmKey = env.LLM_API_KEY || ''
+        if (!llmKey) return { content: [{ type: 'text', text: 'LLM_API_KEY not configured' }], isError: true }
+        const doc = await generateCanvas(args.prompt, { apiKey: llmKey })
+        const id = crypto.randomUUID()
+        doc.id = id
+        const doId = CANVAS_SESSION.idFromName(id)
+        const stub = CANVAS_SESSION.get(doId)
+        await stub.fetch('http://dO/init', {
+          method: 'POST',
+          body: JSON.stringify({ id, rootId: doc.rootId, nodes: doc.nodes }),
+        })
+        return { content: [{ type: 'text', text: JSON.stringify({ id, nodeCount: Object.keys(doc.nodes).length }) }] }
+      }
+      case 'canvas_get_state': {
+        const doId = env.CANVAS_SESSION.idFromName(args.id)
+        const stub = env.CANVAS_SESSION.get(doId)
+        const stateRes = await stub.fetch('http://dO/state')
+        if (stateRes.status !== 200) return { content: [{ type: 'text', text: 'Canvas not found' }], isError: true }
+        const doc = await stateRes.json()
+        return { content: [{ type: 'text', text: JSON.stringify({ id: doc.id, version: doc.version, rootId: doc.rootId, nodeCount: Object.keys(doc.nodes || {}).length }) }] }
+      }
+      case 'canvas_mutate': {
+        const doId = env.CANVAS_SESSION.idFromName(args.id)
+        const stub = env.CANVAS_SESSION.get(doId)
+        const res = await stub.fetch('http://dO/mutation/batch', {
+          method: 'POST',
+          body: JSON.stringify({ mutations: args.mutations, expectedVersion: args.expectedVersion }),
+        })
+        const data: any = await res.json()
+        if (!res.ok) return { content: [{ type: 'text', text: data.error || 'Mutation failed' }], isError: true }
+        return { content: [{ type: 'text', text: JSON.stringify(data) }] }
+      }
+      case 'canvas_chat': {
+        const { handleCanvasChat } = await import('./api/canvas-chat')
+        const result = await handleCanvasChat(args.id, args.message, env, args.selectedNodeId)
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] }
+      }
+      default:
+        return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
+    }
+  } catch (e: any) {
+    return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true }
+  }
+}
+
+app.post('/api/mcp', async (c) => {
+  const body: any = await c.req.json()
+  const { method, id, params } = body
+
+  if (method === 'tools/list') {
+    return c.json({
+      jsonrpc: '2.0',
+      id,
+      result: { tools: MCP_TOOLS },
+    })
+  }
+
+  if (method === 'tools/call') {
+    const toolName = params?.name
+    const toolArgs = params?.arguments || {}
+    const result = await handleMcpTool(toolName, toolArgs, c.env)
+    return c.json({
+      jsonrpc: '2.0',
+      id,
+      result,
+    })
+  }
+
+  if (method === 'initialize') {
+    return c.json({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'edgegde-canvas-mcp', version: '1.0.0' },
+      },
+    })
+  }
+
+  return c.json({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -705,7 +1010,7 @@ app.route('/api/v1', chatRouter)
 
 // Workspace Origination (Phase 18-20)
 app.use('/api/v1/chat/*', tenantQueryAuth)
-app.use('/api/v1/workspace/*', adminAuth)
+app.use('/api/v1/workspace/*', tenantQueryAuth)
 app.route('/api/v1', workspaceRouter)
 
 // MCP Swarm Intelligence Ingress (Phase 21)
@@ -999,7 +1304,7 @@ app.get('/api/admin/leads/:tenantId', async (c) => {
 // Composer Layout Renderer (Phase 32) — renders JSON layout trees
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { renderComposerLayout } from './compiler/registry'
+import { compileLayoutCompat } from './lib/compile-layout-compat'
 import { parseDesignMd, type DesignTokens } from './lib/design-parser'
 
 app.post('/api/render', async (c) => {
@@ -1016,7 +1321,7 @@ app.post('/api/render', async (c) => {
       console.log('[Design Tokens]', JSON.stringify(design))
     }
 
-    const html = renderComposerLayout(layout, design)
+    const html = compileLayoutCompat(layout, design)
     return c.html(html)
   } catch (err: any) {
     return c.json({ error: 'Render failed', details: err.message }, 400)

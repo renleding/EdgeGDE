@@ -88,7 +88,30 @@ async function run() {
     if (err !== null) throw new Error(`expected null for XSS string on non-required field, got ${err}`)
   })
 
-  // ── Test 9: applyFieldUpdate — stores value, returns updated completedFields ──
+  // ── Test 9: validateField — accepts valid Australian phone field name ──
+  await test('validateField accepts valid Australian phone number by field name', async () => {
+    const field = { fieldName: 'phoneNumber', label: 'Phone Number', fieldType: 'string' as const, validation: { required: true } }
+    const err = validateField(field, '0412345678')
+    if (err !== null) throw new Error(`expected null got ${err}`)
+  })
+
+  // ── Test 10: validateField — rejects short phone field name ──
+  await test('validateField rejects short Australian phone number by field name', async () => {
+    const field = { fieldName: 'phoneNumber', label: 'Phone Number', fieldType: 'string' as const, validation: { required: true } }
+    const err = validateField(field, '04111')
+    if (err === null) throw new Error('expected phone digit length error')
+    if (!err.includes('10 digits')) throw new Error(`expected 10 digits error got ${err}`)
+  })
+
+  // ── Test 11: validateField — rejects non-04 phone field name ──
+  await test('validateField rejects Australian phone number not starting with 04', async () => {
+    const field = { fieldName: 'phoneNumber', label: 'Phone Number', fieldType: 'string' as const, validation: { required: true } }
+    const err = validateField(field, '0312345678')
+    if (err === null) throw new Error('expected phone 04 error')
+    if (!err.includes('04')) throw new Error(`expected 04 error got ${err}`)
+  })
+
+  // ── Test 12: applyFieldUpdate — stores value, returns updated completedFields ──
   await test('applyFieldUpdate stores value and returns completedFields with error null', async () => {
     const { collected, error, state } = applyFieldUpdate(fields, {}, 'fullName', 'Bob Smith')
     if (error !== null) throw new Error(`expected null error got ${error}`)

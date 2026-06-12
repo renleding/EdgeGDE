@@ -68,8 +68,8 @@ function convertFills(fills?: OpenPencilNode['fills']): Record<string, string> {
   const c = visibleFill.color
   if (c && typeof c.r === 'number') {
     const r = Math.round(c.r * 255)
-    const g = Math.round(c.g * 255)
-    const b = Math.round(c.b * 255)
+    const g = Math.round((c.g != null ? c.g : 0) * 255)
+    const b = Math.round((c.b != null ? c.b : 0) * 255)
     const a = typeof c.a === 'number' ? c.a : 1
     style.backgroundColor = a < 1 ? `rgba(${r},${g},${b},${a})` : `rgb(${r},${g},${b})`
   }

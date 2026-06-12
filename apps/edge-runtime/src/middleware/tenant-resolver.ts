@@ -111,8 +111,11 @@ export async function tenantResolver(
     path.startsWith('/api/dashboard/') ||
     path.startsWith('/api/fragment/') ||
     path.startsWith('/sites/') ||
+    path.startsWith('/chat/') ||
     path.startsWith('/canvas') ||
     path.startsWith('/api/canvas/') ||
+    path.startsWith('/api/mcp') ||
+    path.startsWith('/mcp') ||
     path.match(/\\.(js|css|png|jpg|svg|ico|woff2?)$/)
   ) {
     return next()

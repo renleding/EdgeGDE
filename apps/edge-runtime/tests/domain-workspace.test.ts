@@ -6,8 +6,8 @@
 import assert from 'node:assert'
 import { createHash } from 'node:crypto'
 
-const BASE = 'https://edgegde-calculator.renleding.workers.dev'
-const TENANT = 'afirmico'
+const BASE = process.env.EDGE_RUNTIME_BASE_URL || 'https://edgegde-calculator.renleding.workers.dev'
+const TENANT = process.env.EDGE_RUNTIME_TENANT || 'afirmico'
 let passed = 0
 let failed = 0
 

@@ -49,6 +49,22 @@ function tokenize(condition: string): Token[] {
   return tokens
 }
 
+export function validateConditionSyntax(condition: string): void {
+  const tokens = tokenize(condition)
+  if (tokens.length === 0) throw new Error('Invalid condition syntax')
+
+  for (let i = 0; i < tokens.length; i += 4) {
+    const [field, op, value, connector] = tokens.slice(i, i + 4)
+    if (!field || !op || !value) throw new Error('Invalid condition syntax')
+    if (field.type !== 'field' || op.type !== 'op' || (value.type !== 'field' && value.type !== 'value')) {
+      throw new Error('Invalid condition syntax')
+    }
+    if (connector && connector.type !== 'and' && connector.type !== 'or') {
+      throw new Error('Invalid condition syntax')
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Simple expression evaluator — compares field OP value
 // Returns the evaluation result and a description for simulation output

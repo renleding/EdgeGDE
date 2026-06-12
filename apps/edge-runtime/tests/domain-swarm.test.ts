@@ -15,8 +15,8 @@ import { computeAffordability } from '../src/lib/agents/affordability'
 import { computeRisk } from '../src/lib/agents/risk'
 import { computeReadiness } from '../src/lib/agents/readiness'
 
-const BASE = 'https://edgegde-calculator.renleding.workers.dev'
-const TENANT = 'afirmico'
+const BASE = process.env.EDGE_RUNTIME_BASE_URL || 'https://edgegde-calculator.renleding.workers.dev'
+const TENANT = process.env.EDGE_RUNTIME_TENANT || 'afirmico'
 let passed = 0
 let failed = 0
 

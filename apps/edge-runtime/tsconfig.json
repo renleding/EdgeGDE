@@ -48,6 +48,8 @@
     "tests/unit-schema.test.ts",
     "tests/unit-upgrade-validator.test.ts",
     "tests/admin-*.test.ts",
-    "tests/admin-diag.ts"
+    "tests/admin-diag.ts",
+    "tests/cloner/website-cloner.test.ts",
+    "tests/transpiler/design-extractor.test.ts"
   ]
 }

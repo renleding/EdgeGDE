@@ -7,7 +7,8 @@
  * Must be called AFTER the layout has been validated by layoutDefinitionSchema.
  */
 
-import { compileLayout } from '../compiler/engine'
+import { compileLayoutCompat } from '../lib/compile-layout-compat'
+// ⬆ Kept for backward compat — now delegates to Canvas pipeline
 import { nextArtifactVersion, requireD1 } from './version-counter'
 import type { LayoutDefinition } from '@edgegde/schema'
 import type { DesignTokens } from './design-parser'

@@ -52,8 +52,8 @@ run('cloneWebsite — extracts text from headings and paragraphs', () => {
 })
 
 run('cloneWebsite — extracts images as hotlinks', () => {
-  const html = '<html><body><img src="https://example.com/photo.jpg" alt="A photo"></body></html>'
-  const doc = cloneWebsite('https://example.com', html)
+  const html = '<html><body><img src="/photo.jpg" alt="A photo"></body></html>'
+  const doc = cloneWebsite('https://example.com/path/page.html', html)
   const imgs = findNodesByType(doc, 'Frame')
 
   // Images become Frame nodes with src in props
@@ -65,7 +65,22 @@ run('cloneWebsite — extracts images as hotlinks', () => {
       break
     }
   }
-  assert.ok(foundImg, 'Should extract image src')
+  assert.ok(foundImg, 'Should resolve and extract image src')
+})
+
+run('cloneWebsite — extracts relative links as absolute hrefs', () => {
+  const html = '<html><body><a href="/about?ref=home">About Us</a></body></html>'
+  const doc = cloneWebsite('https://example.com/path/page.html', html)
+
+  let foundLink = false
+  for (const nodeId in doc.nodes) {
+    const n = doc.nodes[nodeId]
+    if (n.props && n.props.href === 'https://example.com/about?ref=home') {
+      foundLink = true
+      break
+    }
+  }
+  assert.ok(foundLink, 'Should resolve and extract link href')
 })
 
 run('cloneWebsite — extracts inline styles', () => {
@@ -109,9 +124,11 @@ run('cloneWebsite — handles empty body gracefully', () => {
 
 run('cloneWebsite — extracts title from head', () => {
   const html = '<html><head><title>My Page</title></head><body><p>Content</p></body></html>'
-  const doc = cloneWebsite('https://example.com', html)
+  const doc = cloneWebsite('https://example.com/path/page.html', html)
   const meta = doc.metadata
   assert.strictEqual(meta?.name, 'My Page', 'Should extract page title as name')
+  assert.strictEqual(meta?.sourceUrl, 'https://example.com/path/page.html', 'Should preserve source URL')
+  assert.strictEqual(meta?.source, 'website-clone', 'Should mark website clone source')
 })
 
 run('cloneWebsite — extracts links', () => {
@@ -122,10 +139,26 @@ run('cloneWebsite — extracts links', () => {
     const n = doc.nodes[nodeId]
     if (n.props && n.props.href) {
       foundLink = true
+      assert.strictEqual(n.props.href, 'https://example.com/about')
       break
     }
   }
   assert.ok(foundLink, 'Should extract link href')
+})
+
+run('cloneWebsite — marks lists with list role', () => {
+  const html = '<html><body><ul><li>One</li><li>Two</li></ul></body></html>'
+  const doc = cloneWebsite('https://example.com', html)
+
+  let foundList = false
+  for (const nodeId in doc.nodes) {
+    const n = doc.nodes[nodeId]
+    if (n.props?.role === 'list' && n.style?.flexDirection === 'column') {
+      foundList = true
+      break
+    }
+  }
+  assert.ok(foundList, 'Should infer list layout')
 })
 
 run('cloneWebsite — extracts forms and inputs', () => {

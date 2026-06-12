@@ -5,7 +5,7 @@
  * @packageDocumentation
  */
 
-import { compileLayout } from '../compiler/engine'
+import { compileLayoutCompat } from '../lib/compile-layout-compat'
 import type { KvStore, DesignArtifact } from '../lib/publish'
 import type { LayoutDefinition } from '@edgegde/schema'
 

@@ -56,7 +56,7 @@ const firewallRule = {
 }
 
 export default [
-  { ignores: ['dist/', 'node_modules/'] },
+  { ignores: ['dist/', 'node_modules/', '.wrangler/'] },
   {
     files: ['**/*.ts'],
     languageOptions: { parser: tsParser, ecmaVersion: 2022, sourceType: 'module' },

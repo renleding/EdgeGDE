@@ -23,8 +23,8 @@ function makeDoc(overrides?: Partial<CanvasDocument>): CanvasDocument {
     history: [],
     stagingPointer: -1,
     livePointer: -1,
-    ...(overrides as CanvasDocument),
   }
+  if (overrides) Object.assign(result, overrides)
   if (overrides?.nodes) {
     result.baseNodes = JSON.parse(JSON.stringify(overrides.nodes))
   }
@@ -113,6 +113,24 @@ run('compileFromCanvas — Input renders as input with type and name', () => {
   assert.ok(html.includes('type="email"'), 'Input should have type attribute')
 })
 
+run('compileFromCanvas — Text with href renders as anchor', () => {
+  const text = makeNode('link1', { type: 'Text', props: { text: 'Learn more', href: 'https://example.com/about' } })
+  const doc = makeDoc({ rootId: 'link1', nodes: { link1: text } })
+  const html = compileFromCanvas(doc)
+  assert.ok(html.includes('<a'), 'Text with href should render as anchor')
+  assert.ok(html.includes('href="https://example.com/about"'), 'Anchor should preserve href')
+  assert.ok(html.includes('Learn more'), 'Anchor should contain text')
+})
+
+run('compileFromCanvas — Frame with src renders as image', () => {
+  const img = makeNode('img1', { type: 'Frame', props: { src: 'https://example.com/photo.jpg', alt: 'Photo' } })
+  const doc = makeDoc({ rootId: 'img1', nodes: { img1: img } })
+  const html = compileFromCanvas(doc)
+  assert.ok(html.includes('<img'), 'Frame with src should render as image')
+  assert.ok(html.includes('src="https://example.com/photo.jpg"'), 'Image should preserve src')
+  assert.ok(html.includes('alt="Photo"'), 'Image should preserve alt')
+})
+
 run('compileFromCanvas — Frame renders as div', () => {
   const page = makeNode('root', { type: 'Page', children: ['f1'] })
   const frame = makeNode('f1', { type: 'Frame', parentId: 'root' })
@@ -179,6 +197,23 @@ run('compileFromCanvas — numeric style values get px suffix', () => {
   assert.ok(html.includes('800px'), 'width: 800 should become 800px')
   assert.ok(html.includes('16px'), 'padding: 16 should become 16px')
   assert.ok(html.includes('8px'), 'borderRadius: 8 should become border-radius: 8px (kebab + px)')
+})
+
+run('compileFromCanvas — design tokens become CSS custom properties', () => {
+  const page = makeNode('root', { type: 'Page', style: { backgroundColor: '#0d1117', color: '#e1e4e8' } })
+  const doc = makeDoc({ rootId: 'root', nodes: { root: page }, baseNodes: { root: page } })
+  // Attach design tokens
+  ;(doc as any).designTokens = {
+    colors: { background: '#0d1117', text: '#e1e4e8', primary: '#58a6ff', surface: '#1c2128', border: '#2d3140', muted: '#8b949e' },
+    typography: { fontFamily: 'Inter', fontSize: { h1: '36px', body: '16px' } },
+    spacing: { borderRadius: '8px', gap: '16px' },
+  }
+  const html = compileFromCanvas(doc)
+  assert.ok(html.includes('--bg: #0d1117'), 'Should emit --bg custom property')
+  assert.ok(html.includes('--text: #e1e4e8'), 'Should emit --text custom property')
+  assert.ok(html.includes('--primary: #58a6ff'), 'Should emit --primary custom property')
+  assert.ok(html.includes('--font-family: Inter'), 'Should emit --font-family custom property')
+  assert.ok(html.includes('canvas-tokens'), 'Should have style id')
 })
 
 run('compileFromCanvas — produces deterministic output', () => {

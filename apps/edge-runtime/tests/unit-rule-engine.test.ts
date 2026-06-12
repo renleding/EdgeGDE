@@ -13,7 +13,7 @@ async function test(name: string, fn: () => Promise<void>) {
 }
 
 async function run() {
-  const { evaluateCondition, flattenProjection, parseRuleOutput, evaluateRules, simulateRules } =
+  const { evaluateCondition, validateConditionSyntax, flattenProjection, parseRuleOutput, evaluateRules, simulateRules } =
     await import('../src/lib/rule-engine')
   const type = <T>(x: T) => x
 
@@ -47,6 +47,26 @@ async function run() {
   await test('evaluateCondition: non-matching condition returns false', async () => {
     const r = evaluateCondition('loanAmount > 999999', { loanAmount: 100 })
     if (r !== false) throw new Error('expected false for loanAmount > 999999')
+  })
+
+  await test('validateConditionSyntax: accepts valid simple condition', async () => {
+    validateConditionSyntax('income < 30000')
+  })
+
+  await test('validateConditionSyntax: accepts valid compound condition', async () => {
+    validateConditionSyntax('income < 30000 and debtRatio < 0.8')
+  })
+
+  await test('validateConditionSyntax: rejects missing operator', async () => {
+    let rejected = false
+    try { validateConditionSyntax('invalid @@ syntax !!!') } catch { rejected = true }
+    if (!rejected) throw new Error('expected invalid syntax rejection')
+  })
+
+  await test('validateConditionSyntax: rejects incomplete comparison', async () => {
+    let rejected = false
+    try { validateConditionSyntax('income <') } catch { rejected = true }
+    if (!rejected) throw new Error('expected incomplete comparison rejection')
   })
 
   // ── Test 6: flattenProjection ──

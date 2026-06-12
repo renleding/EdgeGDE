@@ -148,7 +148,8 @@ export function validateField(field: ChatFieldDef, value: unknown): string | nul
   }
 
   // ── Australian mobile validation ──────────────────────────────────────
-  if (fn === 'phone') {
+  const fieldName = field.fieldName?.toLowerCase()
+  if (fieldName === 'phone' || fieldName?.includes('phone')) {
     const digits = String(value).replace(/\D/g, '')
     if (digits.length !== 10) {
       return 'Phone number must be exactly 10 digits'

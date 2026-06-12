@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { CALCULATOR_REGISTRY } from '../registry/calculators'
 import { PAGE_REGISTRY } from '../registry/pages'
 import { THEME_REGISTRY } from '../registry/themes'
-import { compileLayout } from '../compiler/engine'
+import { compileLayoutCompat } from '../lib/compile-layout-compat'
 import {
   designArtifactSchema,
   MemoryKvStore,
@@ -139,7 +139,7 @@ async function handleArtifactPublish(c: any, body: any) {
     (async () => {
       try {
         const layout = artifact.layout as LayoutDefinition
-        const html = compileLayout(layout)
+        const html = compileLayoutCompat(layout)
 
         switch (artifact.type) {
           case 'calculator':

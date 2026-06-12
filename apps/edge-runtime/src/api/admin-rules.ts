@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono'
 import { guardDB } from '../lib/db'
-import { evaluateCondition, parseRuleOutput, simulateRules, type Rule } from '../lib/rule-engine'
+import { evaluateCondition, parseRuleOutput, simulateRules, type Rule, validateConditionSyntax } from '../lib/rule-engine'
 
 const adminRulesRouter = new Hono()
 
@@ -179,9 +179,9 @@ adminRulesRouter.post('/create', async (c) => {
 
   if (!condition || !output) return c.html('<div style="color:#da3633;font-size:13px">Condition and output required</div>')
 
-  // Validate by evaluating against empty state (catches syntax errors)
+  // Validate deterministic grammar before persistence.
   try {
-    evaluateCondition(condition, {})
+    validateConditionSyntax(condition)
   } catch {
     return c.html('<div style="color:#da3633;font-size:13px">Invalid condition syntax</div>')
   }
@@ -212,7 +212,7 @@ adminRulesRouter.post('/update', async (c) => {
   if (!id || !condition || !output) return c.html('<div style="color:#da3633;font-size:13px">All fields required</div>')
 
   try {
-    evaluateCondition(condition, {})
+    validateConditionSyntax(condition)
   } catch {
     return c.html('<div style="color:#da3633;font-size:13px">Invalid condition syntax</div>')
   }

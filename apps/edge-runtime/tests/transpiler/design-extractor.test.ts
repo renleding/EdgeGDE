@@ -93,6 +93,14 @@ run('returns defaults for empty input', () => {
   assert.ok(tokens.spacing.borderRadius)
 })
 
+run('returns light defaults for empty input when requested', () => {
+  const tokens = extractDesignTokens([], { fallback: 'light' })
+
+  assert.strictEqual(tokens.colors.background, '#ffffff')
+  assert.strictEqual(tokens.colors.text, '#111827')
+  assert.strictEqual(tokens.colors.primary, '#2563eb')
+})
+
 run('extracts spacing values', () => {
   const styles: ParsedStyle[] = [
     { tagName: 'section', padding: '60px 40px', borderRadius: '12px' },

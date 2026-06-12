@@ -78,6 +78,15 @@ async function run() {
     if (!result.knowledgeBase || !Array.isArray(result.knowledgeBase.topics)) throw new Error('expected default knowledgeBase')
   })
 
+  await test('FALLBACK_CONFIG includes deterministic mortgage intake fields', async () => {
+    const { FALLBACK_CONFIG } = await import('../src/lib/chat-config')
+    if (FALLBACK_CONFIG.priorityOrder.length !== 10) throw new Error(`expected 10 fallback fields got ${FALLBACK_CONFIG.priorityOrder.length}`)
+    if (FALLBACK_CONFIG.priorityOrder[2] !== 'phone') throw new Error(`expected phone third got ${FALLBACK_CONFIG.priorityOrder[2]}`)
+    const phone = FALLBACK_CONFIG.fields.find(f => f.fieldName === 'phone')
+    if (!phone) throw new Error('fallback missing phone field')
+    if (phone.fieldType !== 'phone') throw new Error(`expected phone fieldType got ${phone.fieldType}`)
+  })
+
   // ── BlueprintSchema ───────────────────────────────────────────────
 
   await test('BlueprintSchema: accepts valid blueprint with 2 fields + priorityOrder', async () => {

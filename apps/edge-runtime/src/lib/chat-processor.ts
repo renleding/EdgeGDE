@@ -32,8 +32,12 @@ export async function processChatMessage(
   const { loadKnowledgeBase, formatKbContext } = await import('./knowledge-base')
   const { buildParsePrompt, parseLlmResponse } = await import('./chat-llm')
   const { evaluateRules, flattenProjection } = await import('./rule-engine')
-  const kv = env?.TENANT_KV
-  const db = env?.DB
+  const { guardKV } = await import('./kv')
+  const { guardDB } = await import('./db')
+  let kv: any = null
+  let db: any = null
+  try { kv = guardKV(env?.['TENANT_KV']) } catch {}
+  try { db = guardDB(env?.['DB']) } catch {}
 
   // Load KB context
   const kb = kv ? await loadKnowledgeBase(kv, tenantId, input.chatConfig?.knowledgeBase?.topics || []) : {}

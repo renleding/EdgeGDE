@@ -24,8 +24,8 @@ function makeDoc(overrides?: Partial<CanvasDocument>): CanvasDocument {
     history: [],
     stagingPointer: -1,
     livePointer: -1,
-    ...(overrides as CanvasDocument),
   }
+  if (overrides) Object.assign(result, overrides)
   // If caller provided nodes through overrides, sync baseNodes
   if (overrides?.nodes) {
     result.baseNodes = JSON.parse(JSON.stringify(overrides.nodes))

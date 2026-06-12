@@ -264,7 +264,7 @@ export async function handleCanvasChat(
     return { success: false, error: 'LLM returned invalid JSON' }
   }
 
-  let agentCommand: ValidatedAgentCommand
+  let agentCommand!: ValidatedAgentCommand
   try {
     agentCommand = agentCommandSchema.parse(parsed)
   } catch (e: any) {
@@ -272,21 +272,24 @@ export async function handleCanvasChat(
     return { success: false, error: `AgentCommand validation failed: ${issues}` }
   }
 
-  // Apply each mutation
-  for (const mutation of agentCommand.mutations) {
-    const mutRes = await stub.fetch('http://dO/mutation', {
-      method: 'POST',
-      body: JSON.stringify({ mutation, expectedVersion: agentCommand.expectedVersion }),
-    })
+  // 4. Apply all mutations in a single batch request
+  const batchRes = await stub.fetch('http://dO/mutation/batch', {
+    method: 'POST',
+    body: JSON.stringify({
+      mutations: agentCommand.mutations,
+      expectedVersion: agentCommand.expectedVersion,
+    }),
+  })
 
-    if (mutRes.status === 409) {
-      return { success: false, error: 'Version conflict — re-sync and retry' }
-    }
-    if (!mutRes.ok) {
-      const errBody = await mutRes.json().catch(() => ({ error: 'Unknown error' }))
-      return { success: false, error: errBody.error || 'Mutation failed' }
-    }
+  if (batchRes.status === 409) {
+    return { success: false, error: 'Version conflict — re-sync and retry' }
   }
+  if (!batchRes.ok) {
+    const errBody = await batchRes.json().catch(() => ({ error: 'Unknown error' }))
+    return { success: false, error: errBody.error || 'Mutation failed' }
+  }
+
+  const batchData = await batchRes.json() as any
 
   return {
     success: true,

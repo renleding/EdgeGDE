@@ -11,7 +11,7 @@ import {
   mortgageCalculatorInputSchema,
   SCHEMA_VERSION,
 } from '@edgegde/schema'
-import { compileLayout } from '../compiler/engine'
+import { compileLayoutCompat } from '../lib/compile-layout-compat'
 import type { KvStore, DesignArtifact } from '../lib/publish'
 import type { LayoutDefinition, MortgageCalculatorInput } from '@edgegde/schema'
 
@@ -161,7 +161,7 @@ export function compileToHtml(
     },
   }
 
-  return compileLayout(resultLayout)
+  return compileLayoutCompat(resultLayout)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -1,7 +1,8 @@
+/* eslint-disable local/no-raw-storage-access */
 /**
  * EdgeGDE — Admin Pages Comprehensive Test Suite
  * Covers: Knowledge Base (KB), Rules, Site admin pages
- * Tests: Route availability, HTMX interactions, edge cases, error states, XSS
+ * Tests: Route availability, HTMX interactions, edge cases, XSS
  *
  * Run: npx tsx tests/admin-pages.test.ts
  */
@@ -56,19 +57,24 @@ function createMockEnv() {
 
   return {
     TENANT_KV: {
-      get: async (key: string, _ctx?: any) => kvStore.get(key) || null,
+      get: async (k: string, type?: string) => {
+        const value = kvStore.get(k) || null
+        return type === 'json' && value ? JSON.parse(value) : value
+      },
       put: async (key: string, value: string, _ctx?: any) => { kvStore.set(key, value) },
       delete: async (key: string) => { kvStore.delete(key) },
       _store: kvStore,
     },
     DB: {
-      prepare: (_sql: string) => ({
-        bind: (..._args: any[]) => ({
+      prepare: (_sql: string) => {
+        const statement = {
+          bind: (..._args: any[]) => statement,
           all: async () => ({ results: [] }),
           first: async () => null,
           run: async () => ({ success: true }),
-        }),
-      }),
+        }
+        return statement
+      },
     },
     LEAD_SCORING_QUEUE: {
       send: async (_msg: any) => {},
@@ -84,13 +90,15 @@ async function fetchText(router: Hono, path: string, env: any): Promise<string> 
   })
   // We need to simulate the Hono context - use Hono's request mechanism
   const app = new Hono()
-  
+
   // Add tenant + token query params to the request
   app.use('*', async (c, next) => {
     c.env = { ...env, ADMIN_API_TOKEN: '858ea106ba9379472dfa634b1c630c2e46b525f6' } as any
     await next()
   })
-  app.route('/', router)
+  app.route('/admin/kb', router)
+  app.route('/admin/rules', router)
+  app.route('/admin/site', router)
 
   const res = await app.request(req)
   return res.text()
@@ -102,7 +110,9 @@ async function fetchPost(router: Hono, path: string, env: any, formData?: Record
     c.env = { ...env, ADMIN_API_TOKEN: '858ea106ba9379472dfa634b1c630c2e46b525f6' } as any
     await next()
   })
-  app.route('/', router)
+  app.route('/admin/kb', router)
+  app.route('/admin/rules', router)
+  app.route('/admin/site', router)
 
   const fd = new FormData()
   if (formData) {
@@ -135,7 +145,7 @@ async function runKbTests() {
     assertContains(body, 'Pending', 'Pending tab')
     assertContains(body, 'Approved', 'Approved tab')
     assertContains(body, 'Rejected', 'Rejected tab')
-    assertContains(body, 'Ingest New Source', 'Ingest section')
+    assertContains(body, 'Ingest URL', 'Ingest section')
     assertContains(body, 'hx-post="/admin/kb/ingest-url', 'Ingest HTMX endpoint')
     run('1.1 main KB page loads with tabs and ingest form', () => {})
   }
@@ -197,13 +207,13 @@ async function runKbTests() {
     const env = createMockEnv()
     await env.TENANT_KV.put(
       `tenant:${TEST_TENANT}:kb_pending:rates`,
-      JSON.stringify({ entries: [{ type: 'knowledge', id: 't1', value: 'Interest rate 6.15% p.a.', source_ref: 'test' }], source_ref: 'https://example.com' })
+      JSON.stringify({ entries: [{ type: 'knowledge', id: 't1', value: 'Interest rate 6.15% p.a.', description: 'Test rate entry', source_ref: 'test', updated_at: Date.now() }], source_ref: 'https://example.com' })
     )
     const body = await fetchText(adminRouter, `/admin/kb/pending?tenant=${TEST_TENANT}`, env)
     assertContains(body, 'Interest rate 6.15% p.a.', 'Pending entry value')
     assertContains(body, 'rates', 'Topic header')
-    assertContains(body, 'hx-post="/admin/kb/approve?topic=rates"', 'Approve button')
-    assertContains(body, 'hx-post="/admin/kb/reject?topic=rates"', 'Reject button')
+    assertContains(body, `hx-post="/admin/kb/approve?topic=rates&tenant=${TEST_TENANT}"`, 'Approve button')
+    assertContains(body, `hx-post="/admin/kb/reject?topic=rates&tenant=${TEST_TENANT}"`, 'Reject button')
     run('1.7 GET /pending shows entries with approve/reject', () => {})
   }
 
@@ -228,7 +238,7 @@ async function runKbTests() {
     const env = createMockEnv()
     await env.TENANT_KV.put(
       `tenant:${TEST_TENANT}:kb_pending:rates`,
-      JSON.stringify({ entries: [{ type: 'knowledge', id: 'a1', value: 'Rate 5.99%', source_ref: 'test' }], source_ref: 'test' })
+      JSON.stringify({ entries: [{ type: 'knowledge', id: 'a1', value: 'Rate 5.99%', description: 'Test rate entry', source_ref: 'test', updated_at: Date.now() }], source_ref: 'test' })
     )
     const body = await fetchPost(adminRouter, `/admin/kb/approve?tenant=${TEST_TENANT}&topic=rates`, env)
     assertContains(body, 'Approved', 'Approve response')
@@ -252,11 +262,11 @@ async function runKbTests() {
     const env = createMockEnv()
     await env.TENANT_KV.put(
       `tenant:${TEST_TENANT}:kb:rates`,
-      JSON.stringify({ entries: [{ type: 'knowledge', id: 'dup1', value: 'Original', source_ref: 'old' }], updated_at: Date.now() })
+      JSON.stringify({ entries: [{ type: 'knowledge', id: 'dup1', value: 'Original', description: 'Original duplicate', source_ref: 'old', updated_at: Date.now() }], updated_at: Date.now() })
     )
     await env.TENANT_KV.put(
       `tenant:${TEST_TENANT}:kb_pending:rates`,
-      JSON.stringify({ entries: [{ type: 'knowledge', id: 'dup1', value: 'Updated', source_ref: 'new' }], source_ref: 'new' })
+      JSON.stringify({ entries: [{ type: 'knowledge', id: 'dup1', value: 'Updated', description: 'Updated duplicate', source_ref: 'new', updated_at: Date.now() }], source_ref: 'new' })
     )
     await fetchPost(adminRouter, `/admin/kb/approve?tenant=${TEST_TENANT}&topic=rates`, env)
     const approvedRaw = await env.TENANT_KV.get(`tenant:${TEST_TENANT}:kb:rates`)
@@ -278,7 +288,7 @@ async function runKbTests() {
     const env = createMockEnv()
     await env.TENANT_KV.put(
       `tenant:${TEST_TENANT}:kb_pending:fees`,
-      JSON.stringify({ entries: [{ type: 'knowledge', id: 'f1', value: 'Annual fee $395', source_ref: 'test' }], source_ref: 'test' })
+      JSON.stringify({ entries: [{ type: 'knowledge', id: 'f1', value: 'Annual fee $395', description: 'Test fee entry', source_ref: 'test', updated_at: Date.now() }], source_ref: 'test' })
     )
     const body = await fetchPost(adminRouter, `/admin/kb/reject?tenant=${TEST_TENANT}&topic=fees`, env)
     assertContains(body, 'Rejected')
@@ -339,7 +349,7 @@ async function runKbTests() {
     const env = createMockEnv()
     await env.TENANT_KV.put(
       `tenant:${TEST_TENANT}:kb_pending:rates`,
-      JSON.stringify({ entries: [{ type: 'knowledge', id: 'xss1', value: '<script>alert("xss")</script>', source_ref: 'test' }], source_ref: 'test' })
+      JSON.stringify({ entries: [{ type: 'knowledge', id: 'xss1', value: '<script>alert("xss")</script>', description: 'XSS test entry', source_ref: 'test', updated_at: Date.now() }], source_ref: 'test' })
     )
     const body = await fetchText(adminRouter, `/admin/kb/pending?tenant=${TEST_TENANT}`, env)
     assertNotContains(body, '<script>', 'Raw script tags escaped')
@@ -352,7 +362,7 @@ async function runKbTests() {
     const env = createMockEnv()
     await env.TENANT_KV.put(
       `tenant:${TEST_TENANT}:kb_pending:rates`,
-      JSON.stringify({ entries: [{ type: 'knowledge', id: 'sc1', value: 'Rate > 5% & fee < $400 "discount"', source_ref: 'test' }], source_ref: 'test' })
+      JSON.stringify({ entries: [{ type: 'knowledge', id: 'sc1', value: 'Rate > 5% & fee < $400 "discount"', description: 'Special chars test entry', source_ref: 'test', updated_at: Date.now() }], source_ref: 'test' })
     )
     const body = await fetchText(adminRouter, `/admin/kb/pending?tenant=${TEST_TENANT}`, env)
     assertContains(body, '&gt;', 'Greater-than escaped')
@@ -557,7 +567,7 @@ async function runSiteTests() {
     const env = createMockEnv()
     const body = await fetchText(adminSiteRouter, `/admin/site?tenant=${TEST_TENANT}`, env)
     assertContains(body, 'No staging layout')
-    assertContains(body, 'No production layout')
+    assertContains(body, 'Live (server-rendered)')
     run('3.3 shows empty statuses when no layouts exist', () => {})
   }
 

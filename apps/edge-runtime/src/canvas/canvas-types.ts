@@ -59,7 +59,10 @@ export interface CanvasDocument {
     name?: string
     tenantId?: string
     source?: string
+    sourceUrl?: string
+    description?: string
     createdAt?: number
+    updatedAt?: number
   }
 }
 
