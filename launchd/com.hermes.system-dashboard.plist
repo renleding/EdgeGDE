@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hermes.system-dashboard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>
+            # Wait up to 30s for the Hermes gateway to be ready
+            for i in $(seq 1 30); do
+                if lsof -i :8642 -P 2>/dev/null | grep -q LISTEN; then
+                    break
+                fi
+                sleep 1
+            done
+            # Small extra delay for workspace to settle
+            sleep 3
+            # Open the dashboard in Chrome (forces a new tab)
+            osascript -e 'tell application "Google Chrome" to activate' \
+                     -e 'tell application "Google Chrome" to open location "http://127.0.0.1:8899/system-dashboard.html"'
+        </string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/warren/.hermes/logs/system-dashboard.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/warren/.hermes/logs/system-dashboard.stderr.log</string>
+</dict>
+</plist>

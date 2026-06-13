@@ -1,0 +1,607 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SYSTEM ARCHITECTURE — Full System Description
+# ═══════════════════════════════════════════════════════════════════════════
+# Host: macOS 15.7.3 (Sequoia) — Apple Silicon M1
+# User: warren — AI/ML Engineer
+# Root: /Users/warren/Documents/_HQ_AI/
+# ───────────────────────────────────────────────────────────────────────────
+
+system:
+  name: "EdgeGDE Orchestration Platform"
+  version: "2.1.0"
+  role: "Autonomous software delivery lifecycle — strategic director decomposes goals
+         into atomic tasks, orchestrates execution across Aider, and enforces
+         quality gates via TDD and structured observability."
+
+  engineering_principles:
+    - "Hermes NEVER writes raw code — all file mutations go through Aider"
+    - "Hermes Workspace is the active task UI; Routa is deprecated"
+    - "DAG-ordered execution — downstream blocks until upstream Done"
+    - "TDD enforced: failing test first → implement → verify passes"
+    - "Max 3 retries per task, each retry changes strategy"
+    - "No raw secrets in chat — interactive credential scripts only"
+    - "Deprecated legacy services are not auto-launched"
+
+# ───────────────────────────────────────────────────────────────────────────
+# LAYER 1: USER INTERFACE & CONTROL PLANE
+# ───────────────────────────────────────────────────────────────────────────
+
+interfaces:
+
+  - name: "Hermes CLI Agent"
+    description: "Strategic director / control-plane orchestrator. The primary interface
+                   the user interacts with. Runs as a terminal chat agent with tool-use
+                   access to the full system stack."
+    transport: "CLI (terminal)"
+    model: "deepseek/deepseek-v4-flash"       # Planner/chat model
+    provider: "LiteLLM proxy → DeepSeek direct API"
+    routing: "custom:litellm-proxy @ http://127.0.0.1:4000/v1"
+    capabilities:
+      - "Goal decomposition into atomic DAG-ordered tasks"
+      - "Task lifecycle management via Hermes Workspace and explicit CLI/Git workflow"
+      - "Code generation delegation to Aider"
+      - "Research via deep-research/fast-research skill profiles"
+      - "System dashboard and observability"
+    persistent_memory:
+      system: "MemPalace (port 8888) — 165 semantic drawers across 7 wings"
+      user: "In-memory key-value store (~2KB, ~8 entries)"
+
+  - name: "Hermes Workspace"
+    description: "Web UI for chat, tools, files, memory, and job management.
+                   Built with TanStack Start (React) + Vite."
+    url: "http://localhost:3000"
+    tech_stack: "Node.js 26, Vite, TanStack Start, React"
+    port: 3000
+    status: "UP"
+
+  - name: "System Health Dashboard"
+    description: "Dark-themed draggable/responsive SPA showing all service health,
+                   route matrix, container status, resource usage, and architecture diagrams."
+    url: "http://localhost:8899/system-dashboard.html"
+    port: 8899
+    tech: "Static HTML/CSS/JS + Mermaid.js (CDN)"
+    features:
+      - "Draggable and resizable cards with localStorage persistence"
+      - "Mermaid.js architecture diagrams (flowchart, state, mindmap, pie)"
+      - "Auto-refresh every 5 minutes"
+      - "Responsive across desktop/tablet/mobile"
+    status: "UP"
+    cards:
+      - architecture_diagram
+      - service_status_grid
+      - system_resources
+      - active_chat_path
+      - litellm_route_matrix
+      - service_dependency_graph
+      - mempalace_drawer_tree
+      - podman_containers
+
+# ───────────────────────────────────────────────────────────────────────────
+# LAYER 2: TASK ORCHESTRATION & STATE MACHINE
+# ───────────────────────────────────────────────────────────────────────────
+
+task_orchestration:
+  status: "Hermes Workspace / CLI task discipline"
+  note: "Routa is deprecated. Active task state lives in Hermes Workspace, chat context, and explicit CLI/Git workflow rather than a separate Routa service."
+
+deprecated_components:
+  - name: "Routa"
+    status: "DEPRECATED"
+    reason: "No active Routa repo, binary, or service is present in this workspace. The old :3001 Web UI and :3210 CLI service are not part of the supported stack."
+    removed_ports:
+      - 3001
+      - 3210
+    migration: "Use Hermes Workspace on :3000 for UI, and branch/TDD/verification workflow for execution state."
+
+  - name: "Aider"
+    description: "Stateless file mutation engine — the execution layer. Invoked
+                   programmatically by Hermes or the worker daemon."
+    binary: "/Library/Frameworks/Python.framework/Versions/3.11/bin/aider"
+    version: "0.86.2"
+    default_model: "coder-model (via LiteLLM proxy)"
+    provider: "LiteLLM proxy → OpenRouter → Phala provider"
+    pricing: "$0.04/M prompt tokens, $0.10/M completion tokens (via OpenRouter)"
+    config: "/Users/warren/.aider.conf.yml"
+    routing:
+      type: "LiteLLM proxy (centralized)"
+      base_url: "http://127.0.0.1:4000/v1"
+      model_name: "coder-model"
+      auth: "LiteLLM master key"
+      benefit: "Central observability, token tracking, caching — all model traffic flows through one gateway"
+    invocation_flags:
+      - "--yes"          # auto-approve file changes — prevents TUI hang in headless mode
+      - "--commit"        # ensure Git traceability on every mutation
+      - "--no-stream"     # structured machine-readable output for log parsing
+      - "--test <CMD>"    # self-healing loop: run test, fix if failing, repeat until pass
+    constraints:
+      headless_safety:
+        - "NEVER invoked interactively — always --yes, never requires stdin"
+        - "PTY/terminal not required — runs via subprocess.Popen with shell=False"
+        - "Timeout enforced by parent at 900s — process tree killed on exceed"
+        - "Input sanitized before send: strip markdown fences, escape quotes, remove formatting noise"
+      file_scope:
+        - "NEVER accesses full repo — only explicit target_files list"
+        - "Max 3 files per invocation"
+        - "Strict diff edit format — never rewrites files wholesale"
+        - "No implicit context — every task is self-contained; no assumed code structure"
+      git_discipline:
+        - "Runs inside isolated git branch: work/{task_id}"
+        - "Auto-commits via --commit flag for traceability"
+        - "On failure: working tree is abandoned, branch deleted, parent checks out main"
+      verification:
+        - "Test command runs after every edit (--test flag)"
+        - "If test fails, Aider auto-heals and retries within its own loop"
+        - "If Aider's loop exceeds 900s, parent kills process and marks task Blocked"
+        - "Post-execution: worker verifies git tree is clean before marking Done"
+    auth:
+      method: "LiteLLM proxy master key (sk-lit...)"
+      storage: "~/.aider.conf.yml → api-key field"
+      routing: "All model traffic flows through http://127.0.0.1:4000/v1"
+    status: "UP"
+
+# ───────────────────────────────────────────────────────────────────────────
+# LAYER 3: AI MODEL ROUTING & GATEWAY
+# ───────────────────────────────────────────────────────────────────────────
+
+model_routing:
+
+  gateway:
+    name: "LiteLLM Proxy"
+    description: "Unified OpenAI-compatible API gateway. Routes all LLM traffic
+                   through a single endpoint with per-model rate limits."
+    transport: "Podman container (ghcr.io/berriai/litellm:main-latest)"
+    container: "litellm-proxy — Up 6 hours"
+    port: 4000
+    config: "/Users/warren/.hermes/litellm/config.yaml"
+    auth: "Master key: sk-lit... (general_settings)"
+    status: "UP"
+
+  routes:
+    - route_name: "planner-model"
+      model: "deepseek/deepseek-v4-flash"
+      path: "LiteLLM → api.deepseek.com (direct BYOK)"
+      api_key: "sk-a45... (direct DeepSeek key)"
+      rpm: 10
+      avg_latency: "1.1s"
+      status: "ACTIVE"
+      purpose: "Hermes chat, high-level reasoning, and planning"
+
+    - route_name: "v4-flash-or"
+      model: "openrouter/deepseek/deepseek-v4-flash"
+      path: "LiteLLM → OpenRouter → DeepSeek (BYOK via OR)"
+      api_key: "OpenRouter key (os.environ/OPENROUTER_API_KEY)"
+      rpm: 10
+      avg_latency: "5.3s"
+      status: "AVAILABLE"
+      purpose: "Fallback BYOK path via OpenRouter routing"
+
+    - route_name: "coder-model"
+      model: "openrouter/qwen/qwen-2.5-7b-instruct"
+      path: "LiteLLM → OpenRouter → Phala provider"
+      api_key: "OpenRouter key (os.environ/OPENROUTER_API_KEY)"
+      rpm: 60
+      status: "AVAILABLE"
+      purpose: "Aider default model — code generation and file mutation"
+
+    - route_name: "fast-model"
+      model: "openrouter/qwen/qwen-2.5-7b-instruct"
+      path: "LiteLLM → OpenRouter → Phala provider"
+      api_key: "OpenRouter key (os.environ/OPENROUTER_API_KEY)"
+      rpm: 60
+      status: "AVAILABLE"
+      purpose: "Quick completions, fast-path tool routing"
+
+    - route_name: "qwen2.5-7b"
+      model: "openrouter/qwen/qwen-2.5-7b-instruct"
+      path: "LiteLLM → OpenRouter"
+      api_key: "OpenRouter key (os.environ/OPENROUTER_API_KEY)"
+      rpm: 60
+      status: "AVAILABLE"
+      purpose: "Direct alias for benchmark/comparison"
+
+    - route_name: "vision-model"
+      model: "openrouter/nvidia/nemotron-nano-12b-v2-vl:free"
+      path: "LiteLLM → OpenRouter (free tier)"
+      api_key: "OpenRouter key (os.environ/OPENROUTER_API_KEY)"
+      rpm: 10
+      status: "AVAILABLE"
+      purpose: "Image analysis and vision-capable tasks"
+
+  local_fallback:
+    - engine: "Ollama"
+      port: 11434
+      status: "UP (idle)"
+      purpose: "Optional local inference — routes defined in LiteLLM config but commented out"
+      available_models:
+        - "qwen3-coder:30b"
+        - "qwen3.5:4b"
+        - "qwen3-vl:4b"
+
+  api_keys:
+    openrouter:
+      source: "~/.hermes/.env → OPENROUTER_API_KEY"
+      user: "renleding"
+      storage: "scoped token with repo, gist, read:org, workflow scopes"
+    deepseek_direct:
+      source: "hardcoded in LiteLLM config.yaml → api_key field"
+      purpose: "Planner model only — avoids OpenRouter relay latency"
+    litellm_master:
+      value: "sk-lit... (general_settings.master_key)"
+      purpose: "Authenticate requests to the LiteLLM proxy"
+
+# ───────────────────────────────────────────────────────────────────────────
+# LAYER 4: DESIGN & VISUAL TOOLS
+# ───────────────────────────────────────────────────────────────────────────
+
+design_tools:
+
+  - name: "UIBuilder / OpenPencil"
+    status: "DEPRECATED"
+    reason: "Legacy design desktop/dev-server surface. Its launchd jobs and dashboard health checks have been removed; only explicitly requested OpenPencil MCP tooling should be used."
+    removed_ports:
+      - 5173
+    legacy_paths:
+      - "/Users/warren/Documents/_HQ_AI/EdgeGDE/apps/ui-builder/UIBuilder"
+      - "/Users/warren/Documents/_HQ_AI/EdgeGDE/UIBuilder"
+
+  - name: "OpenPencil MCP Tools"
+    description: "MCP tool suite for programmatic design creation and manipulation.
+                   Registered as MCP server in Hermes config."
+    tools_available: 50+
+    capabilities:
+      - "Create/modify shapes (FRAME, RECTANGLE, TEXT, ELLIPSE, etc.)"
+      - "Layout management (auto-layout, spacing, alignment)"
+      - "Color/fill/stroke manipulation"
+      - "Component creation and instancing"
+      - "Variable/design token management"
+      - "Icon insertion (Iconify integration)"
+      - "Stock photo search and application"
+      - "Image export (PNG, JPG, SVG, PDF)"
+      - "JSX round-trip render workflow"
+
+# ───────────────────────────────────────────────────────────────────────────
+# LAYER 5: MEMORY & PERSISTENCE
+# ───────────────────────────────────────────────────────────────────────────
+
+memory:
+
+  - name: "MemPalace"
+    description: "Local AI memory system — persistent semantic storage with
+                   knowledge graph, cross-wing tunnels, and agent diary."
+    version: "3.3.3"
+    url: "http://localhost:8888"
+    tailscale: "http://100.108.198.69:8888"
+    lan: "http://192.168.0.22:8888"
+    data_dir: "~/.mempalace/"
+    drawers: 165
+    launchd: "com.hermes.mempalace-server"
+    mcp_interface: "Routed through Hermes venv (not memory.provider)"
+    wings:
+      - agent: "145 drawers (conversations, memory, user-profile, compressed-context)"
+      - wing_default: "12 drawers (diary)"
+      - wing_hermes: "3 drawers (diary, infrastructure)"
+      - wing_nicolette: "diary"
+    knowledge_graph:
+      entities: "Tracked via kg_query — temporal facts with valid_from/valid_to"
+      tunnels: "Cross-wing connections between related concepts"
+
+  - name: "Hermes In-Memory Store"
+    description: "Ephemeral key-value memory for session-persistent facts."
+    capacity: "~2,200 chars (~8 entries)"
+    purpose: "User preferences, environment facts, tool quirks, conventions"
+    limits: "No task progress — only durable facts that survive sessions"
+
+# ───────────────────────────────────────────────────────────────────────────
+# LAYER 6: INFRASTRUCTURE & RUNTIME
+# ───────────────────────────────────────────────────────────────────────────
+
+infrastructure:
+
+  hardware:
+    model: "MacBook Pro (Apple Silicon M1)"
+    os: "macOS 15.7.3 (Sequoia)"
+    memory: "34 GB"
+    storage: "~1 TB (873Gi used / 53Gi free)"
+    display: "4K monitor — UI zoom 1.15x in app.css"
+    uptime: "6d 15h (last restart: May 16)"
+
+  container_runtime:
+    primary: "Podman v5.8.2"
+    machine: "podman-machine-default — applehv, 2 CPUs, 8GiB RAM, 60GiB disk"
+    docker_compat: "CLI installed (brew install docker) — socket symlinked to Podman"
+    socket: "/var/run/docker.sock → Podman's machine socket"
+    running_containers:
+      - name: "litellm-proxy"
+        image: "ghcr.io/berriai/litellm:main-latest"
+        ports: "4000:4000"
+        status: "Up 6 hours"
+    exited_containers:
+      - "erpnext stack (frappe_docker_* — 5 containers)"
+      - "mariadb / redis (erpnext v15 deps)"
+
+  package_runtime:
+    python: "3.14.4 (Homebrew)"
+    node: "26.0.0 (Homebrew)"
+    bun: "1.3.x"
+    rust: "Latest via rustup"
+    go: "Included in Podman VM"
+
+  services:
+
+    - name: "Hermes Gateway API"
+      port: 8642
+      tech: "Python (Hermes runtime)"
+      status: "UP"
+      purpose: "HTTP API server for Hermes Workspace auth and tool routing"
+
+    - name: "Runtime Guard (AIRG)"
+      version: "2.3.1"
+      port: 5001
+      install: "pipx"
+      status: "UP"
+      policies:
+        - "Block destructive operations"
+        - "Require confirmation for dangerous commands"
+        - "Backup-before-write on protected files"
+        - "Per-agent override for hermes"
+      launchd: "com.ai-runtime-guard.ui"
+
+    - name: "Hermes Dashboard"
+      port: 9119
+      tech: "Python (Hermes runtime)"
+      status: "UP"
+
+    - name: "Ollama"
+      port: 11434
+      status: "UP (idle — no active models loaded)"
+      purpose: "Local LLM inference — fallback when cloud models unavailable"
+
+    - name: "Redis"
+      port: 6379
+      status: "UP"
+      purpose: "Unknown — potentially used by erpnext or other services"
+
+  cloud_integrations:
+    - provider: "OpenRouter"
+      auth: "API key in ~/.hermes/.env"
+      models_used:
+        - "qwen/qwen-2.5-7b-instruct (Phala provider)"
+        - "nvidia/nemotron-nano-12b-v2-vl:free"
+        - "deepseek/deepseek-v4-flash (BYOK)"
+    - provider: "DeepSeek (Direct)"
+      auth: "API key in LiteLLM config"
+      models_used:
+        - "deepseek-v4-flash"
+    - provider: "Cloudflare"
+      account_id: "cdb9bd3391e71153a361515c40e8410f"
+      auth: "API token in ~/.hermes/.env"
+      capabilities: "Workers, DNS, Account management"
+      setup: "Interactive credential script → ~/.hermes/scripts/setup-cloudflare.sh (deleted after use)"
+
+# ───────────────────────────────────────────────────────────────────────────
+# LAYER 7: SKILLS & AGENT PROFILES
+# ───────────────────────────────────────────────────────────────────────────
+
+skills:
+  installed: 70+
+  categories:
+    - autonomous-ai-agents
+    - creative
+    - data-science
+    - devops
+    - email
+    - gaming
+    - github
+    - macos
+    - mcp
+    - media
+    - mlops
+    - note-taking
+    - productivity
+    - red-teaming
+    - research
+    - smart-home
+    - social-media
+    - software-development
+    - workspace-dispatch
+
+  key_skills:
+    - name: "edgegde-core"
+      category: "software-development"
+      purpose: "Tech Lead cognitive hierarchy — Hermes plans, Aider executes"
+
+    - name: "openpencil-mcp"
+      category: "software-development"
+      purpose: "OpenPencil MCP workflow — JSX render, post-render fixes, color variables"
+
+    - name: "deep-researcher"
+      category: "research"
+      purpose: "High-depth analysis — 50 turns, multi-source validation, citations"
+
+    - name: "fast-researcher"
+      category: "research"
+      purpose: "Quick lookup — 15 turns, minimal steps, low token usage"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LAYER 8: PLATFORM INVARIANTS (Hard Rules)
+# ═══════════════════════════════════════════════════════════════════════════
+
+platform_invariants:
+
+  routing:
+    - rule: "Proxy Interception"
+      description: "Every outbound LLM interaction MUST route through LiteLLM proxy at http://127.0.0.1:4000/v1"
+      applies_to: ["Hermes", "Aider", "Worker", "CLI instances"]
+      prohibited: "Direct cloud provider bypass paths"
+
+    - rule: "Port Isolation"
+      description: "Hermes Workspace UI is the supported local UI on :3000; deprecated legacy UI ports are not expected to run."
+      applies_to: ["Sub-agents", "Hermes orchestration calls"]
+      requirement: "All state orchestration calls must explicitly declare the target platform or service."
+
+    - rule: "Aider Proxy Binding"
+      description: "Aider config must use openai-api-base pointing to LiteLLM proxy with coder-model"
+      config_path: "~/.aider.conf.yml"
+      enforced_values:
+        openai_api_base: "http://127.0.0.1:4000/v1"
+        model: "openai/coder-model"
+        api_key: "LiteLLM master key (sk-lit...)"
+
+
+  execution:
+    - rule: "No Direct Code Write"
+      description: "Hermes NEVER writes code. All file mutations go through Aider."
+
+    - rule: "Max 3 Retries"
+      description: "Blocked tasks get max 3 retries, each with a different strategy."
+
+    - rule: "TDD Enforcement"
+      description: "Every task must have a test_command. Test must fail before → pass after."
+
+    - rule: "Anti-Hallucination"
+      description: "Verify file existence before edit. Never assume API structure without evidence."
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARCHITECTURE UPDATE LOG — 7 Most Recent
+# ───────────────────────────────────────────────────────────────────────────
+
+architecture_updates:
+
+  - date: "2026-06-13"
+    title: "Deprecate Routa and UIBuilder"
+    description: >
+      Removed active service wiring and dashboard expectations for deprecated
+      legacy components. Routa has no active repo, binary, or service in this
+      workspace, so :3001/:3210 and Routa task-state assumptions were removed.
+      UIBuilder launchd jobs were unloaded/removed and :5173 is no longer part
+      of the supported health surface. Hermes Workspace on :3000 remains the
+      supported UI, with Aider and Git/TDD handling execution state.
+    components_affected:
+      - "system-architecture.yaml"
+      - "system-dashboard.html"
+      - "health-server.py"
+      - "health-check.py"
+      - "LaunchAgents/com.edgegde.uibuilder.plist"
+      - "LaunchAgents/com.edgegde.uibuilder-server.plist"
+
+  - date: "2026-05-24"
+    title: "Aider Routing Centralized Through LiteLLM Proxy"
+    description: >
+      Changed Aider from direct OpenRouter calls to routing through the LiteLLM
+      proxy on port 4000. Config updated: ~/.aider.conf.yml now uses openai-api-base
+      http://127.0.0.1:4000/v1 with model openai/coder-model and the LiteLLM master
+      key. All model traffic now flows through the unified gateway — central
+      observability, token tracking, and caching across the entire stack.
+      Verified: curl through proxy returns "Hello" from Phala provider.
+    components_affected:
+      - "~/.aider.conf.yml"
+      - "LiteLLM proxy routing"
+      - "Model observability"
+      - "System architecture YAML"
+
+  - date: "2026-06-13"
+    title: "Routa Deprecated"
+    description: >
+      Historical Routa entries below are retained only as archive context. The
+      current architecture no longer expects Routa Web UI, Routa CLI, routa.db,
+      or routa-aider-worker to be running.
+    components_affected:
+      - "System architecture YAML"
+      - "System dashboard"
+      - "Local health checks"
+
+  - date: "2026-05-24"
+    title: "Cloudflare Credentials + Credential Workflow"
+    description: >
+      Established secure credential workflow: interactive bash scripts with
+      read -s for hidden input, saved to ~/.hermes/.env, scripts deleted after use.
+      Cloudflare account connected. Pattern retained as Hermes credential hygiene.
+    components_affected:
+      - "Cloudflare integration"
+      - "Credential management workflow"
+      - "~/.hermes/.env"
+
+  - date: "2026-05-23"
+    title: "System Architecture v2.1.0 — Control Loop + Git/TDD State Machine"
+    description: >
+      Ingested comprehensive system spec establishing: Hermes as strategic director
+      (observe→decide→act control loop), explicit Git/TDD state discipline, Aider as
+      sandboxed file mutation engine, and deflation/verification gates.
+      Superchargers: deflation gate (max 3 retries), token hygiene, TDD verification contracts.
+      Anti-hallucination rules: verify file existence before edit, no assumed code structure.
+    components_affected:
+      - "Hermes operational model"
+      - "Git/TDD execution workflow"
+      - "Aider invocation contract"
+
+  - date: "2026-05-23"
+    title: "Routa Setup + Database Unification (Historical)"
+    description: >
+      Historical archive only: earlier experiments included a Routa Web UI and
+      CLI server. This is no longer part of the supported architecture after the
+      2026-06-13 deprecation.
+    components_affected:
+      - "Historical archive"
+
+# ───────────────────────────────────────────────────────────────────────────
+# DATA FLOW
+# ───────────────────────────────────────────────────────────────────────────
+
+data_flow:
+  description: "End-to-end flow from user goal to code change"
+
+  steps:
+    - step: 1
+      actor: "User"
+      action: "Provides high-level product goal via Hermes CLI"
+      channel: "Terminal chat"
+
+    - step: 2
+      actor: "Hermes (Strategic Director)"
+      action: |
+        Decomposes goal into atomic DAG-ordered tasks.
+        Each task has: task_id, description, target_files (max 3), test_command.
+        Validates dependencies, checks idempotency, enforces schema.
+      output: "Task payload → explicit Git branch and TDD workflow"
+
+    - step: 3
+      actor: "Hermes (Execution State)"
+      action: |
+        Tracks task state through chat context, Todo discipline, and Git branch status.
+        No separate Routa service is expected.
+      storage: "Hermes Workspace, Git branches, verification logs"
+
+    - step: 4
+      actor: "Aider (File Mutation Engine)"
+      action: |
+        Invokes Aider with target_files + sanitized instruction + test_command.
+        Runs inside work/{task_id} branch with hard timeout: 900s. Structured JSONL logging.
+      storage: "Git branch, verification logs"
+
+    - step: 5
+      actor: "Aider (File Mutation Engine)"
+      action: |
+        Reads only explicit target_files.
+        Generates code changes via LiteLLM proxy → OpenRouter → Phala (qwen-2.5-7b-instruct).
+        All model traffic flows through the centralized gateway on port 4000.
+        Auto-commits with --commit flag.
+        Runs test_command for verification (TDD loop).
+      output: "Git commit → feature branch"
+
+    - step: 6
+      actor: "Hermes (Post-Execution)"
+      action: |
+        On success: verify clean tree and tests, then summarize result.
+        On failure: capture logs, stash if needed, split/rewrite task, and retry up to 3 times.
+      output: "Completed task summary or Blocked task with evidence"
+
+    - step: 7
+      actor: "Hermes (Deflation Gate)"
+      action: |
+        If Blocked: inspect logs → identify error type → rewrite/split/retry (max 3).
+        If all tasks Done: emit completion signal → halt loop.
+      control: "observe → decide → act → sleep 5s"
+
+    - step: 8
+      actor: "User"
+      action: "Reviews result via Hermes CLI summary and Git diff"
