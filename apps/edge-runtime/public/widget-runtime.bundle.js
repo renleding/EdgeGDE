@@ -45,14 +45,31 @@ console.log("EdgeGDE Widget v1.1.0");
     return 'You';
   }
 
+  function getFrameOffset() {
+    var frame = window.frameElement;
+    if (!frame) return { left: 0, top: 0 };
+    var rect = frame.getBoundingClientRect();
+    return { left: rect.left, top: rect.top };
+  }
+
+  function clientToLocalX(clientX) {
+    var offset = getFrameOffset();
+    return clientX - offset.left;
+  }
+
+  function clientToLocalY(clientY) {
+    var offset = getFrameOffset();
+    return clientY - offset.top;
+  }
+
   // ═══ DRAG ═══
   var isDragging = false, dragOffX = 0, dragOffY = 0;
   header.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON') return;
     isDragging = true;
     var rect = chat.getBoundingClientRect();
-    dragOffX = e.clientX - rect.left;
-    dragOffY = e.clientY - rect.top;
+    dragOffX = clientToLocalX(e.clientX) - rect.left;
+    dragOffY = clientToLocalY(e.clientY) - rect.top;
     chat.style.position = 'fixed';
     chat.style.top = rect.top + 'px';
     chat.style.left = rect.left + 'px';
@@ -67,8 +84,8 @@ console.log("EdgeGDE Widget v1.1.0");
     var vw = window.innerWidth, vh = window.innerHeight;
     var w = parseInt(chat.style.width) || chat.offsetWidth;
     var h = parseInt(chat.style.height) || chat.offsetHeight;
-    var nx = Math.max(0, Math.min(vw - w, e.clientX - dragOffX));
-    var ny = Math.max(0, Math.min(vh - h, e.clientY - dragOffY));
+    var nx = Math.max(0, Math.min(vw - w, clientToLocalX(e.clientX) - dragOffX));
+    var ny = Math.max(0, Math.min(vh - h, clientToLocalY(e.clientY) - dragOffY));
     chat.style.left = nx + 'px';
     chat.style.top = ny + 'px';
     chat.style.right = 'auto';

@@ -1,0 +1,17 @@
+{
+  "name": "@edgegde/pwa-canvas",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "EdgeGDE-native governed infinite canvas PWA scaffold.",
+  "scripts": {
+    "copy:edge-runtime": "bun ./scripts/copy-static.mjs",
+    "check:js": "node --check public/pwa.js && node --check public/sw.js",
+    "check:manifest": "node scripts/validate-manifest.mjs",
+    "check": "bun run check:js && bun run check:manifest",
+    "build": "bun run check && bun run copy:edge-runtime"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}

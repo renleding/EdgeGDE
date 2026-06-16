@@ -1,0 +1,18 @@
+{
+  "name": "EdgeGDE Canvas PWA",
+  "short_name": "EdgeGDE Canvas",
+  "description": "EdgeGDE native governed infinite canvas PWA",
+  "start_url": "/pwa-canvas/index.html",
+  "scope": "/pwa-canvas/",
+  "display": "standalone",
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
+  "icons": [
+    {
+      "src": "/pwa-canvas/icons/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
