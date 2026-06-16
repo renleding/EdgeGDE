@@ -44,6 +44,13 @@ import type { CanvasDocument } from './canvas/canvas-types'
 import { compileFromCanvas } from './canvas/compile-from-canvas'
 import { CanvasSession_DO } from './do/canvas-session.do'
 import { renderEditorPage, renderCanvasLanding } from './routes/canvas-editor'
+import {
+  redirectPwaCanvas,
+  getPwaTransient,
+  postPwaTransient,
+  getPwaActionProposals,
+  postPwaActionProposal,
+} from './routes/pwa-canvas'
 import { handleCanvasChat } from './api/canvas-chat'
 import { swarmRouter } from './api/swarm'
 import { fragmentRouter } from './routes/fragment'
@@ -175,7 +182,9 @@ app.use('*', async (c, next) => {
   // Bypass tenant resolver for known non-tenant paths
   if (
     c.req.path.startsWith('/canvas') ||
+    c.req.path.startsWith('/pwa-canvas') ||
     c.req.path.startsWith('/api/canvas/') ||
+    c.req.path.startsWith('/api/pwa/') ||
     c.req.path === '/healthz'
   ) {
     return next()
@@ -226,7 +235,6 @@ app.use('/api/v1/agent/*', adminAuth)
 app.use('/api/v1/mcp/*', adminAuth)
 app.use('/api/tenants', adminAuth)
 app.use('/api/v1/admin/*', adminAuth)
-app.use('/dev/deploy-staging', adminAuth)
 app.use('/api/admin/*', adminAuth)
 app.use('/admin/kb/*', adminAuth)
 app.use('/admin/rules/*', adminAuth)
@@ -451,6 +459,12 @@ app.get('/canvas', async (c) => {
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(renderCanvasLanding())
 })
+app.get('/pwa-canvas', redirectPwaCanvas)
+app.get('/pwa-canvas/', redirectPwaCanvas)
+app.get('/api/pwa/workspaces/:workspaceId/transient', getPwaTransient)
+app.post('/api/pwa/workspaces/:workspaceId/transient', postPwaTransient)
+app.get('/api/pwa/workspaces/:workspaceId/action-proposals', getPwaActionProposals)
+app.post('/api/pwa/workspaces/:workspaceId/action-proposals', postPwaActionProposal)
 // Create a new canvas session
 app.post('/api/canvas/create', async (c) => {
   const env = (c as any).env

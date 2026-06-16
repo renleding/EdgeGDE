@@ -96,6 +96,7 @@ export async function tenantResolver(
     path.startsWith('/api/v1/agent/') ||
     path.startsWith('/api/v1/ocr/') ||
     path.startsWith('/api/v1/chat/') ||
+    path.startsWith('/api/v1/workspace/') ||
     path.startsWith('/api/v1/admin/') ||
     path === '/api/tenants' ||
     path.startsWith('/api/tenants/') ||
@@ -113,7 +114,9 @@ export async function tenantResolver(
     path.startsWith('/sites/') ||
     path.startsWith('/chat/') ||
     path.startsWith('/canvas') ||
+    path.startsWith('/pwa-canvas') ||
     path.startsWith('/api/canvas/') ||
+    path.startsWith('/api/pwa/') ||
     path.startsWith('/api/mcp') ||
     path.startsWith('/mcp') ||
     path.match(/\\.(js|css|png|jpg|svg|ico|woff2?)$/)

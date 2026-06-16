@@ -7,7 +7,7 @@
     },
     "apps/edge-runtime": {
       "name": "@edgegde/runtime",
-      "version": "0.9.3",
+      "version": "0.9.4",
       "dependencies": {
         "@edgegde/schema": "workspace:*",
         "hono": "^4.12.5",
@@ -24,6 +24,10 @@
         "typescript": "^5.5.0",
         "wrangler": "^4.0.0",
       },
+    },
+    "apps/pwa-canvas": {
+      "name": "@edgegde/pwa-canvas",
+      "version": "0.3.0",
     },
     "apps/ui-builder": {
       "name": "@edgegde/ui-builder",
@@ -59,6 +63,8 @@
     "@cloudflare/workers-types": ["@cloudflare/workers-types@4.20260525.1", "", {}, "sha512-vQSjvQINGx2i3dovvVyszew4HU3+82eAuD2ryNmedBIzLcLwluKsnPLTAuL4FDVRyz+MikQEihEBsUmcTElEVQ=="],
 
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
+
+    "@edgegde/pwa-canvas": ["@edgegde/pwa-canvas@workspace:apps/pwa-canvas"],
 
     "@edgegde/runtime": ["@edgegde/runtime@workspace:apps/edge-runtime"],
 

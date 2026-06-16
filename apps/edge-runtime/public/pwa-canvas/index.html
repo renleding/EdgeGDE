@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <meta name="description" content="EdgeGDE native governed infinite canvas PWA">
+  <link rel="manifest" href="/pwa-canvas/manifest.webmanifest">
+  <link rel="icon" href="/pwa-canvas/icons/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/pwa-canvas/pwa.css">
+  <title>EdgeGDE Canvas PWA</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">G</div>
+        <div>
+          <strong>EdgeGDE Canvas PWA</strong>
+          <span>native workspace shell · governed agent proposals</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="offline-badge" class="pill">online</span>
+        <button id="reset-view" type="button">Reset view</button>
+        <button id="save-draft" type="button">Save local draft</button>
+      </div>
+    </header>
+
+    <aside class="agent-panel" aria-label="Agent panel">
+      <section>
+        <h2>Agent panel</h2>
+        <p class="muted">Agents propose; EdgeGDE policy, audit, and expected-version checks apply.</p>
+        <form id="mission-form">
+          <label for="mission">Mission / instruction</label>
+          <textarea id="mission" rows="5" placeholder="Add an onboarding card for workspace bundle import..."></textarea>
+          <button type="submit">Create proposal</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Compact workspace transient</h2>
+        <pre id="workspace-transient">selected: none
+recent results: none
+policy state: cached</pre>
+      </section>
+
+      <section>
+        <h2>Action proposals</h2>
+        <div id="proposal-list" class="proposal-list"></div>
+      </section>
+    </aside>
+
+    <main class="canvas-region">
+      <div class="canvas-toolbar">
+        <button id="add-note" type="button">+ Note</button>
+        <button id="add-app" type="button">+ Sandbox app</button>
+        <button id="fit-selected" type="button">Fit selected</button>
+        <span>Wheel zoom · drag background to pan · drag handles to move · resize from edges/corners · snap when close</span>
+      </div>
+
+      <section id="canvas-stage" class="canvas-stage" aria-label="Infinite canvas">
+        <div class="grid-layer"></div>
+        <div id="canvas-viewport" class="canvas-viewport"></div>
+      </section>
+    </main>
+
+    <aside class="inspector" aria-label="Object inspector">
+      <section>
+        <h2>Inspector</h2>
+        <p id="selection-summary" class="muted">No object selected.</p>
+      </section>
+      <section>
+        <h2>Object guardrails</h2>
+        <ul class="guardrails">
+          <li>Space Agent runtime is not imported.</li>
+          <li>Local drafts are not authoritative.</li>
+          <li>MCP UI is sandboxed by default.</li>
+          <li>Native applets require EdgeGDE trust.</li>
+          <li>Bundle import/export needs review.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>Onboarding templates</h2>
+        <button id="empty-template" type="button">Empty canvas</button>
+        <button id="bundle-template" type="button">Workspace bundle review</button>
+        <button id="calculator-template" type="button">Edge Calculator iframe</button>
+      </section>
+    </aside>
+  </div>
+
+  <script src="/pwa-canvas/pwa.js" defer></script>
+</body>
+</html>

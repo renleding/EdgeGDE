@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local --config wrangler.local.toml",
+    "build:pwa-canvas": "bun ../pwa-canvas/scripts/copy-static.mjs",
     "deploy": "bash scripts/deploy.sh patch",
     "deploy:minor": "bash scripts/deploy.sh minor",
     "deploy:major": "bash scripts/deploy.sh major",

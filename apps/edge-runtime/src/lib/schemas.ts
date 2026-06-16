@@ -12,13 +12,6 @@ import { z } from 'zod'
 // Route Body Schemas
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** POST /api/dev/deploy-staging */
-export const DeployStagingSchema = z.object({
-  tenant: z.string().min(1).max(64),
-  layout: z.string().min(1),
-  version: z.string().regex(/^\d+$/).optional(),
-})
-
 /** POST /api/v1/mcp/deploy */
 export const McpDeploySchema = z.object({
   tenant_id: z.string().min(1).max(64),
@@ -195,7 +188,6 @@ export function validationErrorResponse(error: ValidationError) {
 // Inferred TypeScript Types
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type DeployStagingInput = z.infer<typeof DeployStagingSchema>
 export type McpDeployInput = z.infer<typeof McpDeploySchema>
 export type PromoteInput = z.infer<typeof PromoteSchema>
 export type RollbackInput = z.infer<typeof RollbackSchema>

@@ -1,17 +1,13 @@
 import { Hono } from 'hono'
 import { kv } from '../index'
 import { getEdgeMetrics } from '../lib/metrics'
-import { getLatestVersion, getVersion } from '../lib/versioning'
-import { setTenantLayout } from '../lib/registry'
 import {
-  DeployStagingSchema,
   TelemetryQuerySchema,
   DashboardQuerySchema,
   ValidationError,
   validateOrThrow,
   validationErrorResponse,
 } from '../lib/schemas'
-import { incrementCounter } from '../lib/utils/counters'
 import { getCounter } from '../lib/utils/counters'
 
 const CACHE_TTL_MS = 30_000
@@ -228,58 +224,4 @@ dashboardRouter.get('/telemetry', async (c) => {
   c.header('Content-Type', 'text/plain; charset=utf-8')
   c.header('Cache-Control', 'no-store')
   return c.text(value)
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Live Staging Deploy — staging-only endpoint for UIBuilder
-// ═══════════════════════════════════════════════════════════════════════════
-
-dashboardRouter.post('/dev/deploy-staging', async (c) => {
-  // ── Auth is handled by adminAuth middleware in index.ts ──────────────────
-
-  // Parse + validate body
-  let body: Record<string, unknown>
-  try { body = await c.req.json() }
-  catch { return c.json({ error: 'Invalid JSON body' }, 400) }
-
-  let parsed: import('../lib/schemas').DeployStagingInput
-  try {
-    parsed = validateOrThrow(DeployStagingSchema, body)
-  } catch (err) {
-    if (err instanceof ValidationError) {
-      const resp = validationErrorResponse(err)
-      return c.json(resp.body, resp.status)
-    }
-    return c.json({ error: 'Invalid request body' }, 400)
-  }
-
-  const tenant = parsed.tenant
-  const layoutPayload = parsed.layout
-
-  // Resolve KV
-  const bindings = (c.env as any)?.ARTIFACT_KV
-  const kvStore = bindings && typeof bindings.get === 'function'
-    ? bindings
-    : null
-  if (!kvStore) return c.json({ error: 'KV not available' }, 500)
-
-  // Deploy to staging only (no production promotion)
-  try {
-    const result = await setTenantLayout(kvStore, tenant, layoutPayload, 'Live Staging Deploy', 'staging')
-    if (result.status === 'conflict') {
-      return c.json({ error: 'Deploy in progress', status: 'conflict' }, 409)
-    }
-
-    // Increment artifact counter (fire-and-forget)
-    incrementCounter(kvStore, '_counts:artifacts').catch(() => {})
-
-    return c.json({
-      success: true,
-      version: result.version,
-      staging_url: result.url,
-      message: `Deployed to ${result.url} (${result.version})`,
-    })
-  } catch (err: any) {
-    return c.json({ error: 'Deploy failed', details: err.message }, 500)
-  }
 })
