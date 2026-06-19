@@ -186,7 +186,16 @@ Respond ONLY with the JSON object. No explanation. No markdown. No code fences.`
 // LLM Provider
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function callLLM(prompt: string, apiKey: string): Promise<string> {
+type CanvasChatLLMProvider = 'openrouter' | 'ollama'
+
+function resolveCanvasChatLLMProvider(env: any): CanvasChatLLMProvider {
+  const configured = String(env?.CANVAS_CHAT_LLM_PROVIDER || '').toLowerCase()
+  if (configured === 'ollama') return 'ollama'
+  if (configured === 'openrouter') return 'openrouter'
+  return env?.LLM_API_KEY ? 'openrouter' : 'ollama'
+}
+
+async function callOpenRouterLLM(prompt: string, apiKey: string): Promise<string> {
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -206,11 +215,68 @@ async function callLLM(prompt: string, apiKey: string): Promise<string> {
 
   if (!response.ok) {
     const errText = await response.text().catch(() => 'unknown')
-    throw new Error(`LLM error: ${response.status} — ${errText}`)
+    throw new Error(`OpenRouter LLM error: ${response.status} — ${errText}`)
   }
 
   const data: any = await response.json()
   return data?.choices?.[0]?.message?.content || ''
+}
+
+async function callOllamaLLM(prompt: string, env: any): Promise<string> {
+  const url = env?.OLLAMA_CHAT_URL || 'http://127.0.0.1:11434/api/chat'
+  const model = env?.OLLAMA_CHAT_MODEL || 'qwen3:4b'
+  const timeoutMs = Number(env?.OLLAMA_CHAT_TIMEOUT_MS || 180000)
+  const isOpenAICompatible = /\/v1\/chat\/completions\/?$/.test(url)
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(isOpenAICompatible ? {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        options: {
+          temperature: 0.2,
+          num_predict: 1500,
+        },
+      } : {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        format: 'json',
+        options: {
+          temperature: 0.1,
+          num_predict: 1500,
+        },
+      }),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => 'unknown')
+      throw new Error(`Ollama LLM error: ${response.status} — ${errText}`)
+    }
+
+    const data: any = await response.json()
+    return data?.message?.content || data?.choices?.[0]?.message?.content || ''
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function callLLM(prompt: string, env: any): Promise<string> {
+  const provider = resolveCanvasChatLLMProvider(env)
+  if (provider === 'openrouter') {
+    const apiKey = env.LLM_API_KEY || ''
+    if (!apiKey) throw new Error('LLM_API_KEY not configured')
+    return callOpenRouterLLM(prompt, apiKey)
+  }
+
+  return callOllamaLLM(prompt, env)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -243,16 +309,27 @@ export async function handleCanvasChat(
   const stub = env.CANVAS_SESSION.get(doId)
 
   const stateRes = await stub.fetch('http://dO/state')
-  if (stateRes.status !== 200) return { success: false, error: 'Canvas not found' }
-
-  const doc: CanvasDocument = await stateRes.json()
+  let doc: CanvasDocument | undefined
+  if (stateRes.status === 200) {
+    doc = await stateRes.json() as CanvasDocument
+  } else {
+    const restoreRes = await stub.fetch('http://dO/restore', {
+      method: 'POST',
+      body: JSON.stringify({ canvasId }),
+    })
+    if (restoreRes.status !== 200) return { success: false, error: 'Canvas not found' }
+    doc = await restoreRes.json() as CanvasDocument
+  }
 
   // Build context-scoped prompt
   const systemPrompt = buildSystemPrompt(doc, userMessage, selectedNodeId)
-  const llmKey = env.LLM_API_KEY || ''
-  if (!llmKey) return { success: false, error: 'LLM_API_KEY not configured' }
 
-  const llmResponse = await callLLM(systemPrompt, llmKey)
+  let llmResponse: string
+  try {
+    llmResponse = await callLLM(systemPrompt, env)
+  } catch (e: any) {
+    return { success: false, error: e.message || 'LLM provider failed' }
+  }
   if (!llmResponse) return { success: false, error: 'LLM returned empty response' }
 
   // Parse and validate with Zod

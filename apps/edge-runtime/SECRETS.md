@@ -3,7 +3,9 @@
 | Secret Name | Scope | Set Via | Rotation |
 |-------------|-------|---------|----------|
 | `ADMIN_API_TOKEN` | Full control plane — admin routes, scoring dashboard, vault | `wrangler secret put ADMIN_API_TOKEN` | As needed |
-| `LLM_API_KEY` | Queue consumer — OpenRouter for LLM signal scoring | `wrangler secret put LLM_API_KEY` | Per provider policy |
+| `LLM_API_KEY` | OpenRouter path for queue consumer and canvas chat when `CANVAS_CHAT_LLM_PROVIDER=openrouter` | `wrangler secret put LLM_API_KEY` | Per provider policy |
+| `OLLAMA_CHAT_URL` | Optional local Ollama OpenAI-compatible endpoint for canvas chat fallback/default when `LLM_API_KEY` is absent | Worker var or local config | As needed |
+| `OLLAMA_CHAT_MODEL` | Optional local Ollama model for canvas chat, default `qwen3-coder:30b` | Worker var or local config | As needed |
 | `ALERT_WEBHOOK_URL` | Cron dispatcher — hot lead webhook destination | `wrangler secret put ALERT_WEBHOOK_URL` | Per endpoint change |
 | `SWARM_AUTH_TOKEN` | Swarm ingress — external agent event ingestion only | `wrangler secret put SWARM_AUTH_TOKEN` | Per compromise |
 
