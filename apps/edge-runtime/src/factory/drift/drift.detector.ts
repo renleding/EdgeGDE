@@ -20,6 +20,19 @@ export interface DriftEntry {
 // Detect drift between blueprint baseline and tenant config
 // ═══════════════════════════════════════════════════════════════════════════
 
+function buildExpectedPackVersions(blueprint: Blueprint): Record<string, string> {
+  const packVersions: Record<string, string> = {}
+  if (blueprint.packs?.rule_pack) {
+    const { name, version } = blueprint.packs.rule_pack
+    packVersions.rules = `${name}_v${version.replace(/^v/, '')}`
+  }
+  if (blueprint.packs?.compliance_pack) {
+    const { name, version } = blueprint.packs.compliance_pack
+    packVersions.compliance = `${name}_v${version.replace(/^v/, '')}`
+  }
+  return packVersions
+}
+
 export function detectConfigDrift(
   blueprint: Blueprint,
   tenantConfig: Record<string, unknown>,
@@ -40,6 +53,7 @@ export function detectConfigDrift(
       greeting: `Welcome to ${(blueprint as any).name || blueprint.id}! Let's get started with your application.`,
       colorAccent: '#58a6ff',
     },
+    pack_versions: buildExpectedPackVersions(blueprint),
   }
 
   // Apply tenant overrides to baseline for comparison

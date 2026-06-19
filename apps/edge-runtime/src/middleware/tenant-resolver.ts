@@ -104,6 +104,7 @@ export async function tenantResolver(
     path.startsWith('/admin/factory') ||
     path.startsWith('/admin/drift') ||
     path.startsWith('/admin/packs') ||
+    path.startsWith('/admin/config') ||
     path.startsWith('/api/webhook/') ||
     path.startsWith('/.well-known/') ||
     path.startsWith('/assets/') ||

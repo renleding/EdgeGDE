@@ -29,7 +29,7 @@ const DEFAULT_CONFIG = {
 embedRouter.get('/chat', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
 
-  let config = DEFAULT_CONFIG
+  let config: Record<string, any> = { ...DEFAULT_CONFIG }
   try {
     const kv = (c.env as any)?.TENANT_KV
     if (kv) {
@@ -40,9 +40,9 @@ embedRouter.get('/chat', async (c) => {
     }
   } catch {}
 
-  const title = config.title || DEFAULT_CONFIG.title
-  const greeting = config.greeting || DEFAULT_CONFIG.greeting
-  const accent = config.colorAccent || DEFAULT_CONFIG.colorAccent
+  const title = config.ui?.title || config.title || DEFAULT_CONFIG.title
+  const greeting = config.ui?.greeting || config.greeting || DEFAULT_CONFIG.greeting
+  const accent = config.ui?.colorAccent || config.colorAccent || DEFAULT_CONFIG.colorAccent
 
   const html = `<!DOCTYPE html>
 <html lang="en">

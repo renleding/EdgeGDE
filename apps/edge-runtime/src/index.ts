@@ -24,6 +24,7 @@ import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { adminRouter } from './api/admin-views'
+import { configRouter } from './api/admin-config'
 import { adminSiteRouter } from './api/admin-site'
 import { adminRulesRouter } from './api/admin-rules'
 import { adminBlueprintsRouter } from './api/admin-blueprints'
@@ -237,6 +238,7 @@ app.use('/api/tenants', adminAuth)
 app.use('/api/v1/admin/*', adminAuth)
 app.use('/api/admin/*', adminAuth)
 app.use('/admin/kb/*', adminAuth)
+app.use('/admin/config/*', adminAuth)
 app.use('/admin/rules/*', adminAuth)
 app.use('/admin/site/*', adminAuth)
 app.use('/admin/blueprints/*', adminAuth)
@@ -443,6 +445,7 @@ app.route('/api/v1', instantiateRouter)
 app.route('/api/v1', builderRouter)
 app.route('/api/v1/admin', scoringAdminRouter)
 app.route('/admin/kb', adminRouter)
+app.route('/admin/config', configRouter)
 app.route('/admin/rules', adminRulesRouter)
 app.route('/admin/site', adminSiteRouter)
 app.route('/admin/blueprints', adminBlueprintsRouter)

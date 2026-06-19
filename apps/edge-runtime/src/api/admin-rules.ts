@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono'
 import { guardDB } from '../lib/db'
+import { rebuildTenantConfig } from '../lib/config-inheritance'
 import { evaluateCondition, parseRuleOutput, simulateRules, type Rule, validateConditionSyntax } from '../lib/rule-engine'
 
 const adminRulesRouter = new Hono()
@@ -190,8 +191,9 @@ adminRulesRouter.post('/create', async (c) => {
   const now = Math.floor(Date.now() / 1000)
 
   await db.insert(ctx, 'rules', { id, tenant_id: tenantId, condition, output, priority, active: 1, created_at: now })
+  await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
 
-  return c.html(`<div style="color:#3fb950;font-size:13px">✅ Rule created. <a href="/admin/rules?tenant=${escapeHtml(tenantId)}" style="color:#58a6ff">Refresh list</a></div>`)
+  return c.html(`<div style="color:#3fb950;font-size:13px">✅ Rule created · config rebuilt. <a href="/admin/rules?tenant=${escapeHtml(tenantId)}" style="color:#58a6ff">Refresh list</a></div>`)
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -218,8 +220,9 @@ adminRulesRouter.post('/update', async (c) => {
   }
 
   await db.update(ctx, 'rules', { condition, output, priority }, 'id = ?', [id])
+  await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
 
-  return c.html(`<div style="color:#3fb950;font-size:13px">✅ Rule updated. <a href="/admin/rules?tenant=${escapeHtml(tenantId)}" style="color:#58a6ff">Back to rules</a></div>`)
+  return c.html(`<div style="color:#3fb950;font-size:13px">✅ Rule updated · config rebuilt. <a href="/admin/rules?tenant=${escapeHtml(tenantId)}" style="color:#58a6ff">Back to rules</a></div>`)
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -278,6 +281,7 @@ adminRulesRouter.post('/toggle', async (c) => {
 
   const newActive = rule.active ? 0 : 1
   await db.update(ctx, 'rules', { active: newActive }, 'id = ?', [id])
+  await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
 
   return c.html(`
     <tr id="rule-${escapeHtml(rule.id)}">

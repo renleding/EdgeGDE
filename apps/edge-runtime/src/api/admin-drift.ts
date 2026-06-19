@@ -18,6 +18,10 @@ function jsonDisplay(v: unknown): string {
   return escapeHtml(typeof v === 'string' ? v : JSON.stringify(v))
 }
 
+function parseJson<T>(value: T | string): T {
+  return typeof value === 'string' ? JSON.parse(value) : value as T
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // GET /admin/drift — drift report for a tenant
 // ═══════════════════════════════════════════════════════════════════════════
@@ -38,19 +42,22 @@ router.get('/', async (c) => {
     if (!bpRef) {
       summary = '<div style="color:#d29922;font-size:12px">⚠ No blueprint reference found for this tenant. It may have been created before the factory system.</div>'
     } else {
-      const ref = typeof bpRef === 'string' ? JSON.parse(bpRef) : bpRef
+      const ref = parseJson<{ id: string }>(bpRef)
       // Load the actual blueprint
-      const blueprint = await kv.get(`blueprint:${ref.id}:latest`, ctx)
-      if (!blueprint) {
+      const blueprintRaw = await kv.get(`blueprint:${ref.id}:latest`, ctx)
+      if (!blueprintRaw) {
         summary = `<div style="color:#da3633;font-size:12px">Blueprint "${escapeHtml(ref.id)}" not found</div>`
       } else {
+        const blueprint = parseJson<any>(blueprintRaw)
         // Load tenant chat config
-        const tenantConfig = await kv.get(`tenant:${tenantId}:chat:config`, ctx)
-        if (!tenantConfig) {
+        const tenantConfigRaw = await kv.get(`tenant:${tenantId}:chat:config`, ctx)
+        if (!tenantConfigRaw) {
           summary = '<div style="color:#da3633;font-size:12px">Tenant has no chat config</div>'
         } else {
           // Detect drift
-          const drift = detectConfigDrift(blueprint, typeof tenantConfig === 'string' ? JSON.parse(tenantConfig) : tenantConfig)
+          const tenantConfig = parseJson<any>(tenantConfigRaw)
+          const tenantOverrides = tenantConfig.ui ? { ui: tenantConfig.ui } : undefined
+          const drift = detectConfigDrift(blueprint, tenantConfig, tenantOverrides)
 
           if (drift.length === 0) {
             summary = '<div style="color:#3fb950;font-size:12px">✅ No drift detected — tenant matches blueprint</div>'

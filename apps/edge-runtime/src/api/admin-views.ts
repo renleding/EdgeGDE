@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono'
 import { guardKV } from '../lib/kv'
+import { rebuildTenantConfig } from '../lib/config-inheritance'
 
 const adminRouter = new Hono()
 
@@ -66,6 +67,7 @@ const pageLayout = (title: string, body: string, tenantId?: string, token?: stri
   <nav class="nav">
     <h1>AFIRMICO Admin</h1>
     ${nav('/admin/kb', 'Knowledge Base', title === 'Knowledge Base')}
+    ${nav('/admin/config', 'Config', title === 'Agent Config')}
     ${nav('/admin/rules', 'Rules', title === 'Rules')}
     ${nav('/admin/site', 'Site', title === 'Site')}
   </nav>
@@ -304,7 +306,8 @@ adminRouter.post('/approve', async (c) => {
     for (const e of (pending.entries || [])) merged.set(e.id, e)
     await kv.put(`tenant:${tenantId}:kb:${topic}`, JSON.stringify({ entries: Array.from(merged.values()), updated_at: Date.now(), source_ref: pending.source_ref || '' }), ctx)
     await rawKV.delete(`tenant:${tenantId}:kb_pending:${topic}`)
-    return c.html(`<div class="card" style="border-color:#238636"><h3>${escapeHtml(topic)}</h3><div style="color:#3fb950;font-size:12px;margin-top:4px">✅ Approved · ${merged.size} entries</div></div>`)
+    await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+    return c.html(`<div class="card" style="border-color:#238636"><h3>${escapeHtml(topic)}</h3><div style="color:#3fb950;font-size:12px;margin-top:4px">✅ Approved · ${merged.size} entries · config rebuilt</div></div>`)
   } catch (err: any) {
     return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
   }
@@ -324,7 +327,8 @@ adminRouter.post('/reject', async (c) => {
     const pending = JSON.parse(pendingRaw)
     await kv.put(`tenant:${tenantId}:kb_rejected:${topic}`, JSON.stringify({ entries: pending.entries || [], source_ref: pending.source_ref || '', rejected_at: Date.now() }), ctx)
     await rawKV.delete(`tenant:${tenantId}:kb_pending:${topic}`)
-    return c.html(`<div class="card" style="border-color:#da3633"><h3>${escapeHtml(topic)}</h3><div style="color:#f85149;font-size:12px;margin-top:4px">❌ Rejected</div></div>`)
+    await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+    return c.html(`<div class="card" style="border-color:#da3633"><h3>${escapeHtml(topic)}</h3><div style="color:#f85149;font-size:12px;margin-top:4px">❌ Rejected · config rebuilt</div></div>`)
   } catch (err: any) {
     return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
   }
