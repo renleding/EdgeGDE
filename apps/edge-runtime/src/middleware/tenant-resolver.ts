@@ -114,6 +114,7 @@ export async function tenantResolver(
     path.startsWith('/api/fragment/') ||
     path.startsWith('/sites/') ||
     path.startsWith('/chat/') ||
+    path === '/ws' ||
     path.startsWith('/canvas') ||
     path.startsWith('/pwa-canvas') ||
     path.startsWith('/api/canvas/') ||

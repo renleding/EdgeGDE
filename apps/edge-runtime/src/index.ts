@@ -183,6 +183,7 @@ app.use('*', async (c, next) => {
   // Bypass tenant resolver for known non-tenant paths
   if (
     c.req.path.startsWith('/canvas') ||
+    c.req.path === '/ws' ||
     c.req.path.startsWith('/pwa-canvas') ||
     c.req.path.startsWith('/api/canvas/') ||
     c.req.path.startsWith('/api/pwa/') ||
@@ -253,6 +254,25 @@ app.use('/api/v1/admin/audit/*', adminAuth)
 
 app.get('/healthz', (c) => {
   return c.text('ok')
+})
+
+// Canvas WebSocket upgrade routing — browser editor connects to /ws?do=<doId>
+app.all('/ws', async (c) => {
+  const env = (c as any).env
+  const canvasId = c.req.query('do') || c.req.query('canvasId') || c.req.query('id')
+  if (!canvasId) return c.json({ error: 'Canvas DO id required' }, 400)
+
+  const doId = env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = env.CANVAS_SESSION.get(doId)
+  const request = c.req.raw
+  const url = new URL(request.url)
+  const durableObjectRequest = new Request('http://dO' + url.pathname + url.search, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+  })
+
+  return stub.fetch(durableObjectRequest)
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
