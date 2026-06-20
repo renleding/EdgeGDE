@@ -24,6 +24,7 @@ import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { adminRouter } from './api/admin-views'
+import { adminAnalyticsRouter } from './api/admin-analytics'
 import { adminForecastingRouter } from './api/admin-forecasting'
 import { adminMetricSeriesRouter } from './api/admin-metric-series'
 import { configRouter } from './api/admin-config'
@@ -466,8 +467,10 @@ app.route('/api/v1/admin', templateRouter)
 app.route('/api/v1', instantiateRouter)
 app.route('/api/v1', builderRouter)
 app.route('/api/v1/admin', scoringAdminRouter)
+app.route('/api/v1/admin', adminAnalyticsRouter)
 app.route('/api/v1/admin', adminForecastingRouter)
 app.route('/api/v1/admin', adminMetricSeriesRouter)
+app.route('/admin/analytics', adminAnalyticsRouter)
 app.route('/admin/kb', adminRouter)
 app.route('/admin/config', configRouter)
 app.route('/admin/rules', adminRulesRouter)
