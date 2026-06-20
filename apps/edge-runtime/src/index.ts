@@ -24,6 +24,7 @@ import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { adminRouter } from './api/admin-views'
+import { configRouter } from './api/admin-config'
 import { adminSiteRouter } from './api/admin-site'
 import { adminRulesRouter } from './api/admin-rules'
 import { adminBlueprintsRouter } from './api/admin-blueprints'
@@ -182,6 +183,7 @@ app.use('*', async (c, next) => {
   // Bypass tenant resolver for known non-tenant paths
   if (
     c.req.path.startsWith('/canvas') ||
+    c.req.path === '/ws' ||
     c.req.path.startsWith('/pwa-canvas') ||
     c.req.path.startsWith('/api/canvas/') ||
     c.req.path.startsWith('/api/pwa/') ||
@@ -237,6 +239,7 @@ app.use('/api/tenants', adminAuth)
 app.use('/api/v1/admin/*', adminAuth)
 app.use('/api/admin/*', adminAuth)
 app.use('/admin/kb/*', adminAuth)
+app.use('/admin/config/*', adminAuth)
 app.use('/admin/rules/*', adminAuth)
 app.use('/admin/site/*', adminAuth)
 app.use('/admin/blueprints/*', adminAuth)
@@ -251,6 +254,25 @@ app.use('/api/v1/admin/audit/*', adminAuth)
 
 app.get('/healthz', (c) => {
   return c.text('ok')
+})
+
+// Canvas WebSocket upgrade routing — browser editor connects to /ws?do=<doId>
+app.all('/ws', async (c) => {
+  const env = (c as any).env
+  const canvasId = c.req.query('do') || c.req.query('canvasId') || c.req.query('id')
+  if (!canvasId) return c.json({ error: 'Canvas DO id required' }, 400)
+
+  const doId = env.CANVAS_SESSION.idFromName(canvasId)
+  const stub = env.CANVAS_SESSION.get(doId)
+  const request = c.req.raw
+  const url = new URL(request.url)
+  const durableObjectRequest = new Request('http://dO' + url.pathname + url.search, {
+    method: request.method,
+    headers: request.headers,
+    body: request.body,
+  })
+
+  return stub.fetch(durableObjectRequest)
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -443,6 +465,7 @@ app.route('/api/v1', instantiateRouter)
 app.route('/api/v1', builderRouter)
 app.route('/api/v1/admin', scoringAdminRouter)
 app.route('/admin/kb', adminRouter)
+app.route('/admin/config', configRouter)
 app.route('/admin/rules', adminRulesRouter)
 app.route('/admin/site', adminSiteRouter)
 app.route('/admin/blueprints', adminBlueprintsRouter)

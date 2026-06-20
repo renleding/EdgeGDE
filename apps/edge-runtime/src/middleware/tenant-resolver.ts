@@ -104,6 +104,7 @@ export async function tenantResolver(
     path.startsWith('/admin/factory') ||
     path.startsWith('/admin/drift') ||
     path.startsWith('/admin/packs') ||
+    path.startsWith('/admin/config') ||
     path.startsWith('/api/webhook/') ||
     path.startsWith('/.well-known/') ||
     path.startsWith('/assets/') ||
@@ -113,6 +114,7 @@ export async function tenantResolver(
     path.startsWith('/api/fragment/') ||
     path.startsWith('/sites/') ||
     path.startsWith('/chat/') ||
+    path === '/ws' ||
     path.startsWith('/canvas') ||
     path.startsWith('/pwa-canvas') ||
     path.startsWith('/api/canvas/') ||

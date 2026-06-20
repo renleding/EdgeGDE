@@ -1,6 +1,6 @@
 {
-  "tenantId": "dev-local",
+  "tenantId": "alpha-broker-01",
   "slug": "localhost",
-  "name": "EdgeGDE Dev",
+  "name": "Alpha Broker 01",
   "plan": "free"
 }

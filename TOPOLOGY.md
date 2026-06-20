@@ -83,19 +83,30 @@
 │  10M reads/day  │  │  write)         │  │  kb documents     │  │  │        │ │
 │  1M writes/day  │  │                 │  │  file uploads     │  │  │ deep-  │ │
 │                 │  │  Tables:        │  │  static assets    │  │  │ seek/  │ │
-│  Keys:          │  │  ─ chat_sessions│  │                   │  │  │ v4-    │ │
-│  ─ tenant:      │  │  ─ rules        │  │  Located:         │  │  │ flash  │ │
-│     {slug}:     │  │  ─ audit_events │  │  ap-southeast-4  │  │  │        │ │
-│     config      │  │    (persisted    │  │  (Sydney)        │  │  ├────────┤ │
-│  ─ tenant:      │  │     snapshot     │  │                   │  │  │ OLLAMA │ │
-│     {slug}:     │  │     of DO log)   │  │                   │  │  │ (local)│ │
-│     kb:         │  │  ─ webhook_logs │  │                   │  │  │        │ │
-│     compliance  │  │  ─ agents       │  │                   │  │  │ qwen3- │ │
-│  ─ tenant:      │  │                 │  │                   │  │  │ vl:4b  │ │
-│     {UUID}:     │  │  Located:       │  │                   │  │  │        │ │
-│     chat:config │  │  ap-southeast-4 │  │                   │  │  │ vision │ │
-│  ─ blueprint:   │  │  (Sydney)       │  │                   │  │  │ only   │ │
-│     {id}:latest │  │                 │  │                   │  │  └────────┘ │
+│  Keys:          │  │  ─ chat_sessions│  │  Located:         │  │  │ v4-    │ │
+│  ─ tenant:      │  │  ─ rules        │  │  ap-southeast-4  │  │  │        │ │
+│     {slug}:     │  │  ─ audit_events │  │  (Sydney)        │  │  ├────────┤ │
+│     config      │  │    (persisted    │  │                   │  │  │ OLLAMA │ │
+│  ─ tenant:      │  │     snapshot     │  │                   │  │  │ (local)│ │
+│     {slug}:     │  │     of DO log)   │  │                   │  │  │        │ │
+│     kb:         │  │  ─ webhook_logs │  │                   │  │  │ qwen3- │ │
+│  ─ tenant:      │  │  ─ agents       │  │                   │  │  │ vl:4b  │ │
+│     {UUID}:     │  │                 │  │                   │  │  │        │ │
+│     chat:config │  │  Located:       │  │                   │  │  │ vision │ │
+│  ─ tenant:      │  │  ap-southeast-4 │  │                   │  │  │ only   │ │
+│     {slug}:     │  │  (Sydney)       │  │                   │  │  └────────┘ │
+│     agent:      │  │                 │  │                   │               │
+│     profile     │  │                 │  │                   │               │
+│  ─ tenant:      │  │                 │  │                   │               │
+│     {slug}:     │  │                 │  │                   │               │
+│     config:     │  │                 │  │                   │               │
+│     overrides   │  │                 │  │                   │               │
+│  ─ tenant:      │  │                 │  │                   │               │
+│     {slug}:     │  │                 │  │                   │               │
+│     config:     │  │                 │  │                   │               │
+│     effective   │  │                 │  │                   │               │
+│  ─ blueprint:   │  │                 │  │                   │               │
+│     {id}:latest │  │                 │  │                   │               │
 │  ─ pack:{name}  │  │                 │  │                   │  └────────────┘
 │     _v{version} │  │                 │  │                   │
 │                 │  │                 │  │                   │
@@ -167,6 +178,33 @@
   │ WORKER_VERSION   │ Text var                 │ Version identifier for  │
   │                  │                          │ cache-busting + logging │
   └──────────────────┴──────────────────────────┴─────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       TELEMETRY & ANALYTICS v1.0.0                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+  Telemetry observes EdgeGDE. It does not own tenant state, audit truth, or
+  deterministic business state.
+
+  ┌─────────────────────────────┬────────────────────────────────────────────┐
+  │ Concern                     │ Owner                                      │
+  ├─────────────────────────────┼────────────────────────────────────────────┤
+  │ Core infra logs/metrics     │ SigNoz                                     │
+  │ Distributed traces          │ SigNoz                                     │
+  │ Worker/Queue/D1/KV/R2/DO    │ SigNoz                                     │
+  │ LLM/agent production traces │ Langfuse                                   │
+  │ LLM eval/debug              │ Arize Phoenix                              │
+  │ Edge/web/security analytics │ Cloudflare                                 │
+  │ Business/audit truth        │ EdgeGDE AuditLedger_DO + D1 projections    │
+  │ Forecasting                 │ Research only; not selected in v1.0.0      │
+  └─────────────────────────────┴────────────────────────────────────────────┘
+
+  Forecasting, when implemented, must be an async tenant-scoped projection:
+  Queue job -> external inference service -> D1 forecast projection -> KV latest
+  pointer -> AuditLedger event -> dashboard read path.
+
+  TimesFM 2.5 is explicitly not locked as the forecasting solution.
 
 
 ╔══════════════════════════════════════════════════════════════════════════════╗

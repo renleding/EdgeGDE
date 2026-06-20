@@ -50,7 +50,16 @@ export class CanvasSession_DO implements DurableObject {
     const url = new URL(request.url)
     const path = url.pathname
 
-    if (path === '/ws') return this.handleWebSocketUpgrade(request)
+    if (path === '/ws') {
+      const canvasId = url.searchParams.get('do') || url.searchParams.get('canvasId') || url.searchParams.get('id')
+      if (!this.doc && canvasId) {
+        const restoreRes = await this.handleRestore(canvasId)
+        if (restoreRes.status === 200) {
+          this.doc = JSON.parse(await restoreRes.text()) as CanvasDocument
+        }
+      }
+      return this.handleWebSocketUpgrade(request)
+    }
 
     if (path === '/init' && request.method === 'POST') {
       const data = await request.json() as any
@@ -145,7 +154,7 @@ export class CanvasSession_DO implements DurableObject {
   // HTTP Handlers
   // ═══════════════════════════════════════════════════════════════════════
 
-  private handleInit(id: string, rootId: string, nodes?: Record<string, Node>, designTokens?: any): Response {
+  private async handleInit(id: string, rootId: string, nodes?: Record<string, Node>, designTokens?: any): Promise<Response> {
     if (!id || !rootId || !nodes) return new Response('Invalid init data', { status: 400 })
     this.doc = {
       id, version: 0, rootId,
@@ -154,7 +163,7 @@ export class CanvasSession_DO implements DurableObject {
       history: [], stagingPointer: -1, livePointer: -1,
     }
     if (designTokens) (this.doc as any).designTokens = designTokens
-    this.state_.waitUntil(this.snapshotNow())
+    await this.snapshotNow()
     return new Response(JSON.stringify(this.doc))
   }
 

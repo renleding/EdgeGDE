@@ -188,6 +188,9 @@ npx wrangler deploy
 | [AUDIT.md](./AUDIT.md) | Security audit & compliance |
 | [MANIFEST.md](./MANIFEST.md) | System manifest & versioning |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | SDLC workflow & PR guidelines |
+| [docs/telemetry-analytics-v1.0.0-functional.md](./docs/telemetry-analytics-v1.0.0-functional.md) | Telemetry & Analytics v1.0.0 functional specification |
+| [docs/agent-config-inheritance-v1.0.0-functional.md](./docs/agent-config-inheritance-v1.0.0-functional.md) | Agent config inheritance, duplication, and triggered update specification |
+| [docs/forecasting-solution-research-v1.0.0.md](./docs/forecasting-solution-research-v1.0.0.md) | Forecasting solution research workstream v1.0.0 |
 
 ## Key Principles
 
