@@ -58,7 +58,12 @@ run('normalizeAgentCommandPayload fills add_node node.parentId from mutation.par
     }],
   }, makeDoc())
 
-  assert.strictEqual(normalized.mutations[0].node.parentId, 'root')
+  const mutation = normalized.mutations[0] as {
+    type: 'add_node'
+    parentId: string
+    node: { parentId: string | null }
+  }
+  assert.strictEqual(mutation.node.parentId, 'root')
   agentCommandSchema.parse(normalized)
 })
 
@@ -79,8 +84,13 @@ run('normalizeAgentCommandPayload fills add_node mutation.parentId from node.par
     }],
   }, makeDoc())
 
-  assert.strictEqual(normalized.mutations[0].parentId, 'root')
-  assert.strictEqual(normalized.mutations[0].node.parentId, 'root')
+  const mutation = normalized.mutations[0] as {
+    type: 'add_node'
+    parentId: string
+    node: { parentId: string | null }
+  }
+  assert.strictEqual(mutation.parentId, 'root')
+  assert.strictEqual(mutation.node.parentId, 'root')
   agentCommandSchema.parse(normalized)
 })
 

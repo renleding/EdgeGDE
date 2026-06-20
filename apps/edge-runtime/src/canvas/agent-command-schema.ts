@@ -61,7 +61,6 @@ const mutationSchema = z.discriminatedUnion('type', [
   deleteNodeMutationSchema,
   moveNodeMutationSchema,
 ])
-
 // ═══════════════════════════════════════════════════════════════════════════
 // AgentCommand Schema
 // ═══════════════════════════════════════════════════════════════════════════
@@ -73,3 +72,4 @@ export const agentCommandSchema = z.object({
 })
 
 export type ValidatedAgentCommand = z.infer<typeof agentCommandSchema>
+export type RawAgentCommand = z.input<typeof agentCommandSchema>

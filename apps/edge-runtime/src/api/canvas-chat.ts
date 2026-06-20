@@ -15,8 +15,7 @@
 
 import { agentCommandSchema, type ValidatedAgentCommand } from '../canvas/agent-command-schema'
 import { normalizeAgentCommandPayload } from '../canvas/agent-command-normalizer'
-import type { CanvasDocument, Mutation } from '../canvas/canvas-types'
-import { getTree } from '../canvas/canvas-engine'
+import type { CanvasDocument } from '../canvas/canvas-types'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Context builders
