@@ -13,10 +13,12 @@ import {
   CHRONOS_2_CHECKPOINT,
   CHRONOS_2_MODEL_NAME,
   CHRONOS_2_MODEL_VERSION,
+  evaluateForecastPromotion,
   forecastConfigHash,
   forecastLatestPointerKey,
   parseChronos2ForecastResponse,
   seasonalNaiveForecast,
+  validateForecastProjection,
 } from '../src/lib/forecasting'
 
 test('forecasting projection contract', () => {
@@ -105,4 +107,48 @@ model_name TEXT NOT NULL DEFAULT 'chronos-2'`
     forecastLatestPointerKey('tenant-a', 'lead_submissions', 'daily'),
     'tenant:tenant-a:forecast:lead_submissions:daily:latest',
   )
+})
+
+test('forecast promotion gate accepts valid projection', () => {
+  const report = evaluateForecastPromotion(
+    [
+      { ds: '2026-06-20', point_forecast: 15, p10: 13, p50: 15, p90: 18, lower_bound: 13, upper_bound: 18 },
+      { ds: '2026-06-21', point_forecast: 16, p10: 14, p50: 16, p90: 19, lower_bound: 14, upper_bound: 19 },
+    ],
+    { mae: 1.5, smape: 0.08 },
+    {
+      minPointCount: 2,
+      requireFinitePointForecasts: true,
+      requireQuantileOrdering: true,
+      requireIntervalBounds: true,
+      maxMae: 2,
+    },
+  )
+
+  assert.strictEqual(report.publishable, true)
+  assert.strictEqual(report.promotionStatus, 'published')
+  assert.strictEqual(report.errors.length, 0)
+  assert.strictEqual(report.metrics.mae, 1.5)
+})
+
+test('forecast promotion gate rejects invalid quantile ordering', () => {
+  const validation = validateForecastProjection([
+    { ds: '2026-06-20', point_forecast: 15, p10: 18, p50: 15, p90: 18, lower_bound: 18, upper_bound: 18 },
+  ])
+
+  assert.strictEqual(validation.publishable, false)
+  assert.strictEqual(validation.promotionStatus, 'rejected')
+  assert.strictEqual(validation.errors[0].code, 'QUANTILE_ORDER')
+})
+
+test('forecast promotion gate rejects backtest threshold failure', () => {
+  const report = evaluateForecastPromotion(
+    [{ ds: '2026-06-20', point_forecast: 15, p10: 13, p50: 15, p90: 18 }],
+    { mae: 5, smape: 0.2 },
+    { maxMae: 2 },
+  )
+
+  assert.strictEqual(report.publishable, false)
+  assert.strictEqual(report.promotionStatus, 'rejected')
+  assert.strictEqual(report.errors[0].code, 'MAE_THRESHOLD')
 })

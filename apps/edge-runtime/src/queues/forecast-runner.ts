@@ -13,9 +13,11 @@ import {
   buildChronos2RequestPayload,
   completeForecastRun,
   createForecastRun,
+  evaluateForecastPromotion,
   markForecastRunRunning,
   parseChronos2ForecastResponse,
   publishLatestForecastPointer,
+  recordForecastAuditEvent,
   recordForecastPoints,
   seasonalNaiveForecast,
   type Chronos2InferenceResult,
@@ -46,6 +48,13 @@ export interface ForecastRunnerEnv {
   TENANT_KV?: any
   CHRONOS2_ENDPOINT?: string
   CHRONOS2_API_KEY?: string
+}
+
+const DEFAULT_PROMOTION_GATE = {
+  minPointCount: 1,
+  requireFinitePointForecasts: true,
+  requireQuantileOrdering: true,
+  requireIntervalBounds: true,
 }
 
 export async function queue(batch: any, env: ForecastRunnerEnv): Promise<void> {
@@ -96,7 +105,46 @@ export async function queue(batch: any, env: ForecastRunnerEnv): Promise<void> {
         series: historicalSeries,
       })
 
+      await recordForecastAuditEvent(db, body.tenantId, runId, 'forecast_run_started', {
+        source: body.source || 'queue',
+        requested_by: body.requestedBy || null,
+        series_id: body.seriesId || 'tenant_global',
+        horizon: body.horizon || 30,
+      })
+
       await markForecastRunRunning(db, runId, inference.skipped ? undefined : runId)
+
+      const promotion = evaluateForecastPromotion(inference.points, {
+        inference_model: inference.modelName,
+        inference_model_version: inference.modelVersion,
+        inference_checkpoint: inference.checkpoint,
+        skipped: inference.skipped,
+        skip_reason: inference.skipReason || null,
+      }, DEFAULT_PROMOTION_GATE)
+
+      if (!promotion.publishable) {
+        await completeForecastRun(db, {
+          runId,
+          tenantId: body.tenantId,
+          pointCount: inference.points.length,
+          evaluationMetrics: {
+            inference_model: inference.modelName,
+            inference_model_version: inference.modelVersion,
+            inference_checkpoint: inference.checkpoint,
+            skipped: inference.skipped,
+            skip_reason: inference.skipReason || null,
+          },
+          promotionStatus: promotion.promotionStatus,
+          promotionMetrics: promotion.metrics,
+          promotionError: promotion.errors.map(error => `${error.code}: ${error.message}`).join('; '),
+          status: 'failed',
+          error: promotion.errors.map(error => error.message).join('; '),
+        })
+        await recordForecastAuditEvent(db, body.tenantId, runId, 'forecast_projection_rejected', promotion.metrics)
+        msg.ack()
+        continue
+      }
+
       await recordForecastPoints(
         db,
         runId,
@@ -116,8 +164,12 @@ export async function queue(batch: any, env: ForecastRunnerEnv): Promise<void> {
           skipped: inference.skipped,
           skip_reason: inference.skipReason || null,
         },
+        promotionStatus: promotion.promotionStatus,
+        promotionMetrics: promotion.metrics,
+        promotionError: promotion.errors.map(error => `${error.code}: ${error.message}`).join('; '),
         status: inference.skipped ? 'skipped' : 'completed',
       })
+      await recordForecastAuditEvent(db, body.tenantId, runId, 'forecast_projection_published', promotion.metrics)
       await publishLatestForecastPointer(
         kv,
         body.tenantId,

@@ -151,6 +151,42 @@ export interface ForecastPoint {
   created_at: string
 }
 
+export interface ForecastPromotionGate {
+  minPointCount?: number
+  requireFinitePointForecasts?: boolean
+  requireQuantileOrdering?: boolean
+  requireIntervalBounds?: boolean
+  maxMae?: number
+  maxSmape?: number
+  requireBacktest?: boolean
+}
+
+export interface ForecastValidationIssue {
+  code: string
+  message: string
+  stepIndex?: number
+}
+
+export interface ForecastPromotionReport {
+  publishable: boolean
+  promotionStatus: 'published' | 'rejected' | 'failed'
+  errors: ForecastValidationIssue[]
+  warnings: ForecastValidationIssue[]
+  metrics: Record<string, unknown>
+}
+
+export interface CompleteForecastRunInput {
+  runId: string
+  tenantId: string
+  pointCount?: number
+  evaluationMetrics?: Record<string, unknown>
+  promotionStatus?: 'pending' | 'published' | 'rejected' | 'failed' | 'skipped'
+  promotionMetrics?: Record<string, unknown>
+  promotionError?: string
+  status?: ForecastStatus
+  error?: string
+}
+
 export function normalizeForecastQuantiles(quantiles?: number[]): number[] {
   const values = Array.isArray(quantiles) && quantiles.length > 0 ? quantiles : DEFAULT_FORECAST_QUANTILES
   return [...new Set(values.map(q => Number(q)).filter(q => Number.isFinite(q) && q > 0 && q < 1))].sort((a, b) => a - b)
@@ -387,6 +423,9 @@ export async function completeForecastRun(
       status: input.status || 'completed',
       point_count: input.pointCount || 0,
       evaluation_metrics_json: JSON.stringify(input.evaluationMetrics || {}),
+      promotion_status: input.promotionStatus || null,
+      promotion_metrics_json: JSON.stringify(input.promotionMetrics || {}),
+      promotion_error: input.promotionError || null,
       error: input.error || null,
       completed_at: Math.floor(Date.now() / 1000),
       updated_at: new Date().toISOString(),
@@ -554,6 +593,154 @@ function normalizeQuantileMap(
   }
 
   return map
+}
+
+export function validateForecastProjection(
+  points: ForecastPointInput[],
+  gate: ForecastPromotionGate = {},
+): ForecastPromotionReport {
+  const errors: ForecastValidationIssue[] = []
+  const warnings: ForecastValidationIssue[] = []
+  const minPointCount = gate.minPointCount || 1
+
+  if (points.length < minPointCount) {
+    errors.push({ code: 'MIN_POINT_COUNT', message: `Forecast requires at least ${minPointCount} points` })
+  }
+
+  points.forEach((point, stepIndex) => {
+    if (!point.ds) {
+      errors.push({ code: 'MISSING_TIMESTAMP', message: 'Forecast point is missing ds', stepIndex })
+      return
+    }
+
+    if (gate.requireFinitePointForecasts !== false && !Number.isFinite(Number(point.point_forecast))) {
+      errors.push({ code: 'NON_FINITE_POINT_FORECAST', message: 'Forecast point_forecast must be finite', stepIndex })
+    }
+
+    if (gate.requireQuantileOrdering !== false) {
+      const p10 = Number(point.p10)
+      const p50 = Number(point.p50)
+      const p90 = Number(point.p90)
+      if (Number.isFinite(p10) && Number.isFinite(p50) && p10 > p50) {
+        errors.push({ code: 'QUANTILE_ORDER', message: 'p10 must be <= p50', stepIndex })
+      }
+      if (Number.isFinite(p50) && Number.isFinite(p90) && p50 > p90) {
+        errors.push({ code: 'QUANTILE_ORDER', message: 'p50 must be <= p90', stepIndex })
+      }
+    }
+
+    if (gate.requireIntervalBounds !== false) {
+      const lower = Number(point.lower_bound)
+      const upper = Number(point.upper_bound)
+      const forecastValue = Number(point.point_forecast)
+      if (Number.isFinite(lower) && Number.isFinite(forecastValue) && lower > forecastValue) {
+        errors.push({ code: 'INTERVAL_BOUNDS', message: 'lower_bound must be <= point_forecast', stepIndex })
+      }
+      if (Number.isFinite(forecastValue) && Number.isFinite(upper) && forecastValue > upper) {
+        errors.push({ code: 'INTERVAL_BOUNDS', message: 'point_forecast must be <= upper_bound', stepIndex })
+      }
+      if (Number.isFinite(lower) && Number.isFinite(upper) && lower > upper) {
+        errors.push({ code: 'INTERVAL_BOUNDS', message: 'lower_bound must be <= upper_bound', stepIndex })
+      }
+    }
+
+    if (!point.ds || Number.isNaN(Date.parse(point.ds))) {
+      warnings.push({ code: 'NON_ISO_TIMESTAMP', message: 'Forecast timestamp is not ISO-like', stepIndex })
+    }
+  })
+
+  return {
+    publishable: errors.length === 0,
+    promotionStatus: errors.length === 0 ? 'published' : 'rejected',
+    errors,
+    warnings,
+    metrics: {
+      point_count: points.length,
+      min_point_count: minPointCount,
+    },
+  }
+}
+
+export function evaluateForecastPromotion(
+  points: ForecastPointInput[],
+  evaluationMetrics: Record<string, unknown> = {},
+  gate: ForecastPromotionGate = {},
+): ForecastPromotionReport {
+  const validation = validateForecastProjection(points, gate)
+  const metrics = {
+    ...validation.metrics,
+    ...evaluationMetrics,
+  }
+
+  if (validation.errors.length > 0) {
+    return {
+      publishable: false,
+      promotionStatus: 'rejected',
+      errors: validation.errors,
+      warnings: validation.warnings,
+      metrics,
+    }
+  }
+
+  if (gate.requireBacktest || gate.maxMae !== undefined || gate.maxSmape !== undefined) {
+    const mae = Number((evaluationMetrics as any).mae ?? (evaluationMetrics as any).MAE)
+    const smape = Number((evaluationMetrics as any).smape ?? (evaluationMetrics as any).SMAPE)
+    if (gate.requireBacktest && !Number.isFinite(mae) && !Number.isFinite(smape)) {
+      return {
+        publishable: false,
+        promotionStatus: 'rejected',
+        errors: [{ code: 'BACKTEST_REQUIRED', message: 'Backtest metrics are required before promotion' }],
+        warnings: validation.warnings,
+        metrics,
+      }
+    }
+    if (gate.maxMae !== undefined && Number.isFinite(mae) && mae > gate.maxMae) {
+      return {
+        publishable: false,
+        promotionStatus: 'rejected',
+        errors: [{ code: 'MAE_THRESHOLD', message: `MAE ${mae} exceeds threshold ${gate.maxMae}` }],
+        warnings: validation.warnings,
+        metrics,
+      }
+    }
+    if (gate.maxSmape !== undefined && Number.isFinite(smape) && smape > gate.maxSmape) {
+      return {
+        publishable: false,
+        promotionStatus: 'rejected',
+        errors: [{ code: 'SMAPE_THRESHOLD', message: `sMAPE ${smape} exceeds threshold ${gate.maxSmape}` }],
+        warnings: validation.warnings,
+        metrics,
+      }
+    }
+  }
+
+  return {
+    publishable: true,
+    promotionStatus: 'published',
+    errors: [],
+    warnings: validation.warnings,
+    metrics,
+  }
+}
+
+export async function recordForecastAuditEvent(
+  db: any,
+  tenantId: string,
+  runId: string,
+  eventType: string,
+  payload: Record<string, unknown> = {},
+): Promise<void> {
+  if (!db || !tenantId || !runId || !eventType) return
+  const id = crypto.randomUUID()
+  const now = Math.floor(Date.now() / 1000)
+  const payloadJson = JSON.stringify(payload)
+  try {
+    await db.prepare(
+      'INSERT INTO audit_logs (id, tenant_id, session_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).bind(id, tenantId, runId, eventType, payloadJson, now).run()
+  } catch {
+    // Non-blocking — audit failures never break the forecast pipeline.
+  }
 }
 
 export function seasonalNaiveForecast(
