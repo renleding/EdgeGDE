@@ -14,7 +14,8 @@
  */
 
 import { agentCommandSchema, type ValidatedAgentCommand } from '../canvas/agent-command-schema'
-import type { CanvasDocument } from '../canvas/canvas-types'
+import { normalizeAgentCommandPayload } from '../canvas/agent-command-normalizer'
+import type { CanvasDocument, Mutation } from '../canvas/canvas-types'
 import { getTree } from '../canvas/canvas-engine'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -266,7 +267,9 @@ export async function handleCanvasChat(
 
   let agentCommand!: ValidatedAgentCommand
   try {
-    agentCommand = agentCommandSchema.parse(parsed)
+    const normalized = normalizeAgentCommandPayload(parsed, doc)
+    agentCommand = agentCommandSchema.parse(normalized)
+    agentCommand.expectedVersion = doc.version
   } catch (e: any) {
     const issues = e.issues?.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; ') || e.message
     return { success: false, error: `AgentCommand validation failed: ${issues}` }
@@ -294,7 +297,7 @@ export async function handleCanvasChat(
   return {
     success: true,
     intent: agentCommand.intent,
-    version: doc.version + agentCommand.mutations.length,
+    version: batchData.version ?? doc.version + agentCommand.mutations.length,
     mutCount: agentCommand.mutations.length,
   }
 }

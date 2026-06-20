@@ -320,6 +320,8 @@ function inferLayout(nodes: Record<string, Node>, rootId: string): void {
       return true
     })
 
+    const childrenToWalk = node.children.slice()
+
     // Rule: nav / header → horizontal layout + flatten children
     if (node.props?.role === 'nav' || node.props?.role === 'header') {
       node.style.display = 'flex'
@@ -363,9 +365,56 @@ function inferLayout(nodes: Record<string, Node>, rootId: string): void {
     }
 
     // Recurse
-    for (const cid of node.children) walk(cid, depth + 1)
+    for (const cid of childrenToWalk) walk(cid, depth + 1)
   }
   walk(rootId, 0)
+}
+
+function inferHeroLayout(nodes: Record<string, Node>, rootId: string): void {
+  const root = nodes[rootId]
+  if (!root) return
+
+  function walk(id: string): boolean {
+    const node = nodes[id]
+    if (!node) return false
+    if (node.type === 'Section' && sectionHasHeading(node, nodes) && sectionHasButton(node, nodes)) {
+      node.props.role = 'hero'
+      node.style.display = 'flex'
+      node.style.flexDirection = 'row'
+      node.style.alignItems = 'center'
+      node.style.justifyContent = 'space-between'
+      node.style.flexWrap = 'wrap'
+      if (!node.style.gap) node.style.gap = '24px'
+      if (!node.style.padding || node.style.padding === '0px') node.style.padding = '60px 0'
+      return true
+    }
+    for (const childId of node.children) {
+      if (walk(childId)) return true
+    }
+    return false
+  }
+
+  walk(rootId)
+}
+
+function sectionHasHeading(section: Node, nodes: Record<string, Node>): boolean {
+  return visitDescendants(section, nodes).some(node => node.type === 'Text' && node.props?.level === 1)
+}
+
+function sectionHasButton(section: Node, nodes: Record<string, Node>): boolean {
+  return visitDescendants(section, nodes).some(node => node.type === 'Button')
+}
+
+function visitDescendants(root: Node, nodes: Record<string, Node>): Node[] {
+  const result: Node[] = []
+  function walk(id: string): void {
+    const node = nodes[id]
+    if (!node) return
+    result.push(node)
+    for (const childId of node.children) walk(childId)
+  }
+  for (const childId of root.children) walk(childId)
+  return result
 }
 
 // ── Public API ────────────────────────────────────────────────────────────
@@ -404,6 +453,7 @@ export function cloneWebsite(url: string, html: string): CanvasDocument {
 
   // FIX 5: Apply layout inference after building the tree
   inferLayout(nodes, rootId)
+  inferHeroLayout(nodes, rootId)
 
   const doc: CanvasDocument = {
     id, version: 0,
