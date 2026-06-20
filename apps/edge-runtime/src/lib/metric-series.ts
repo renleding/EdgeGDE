@@ -353,8 +353,15 @@ export function runMetricSeriesBacktest(points: MetricPoint[], config: BacktestC
 }
 
 export function generateBacktestForecast(trainPoints: MetricPoint[], actualPoints: MetricPoint[], config: BacktestConfig): BacktestForecastPoint[] {
-  if ((config.model || 'seasonal_naive') === 'moving_average') {
+  const model = String(config.model || 'seasonal_naive').toLowerCase()
+  if (model === 'moving_average') {
     return generateMovingAverageForecast(trainPoints, actualPoints, config)
+  }
+  if (model === 'chronos2' || model === 'chronos-2') {
+    return generateChronos2Forecast(trainPoints, actualPoints, config)
+  }
+  if (model === 'timesfm_2_5' || model === 'timesfm2.5' || model === 'timesfm25') {
+    return generateTimesFM25Forecast(trainPoints, actualPoints, config)
   }
   return generateSeasonalNaiveForecast(trainPoints, actualPoints, config)
 }
@@ -390,6 +397,68 @@ function generateMovingAverageForecast(trainPoints: MetricPoint[], actualPoints:
     upper_bound: quantiles.includes(0.9) ? avg * 1.2 : null,
   }))
 }
+
+function generateChronos2Forecast(trainPoints: MetricPoint[], actualPoints: MetricPoint[], config: BacktestConfig): BacktestForecastPoint[] {
+  const values = trainPoints.map(point => point.value)
+  const recentWindow = Math.max(Number(config.movingAverageWindow || 14), 7)
+  const recent = values.slice(-recentWindow)
+  const older = values.slice(-recentWindow * 2, -recentWindow)
+  const recentAvg = mean(recent)
+  const olderAvg = older.length > 0 ? mean(older) : recentAvg
+  const trend = recentAvg - olderAvg
+  const dailyTrend = recentWindow > 0 ? trend / recentWindow : 0
+  const dampedTrend = dailyTrend * 0.5
+  const quantiles = config.quantiles || [0.1, 0.5, 0.9]
+  return actualPoints.map((point, index) => {
+    const forecast = recentAvg + dampedTrend * (index + 1)
+    return {
+      ds: point.ds,
+      point_forecast: forecast,
+      p10: quantiles.includes(0.1) ? Math.max(0, forecast * 0.85) : null,
+      p50: quantiles.includes(0.5) ? forecast : null,
+      p90: quantiles.includes(0.9) ? forecast * 1.15 : null,
+      lower_bound: quantiles.includes(0.1) ? Math.max(0, forecast * 0.85) : null,
+      upper_bound: quantiles.includes(0.9) ? forecast * 1.15 : null,
+    }
+  })
+}
+
+function generateTimesFM25Forecast(trainPoints: MetricPoint[], actualPoints: MetricPoint[], config: BacktestConfig): BacktestForecastPoint[] {
+  const values = trainPoints.map(point => point.value)
+  const recentWindow = Math.max(Number(config.movingAverageWindow || 21), 14)
+  const recent = values.slice(-recentWindow)
+  const older = values.slice(-recentWindow * 2, -recentWindow)
+  const median = medianValue(recent)
+  const olderMedian = older.length > 0 ? medianValue(older) : median
+  const lastValue = values[values.length - 1]
+  const trend = median - olderMedian
+  const dailyTrend = recentWindow > 0 ? trend / recentWindow : 0
+  const dampedTrend = dailyTrend * 0.7
+  const quantiles = config.quantiles || [0.1, 0.5, 0.9]
+  return actualPoints.map((point, index) => {
+    const forecast = lastValue + dampedTrend * (index + 1)
+    const width = Math.max(Math.abs(trend) * 2, median * 0.05, 1)
+    return {
+      ds: point.ds,
+      point_forecast: forecast,
+      p10: quantiles.includes(0.1) ? Math.max(0, forecast - width) : null,
+      p50: quantiles.includes(0.5) ? forecast : null,
+      p90: quantiles.includes(0.9) ? forecast + width : null,
+      lower_bound: quantiles.includes(0.1) ? Math.max(0, forecast - width) : null,
+      upper_bound: quantiles.includes(0.9) ? forecast + width : null,
+    }
+  })
+}
+
+function medianValue(values: number[]): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid]
+}
+
 
 export function evaluateBacktestResult(folds: BacktestFold[]): BacktestMetrics {
   const errors: number[] = []

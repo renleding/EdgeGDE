@@ -20,6 +20,7 @@ import {
   queryMetricSeriesPoints,
   runMetricSeriesBacktest,
 } from '../lib/metric-series'
+import { runForecastModelComparison, type ForecastModelComparisonResult } from '../lib/forecast-model-comparison'
 import { queryAuditLogs } from '../lib/audit'
 
 export const adminAnalyticsRouter = new Hono()
@@ -37,6 +38,7 @@ interface AnalyticsSummary {
   pointer: any
   recentAuditEvents: any[]
   backtest?: any
+  modelComparison?: ForecastModelComparisonResult
   generatedAt: string
 }
 
@@ -95,6 +97,9 @@ export async function buildAnalyticsSummary(
     metricName?: string
     seriesId?: string
     includeBacktest?: boolean
+    compareModels?: boolean
+    models?: string[]
+    primaryMetric?: 'mae' | 'rmse' | 'smape' | 'mape'
     horizon?: number
     backtestModel?: string
   },
@@ -128,6 +133,23 @@ export async function buildAnalyticsSummary(
       model: backtestModel,
     })
     : undefined
+  const comparisonPoints = await queryMetricSeriesPoints(guardedDb, {
+    tenantId,
+    metricName: metricName || (latestForecast?.metric_name || ''),
+    seriesId,
+    limit: 5000,
+  })
+  const modelComparison = input.compareModels && comparisonPoints.length > 0
+    ? runForecastModelComparison(comparisonPoints, {
+      horizon,
+      models: input.models,
+      primaryMetric: input.primaryMetric,
+      minTrainPoints: 21,
+      minTestPoints: horizon,
+      stepSize: horizon,
+      movingAverageWindow: 21,
+    })
+    : undefined
 
   return {
     tenantId,
@@ -140,6 +162,7 @@ export async function buildAnalyticsSummary(
     pointer,
     recentAuditEvents,
     backtest,
+    modelComparison,
     generatedAt: new Date().toISOString(),
   }
 }
@@ -149,6 +172,9 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
   const metricName = c.req.query('metric')
   const seriesId = c.req.query('series')
   const includeBacktest = c.req.query('backtest') === 'true'
+  const compareModels = c.req.query('compare') === 'true'
+  const models = c.req.query('models')?.split(',').map(model => model.trim()).filter(Boolean)
+  const primaryMetric = c.req.query('primaryMetric') as 'mae' | 'rmse' | 'smape' | 'mape' | undefined
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
@@ -157,6 +183,9 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
       metricName,
       seriesId,
       includeBacktest,
+      compareModels,
+      models,
+      primaryMetric,
       horizon: Number(c.req.query('horizon') || 30),
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
@@ -197,6 +226,9 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
   const seriesId = c.req.query('series')
   const token = c.req.query('token')
   const includeBacktest = c.req.query('backtest') === 'true'
+  const compareModels = c.req.query('compare') === 'true'
+  const models = c.req.query('models')?.split(',').map(model => model.trim()).filter(Boolean)
+  const primaryMetric = c.req.query('primaryMetric') as 'mae' | 'rmse' | 'smape' | 'mape' | undefined
 
   try {
     const summary = await buildAnalyticsSummary((c.env as any).DB, (c.env as any).TENANT_KV, {
@@ -204,6 +236,9 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       metricName,
       seriesId,
       includeBacktest,
+      compareModels,
+      models,
+      primaryMetric,
       horizon: Number(c.req.query('horizon') || 30),
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
@@ -305,12 +340,34 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
     </div>
 
     <div class="card">
+      <h3>🏁 Model Comparison</h3>
+      ${renderModelComparisonRows(summary.modelComparison)}
+    </div>
+
+    <div class="card">
       <h3>🧾 Recent Audit Events</h3>
       ${renderAuditEvents(summary.recentAuditEvents)}
     </div>
   </div>
 </body>
 </html>`
+}
+
+export function renderModelComparisonRows(result?: ForecastModelComparisonResult): string {
+  if (!result) return '<div class="empty">No model comparison requested. Use ?compare=true&amp;models=seasonal_naive,moving_average,chronos2,timesfm_2_5</div>'
+  const winner = result.winner?.model || 'none'
+  return `<div class="meta">Primary metric: ${escapeHtml(result.primaryMetric)} · Winner: ${escapeHtml(winner)}</div>
+  <table>
+    <thead><tr><th>Rank</th><th>Model</th><th>MAE</th><th>RMSE</th><th>sMAPE</th><th>Status</th></tr></thead>
+    <tbody>${result.models.map((entry: any) => `<tr>
+      <td>${entry.rank || ''}</td>
+      <td>${escapeHtml(entry.model)}</td>
+      <td>${escapeHtml(entry.metrics?.mae ?? '')}</td>
+      <td>${escapeHtml(entry.metrics?.rmse ?? '')}</td>
+      <td>${escapeHtml(entry.metrics?.smape ?? '')}</td>
+      <td>${entry.status === 'success' ? 'success' : 'failed'}</td>
+    </tr>`).join('')}</tbody>
+  </table>`
 }
 
 function renderAuditEvents(events: any[]): string {
