@@ -90,11 +90,21 @@
       {
         "binding": "LEAD_SCORING_QUEUE",
         "queue": "edgegde-lead-scoring"
+      },
+      {
+        "binding": "FORECASTING_QUEUE",
+        "queue": "edgegde-forecasting"
       }
     ],
     "consumers": [
       {
         "queue": "edgegde-lead-scoring",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3
+      },
+      {
+        "queue": "edgegde-forecasting",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
         "max_retries": 3

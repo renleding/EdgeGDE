@@ -24,6 +24,8 @@ import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
 import { scoringAdminRouter, scoringTenantRouter } from './api/scoring'
 import { adminRouter } from './api/admin-views'
+import { adminForecastingRouter } from './api/admin-forecasting'
+import { adminMetricSeriesRouter } from './api/admin-metric-series'
 import { configRouter } from './api/admin-config'
 import { adminSiteRouter } from './api/admin-site'
 import { adminRulesRouter } from './api/admin-rules'
@@ -464,6 +466,8 @@ app.route('/api/v1/admin', templateRouter)
 app.route('/api/v1', instantiateRouter)
 app.route('/api/v1', builderRouter)
 app.route('/api/v1/admin', scoringAdminRouter)
+app.route('/api/v1/admin', adminForecastingRouter)
+app.route('/api/v1/admin', adminMetricSeriesRouter)
 app.route('/admin/kb', adminRouter)
 app.route('/admin/config', configRouter)
 app.route('/admin/rules', adminRulesRouter)
@@ -1704,6 +1708,10 @@ export default {
         if (body?.type === 'kb_ingest') {
           const { handleKbIngest } = await import('./queues/kb-ingest')
           await handleKbIngest(body, env)
+        }
+        if (body?.type === 'forecast_run_requested') {
+          const { queue: handleForecastRun } = await import('./queues/forecast-runner')
+          await handleForecastRun({ messages: [msg] }, env)
         }
       }
       await leadScorer.queue(batch, env, ctx)
