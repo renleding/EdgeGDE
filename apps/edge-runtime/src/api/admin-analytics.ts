@@ -20,7 +20,12 @@ import {
   queryMetricSeriesPoints,
   runMetricSeriesBacktest,
 } from '../lib/metric-series'
-import { runForecastModelComparison, type ForecastModelComparisonResult } from '../lib/forecast-model-comparison'
+import {
+  DEFAULT_MODEL_COMPARISON_MODELS,
+  getDefaultForecastModelPolicy,
+  runForecastModelComparison,
+  type ForecastModelComparisonResult,
+} from '../lib/forecast-model-comparison'
 import { queryAuditLogs } from '../lib/audit'
 
 export const adminAnalyticsRouter = new Hono()
@@ -111,6 +116,12 @@ export async function buildAnalyticsSummary(
   const metricName = input.metricName
   const horizon = Number(input.horizon || 30)
   const backtestModel = input.backtestModel || 'seasonal_naive'
+  const modelPolicy = getDefaultForecastModelPolicy()
+  const compareModels = input.compareModels !== false
+  const comparisonModels = input.models && input.models.length > 0
+    ? input.models
+    : modelPolicy.comparisonModels
+  const primaryMetric = input.primaryMetric || modelPolicy.primaryMetric
 
   const series = metricName
     ? await listMetricSeries(guardedDb, tenantId, metricName, 100)
@@ -139,11 +150,11 @@ export async function buildAnalyticsSummary(
     seriesId,
     limit: 5000,
   })
-  const modelComparison = input.compareModels && comparisonPoints.length > 0
+  const modelComparison = compareModels && comparisonPoints.length > 0
     ? runForecastModelComparison(comparisonPoints, {
       horizon,
-      models: input.models,
-      primaryMetric: input.primaryMetric,
+      models: comparisonModels,
+      primaryMetric,
       minTrainPoints: 21,
       minTestPoints: horizon,
       stepSize: horizon,
@@ -354,7 +365,7 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
 }
 
 export function renderModelComparisonRows(result?: ForecastModelComparisonResult): string {
-  if (!result) return '<div class="empty">No model comparison requested. Use ?compare=true&amp;models=seasonal_naive,moving_average,chronos2,timesfm_2_5</div>'
+  if (!result) return `<div class="empty">No model comparison requested. Use ?compare=true&amp;models=${DEFAULT_MODEL_COMPARISON_MODELS.join(',')}</div>`
   const winner = result.winner?.model || 'none'
   return `<div class="meta">Primary metric: ${escapeHtml(result.primaryMetric)} · Winner: ${escapeHtml(winner)}</div>
   <table>

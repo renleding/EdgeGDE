@@ -8,6 +8,10 @@
 
 import { guardDB } from './db'
 import { guardKV } from './kv'
+import {
+  DEFAULT_PRODUCTION_MODEL_NAME,
+  resolveForecastModelDefaults,
+} from './forecast-model-comparison'
 
 export const CHRONOS_2_MODEL_NAME = 'chronos-2'
 export const CHRONOS_2_MODEL_VERSION = '1.0.0'
@@ -343,9 +347,10 @@ export async function createForecastRun(
   const frequency = input.frequency || 'daily'
   const horizon = Math.max(1, Math.min(Number(input.horizon || 30), 1024))
   const quantiles = normalizeForecastQuantiles(input.quantiles)
-  const modelName = input.modelName || CHRONOS_2_MODEL_NAME
-  const modelVersion = input.modelVersion || CHRONOS_2_MODEL_VERSION
-  const checkpoint = input.checkpoint || CHRONOS_2_CHECKPOINT
+  const modelDefaults = resolveForecastModelDefaults(input.modelName || DEFAULT_PRODUCTION_MODEL_NAME)
+  const modelName = input.modelName || modelDefaults.modelName
+  const modelVersion = input.modelVersion || modelDefaults.modelVersion
+  const checkpoint = input.checkpoint || modelDefaults.checkpoint
   const configHash = input.configHash || forecastConfigHash({
     modelName,
     modelVersion,

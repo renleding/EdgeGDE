@@ -1,6 +1,12 @@
 // @ts-nocheck
 import assert from 'node:assert'
-import { runForecastModelComparison } from '../src/lib/forecast-model-comparison'
+import {
+  DEFAULT_CHALLENGER_MODEL_NAME,
+  DEFAULT_PRODUCTION_MODEL_NAME,
+  getDefaultForecastModelPolicy,
+  runForecastModelComparison,
+  resolveForecastModelDefaults,
+} from '../src/lib/forecast-model-comparison'
 
 function syntheticTrendingSeasonalPoints(count = 56) {
   const points = []
@@ -40,6 +46,28 @@ test('forecast model comparison ranks Chronos-2, TimesFM 2.5, and baselines', ()
     ['timesfm_2_5', 'seasonal_naive', 'moving_average', 'chronos2'],
   )
   assert.ok(result.winner?.metrics.mae < 10)
+})
+
+test('default forecast policy uses TimesFM 2.5 as production and Chronos-2 as challenger', () => {
+  const policy = getDefaultForecastModelPolicy()
+
+  assert.strictEqual(policy.productionModel, DEFAULT_PRODUCTION_MODEL_NAME)
+  assert.strictEqual(policy.challengerModel, DEFAULT_CHALLENGER_MODEL_NAME)
+  assert.deepStrictEqual(policy.baselineModels, ['seasonal_naive', 'moving_average'])
+  assert.deepStrictEqual(policy.comparisonModels, ['seasonal_naive', 'moving_average', 'chronos2', 'timesfm_2_5'])
+})
+
+test('model defaults resolve Chronos-2 and TimesFM 2.5 separately', () => {
+  assert.deepStrictEqual(resolveForecastModelDefaults('chronos2'), {
+    modelName: 'chronos2',
+    modelVersion: '1.0.0',
+    checkpoint: 'amazon/chronos-2',
+  })
+  assert.deepStrictEqual(resolveForecastModelDefaults(), {
+    modelName: 'timesfm_2_5',
+    modelVersion: '2.5',
+    checkpoint: 'timesfm-2.5',
+  })
 })
 
 test('forecast model comparison normalizes model names', () => {

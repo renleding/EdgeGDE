@@ -28,6 +28,29 @@ export type ForecastModelName =
   | 'timesfm25'
   | string
 
+export const DEFAULT_PRODUCTION_MODEL_NAME = 'timesfm_2_5'
+export const DEFAULT_CHALLENGER_MODEL_NAME = 'chronos2'
+export const DEFAULT_MODEL_COMPARISON_MODELS: ForecastModelName[] = [
+  'seasonal_naive',
+  'moving_average',
+  DEFAULT_CHALLENGER_MODEL_NAME,
+  DEFAULT_PRODUCTION_MODEL_NAME,
+]
+
+export interface ForecastModelPolicy {
+  productionModel: string
+  challengerModel: string
+  baselineModels: string[]
+  comparisonModels: string[]
+  primaryMetric: 'mae' | 'rmse' | 'smape' | 'mape'
+}
+
+export interface ForecastModelDefaults {
+  modelName: string
+  modelVersion: string
+  checkpoint: string
+}
+
 export interface ForecastModelComparisonConfig {
   horizon?: number
   models?: ForecastModelName[]
@@ -56,12 +79,31 @@ export interface ForecastModelComparisonResult {
   generatedAt: string
 }
 
-const DEFAULT_COMPARISON_MODELS: ForecastModelName[] = [
-  'seasonal_naive',
-  'moving_average',
-  'chronos2',
-  'timesfm_2_5',
-]
+export function getDefaultForecastModelPolicy(): ForecastModelPolicy {
+  return {
+    productionModel: DEFAULT_PRODUCTION_MODEL_NAME,
+    challengerModel: DEFAULT_CHALLENGER_MODEL_NAME,
+    baselineModels: ['seasonal_naive', 'moving_average'],
+    comparisonModels: DEFAULT_MODEL_COMPARISON_MODELS.map(normalizeForecastModelName),
+    primaryMetric: 'mae',
+  }
+}
+
+export function resolveForecastModelDefaults(modelName?: string): ForecastModelDefaults {
+  const normalized = normalizeForecastModelName(modelName || DEFAULT_PRODUCTION_MODEL_NAME)
+  if (normalized === 'chronos2' || normalized === 'chronos-2') {
+    return {
+      modelName: 'chronos2',
+      modelVersion: '1.0.0',
+      checkpoint: 'amazon/chronos-2',
+    }
+  }
+  return {
+    modelName: DEFAULT_PRODUCTION_MODEL_NAME,
+    modelVersion: '2.5',
+    checkpoint: 'timesfm-2.5',
+  }
+}
 
 export function normalizeForecastModelName(model: ForecastModelName): string {
   return String(model || 'seasonal_naive')
@@ -77,7 +119,7 @@ export function runForecastModelComparison(
   const primaryMetric = config.primaryMetric || 'mae'
   const models = config.models && config.models.length > 0
     ? config.models
-    : DEFAULT_COMPARISON_MODELS
+    : DEFAULT_MODEL_COMPARISON_MODELS
   const startedAt = Date.now()
 
   const entries = models.map(model => {
