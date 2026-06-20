@@ -9,11 +9,11 @@ export function normalizeAgentCommandPayload(parsed: RawAgentCommand | unknown, 
     const next: Record<string, unknown> = {
       ...(mutation && typeof mutation === 'object' ? mutation as Record<string, unknown> : {}),
     }
-    let node: Record<string, unknown> = {
-      ...(next.node && typeof next.node === 'object' ? next.node as Record<string, unknown> : {}),
-    }
 
     if (next.type === 'add_node') {
+      const node: Record<string, unknown> = {
+        ...(next.node && typeof next.node === 'object' ? next.node as Record<string, unknown> : {}),
+      }
       const parentId = typeof next.parentId === 'string' && next.parentId
         ? next.parentId
         : typeof node.parentId === 'string' && node.parentId
@@ -26,7 +26,7 @@ export function normalizeAgentCommandPayload(parsed: RawAgentCommand | unknown, 
       next.parentId = parentId
     }
 
-    node = {
+    const node: Record<string, unknown> = {
       ...(next.node && typeof next.node === 'object' ? next.node as Record<string, unknown> : {}),
     }
     if (next.type === 'update_node' && typeof next.nodeId !== 'string' && typeof node.id === 'string') {
