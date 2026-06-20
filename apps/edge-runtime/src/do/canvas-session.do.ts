@@ -193,7 +193,7 @@ export class CanvasSession_DO implements DurableObject {
     return new Response(JSON.stringify({ version: result.newVersion }))
   }
 
-  private handleBatchMutation(mutations: Mutation[], expectedVersion: number): Response {
+  private async handleBatchMutation(mutations: Mutation[], expectedVersion: number): Promise<Response> {
     const canvasActor: any = this
     let version = expectedVersion
     for (const mutation of mutations) {
@@ -201,6 +201,7 @@ export class CanvasSession_DO implements DurableObject {
       if (!result.success) return new Response(JSON.stringify({ error: result.error, failedMutation: mutation }), { status: 409 })
       version = result.newVersion!
     }
+    await this.snapshotNow()
     return new Response(JSON.stringify({ version }))
   }
 
