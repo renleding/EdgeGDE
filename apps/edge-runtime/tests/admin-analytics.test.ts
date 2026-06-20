@@ -7,6 +7,7 @@ import {
   renderBacktestMetrics,
   renderForecastPoints,
   renderMetricSeriesRows,
+  renderModelComparisonRows,
 } from '../src/api/admin-analytics'
 
 function createMockDb(data = {}) {
@@ -69,6 +70,20 @@ test('admin analytics renders backtest metrics', () => {
   assert.ok(html.includes('MAE'))
   assert.ok(html.includes('1.5'))
   assert.ok(html.includes('2'))
+})
+
+test('admin analytics renders model comparison rows', () => {
+  const html = renderModelComparisonRows({
+    primaryMetric: 'mae',
+    winner: { model: 'timesfm_2_5', status: 'success', rank: 1, runtimeMs: 1 },
+    models: [
+      { model: 'timesfm_2_5', status: 'success', rank: 1, metrics: { mae: 1, rmse: 2, smape: 0.1 }, runtimeMs: 1 },
+      { model: 'chronos2', status: 'success', rank: 2, metrics: { mae: 3, rmse: 4, smape: 0.2 }, runtimeMs: 1 },
+    ],
+    generatedAt: '2026-06-20T00:00:00.000Z',
+  })
+  assert.ok(html.includes('Winner: timesfm_2_5'))
+  assert.ok(html.includes('chronos2'))
 })
 
 test('admin analytics builds summary from mock D1 and KV', async () => {
