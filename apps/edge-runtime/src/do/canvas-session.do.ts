@@ -1,4 +1,5 @@
 import type { CanvasDocument, Node, Mutation } from '../canvas/canvas-types'
+import { applyMutation } from '../canvas/canvas-engine'
 import { guardKV } from '../lib/kv'
 
 const SNAPSHOT_INTERVAL = 5
@@ -186,9 +187,22 @@ export class CanvasSession_DO implements DurableObject {
     return new Response(JSON.stringify(this.doc))
   }
 
+  private applyMutationInternal(mutation: Mutation, expectedVersion: number): ApplyResult {
+    if (!this.doc) return { success: false, error: 'Canvas not initialized' }
+    if (this.doc.version !== expectedVersion) return { success: false, error: 'Version conflict' }
+
+    try {
+      this.doc = applyMutation(this.doc, mutation)
+      this.doc.version += 1
+      this.triggerSnapshot()
+      return { success: true, newVersion: this.doc.version }
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Mutation failed' }
+    }
+  }
+
   private handleMutation(mutation: Mutation, expectedVersion: number): Response {
-    const canvasActor: any = this
-    const result = canvasActor.applyMutationInternal(mutation, expectedVersion)
+    const result = this.applyMutationInternal(mutation, expectedVersion)
     if (!result.success) return new Response(JSON.stringify({ error: result.error }), { status: 409 })
     return new Response(JSON.stringify({ version: result.newVersion }))
   }
@@ -197,7 +211,7 @@ export class CanvasSession_DO implements DurableObject {
     const canvasActor: any = this
     let version = expectedVersion
     for (const mutation of mutations) {
-      const result = canvasActor.applyMutationInternal(mutation, version)
+      const result = this.applyMutationInternal(mutation, version)
       if (!result.success) return new Response(JSON.stringify({ error: result.error, failedMutation: mutation }), { status: 409 })
       version = result.newVersion!
     }

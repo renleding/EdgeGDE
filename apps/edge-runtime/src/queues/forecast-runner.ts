@@ -169,7 +169,6 @@ export async function queue(batch: any, env: ForecastRunnerEnv): Promise<void> {
         msg.ack()
         continue
       }
-
       await recordForecastPoints(
         db,
         runId,

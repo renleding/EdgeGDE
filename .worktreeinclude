@@ -1,0 +1,14 @@
+# Files to copy into each new worktree on creation.
+# Each line is a relative path (file or directory) in the repo root.
+# Lines starting with # are comments. Empty lines are ignored.
+#
+# Only gitignored files need to be listed here — tracked files are
+# automatically part of every worktree checkout.
+#
+# Common entries:
+# .env                    # Local environment variables (gitignored)
+# .env.local              # Local overrides (gitignored)
+# config/secrets.json     # Local secrets (gitignored)
+#
+# EdgeGDE currently has no gitignored files that need worktree propagation.
+# Add entries here if you create project-local gitignored config.
