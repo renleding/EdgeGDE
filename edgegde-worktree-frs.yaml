@@ -1,0 +1,546 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# EDGEGDE FUNCTIONAL REQUIREMENTS SPECIFICATION (FRS)
+# Git Worktree Parallel Agentic Operations
+# ═══════════════════════════════════════════════════════════════════════════
+# Version: 0.1.0 (draft)
+# Date: 2026-06-21
+# Status: Draft for review
+# ═══════════════════════════════════════════════════════════════════════════
+
+frs:
+  id: "FRS-WORKTREE-001"
+  title: "EdgeGDE Git Worktree Parallel Agentic Operations"
+  version: "0.1.0"
+  status: "draft"
+  author: "Hermes (EdgeGDE Director)"
+  source_inspiration: "Claude Code --worktree feature (code.claude.com/docs/en/worktrees)"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 1. PURPOSE & SCOPE
+# ───────────────────────────────────────────────────────────────────────────
+
+purpose: >
+  Define the functional requirements for running parallel agentic coding sessions
+  within isolated git worktrees under the EdgeGDE orchestration platform. This
+  specification covers worktree lifecycle, isolation guarantees, configuration
+  propagation, cleanup, and integration with existing EdgeGDE components (Hermes,
+  Aider, Kanban, System Dashboard).
+
+scope:
+  in_scope:
+    - "Worktree creation via Hermes CLI (--worktree flag)"
+    - "Worktree creation via Kanban dispatcher (workspace_kind=worktree)"
+    - "Branch discipline alignment: work/{task_id} branches in worktrees"
+    - "Configuration propagation via .worktreeinclude files"
+    - "Subagent isolation within worktrees"
+    - "Auto-cleanup of stale worktrees"
+    - "Worktree lifecycle tracking in System Dashboard"
+    - "Integration with Hermes Gateway for parallel processing"
+    - "Non-git VCS hooks (WorktreeCreate/WorktreeRemove) — extension point"
+  out_of_scope:
+    - "Modification of the core Hermes gateway or its Telegram/Discord adapters"
+    - "Cloudflare Workers worktree support (workers.dev has no git worktree concept)"
+    - "ERPNext or other deprecated stack worktrees"
+    - "Cross-repository worktree linking"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 2. CURRENT STATE ASSESSMENT — What Hermes Already Provides
+# ───────────────────────────────────────────────────────────────────────────
+
+current_capabilities:
+
+  - area: "CLI Flag"
+    status: "EXISTS"
+    description: >
+      `hermes --worktree` / `hermes -w` starts a session in an isolated git
+      worktree. Also configurable via `worktree: true` in config.yaml.
+    reference: "hermes_cli/_parser.py (args --worktree, -w)"
+
+  - area: "Config Option"
+    status: "EXISTS"
+    description: >
+      `worktree: true` in config.yaml makes every session start in a worktree
+      (same as passing --worktree on every invocation).
+
+  - area: ".worktreeinclude File"
+    status: "EXISTS (documented in tips)"
+    description: >
+      A `.worktreeinclude` file in the repo root lists gitignored files (e.g.
+      `.env`, `.env.local`, secrets) that are copied into each new worktree.
+      This is already referenced in Hermes CLI tips.
+    gap: >
+      The feature is documented in tips but is not yet visible in the
+      System Architecture YAML or the System Dashboard. Its exact behavior
+      (merge vs overwrite, binary file handling) is undocumented.
+
+  - area: "Auto-Cleanup"
+    status: "EXISTS"
+    description: >
+      Stale git worktrees are auto-pruned on Hermes startup: worktrees 24-72h
+      old with no unpushed commits get cleaned.
+    reference: "hermes_cli/tips.py (line 300)"
+    gap: >
+      The exact cleanup period, configurable threshold, and CLI commands for
+      manual cleanup are not surfaced in the EdgeGDE system dashboard or
+      architecture YAML.
+
+  - area: "Kanban Workspace Kinds"
+    status: "EXISTS"
+    description: >
+      Kanban supports `workspace_kind=worktree` for tasks. Default path:
+      `.worktrees/<task.id>/` under CWD. Worker is expected to create the
+      worktree via `git worktree add`.
+    reference: "hermes_cli/kanban_db.py (workspace_kind logic)"
+    gap: >
+      The Kanban worktree path (`EdgeGDE-worktrees/`) is inconsistent with
+      Hermes' default (`.worktrees/`). Currently EdgeGDE places worktrees at
+      `EdgeGDE-worktrees/work-*` rather than `.worktrees/*`.
+
+  - area: "--worktree Acceptance"
+    status: "EXISTS (in tests)"
+    description: >
+      Tests reference `--worktree` as a boolean flag on the argument parser.
+    reference: "tests/hermes_cli/ directory"
+
+  - area: "Checkpoint Awareness"
+    status: "EXISTS"
+    description: >
+      The checkpoint manager is aware of worktrees and handles their storage
+      footprint efficiently (zero sharing across worktrees, ~40MB per worktree).
+    reference: "tools/checkpoint_manager.py"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 3. FUNCTIONAL REQUIREMENTS
+# ───────────────────────────────────────────────────────────────────────────
+
+functional_requirements:
+
+  - id: "FRS-WORKTREE-FR-001"
+    title: "Worktree creation — CLI path"
+    priority: "P0 — Must have"
+    description: >
+      When the user invokes `hermes --worktree <name>`, Hermes SHALL:
+      1. Detect the current project's git root.
+      2. Create a git worktree at `../<repo>-worktrees/work-<name>/`
+         (e.g. `EdgeGDE-worktrees/work-telemetry-analytics-v1/`).
+      3. Create a branch `work/<name>` pointing at HEAD of the parent repo's
+         current branch.
+      4. Copy files listed in `.worktreeinclude` into the new worktree.
+      5. Change the session's working directory to the worktree root.
+      6. Log the worktree metadata (path, branch, creation timestamp) to
+         the session state.
+
+  - id: "FRS-WORKTREE-FR-002"
+    title: "Worktree creation — Kanban path"
+    priority: "P0 — Must have"
+    description: >
+      When a Kanban task has `workspace_kind: worktree`, the Kanban dispatcher
+      SHALL create the worktree before assigning the task to a worker. The
+      worker then operates inside the worktree as its working directory.
+      The worktree path SHALL follow the convention:
+        `../<parent-repo-name>-worktrees/work-<task.id>/`
+      EdgeGDE-worktrees currently uses this pattern; the Kanban dispatcher
+      SHALL honor it (not the default `.worktrees/` path) for EdgeGDE repos.
+
+  - id: "FRS-WORKTREE-FR-003"
+    title: "Branch naming convention"
+    priority: "P0 — Must have"
+    description: >
+      Every worktree SHALL be created on a branch named `work/<short-description>`.
+      The short description SHALL be derived from:
+      - For Kanban tasks: the task ID (e.g. `work/telemetry-analytics-v1`).
+      - For CLI invocation: the name argument (e.g. `work/auth-refactor`).
+      - For auto-named worktrees (no name given): the auto-generated name
+        (e.g. `work/bright-running-fox`).
+      This aligns with the existing EdgeGDE SDLC rule: "Use work/{short-description}
+      branches for code changes."
+
+  - id: "FRS-WORKTREE-FR-004"
+    title: ".worktreeinclude file processing"
+    priority: "P1 — Should have"
+    description: >
+      The `.worktreeinclude` file at the repo root SHALL be read on worktree
+      creation. Each non-empty, non-comment line SHALL be treated as a relative
+      file path. The file SHALL be copied from the main repo into the new
+      worktree, preserving directory structure. Behavior SHALL be:
+      - If the destination file does not exist: copy from source.
+      - If the destination file exists: skip (do NOT overwrite).
+      - If the source does not exist in the main repo: log a warning and skip.
+      - If `.worktreeinclude` itself does not exist: skip silently (no error).
+      Typical use: `.env`, `.env.local`, `config/secrets.json` — files that are
+      gitignored but needed for local development.
+
+  - id: "FRS-WORKTREE-FR-005"
+    title: "Subagent isolation"
+    priority: "P1 — Should have"
+    description: >
+      When a subagent is spawned within a worktree session, the subagent SHALL
+      also operate within the same worktree by default. When the user or task
+      configuration specifies `isolation: worktree`, the subagent SHALL receive
+      its OWN worktree (a nested worktree off the parent worktree's branch).
+      Nested worktree path: `<parent-worktree-path>/.worktrees/sub-<task.id>/`.
+
+  - id: "FRS-WORKTREE-FR-006"
+    title: "Cleanup — automatic stale detection"
+    priority: "P1 — Should have"
+    description: >
+      On each Hermes startup and on a recurring schedule (every 24h via the
+      gateway cron ticker), the platform SHALL scan all worktrees in
+      `EdgeGDE-worktrees/` and remove those that meet ALL of:
+      - Age > `worktree_cleanup_period_days` (default: 3 days).
+      - No unpushed commits (branch is fully merged or discarded).
+      - No running Hermes session is associated with the worktree.
+      - The worktree is not locked (`git worktree lock`).
+      Before removal, the platform SHALL log the worktree name, age, branch,
+      and cleanup action to the system logs.
+
+  - id: "FRS-WORKTREE-FR-007"
+    title: "Cleanup — manual"
+    priority: "P2 — Nice to have"
+    description: >
+      The user SHALL be able to manually clean up a specific worktree via:
+        `hermes worktree remove <name>`
+      This SHALL:
+      1. Verify no active session is using the worktree.
+      2. Offer to commit/stash/discard any uncommitted changes.
+      3. Run `git worktree remove <path>`.
+      4. If the corresponding branch has no commits not merged to main,
+         delete the remote branch as well.
+      5. Remove the worktree entry from session state.
+
+  - id: "FRS-WORKTREE-FR-008"
+    title: "Worktree lifecycle in System Dashboard"
+    priority: "P2 — Nice to have"
+    description: >
+      The System Health Dashboard (port 8899) SHALL include a card showing:
+      - Active worktrees (name, branch, age, last activity timestamp).
+      - Status indicator (clean / has uncommitted changes / locked / stale).
+      - Total disk space used by worktrees.
+      The data SHALL be refreshed on each dashboard page load.
+
+  - id: "FRS-WORKTREE-FR-009"
+    title: "Aider worktree awareness"
+    priority: "P1 — Should have"
+    description: >
+      When Hermes invokes Aider within a worktree, the Aider invocation SHALL:
+      - Use the worktree path as the working directory.
+      - Commit changes to the worktree's branch (`work/<name>`).
+      - After the task completes, push the branch from the worktree.
+      The resulting PR is opened from the worktree branch against `main`.
+
+  - id: "FRS-WORKTREE-FR-010"
+    title: "Non-git VCS extension points"
+    priority: "P3 — Future"
+    description: >
+      The worktree creation and removal SHALL respect `WorktreeCreate` and
+      `WorktreeRemove` hooks defined in Hermes config.yaml. These hooks allow
+      custom logic for non-git version control systems (SVN, Perforce, etc.).
+      When no hooks are defined, the default git worktree behavior SHALL apply.
+      When hooks ARE defined, `.worktreeinclude` SHALL NOT be automatically
+      processed (the hook is responsible for config propagation).
+
+# ───────────────────────────────────────────────────────────────────────────
+# 4. ARCHITECTURE INTEGRATION POINTS
+# ───────────────────────────────────────────────────────────────────────────
+
+integration_points:
+
+  - component: "Hermes CLI"
+    requirement_ids: ["FRS-WORKTREE-FR-001", "FRS-WORKTREE-FR-003", "FRS-WORKTREE-FR-007"]
+    description: >
+      The CLI already has --worktree. No new flags required. The branch naming
+      and path conventions need to be explicitly configured for EdgeGDE repos.
+
+  - component: "Kanban (hermes_cli/kanban_db.py)"
+    requirement_ids: ["FRS-WORKTREE-FR-002", "FRS-WORKTREE-FR-005"]
+    description: >
+      Kanban already supports `workspace_kind=worktree`. The EdgeGDE-specific
+      worktree path convention (`../EdgeGDE-worktrees/work-<name>/`) needs to be
+      configurable per repo, either via the Kanban config or via a worktree
+      path configuration in the repo's configuration.
+
+  - component: "Aider"
+    requirement_ids: ["FRS-WORKTREE-FR-009"]
+    description: >
+      Aider runs within the worktree's working directory. No Aider code changes
+      needed — the working directory is set by Hermes before invoking Aider.
+
+  - component: "System Dashboard"
+    requirement_ids: ["FRS-WORKTREE-FR-008"]
+    description: >
+      A new card showing worktree status. Data source: `git worktree list`
+      output parsed periodically. The dashboard's Mermaid architecture diagram
+      should be updated to show worktree isolation.
+
+  - component: ".worktreeinclude"
+    requirement_ids: ["FRS-WORKTREE-FR-004"]
+    description: >
+      The `.worktreeinclude` file is a repo-level convention. EdgeGDE repos
+      should contain a `.worktreeinclude` file if they need local config files
+      propagated into worktrees. The ingestion logic exists in Hermes already.
+
+  - component: "Hermes Gateway (launchd)"
+    requirement_ids: ["FRS-WORKTREE-FR-006"]
+    description: >
+      The gateway cron ticker is the natural heartbeat for stale worktree
+      cleanup. The cleanup check can run as part of the existing 60s tick.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 5. NON-FUNCTIONAL REQUIREMENTS
+# ───────────────────────────────────────────────────────────────────────────
+
+non_functional_requirements:
+
+  - id: "FRS-WORKTREE-NFR-001"
+    title: "Deterministic worktree paths"
+    description: >
+      Given the same parent repo and worktree name, the worktree path SHALL
+      always be the same. No randomized path elements.
+
+  - id: "FRS-WORKTREE-NFR-002"
+    title: "No orphaned worktrees"
+    description: >
+      If Hermes crashes mid-operation during worktree creation, the partially
+      created worktree SHALL be cleaned up on next Hermes startup. The startup
+      cleanup SHALL check for worktrees with no matching session state.
+
+  - id: "FRS-WORKTREE-NFR-003"
+    title: "Minimal storage overhead"
+    description: >
+      Git worktrees share the object store with the parent repo. The storage
+      overhead per worktree SHALL be limited to the checked-out working tree
+      files plus any local build artifacts. Checkpoint manager overhead SHALL
+      be minimized (\u226440 MB per active worktree).
+
+  - id: "FRS-WORKTREE-NFR-004"
+    title: "Cleanup safety"
+    description: >
+      Auto-cleanup SHALL NOT remove a worktree that has:
+      - Unpushed commits on its branch.
+      - An active Hermes session.
+      - A `git worktree lock` in place.
+      - A corresponding Kanban task in `in_progress` state.
+      These guard conditions SHALL be verified before any removal.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 6. IMPLEMENTATION PHASES
+# ───────────────────────────────────────────────────────────────────────────
+
+implementation_phases:
+
+  - phase: 1
+    title: "Foundation — Document & Align"
+    priority: "Immediate"
+    tasks:
+      - "Document the current --worktree capabilities in system-architecture.yaml"
+      - "Create .worktreeinclude in EdgeGDE repo root (if applicable)"
+      - "Verify Hermes --worktree works end-to-end with EdgeGDE git conventions"
+      - "Document the EdgeGDE-worktrees/ path convention in kanban config"
+    acceptance_criteria:
+      - "hermes -w creates a worktree at EdgeGDE-worktrees/work-<name>/"
+      - "Git branch discipline is maintained"
+      - "No changes to Hermes core needed"
+
+  - phase: 2
+    title: "Automation — Auto-Cleanup & Dashboard"
+    priority: "Next"
+    tasks:
+      - "Add worktree cleanup routine to gateway cron ticker"
+      - "Add worktree status card to System Dashboard"
+      - "Add manual cleanup command (hermes worktree remove)"
+    acceptance_criteria:
+      - "Stale worktrees are auto-removed per configured period"
+      - "Dashboard shows active worktrees with status"
+      - "Manual cleanup removes worktree + branch safely"
+
+  - phase: 3
+    title: "Advanced — Subagent Isolation & Nested Worktrees"
+    priority: "Future"
+    tasks:
+      - "Implement nested worktree creation for subagents"
+      - "Implement .worktreeinclude propagation for nested worktrees"
+      - "Add WorktreeCreate/WorktreeRemove hook support"
+    acceptance_criteria:
+      - "Subagents can get their own isolated worktree"
+      - "Hooks fire on creation and removal"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 7. CONFIGURATION
+# ───────────────────────────────────────────────────────────────────────────
+
+configuration:
+
+  - setting: "worktree_cleanup_period_days"
+    type: "integer"
+    default: 3
+    description: >
+      Age threshold (in days) for automatic stale worktree removal.
+      Worktrees older than this with no unpushed commits are candidates
+      for cleanup on the next cleanup cycle.
+
+  - setting: "worktree_path_prefix"
+    type: "string"
+    default: "../<repo-name>-worktrees/"
+    description: >
+      Parent directory for worktrees relative to the main repo.
+      EdgeGDE default: `../EdgeGDE-worktrees/`.
+      Allowed values: an absolute path, or a relative path from the git root.
+
+  - setting: "worktree_branch_prefix"
+    type: "string"
+    default: "work/"
+    description: >
+      Prefix for branches created in worktrees. EdgeGDE pattern: `work/`.
+      Hermes compatibility: the branch prefix may be omitted when Hermes
+      auto-creates the branch (the feature name becomes the branch).
+
+  - setting: "worktree_enabled"
+    type: "boolean"
+    default: false
+    description: >
+      If true, `hermes chat` (without --worktree) automatically starts in a
+      git worktree. This is equivalent to always passing --worktree.
+      Corresponds to Hermes config.yaml `worktree: true`.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 8. EDGE CASES & ERROR HANDLING
+# ───────────────────────────────────────────────────────────────────────────
+
+edge_cases:
+
+  - scenario: "Worktree already exists"
+    behavior: >
+      If a worktree with the same name already exists, Hermes SHALL log a
+      warning and re-use it (do not create a duplicate). The existing worktree
+      SHALL be fast-forwarded to the parent's HEAD before use.
+
+  - scenario: "No git repo (not inside a git worktree-capable project)"
+    behavior: >
+      If the current directory is not inside a git repository, `--worktree`
+      SHALL fail with a clear error message: "Not inside a git repository.
+      Worktree mode requires a git repo."
+
+  - scenario: "Dirty parent repo"
+    behavior: >
+      If the parent repo has uncommitted changes, worktree creation SHALL
+      succeed (git worktree supports this). A warning SHALL be logged:
+      "Parent repo has uncommitted changes — worktree will be based on HEAD."
+
+  - scenario: "Branch name collision"
+    behavior: >
+      If the derived branch name (`work/<name>`) already exists, Hermes
+      SHALL append a numeric suffix: `work/<name>-2`, `work/<name>-3`, etc.
+
+  - scenario: ".worktreeinclude file with glob patterns"
+    behavior: >
+      Glob patterns (e.g. `*.env`, `config/*.json`) in .worktreeinclude SHALL
+      be expanded. Non-matching globs SHALL be silently skipped.
+
+  - scenario: "Worktree deleted manually (outside Hermes)"
+    behavior: >
+      If a worktree is manually removed via `git worktree remove` or by
+      deleting the directory, Hermes SHALL handle this gracefully on the next
+      startup: the session state referencing the missing worktree SHALL be
+      marked as orphaned, and the corresponding session SHALL be terminated
+      if active.
+
+  - scenario: "Disk space exhaustion"
+    behavior: >
+      If the cleanup routine encounters a worktree on a nearly-full volume,
+      it SHALL still attempt cleanup but log a warning if the removal itself
+      requires more disk space for git operations.
+
+  - scenario: "Network failure during branch push"
+    behavior: >
+      If pushing the worktree's branch fails due to network error, the
+      worktree SHALL NOT be removed. The branch SHALL remain local. The
+      error SHALL be logged, and the worktree SHALL be retried on the next
+      cleanup cycle.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 9. GLOSSARY
+# ───────────────────────────────────────────────────────────────────────────
+
+glossary:
+  - term: "Git Worktree"
+    definition: >
+      A linked working directory that shares the same git object store and
+      remote as the main checkout, but has its own files, working tree, and
+      branch.
+
+  - term: "Parent Repo"
+    definition: >
+      The main git repository (e.g. `EdgeGDE/`) from which worktrees are
+      created. Typically checked out to the `main` branch.
+
+  - term: "Worktree Name"
+    definition: >
+      A short human-readable identifier for the worktree, used as the
+      directory name suffix and branch name component.
+      Example: `telemetry-analytics-v1`.
+
+  - term: "Worktree Path"
+    definition: >
+      The filesystem path to the worktree root. EdgeGDE convention:
+      `../EdgeGDE-worktrees/work-<name>/`.
+
+  - term: ".worktreeinclude"
+    definition: >
+      A file at the repo root listing files to copy into each new worktree.
+      Lines starting with `#` are comments. Empty lines are ignored.
+      Each line is a relative file path or glob pattern.
+
+  - term: "Stale Worktree"
+    definition: >
+      A worktree that has no unpushed commits, no active session, and has
+      exceeded the cleanup age threshold.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 10. APPENDIX A — Comparison to Claude Code Worktrees
+# ───────────────────────────────────────────────────────────────────────────
+
+comparison:
+  - feature: "CLI flag"
+    claude_code: "claude --worktree <name>"
+    edgegde: "hermes --worktree <name> (EXISTS)"
+    status: "ALIGNED"
+
+  - feature: "Config option"
+    claude_code: "worktree: true in config"
+    edgegde: "worktree: true in config.yaml (EXISTS)"
+    status: "ALIGNED"
+
+  - feature: ".worktreeinclude"
+    claude_code: "Repo-root file listing files to copy into worktrees"
+    edgegde: "Supported in tips; implementation exists in Hermes"
+    status: "ALIGNED — needs doc/E2E verification"
+
+  - feature: "Auto-naming"
+    claude_code: "Generates name like 'bright-running-fox' if not provided"
+    edgegde: "Uses task ID or user-provided name"
+    status: "EDGEGDE-SPECIFIC — EdgeGDE prefers deterministic names"
+
+  - feature: "Auto-cleanup"
+    claude_code: "cleanupPeriodDays config"
+    edgegde: "24-72h cleanup on startup (EXISTS in Hermes)"
+    status: "PARTIALLY ALIGNED — needs configurable threshold"
+
+  - feature: "Subagent isolation"
+    claude_code: "isolation: worktree"
+    edgegde: "Not yet implemented at EdgeGDE level (Hermes framework ready)"
+    status: "GAP — EdgeGDE does not leverage this yet"
+
+  - feature: "Non-git VCS hooks"
+    claude_code: "WorktreeCreate / WorktreeRemove hooks"
+    edgegde: "Hook system exists in Hermes config.yaml; not used for worktrees"
+    status: "GAP — extension point available but unused"
+
+  - feature: "Manual cleanup"
+    claude_code: "Manual CLI commands"
+    edgegde: "No dedicated 'hermes worktree remove' command"
+    status: "GAP — no manual cleanup command"
+
+  - feature: "Worktree path convention"
+    claude_code: ".claude/worktrees/<name>/"
+    edgegde: "EdgeGDE-worktrees/work-<name>/"
+    status: "EDGEGDE-SPECIFIC — uses side-by-side directory already"
