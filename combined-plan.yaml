@@ -1,0 +1,495 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# EDGEGDE COMBINED PLAN: Repo Unification + Worktree FRS Gaps
+# ═══════════════════════════════════════════════════════════════════════════
+# Version: 0.1.0 (draft)
+# Date: 2026-06-21
+# Status: Draft for review
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ──── TABLE OF CONTENTS ────
+#   1. Current state — what we actually have
+#   2. FRS gaps — features from Claude Code that EdgeGDE doesn't use yet
+#   3. Combined workstreams (ordered)
+#   4. What NOT to do
+#   5. Risks & mitigations
+# ───────────────────────────────────────────────────────────────────────────
+
+# ───────────────────────────────────────────────────────────────────────────
+# 1. CURRENT STATE — What We Actually Have
+# ───────────────────────────────────────────────────────────────────────────
+
+current_state:
+  summary: >
+    The system is already a de facto monorepo + git worktrees pattern.
+    There is no fragmentation problem to solve — only standardization and
+    documentation gaps.
+
+  repos:
+    - repo: "EdgeGDE"
+      path: "/Users/warren/Documents/_HQ_AI/EdgeGDE/"
+      type: "main"
+      role: "Primary runtime — Hono/TypeScript, Cloudflare Workers, apps, shared schema"
+      status: "CORRECT"
+      verdict: "No changes needed"
+
+    - repo: "EdgeGDE-worktrees/*"
+      path: "/Users/warren/Documents/_HQ_AI/EdgeGDE-worktrees/"
+      type: "git worktree (linked)"
+      role: "Parallel agentic work sessions — share EdgeGDE's .git"
+      status: "CORRECT"
+      worktrees:
+        - "work-telemetry-analytics-v1-dashboard-admin-views"
+        - "work-telemetry-analytics-v1-historical-series-backtest"
+        - "work-telemetry-analytics-v1-model-comparison-tests"
+      verdict: >
+        Legitimate git worktrees. No consolidation needed. They already share
+        EdgeGDE's object store. These are the CORRECT implementation of the
+        worktree pattern.
+
+    - repo: "work-agentic-ux-runtime-phase0"
+      path: "/Users/warren/Documents/_HQ_AI/work-agentic-ux-runtime-phase0/"
+      type: "git worktree (linked, non-standard path)"
+      role: "Parallel worktree for UX runtime"
+      git_dir: "EdgeGDE/.git/worktrees/work-agentic-ux-runtime-phase0"
+      status: "HASSUE — inconsistent path"
+      verdict: >
+        This IS a legitimate EdgeGDE worktree (shares EdgeGDE's .git) but lives
+        directly under _HQ_AI/ instead of EdgeGDE-worktrees/. Should be moved
+        for consistency, but the move requires care (worktree paths are
+        registered in git's worktree metadata).
+
+    - repo: "system-control"
+      path: "/Users/warren/Documents/_HQ_AI/system-control/"
+      type: "independent repo (own .git)"
+      role: "Architecture docs, FRS, health scripts, dashboard HTML, runbooks"
+      status: "REVIEW NEEDED"
+      verdict: >
+        The only genuinely separate repo that is tightly coupled to EdgeGDE.
+        Contains system-architecture.yaml, health-server.py, system-dashboard.html,
+        and the new edgegde-worktree-frs.yaml. Candidate for consolidation into
+        EdgeGDE either as a directory or a worktree.
+
+    - repo: "hermes_workspace/hermes-agent"
+      path: "/Users/warren/Documents/_HQ_AI/hermes_workspace/hermes-agent/"
+      type: "independent repo (own .git)"
+      role: "Hermes Agent itself — upstream project, not EdgeGDE code"
+      status: "CORRECT — separate by design"
+      verdict: >
+        This is an upstream project (Nous Research's Hermes Agent). EdgeGDE
+        extends it via plugins, skills, and config. Merging it into an EdgeGDE
+        monorepo would be incorrect — it's a framework dependency, not EdgeGDE
+        application code.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 2. FRS GAPS — Features from Claude Code Not Yet Used by EdgeGDE
+# ───────────────────────────────────────────────────────────────────────────
+
+gaps_vs_claude_code:
+
+  - id: "GAP-001"
+    title: "Subagent worktree isolation"
+    claude_feature: "isolation: worktree — subagents get their own worktree"
+    edgegde_status: "NOT_CONFIGURED"
+    relevance: "MEDIUM"
+    description: >
+      Hermes Kanban supports workspace_kind=worktree, but EdgeGDE doesn't
+      configure subagent tasks to use it. Subagents currently operate in the
+      same working directory as the parent. Isolating them would prevent
+      file collisions during parallel subagent execution.
+    effort: "Small — configuration change in Kanban task definitions"
+
+  - id: "GAP-002"
+    title: "Auto-cleanup period configurable"
+    claude_feature: "cleanupPeriodDays config"
+    edgegde_status: "HARDCODED (24-72h in Hermes startup)"
+    relevance: "MEDIUM"
+    description: >
+      Hermes cleans stale worktrees on startup but the threshold is hardcoded
+      in the cleanup logic (24-72h). Making it configurable via config.yaml
+      would let EdgeGDE control its own policy. Currently no config key exists
+      for this.
+    effort: "Small — config key + plumbing"
+
+  - id: "GAP-003"
+    title: "Manual worktree remove command"
+    claude_feature: "git worktree remove — CLI command"
+    edgegde_status: "MISSING"
+    relevance: "HIGH"
+    description: >
+      No `hermes worktree remove <name>` exists. Users must know raw git
+      commands: `git worktree remove ../EdgeGDE-worktrees/work-<name>`.
+      A Hermes-level command would add safety checks (active session check,
+      uncommitted changes prompt, branch cleanup).
+    effort: "Medium — new CLI subcommand + safety logic"
+
+  - id: "GAP-004"
+    title: "Dashboard worktree status card"
+    claude_feature: "N/A (Claude Code has no dashboard)"
+    edgegde_status: "MISSING"
+    relevance: "MEDIUM"
+    description: >
+      The System Dashboard (port 8899) shows service status, resources, and
+      Litellm routes but has no worktree visibility. A worktree card showing
+      active worktrees, ages, branch names, and status would give at-a-glance
+      awareness of parallel operations.
+    effort: "Small — new dashboard card, git worktree list parsing"
+
+  - id: "GAP-005"
+    title: ".worktreeinclude E2E verification"
+    claude_feature: ".worktreeinclude file convention"
+    edgegde_status: "EXISTS IN HERMES BUT UNVERIFIED"
+    relevance: "LOW"
+    description: >
+      Hermes tips reference .worktreeinclude support but it hasn't been tested
+      end-to-end in the EdgeGDE context. EdgeGDE repos would benefit from
+      having a .worktreeinclude file listing config files to propagate.
+    effort: "Small — test + create file if needed"
+
+  - id: "GAP-006"
+    title: "Worktree base branch control"
+    claude_feature: "worktree.baseRef — 'head' or 'fresh'"
+    edgegde_status: "NOT_CONFIGURED"
+    relevance: "LOW"
+    description: >
+      Allows choosing whether a worktree starts at HEAD of current branch
+      ('head') or as an empty branch ('fresh'). EdgeGDE always uses 'head'
+      (current main). This is the right default for our workflow — no change
+      needed unless we want 'fresh' for research/experimental tasks.
+    effort: "Trivial — config key if desired"
+
+  - id: "GAP-007"
+    title: "Non-git VCS hooks"
+    claude_feature: "WorktreeCreate / WorktreeRemove hooks"
+    edgegde_status: "NOT_USED — not relevant"
+    relevance: "NONE"
+    description: >
+      Hook system for SVN, Perforce, etc. EdgeGDE is git-only. These hooks
+      provide no value. Leave as an unused extension point.
+    effort: "Zero — intentionally skipped"
+
+  - id: "GAP-008"
+    title: "Auto-naming (random name generation)"
+    claude_feature: "Generates names like 'bright-running-fox' if no name given"
+    edgegde_status: "EXISTS? — needs verification"
+    relevance: "LOW"
+    description: >
+      Claude Code generates random memorable names for unnamed worktrees.
+      Hermes may or may not do this — the behavior when `hermes --worktree`
+      is passed without a name argument is unclear. EdgeGDE typically always
+      provides task IDs as names, so this has low priority. Document behavior.
+    effort: "Trivial — verify and document"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 3. COMBINED WORKSTREAMS (Ordered)
+# ───────────────────────────────────────────────────────────────────────────
+
+combined_workstreams:
+
+  # ── Workstream A: Zero-Cost Documentation ──
+
+  - stream: "A"
+    title: "Document current structure accurately"
+    priority: "P0 — Do this first, do it now"
+    rationale: >
+      Before making any changes, the architecture documentation must reflect
+      what actually exists. The current system-architecture.yaml does not
+      describe the worktree pattern. This is the cheapest, highest-impact
+      workstream.
+    tasks:
+      - "Add worktree section to system-architecture.yaml"
+      - "Document EdgeGDE-worktrees/ convention"
+      - "Document work-agentic-ux-runtime-phase0 path inconsistency"
+      - "Add .worktreeinclude section if relevant"
+    files_touched:
+      - "system-control/system-architecture.yaml"
+    effort: "XS — 15 minutes"
+
+  # ── Workstream B: Path Standardization ──
+
+  - stream: "B"
+    title: "Standardize worktree paths"
+    priority: "P1 — Before new worktrees are created"
+    rationale: >
+      work-agentic-ux-runtime-phase0 lives at a non-standard path. This
+      inconsistency will compound as more worktrees are created. Fixing it
+      now prevents future confusion. Note: git worktrees register their paths
+      internally, so moving requires removing and re-adding.
+    tasks:
+      - "Verify no active session uses work-agentic-ux-runtime-phase0"
+      - "Stash/discard any uncommitted changes in that worktree"
+      - "Remove the worktree: git worktree remove work-agentic-ux-runtime-phase0"
+      - "Re-add under EdgeGDE-worktrees/: git worktree add ../EdgeGDE-worktrees/work-agentic-ux-runtime-phase0 work/agentic-ux-runtime-phase0"
+      - "Update worktree metadata in system-architecture.yaml"
+    files_touched:
+      - "system-control/system-architecture.yaml"
+    effort: "S — 30 minutes, one-time"
+
+  # ── Workstream C: system-control Consolidation ──
+
+  - stream: "C"
+    title: "Consolidate system-control into EdgeGDE"
+    priority: "P2 — After path standardization, before gap work"
+    rationale: >
+      system-control is the only genuinely independent repo tightly coupled to
+      EdgeGDE. It holds architecture docs, dashboards, health checks, and the
+      new FRS — all EdgeGDE artifacts. Bringing it into the EdgeGDE repo makes
+      cross-cutting changes atomic, eliminates the need to maintain two repos'
+      histories, and ensures docs evolve in lockstep with code.
+    options:
+      - method: "git worktree"
+        description: >
+          Add system-control as a worktree of EdgeGDE, similar to the existing
+          worktrees. This keeps the directory where it is and shares EdgeGDE's
+          .git. Simplest path.
+        command: "git worktree add ../system-control --detach && git branch -f work/local-mermaid"
+        risk: "system-control has an existing .git — must be removed first"
+        rollback: "Easy — just git worktree remove"
+
+      - method: "git subtree"
+        description: >
+          Import system-control's history into EdgeGDE at a well-known path
+          (e.g. docs/ or ops/). Preserves full commit history. More complex
+          but ensures history is in the main repo even if the worktree is
+          removed.
+        command: "git subtree add --prefix=ops/system-control ../system-control work/local-mermaid"
+        risk: >
+          Higher. system-control has only 1 branch with limited commits.
+          The subtree approach may be overkill for a small repo.
+        rollback: "Git revert on the subtree merge commit"
+
+      - method: "Just copy + new commit"
+        description: >
+          Copy files manually, commit to EdgeGDE, archive old repo. Loses
+          history but is cleanest for a small doc repo where history matters
+          less.
+        command: "cp -r ../system-control/* ops/ && git add . && git commit"
+        risk: "Loses git history from system-control"
+    recommendation: >
+      Use the worktree method. It's the safest, most consistent with the
+      existing pattern, and rollback is trivial. The system-control directory
+      stays exactly where it is.
+    effort: "S — 30 minutes, once-off"
+
+  # ── Workstream D: Gap Closure — Infrastructure ──
+
+  - stream: "D"
+    title: "Auto-cleanup configuration (GAP-002)"
+    priority: "P2 — Small effort, ongoing benefit"
+    tasks:
+      - "Check Hermes config.yaml for existing worktree_cleanup config keys"
+      - "If missing: add worktree_cleanup_period_days to Hermes config schema"
+      - "Connect the cleanup threshold to the existing stale worktree scanner"
+      - "Document the config key in system-architecture.yaml"
+    files_touched:
+      - "hermes_workspace/hermes-agent/hermes_cli/config.py"
+      - "system-control/system-architecture.yaml"
+    effort: "S — may involve one Hermes core change"
+
+  - stream: "E"
+    title: "Dashboard worktree card (GAP-004)"
+    priority: "P2 — Medium visibility value"
+    tasks:
+      - "Add worktree card to system-dashboard.html"
+      - "Card shows: worktree name, branch, age, status (clean/dirty/stale)"
+      - "Data source: on-page JS calling git worktree list"
+      - "CSS consistent with existing dark theme"
+    files_touched:
+      - "system-control/system-dashboard.html"
+    effort: "S — HTML/JS change only"
+
+  # ── Workstream F: Gap Closure — CLI & Tooling ──
+
+  - stream: "F"
+    title: "Manual worktree remove command (GAP-003)"
+    priority: "P2 — Nice to have, fills UX gap"
+    tasks:
+      - "Add hermes worktree remove <name> subcommand"
+      - "Safety checks: active session check, uncommitted changes prompt"
+      - "Branch cleanup after worktree removal"
+    files_touched:
+      - "hermes_workspace/hermes-agent/hermes_cli/"
+    effort: "M — new CLI subcommand with safety logic"
+
+  - stream: "G"
+    title: "Subagent worktree isolation (GAP-001)"
+    priority: "P3 — Valueful but not urgent"
+    tasks:
+      - "Configure Kanban task definitions to use workspace_kind=worktree for subagents"
+      - "Test: spawn a subagent with isolation and verify it gets its own worktree"
+      - "Document the configuration in system-architecture.yaml"
+    files_touched:
+      - "system-control/system-architecture.yaml"
+    effort: "S — configuration + test"
+
+  - stream: "H"
+    title: ".worktreeinclude E2E test (GAP-005)"
+    priority: "P3 — Low urgency, quick check"
+    tasks:
+      - "Create a .worktreeinclude file in EdgeGDE root"
+      - "Create a worktree via hermes --worktree"
+      - "Verify listed files appear in the worktree"
+      - "Document the result"
+    files_touched:
+      - "EdgeGDE/.worktreeinclude"
+    effort: "XS — 15 minutes"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 4. WHAT NOT TO DO
+# ───────────────────────────────────────────────────────────────────────────
+
+not_to_do:
+
+  - action: "Subtree-merge EdgeGDE-worktrees/* into EdgeGDE"
+    reason: >
+      They are already linked worktrees sharing EdgeGDE's .git. Subtree
+      merging a worktree into its own parent repo would create duplicate
+      history and break the worktree link. This action would corrupt the
+      working tree.
+
+  - action: "Merge hermes_workspace/hermes-agent into EdgeGDE monorepo"
+    reason: >
+      Hermes Agent is an upstream framework project, not EdgeGDE application
+      code. EdgeGDE extends it via plugins, skills, and config. Merging it
+      would conflate framework with application, break upstream update paths,
+      and bloat the EdgeGDE repo with 69K lines of Hermes code.
+
+  - action: "Birate a pnpm workspace or monorepo tool"
+    reason: >
+      EdgeGDE is a Hono/TypeScript Cloudflare Workers stack. It already has a
+      standard npm/TypeScript project structure. Introducing pnpm workspaces
+      or another monorepo manager adds tooling overhead with no benefit —
+      EdgeGDE doesn't have multiple independently-buildable packages that
+      share lockfiles. The worktree pattern already provides workspace
+      isolation.
+
+  - action: "Back up worktrees before restructuring"
+    reason: >
+      The repo unification analysis proposed backing up all repos including
+      worktrees. Backing up a worktree is redundant — its objects are in the
+      parent's .git. The worktree directory is just a checked-out snapshot.
+      A backup of the parent repo covers all worktrees.
+
+  - action: "Touch hermes_workspace/hermes-agent core — except where noted"
+    reason: >
+      Changes to the Hermes core (e.g., adding config keys, CLI subcommands)
+      are upstream contributions, not EdgeGDE-specific work. They should be
+      minimal and focused. Workstreams D and F are the only Hermes core
+      changes in this plan, and both are optional.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 5. RISKS & MITIGATIONS
+# ───────────────────────────────────────────────────────────────────────────
+
+risks:
+
+  - risk: "Worktree path move (Workstream B) loses unpushed commits"
+    likelihood: "Low"
+    impact: "High"
+    mitigation: >
+      Verify no active session before removing. Git will refuse to remove a
+      worktree with uncommitted changes. If changes exist, they must be
+      committed and pushed, or stashed and reapplied after the move.
+    precheck: "git worktree list --porcelain | grep work-agentic-ux-runtime-phase0"
+
+  - risk: "system-control worktree (Workstream C) conflicts with existing .git"
+    likelihood: "High"
+    impact: "Medium"
+    mitigation: >
+      system-control has its own .git directory. Before adding it as an
+      EdgeGDE worktree, the .git must be removed (after verifying the backup).
+      The command sequence:
+        1. cp -r system-control system-control-backup
+        2. rm -rf system-control/.git
+        3. cd EdgeGDE && git worktree add ../system-control work/local-mermaid
+      Precheck: verify the backup before removing .git.
+
+  - risk: "Config key addition (Workstream D) conflicts with Hermes upstream"
+    likelihood: "Medium"
+    impact: "Low"
+    mitigation: >
+      Hermes Agent may already have or may add a worktree config key in a
+      future update. Check the config schema before adding: if the key exists
+      but is unused, just document it. If it doesn't exist, the change is
+      local to the venv's config.py and will be overwritten on `hermes update`.
+      Preferred approach: add the key to EdgeGDE's config.yaml only, using
+      Hermes' existing extension point for custom config.
+
+  - risk: "Dashboard card (Workstream E) breaks on page refresh"
+    likelihood: "Low"
+    impact: "Low"
+    mitigation: >
+      The dashboard already has auto-refresh. Adding git worktree parsing
+      means git commands are called on every refresh. This is fast (sub-ms)
+      for a local git repo. No performance concern.
+
+# ───────────────────────────────────────────────────────────────────────────
+# 6. EXECUTION ORDER
+# ───────────────────────────────────────────────────────────────────────────
+
+execution_order:
+  - stream: "A — Document current structure"
+    depends_on: []
+    estimated_time: "15 min"
+
+  - stream: "B — Standardize worktree paths"
+    depends_on: ["A"]
+    estimated_time: "30 min"
+
+  - stream: "C — Consolidate system-control"
+    depends_on: ["B"]
+    estimated_time: "30 min"
+
+  - stream: "H — .worktreeinclude E2E test"
+    depends_on: ["B"]
+    estimated_time: "15 min"
+
+  # Parallelizable after C
+  - stream: "E — Dashboard worktree card"
+    depends_on: ["C"]
+    estimated_time: "45 min"
+
+  # Parallelizable after C
+  - stream: "D — Auto-cleanup configuration"
+    depends_on: ["C"]
+    estimated_time: "30 min"
+
+  # After D+E
+  - stream: "F — Manual worktree remove command"
+    depends_on: ["D", "E"]
+    estimated_time: "1-2 hours"
+
+  # After F
+  - stream: "G — Subagent worktree isolation"
+    depends_on: ["F"]
+    estimated_time: "30 min"
+
+total_estimated_time: "~5 hours (sequential), ~3 hours (with parallelization of D+E+F)"
+
+# ───────────────────────────────────────────────────────────────────────────
+# 7. VERIFICATION CHECKPOINTS
+# ───────────────────────────────────────────────────────────────────────────
+
+checkpoints:
+  - after: "Stream A"
+    verify:
+      - "system-architecture.yaml describes the worktree pattern"
+      - "All worktree paths are documented"
+      - "Path inconsistency is noted"
+
+  - after: "Streams B + C"
+    verify:
+      - "All EdgeGDE worktrees are under EdgeGDE-worktrees/"
+      - "system-control has .git removed and is a linked worktree of EdgeGDE"
+      - "git worktree list shows a clean, consistent set"
+      - "Backup exists before any destructive operation"
+
+  - after: "Streams D + E + H"
+    verify:
+      - "Dashboard shows worktree status card"
+      - "Auto-cleanup respects configurable threshold"
+      - ".worktreeinclude test passes"
+
+  - after: "Streams F + G"
+    verify:
+      - "hermes worktree remove works with safety checks"
+      - "Subagent creates and works in isolated worktree"

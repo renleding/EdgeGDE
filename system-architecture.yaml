@@ -21,6 +21,10 @@ system:
     - "Max 3 retries per task, each retry changes strategy"
     - "No raw secrets in chat — interactive credential scripts only"
     - "Deprecated legacy services are not auto-launched"
+    - "Parallel work via git worktrees — each agentic session gets its own
+       isolated worktree under EdgeGDE-worktrees/ with work/ branch"
+    - "Path convention: ../<repo>-worktrees/work-<name>/ — all worktrees
+       discoverable under one sibling directory"
 
 # ───────────────────────────────────────────────────────────────────────────
 # LAYER 1: USER INTERFACE & CONTROL PLANE
@@ -75,6 +79,8 @@ interfaces:
       - service_dependency_graph
       - mempalace_drawer_tree
       - podman_containers
+      - worktree_status        # Active worktrees, branches, ages, status
+                                 # (planned — Stream E)
 
 # ───────────────────────────────────────────────────────────────────────────
 # LAYER 2: TASK ORCHESTRATION & STATE MACHINE
@@ -377,6 +383,84 @@ infrastructure:
       auth: "API token in ~/.hermes/.env"
       capabilities: "Workers, DNS, Account management"
       setup: "Interactive credential script → ~/.hermes/scripts/setup-cloudflare.sh (deleted after use)"
+
+# ───────────────────────────────────────────────────────────────────────────
+# GIT WORKTREE MANAGEMENT — Parallel Agentic Operations
+# ───────────────────────────────────────────────────────────────────────────
+
+  git_worktrees:
+    description: >
+      EdgeGDE uses git worktrees for parallel agentic operations. Each worktree
+      is a linked working directory sharing EdgeGDE's .git object store, with
+      its own branch and working tree. All worktrees follow the
+      work/{short-description} branch naming convention.
+
+    parent_repo:
+      path: "/Users/warren/Documents/_HQ_AI/EdgeGDE"
+      branch: "main"
+      role: "Authoritative git repository — single source of truth"
+
+    worktree_directory:
+      path: "/Users/warren/Documents/_HQ_AI/EdgeGDE-worktrees/"
+      convention: "../<repo-name>-worktrees/work-<short-description>"
+      description: >
+        All EdgeGDE worktrees live under this sibling directory. The naming
+        convention uses the parent repo name as prefix (e.g.
+        EdgeGDE-worktrees/) followed by work-<short-description> subdirectories.
+
+    active_worktrees:
+      - name: "work-agentic-ux-runtime-phase0"
+        path: "../EdgeGDE-worktrees/work-agentic-ux-runtime-phase0"
+        branch: "work/agentic-ux-runtime-phase0"
+        status: "ACTIVE"
+        note: "Path standardized in Stream B (was under _HQ_AI/ directly)"
+      - name: "work-telemetry-analytics-v1-dashboard-admin-views"
+        path: "../EdgeGDE-worktrees/work-telemetry-analytics-v1-dashboard-admin-views"
+        branch: "work/telemetry-analytics-v1-dashboard-admin-views"
+        status: "ACTIVE"
+      - name: "work-telemetry-analytics-v1-historical-series-backtest"
+        path: "../EdgeGDE-worktrees/work-telemetry-analytics-v1-historical-series-backtest"
+        branch: "work/telemetry-analytics-v1-historical-series-backtest"
+        status: "ACTIVE"
+      - name: "work-telemetry-analytics-v1-model-comparison-tests"
+        path: "../EdgeGDE-worktrees/work-telemetry-analytics-v1-model-comparison-tests"
+        branch: "work/telemetry-analytics-v1-model-comparison-tests"
+        status: "ACTIVE"
+
+    path_inconsistencies:
+      # RESOLVED — work-agentic-ux-runtime-phase0 was moved from
+      # _HQ_AI/ to EdgeGDE-worktrees/ during Stream B (2026-06-21).
+      # All worktrees now follow the standard path convention.
+
+    independent_repos_candidates:
+      - path: "system-control/"
+        role: "Architecture docs, dashboards, health scripts, FRS, runbooks"
+        issue: >
+          Independent git repository with its own .git. Tightly coupled to
+          EdgeGDE — architecture docs should evolve in lockstep with code.
+          Candidate for conversion to an EdgeGDE worktree (Stream C).
+
+    hermes_integration:
+      cli_flag: "hermes --worktree (or -w) starts a session in an isolated worktree"
+      config_option: "worktree: true in config.yaml auto-enables worktree mode"
+      kanban_workspace_kind: "workspace_kind=worktree for Kanban tasks"
+      default_path: >
+        Hermes default: .worktrees/<task.id>/ ;
+        EdgeGDE convention: ../EdgeGDE-worktrees/work-<name>/
+      dot_worktreeinclude: >
+        Hermes supports .worktreeinclude files — a repo-root file listing
+        gitignored files (e.g. .env, secrets) to copy into each new worktree.
+        Currently documented in Hermes tips but not yet E2E tested with EdgeGDE
+        (planned in Stream H).
+      auto_cleanup: >
+        Hermes auto-cleans stale worktrees on startup: worktrees 24-72h old
+        with no unpushed commits are pruned. The cleanup threshold is currently
+        hardcoded — making it configurable is planned (Stream D).
+
+    dashboard_card:
+      status: "NOT IMPLEMENTED"
+      planned_for: "Stream E — worktree status card on System Dashboard (port 8899)"
+      data_source: "git worktree list parsed on page load"
 
 # ───────────────────────────────────────────────────────────────────────────
 # LAYER 7: SKILLS & AGENT PROFILES
