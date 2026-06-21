@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="refresh" content="300">
 <title>System Health Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="/mermaid.min.js"></script>
 <style>
   :root {
     --bg: #0a0b0e;
@@ -330,18 +330,36 @@
     <div class="mermaid-wrap">
       <pre class="mermaid">
 flowchart LR
-    B[ Browser<br/>:3000 ] --> W[ Workspace UI<br/>:3000 ]
-    W --> G[ Gateway API<br/>:8642 ]
-    G --> L[ Litellm Proxy<br/>:4000 ]
-    L --> DS[ DeepSeek API<br/>api.deepseek.com ]
-    L --> OR[ OpenRouter<br/>openrouter.ai ]
-    OR --> DS2[ DeepSeek V4 Flash ]
-    OR --> QWEN[ Qwen 2.5 7B ]
-    OR --> NEM[ Nemotron Vision ]
-
-    G --> DASH[ Dashboard<br/>:9119 ]
-
-    D --- MP[ MemPalace Viz<br/>:8888 ]
+    B[ Browser<br/>:3000 ] --> W[Workspace UI<br/>:3000]
+    W --> G[Gateway API<br/>:8642]
+    G --> L[Litellm Proxy<br/>:4000]
+    
+    L --> DS[DeepSeek API<br/>api.deepseek.com]
+    L --> OR[OpenRouter<br/>openrouter.ai]
+    
+    DS --> DS2[DeepSeek V4 Flash (BYOK)]
+    OR --> DS2
+    OR --> QWEN[Qwen 2.5 7B Instruct]
+    OR --> NEM[Nemotron Vision (free tier)]
+    
+    G --> DASH[Dashboard<br/>:9119]
+    DASH --> MP[MemPalace Viz<br/>:8888]
+    DASH --> RG[Runtime Guard<br/>:5001]
+    DASH --> OP[OpenPencil MCP<br/>:7600]
+    
+    style B fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style W fill:#1e40af,stroke:#3b82f6,color:#bfdbfe
+    style G fill:#1e40af,stroke:#3b82f6,color:#bfdbfe
+    style L fill:#4c1d95,stroke:#7c3aed,color:#ddd6fe
+    style DS fill:#065f46,stroke:#059669,color:#a7f3d0
+    style OR fill:#78350f,stroke:#d97706,color:#fde68a
+    style DS2 fill:#78350f,stroke:#d97706,color:#fde68a
+    style QWEN fill:#78350f,stroke:#d97706,color:#fde68a
+    style NEM fill:#78350f,stroke:#d97706,color:#fde68a
+    style DASH fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style MP fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style RG fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style OP fill:#1e293b,stroke:#334155,color:#e2e8f0
     D --- RG[ Runtime Guard<br/>:5001 ]
     D --- OP[ OpenPencil MCP<br/>:7600 ]
 
