@@ -27,7 +27,7 @@ def run_check():
         probe("127.0.0.1", 3000, "Workspace UI"),
         probe("127.0.0.1", 8888, "MemPalace Viz"),
         probe("127.0.0.1", 5001, "Runtime Guard"),
-        probe("127.0.0.1", 7600, "OpenPencil MCP"),
+        probe("127.0.0.1", 8888, "Memory 2.0"),
     ]
 
     ok = sum(1 for s in services if s["status"] == "ok")

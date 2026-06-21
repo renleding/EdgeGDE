@@ -345,7 +345,7 @@ flowchart LR
     G --> DASH[Dashboard<br/>:9119]
     DASH --> MP[MemPalace Viz<br/>:8888]
     DASH --> RG[Runtime Guard<br/>:5001]
-    DASH --> OP[OpenPencil MCP<br/>:7600]
+    DASH --> LB[Memory 2.0<br/>LadybugDB]
     
     style B fill:#1e293b,stroke:#334155,color:#e2e8f0
     style W fill:#1e40af,stroke:#3b82f6,color:#bfdbfe
@@ -359,7 +359,7 @@ flowchart LR
     style DASH fill:#1e293b,stroke:#334155,color:#e2e8f0
     style MP fill:#1e293b,stroke:#334155,color:#e2e8f0
     style RG fill:#1e293b,stroke:#334155,color:#e2e8f0
-    style OP fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style LB fill:#9333ea,stroke:#a855f7,color:#e9d5ff
     
     style B fill:#1e293b,stroke:#334155,color:#e2e8f0
     style W fill:#1e40af,stroke:#2563eb,color:#bfdbfe
@@ -373,7 +373,7 @@ flowchart LR
     style DASH fill:#1e293b,stroke:#334155,color:#e2e8f0
     style MP fill:#1e293b,stroke:#334155,color:#e2e8f0
     style RG fill:#1e293b,stroke:#334155,color:#e2e8f0
-    style OP fill:#1e293b,stroke:#334155,color:#e2e8f0
+    style LB fill:#9333ea,stroke:#a855f7,color:#e9d5ff
       </pre>
     </div>
   </div>
@@ -415,8 +415,8 @@ flowchart LR
           <span class="indicator up">UP</span>
         </div>
         <div class="service-item">
-          <div class="name">OpenPencil MCP</div>
-          <div class="port">7600</div>
+          <div class="name">Memory 2.0</div>
+          <div class="port">LadybugDB</div>
           <span class="indicator up">UP</span>
         </div>
         <div class="service-item">
@@ -571,18 +571,19 @@ stateDiagram-v2
         [*] --> Server8888
         Server8888 --> Launchd
     }
-    state OpenPencil {
-        [*] --> MCP7600
-        MCP7600 --> WS7601
+    state LadybugDB {
+        [*] --> Projection
+        Projection --> MemPalace
     }
 
     Gateway --> RuntimeGuard
     Gateway --> MemPalace
-    Gateway --> OpenPencil
+    Gateway --> LadybugDB
 
     note right of Workspace : All 8 services UP
     note right of RuntimeGuard : Policies active
     note right of MemPalace : 173 drawers
+    note right of LadybugDB : Read-only projection
         </pre>
       </div>
     </div>
