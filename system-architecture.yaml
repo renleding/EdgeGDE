@@ -409,6 +409,14 @@ infrastructure:
         EdgeGDE-worktrees/) followed by work-<short-description> subdirectories.
 
     active_worktrees:
+      - name: "system-control"
+        path: "../system-control"
+        branch: "work/local-mermaid"
+        status: "ACTIVE"
+        note: >
+          Converted from independent repo to EdgeGDE worktree in Stream C
+          (2026-06-21). Contains architecture docs, dashboards, health scripts,
+          FRS, and runbooks.
       - name: "work-agentic-ux-runtime-phase0"
         path: "../EdgeGDE-worktrees/work-agentic-ux-runtime-phase0"
         branch: "work/agentic-ux-runtime-phase0"
@@ -433,12 +441,10 @@ infrastructure:
       # All worktrees now follow the standard path convention.
 
     independent_repos_candidates:
-      - path: "system-control/"
-        role: "Architecture docs, dashboards, health scripts, FRS, runbooks"
-        issue: >
-          Independent git repository with its own .git. Tightly coupled to
-          EdgeGDE — architecture docs should evolve in lockstep with code.
-          Candidate for conversion to an EdgeGDE worktree (Stream C).
+      # RESOLVED — system-control was converted from an independent git repo to
+      # an EdgeGDE worktree during Stream C (2026-06-21). All 5 commits from its
+      # history were fetched into EdgeGDE's object store. The backup lives at
+      # ../system-control-backup/ (preserves original .git).
 
     hermes_integration:
       cli_flag: "hermes --worktree (or -w) starts a session in an isolated worktree"
