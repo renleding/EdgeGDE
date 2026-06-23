@@ -121,14 +121,17 @@
     <span id="timestamp"></span>
   </div>
   <script>
+    const n = v => typeof v === 'number' ? v : 0
+    const obj = v => v && typeof v === 'object' ? v : {}
+
     const METRICS = [
-      { key: 'requests_per_minute', label: 'Requests / min', fmt: v => v.toLocaleString(), sub: 'throughput' },
-      { key: 'avg_latency_ms', label: 'Avg Latency', fmt: v => v.toFixed(1) + ' ms', sub: v => v > 500 ? 'high' : 'normal', cls: v => v > 500 ? 'warn' : '' },
-      { key: 'p95_latency_ms', label: 'P95 Latency', fmt: v => v.toFixed(1) + ' ms', sub: v => v > 1000 ? 'elevated' : 'normal', cls: v => v > 1000 ? 'danger' : '' },
-      { key: 'error_rate_percent', label: 'Error Rate', fmt: v => v.toFixed(1) + ' %', sub: v => v > 5 ? 'degraded' : 'healthy', cls: v => v > 5 ? 'danger' : 'success' },
-      { key: 'total_429_responses', label: '429 Responses', fmt: v => v.toLocaleString(), sub: 'rate limited' },
-      { key: 'tool_usage_counts', label: 'Active Tools', fmt: v => Object.keys(v).length, sub: v => Object.keys(v).length + ' tools', cls: 'wide', list: true },
-      { key: 'agent_request_ratio', label: 'Agent Requests', fmt: v => v.toFixed(1) + ' %', sub: v => v > 50 ? 'dominant' : 'mixed', cls: v => v > 50 ? 'warn' : '' },
+      { key: 'requests_per_minute', label: 'Requests / min', fmt: v => n(v).toLocaleString(), sub: 'throughput' },
+      { key: 'avg_latency_ms', label: 'Avg Latency', fmt: v => n(v).toFixed(1) + ' ms', sub: v => n(v) > 500 ? 'high' : 'normal', cls: v => n(v) > 500 ? 'warn' : '' },
+      { key: 'p95_latency_ms', label: 'P95 Latency', fmt: v => n(v).toFixed(1) + ' ms', sub: v => n(v) > 1000 ? 'elevated' : 'normal', cls: v => n(v) > 1000 ? 'danger' : '' },
+      { key: 'error_rate_percent', label: 'Error Rate', fmt: v => n(v).toFixed(1) + ' %', sub: v => n(v) > 5 ? 'degraded' : 'healthy', cls: v => n(v) > 5 ? 'danger' : 'success' },
+      { key: 'total_429_responses', label: '429 Responses', fmt: v => n(v).toLocaleString(), sub: 'rate limited' },
+      { key: 'tool_usage_counts', label: 'Active Tools', fmt: v => Object.keys(obj(v)).length, sub: v => Object.keys(obj(v)).length + ' tools', cls: 'wide', list: true },
+      { key: 'agent_request_ratio', label: 'Agent Requests', fmt: v => n(v).toFixed(1) + ' %', sub: v => n(v) > 50 ? 'dominant' : 'mixed', cls: v => n(v) > 50 ? 'warn' : '' },
     ]
 
     function render(data) {
@@ -270,14 +273,17 @@
     }
 
     function renderRuntime(data) {
-      const t = data.telemetry
-      const kvEff = data.kv_efficiency
+      const t = data?.telemetry || {}
+      const kvEff = data?.kv_efficiency || { avg_reads_per_request: 0 }
+      const errorCount = n(t.error_count)
+      const deployEvents = n(t.deploy_events)
+      const logEntries = n(t.log_entries)
 
       const cards = [
-        { label: 'Telemetry Logs', value: t.log_entries.toLocaleString(), sub: 'total events logged' },
-        { label: 'Errors', value: t.error_count.toLocaleString(), sub: t.error_count > 0 ? 'needs review' : 'none', cls: t.error_count > 0 ? 'danger' : '' },
-        { label: 'Deploy Events', value: t.deploy_events.toLocaleString(), sub: 'pipeline history' },
-        { label: 'Avg KV Reads / Request', value: kvEff.avg_reads_per_request.toFixed(2), sub: 'efficiency ratio', cls: kvEff.avg_reads_per_request > 5 ? 'warn' : '' },
+        { label: 'Telemetry Logs', value: logEntries.toLocaleString(), sub: 'total events logged' },
+        { label: 'Errors', value: errorCount.toLocaleString(), sub: errorCount > 0 ? 'needs review' : 'none', cls: errorCount > 0 ? 'danger' : '' },
+        { label: 'Deploy Events', value: deployEvents.toLocaleString(), sub: 'pipeline history' },
+        { label: 'Avg KV Reads / Request', value: n(kvEff.avg_reads_per_request).toFixed(2), sub: 'efficiency ratio', cls: n(kvEff.avg_reads_per_request) > 5 ? 'warn' : '' },
       ]
 
       document.getElementById('runtime-grid').innerHTML = cards.map(c =>

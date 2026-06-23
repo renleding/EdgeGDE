@@ -66,6 +66,11 @@ function extractQueryToken(c: Context): string | null {
  * ALL authenticated routes return 401 until it is configured.
  */
 export const adminAuth: MiddlewareHandler = async (c: Context, next: Next) => {
+  // Public read-only internal dashboard telemetry; no tenant/admin token required.
+  if (c.req.path.startsWith('/api/dashboard/')) {
+    return next()
+  }
+
   const adminToken = resolveAdminToken(c)
 
   // No token configured → deny everything

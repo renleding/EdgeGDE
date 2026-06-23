@@ -12,3 +12,4 @@ apps/edge-runtime/.wrangler/
 *.sqlite-shm
 *.sqlite-wal
 .hermes/
+.worktrees/
