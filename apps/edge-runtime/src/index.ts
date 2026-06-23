@@ -34,6 +34,7 @@ import { adminBlueprintsRouter } from './api/admin-blueprints'
 import { adminFactoryRouter } from './api/admin-factory'
 import { adminDriftRouter } from './api/admin-drift'
 import { adminPacksRouter } from './api/admin-packs'
+import { adminTenantRouter } from './api/admin-tenant-admin'
 import { embedRouter } from './api/embed'
 import { ocrRouter } from './api/ocr'
 import { dashboardHtml } from './lib/dashboard-html'
@@ -479,6 +480,7 @@ app.route('/admin/blueprints', adminBlueprintsRouter)
 app.route('/admin/factory', adminFactoryRouter)
 app.route('/admin/drift', adminDriftRouter)
 app.route('/admin/packs', adminPacksRouter)
+app.route('/admin/tenants', adminTenantRouter)
 app.route('/embed', embedRouter)
 
 // ═══════════════════════════════════════════════════════════════════════════

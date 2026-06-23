@@ -32,6 +32,22 @@ import {
   calculateStampDuty,
   StampDutyInputSchema,
 } from '../edr/domain/calculators/stamp-duty'
+import {
+  calculateSavingsGoal,
+  SavingsGoalInputSchema,
+} from '../edr/domain/calculators/savings-goal'
+import {
+  calculateRepaymentComparison,
+  RepaymentComparisonInputSchema,
+} from '../edr/domain/calculators/repayment-comparison'
+import {
+  calculateLvr,
+  LvrCalculatorInputSchema,
+} from '../edr/domain/calculators/lvr-calculator'
+import {
+  calculateRentVsBuy,
+  RentVsBuyInputSchema,
+} from '../edr/domain/calculators/rent-vs-buy'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CalculatorTool Interface
@@ -259,6 +275,51 @@ registerCalculator({
   category: 'stamp-duty',
   inputSchema: StampDutyInputSchema,
   execute: (input) => calculateStampDuty(input),
+})
+
+registerCalculator({
+  id: 'savings-goal',
+  name: 'Savings Goal Calculator',
+  description:
+    'Calculate how long it will take to reach a savings goal. Given current savings, ' +
+    'monthly contributions, and interest rate, returns months to goal, total contributions, ' +
+    'and total interest earned.',
+  category: 'investment',
+  inputSchema: SavingsGoalInputSchema,
+  execute: (input) => calculateSavingsGoal(input),
+})
+
+registerCalculator({
+  id: 'repayment-comparison',
+  name: 'Repayment Comparison Calculator',
+  description:
+    'Compare standard loan repayment with an extra repayment strategy. Shows months saved, ' +
+    'interest saved, and the new total cost when making extra repayments on a loan.',
+  category: 'loan',
+  inputSchema: RepaymentComparisonInputSchema,
+  execute: (input) => calculateRepaymentComparison(input),
+})
+
+registerCalculator({
+  id: 'lvr-calculator',
+  name: 'LVR Calculator',
+  description:
+    'Calculate Loan-to-Value Ratio (LVR) for a property purchase. Given property value ' +
+    'and loan amount, returns LVR percentage, estimated stamp duty, and LMI indicator.',
+  category: 'property',
+  inputSchema: LvrCalculatorInputSchema,
+  execute: (input) => calculateLvr(input),
+})
+
+registerCalculator({
+  id: 'rent-vs-buy',
+  name: 'Rent vs Buy Calculator',
+  description:
+    'Compare the financial outcome of renting vs buying a home. Given property price, ' +
+    'rent, savings, and investment returns, compares net worth over a time horizon.',
+  category: 'comparison',
+  inputSchema: RentVsBuyInputSchema,
+  execute: (input) => calculateRentVsBuy(input),
 })
 
 /** Re-export the engine utilities for convenience */

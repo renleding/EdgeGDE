@@ -86,6 +86,17 @@ export const dashboardHtml = `<!DOCTYPE html>
       <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/api/v1/admin/audit/export?tenant=au-mortgage-broker-afirmico&token=858ea106ba9379472dfa634b1c630c2e46b525f6" target="_blank">Open</a>
     </div>
   </div>
+
+  <div class="card">
+    <div class="info">
+      <div class="title">Tenant Management <span class="badge badge-admin">T</span></div>
+      <div class="desc">List, inspect, sync, and soft-delete tenants. Multi-tenant inheritance admin with search/filter and batch sync.</div>
+      <div class="url">https://edgegde-calculator.renleding.workers.dev/admin/tenants</div>
+    </div>
+    <div class="links">
+      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/admin/tenants?token=858ea106ba9379472dfa634b1c630c2e46b525f6" target="_blank">Open</a>
+    </div>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════ -->
