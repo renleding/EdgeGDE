@@ -14,6 +14,24 @@ import {
 import { compileLayoutCompat } from '../lib/compile-layout-compat'
 import type { KvStore, DesignArtifact } from '../lib/publish'
 import type { LayoutDefinition, MortgageCalculatorInput } from '@edgegde/schema'
+import {
+  registerCalculator,
+  listCalculators,
+  getCalculator,
+  executeCalculator,
+} from '../lib/calculator-engine'
+import {
+  calculateLoanRepayment,
+  LoanRepaymentInputSchema,
+} from '../edr/domain/calculators/loan-repayment'
+import {
+  calculateBudgetPlanner,
+  BudgetPlannerInputSchema,
+} from '../edr/domain/calculators/budget-planner'
+import {
+  calculateStampDuty,
+  StampDutyInputSchema,
+} from '../edr/domain/calculators/stamp-duty'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CalculatorTool Interface
@@ -203,3 +221,45 @@ export const CALCULATOR_REGISTRY: Record<string, CalculatorTool> = {
     },
   },
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// New Calculator Engine Registrations
+// ═══════════════════════════════════════════════════════════════════════════
+
+registerCalculator({
+  id: 'loan-repayment',
+  name: 'Loan Repayment Calculator',
+  description:
+    'Calculate standard mortgage repayments using the Australian formula: ' +
+    'M = P * r * (1+r)^n / ((1+r)^n - 1). Returns monthly, fortnightly, and ' +
+    'weekly repayment amounts plus total interest and total cost.',
+  category: 'loan',
+  inputSchema: LoanRepaymentInputSchema,
+  execute: (input) => calculateLoanRepayment(input),
+})
+
+registerCalculator({
+  id: 'budget-planner',
+  name: 'Budget Planner Calculator',
+  description:
+    'Calculate budget surplus or deficit based on income (4 categories) and ' +
+    'expenses (10 categories). Returns savings rate, expense ratio, and detailed breakdowns.',
+  category: 'budget',
+  inputSchema: BudgetPlannerInputSchema,
+  execute: (input) => calculateBudgetPlanner(input),
+})
+
+registerCalculator({
+  id: 'stamp-duty',
+  name: 'Stamp Duty Calculator',
+  description:
+    'Calculate stamp duty / transfer duty for all 8 Australian states and territories. ' +
+    'Includes first home buyer concessions for NSW, VIC, QLD, WA, and SA. ' +
+    'Returns duty amount, effective rate, and concession details.',
+  category: 'stamp-duty',
+  inputSchema: StampDutyInputSchema,
+  execute: (input) => calculateStampDuty(input),
+})
+
+/** Re-export the engine utilities for convenience */
+export { registerCalculator, listCalculators, getCalculator, executeCalculator }

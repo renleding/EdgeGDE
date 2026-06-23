@@ -293,6 +293,34 @@
 
     pollRuntime()
     setInterval(pollRuntime, 15000)
+
+    // Worktree Status — poll every 60s
+    async function pollWorktrees() {
+      try {
+        const res = await fetch('/api/dashboard/worktrees')
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        renderWorktrees(data)
+      } catch (err) {
+        /* silent — worktree API may not exist yet */
+      }
+    }
+
+    function renderWorktrees(data) {
+      const grid = document.getElementById('worktree-grid')
+      if (!grid) return
+      const wts = data?.worktrees || []
+      grid.innerHTML = wts.map(w => `
+        <div class="card ${w.dirty ? 'warn' : ''}">
+          <div class="label">${w.branch}</div>
+          <div class="value" style="font-size:11px">${w.path.split('/').pop()}</div>
+          <div class="sub">${w.dirty ? '⚠ dirty' : '✓ clean'} · ${w.age}</div>
+        </div>
+      `).join('')
+    }
+
+    pollWorktrees()
+    setInterval(pollWorktrees, 60000)
   </script>
 </body>
 </html>

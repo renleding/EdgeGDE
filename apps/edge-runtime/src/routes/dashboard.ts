@@ -225,3 +225,72 @@ dashboardRouter.get('/telemetry', async (c) => {
   c.header('Cache-Control', 'no-store')
   return c.text(value)
 })
+
+/**
+ * GET /api/dashboard/worktrees — List active git worktrees
+ * Public read-only endpoint (no auth required).
+ */
+dashboardRouter.get('/dashboard/worktrees', async (c) => {
+  try {
+    const { execSync } = await import('node:child_process')
+    const output = execSync('git worktree list --porcelain', {
+      cwd: process.cwd(),
+      timeout: 5000,
+      encoding: 'utf-8',
+    })
+
+    const worktrees: Array<{
+      path: string
+      branch: string
+      dirty: boolean
+      age: string
+      head: string
+    }> = []
+
+    let current: Record<string, string> = {}
+    for (const line of output.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        if (current.path) worktrees.push(finalize(current))
+        current = { path: line.slice(9).trim() }
+      } else if (line.startsWith('HEAD ')) {
+        current.head = line.slice(5).trim()
+      } else if (line.startsWith('branch ')) {
+        current.branch = line.slice(7).trim().replace('refs/heads/', '')
+      } else if (line === '') {
+        if (current.path) worktrees.push(finalize(current))
+        current = {}
+      }
+    }
+    if (current.path) worktrees.push(finalize(current))
+
+    // Check dirty status and age for each worktree
+    for (const wt of worktrees) {
+      try {
+        const status = execSync('git status --porcelain', {
+          cwd: wt.path,
+          timeout: 3000,
+          encoding: 'utf-8',
+        })
+        wt.dirty = status.trim().length > 0
+      } catch { wt.dirty = false }
+
+      try {
+        const ageStr = execSync('git log -1 --format=%ar', {
+          cwd: wt.path,
+          timeout: 3000,
+          encoding: 'utf-8',
+        })
+        wt.age = ageStr.trim()
+      } catch { wt.age = 'unknown' }
+    }
+
+    return c.json({ worktrees })
+  } catch (err) {
+    return c.json({ worktrees: [], error: String(err) })
+  }
+})
+
+function finalize(w: Record<string, string>) {
+  const branch = w.branch || (w.head ? `detached@${w.head.slice(0, 7)}` : 'unknown')
+  return { path: w.path, branch, dirty: false, age: 'unknown', head: w.head || '' }
+}
