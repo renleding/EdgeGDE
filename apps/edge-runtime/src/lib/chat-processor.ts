@@ -133,11 +133,46 @@ export async function processChatMessage(
       if (valid) {
         // Field extraction
         let currentCollected = { ...input.collected }
+        let hadFieldExtraction = false
         if (parsed.extracted_fields && Object.keys(parsed.extracted_fields).length > 0) {
+          hadFieldExtraction = true
           const { applyFieldUpdate } = await import('./chat-constraint')
           for (const [f, v] of Object.entries(parsed.extracted_fields)) {
             const r = applyFieldUpdate(input.fields, currentCollected, f, v)
             if (!r.error) currentCollected = r.collected
+          }
+        }
+
+        // Deterministic response: override LLM's response_text for field collection
+        // to prevent hallucinated field names (e.g. "date of birth")
+        let finalResponseText = responseText
+        if (hadFieldExtraction) {
+          const { computeFieldState } = await import('./field-engine')
+          const feResult = computeFieldState(
+            input.fields.map((f: any) => ({ fieldName: f.fieldName, label: f.label, fieldType: f.fieldType || 'text', validation: { required: true }, prompt: f.prompt })),
+            input.chatConfig.priorityOrder,
+            currentCollected,
+          )
+          if (feResult.phase === 'complete') {
+            finalResponseText = 'Thank you! Your application has been submitted for review.'
+          } else if (feResult.nextField) {
+            const next = feResult.nextField
+            // Use previous field value to personalize the response
+            const prevFieldValue = currentCollected[input.currentField]
+            const prevValue = typeof prevFieldValue === 'string' ? prevFieldValue.trim() : ''
+            // Extract first name from fullName for a natural greeting
+            const fullName = currentCollected['fullName']
+            const firstName = typeof fullName === 'string' ? fullName.split(' ')[0] : ''
+            // Build response: use field prompt if available, else default template
+            const baseQuestion = next.prompt || `Could you please provide your ${next.label.toLowerCase()}?`
+            const prefix = firstName ? `Thanks ${firstName}! ` : `Thank you! `
+            const optionsSuffix = next.options?.length ? ` Options: ${next.options.join(', ')}.` : ''
+            if (prevValue && next.fieldType !== 'password') {
+              const ack = prevValue.length > 30 ? prevValue.substring(0, 27) + '...' : prevValue
+              finalResponseText = `${prefix}Got ${ack}. ${baseQuestion}${optionsSuffix}`
+            } else {
+              finalResponseText = `${prefix}${baseQuestion}${optionsSuffix}`
+            }
           }
         }
 
@@ -161,7 +196,7 @@ export async function processChatMessage(
         } catch {}
 
         return {
-          responseText: responseText + (disclosureTexts.length ? '\n\n⚠ Important:\n' + disclosureTexts.join('\n') : ''),
+          responseText: finalResponseText + (disclosureTexts.length ? '\n\n⚠ Important:\n' + disclosureTexts.join('\n') : ''),
           updatedCollected: currentCollected,
           ruleOutputs,
           disclosures: disclosureTexts,
@@ -182,11 +217,40 @@ export async function processChatMessage(
 
     // No disclosures required — just return
     let currentCollected = { ...input.collected }
+    let finalResponseText = responseText
     if (parsed.extracted_fields && Object.keys(parsed.extracted_fields).length > 0) {
       const { applyFieldUpdate } = await import('./chat-constraint')
       for (const [f, v] of Object.entries(parsed.extracted_fields)) {
         const r = applyFieldUpdate(input.fields, currentCollected, f, v)
         if (!r.error) currentCollected = r.collected
+      }
+      // Deterministic response: override LLM's response_text for field collection
+      // to prevent hallucinated field names (e.g. "date of birth")
+      const { computeFieldState } = await import('./field-engine')
+      const feResult = computeFieldState(
+        input.fields.map((f: any) => ({ fieldName: f.fieldName, label: f.label, fieldType: f.fieldType || 'text', validation: { required: true }, prompt: f.prompt })),
+        input.chatConfig.priorityOrder,
+        currentCollected,
+      )
+      if (feResult.phase === 'complete') {
+        finalResponseText = 'Thank you! Your application has been submitted for review.'
+      } else if (feResult.nextField) {
+        const next = feResult.nextField
+        // Use previous field value to personalize the response
+        const prevFieldValue = currentCollected[input.currentField]
+        const prevValue = typeof prevFieldValue === 'string' ? prevFieldValue.trim() : ''
+        const fullName = currentCollected['fullName']
+        const firstName = typeof fullName === 'string' ? fullName.split(' ')[0] : ''
+        // Build response: use field prompt if available, else default template
+        const baseQuestion = next.prompt || `Could you please provide your ${next.label.toLowerCase()}?`
+        const prefix = firstName ? `Thanks ${firstName}! ` : `Thank you! `
+        const optionsSuffix = next.options?.length ? ` Options: ${next.options.join(', ')}.` : ''
+        if (prevValue && next.fieldType !== 'password') {
+          const ack = prevValue.length > 30 ? prevValue.substring(0, 27) + '...' : prevValue
+          finalResponseText = `${prefix}Got ${ack}. ${baseQuestion}${optionsSuffix}`
+        } else {
+          finalResponseText = `${prefix}${baseQuestion}${optionsSuffix}`
+        }
       }
     }
     const now = Date.now()
@@ -194,7 +258,7 @@ export async function processChatMessage(
       `UPDATE chat_sessions SET collected_fields_json = ?, updated_at = ? WHERE id = ?`
     ).bind(JSON.stringify(currentCollected), now, sessionId).run()
 
-    return { responseText, updatedCollected: currentCollected }
+    return { responseText: finalResponseText, updatedCollected: currentCollected }
   }
 
   return { responseText: fullResponse }

@@ -14,6 +14,11 @@ const DEFAULT_CONFIG = {
   title: 'AFIRMICO Finance',
   greeting: "Welcome! Let's get started with your application. What is your full name?",
   colorAccent: '#58a6ff',
+  ui: {
+    title: 'AFIRMICO Finance',
+    greeting: "Welcome! Let's get started with your application. What is your full name?",
+    colorAccent: '#58a6ff',
+  },
   fields: [
     { fieldName: 'fullName', label: 'Full Name', fieldType: 'text', validation: { required: true } },
     { fieldName: 'email', label: 'Email Address', fieldType: 'email', validation: { required: true } },
@@ -116,6 +121,7 @@ embedRouter.get('/chat', async (c) => {
         <button id="chat-send-btn">→</button>
       </div>
     </div>
+    <span id="chat-tenant-id" data-tenant="${escapeHtml(tenantId)}" style="display:none"></span>
     <div class="resize-handle rh-nw"></div>
     <div class="resize-handle rh-n"></div>
     <div class="resize-handle rh-ne"></div>
@@ -129,7 +135,6 @@ embedRouter.get('/chat', async (c) => {
   <!-- debug toggle removed from production -->
 
   <template id="debug-data"></template>
-    <span id="chat-tenant-id" data-tenant="${escapeHtml(tenantId)}" style="display:none"></span>
     <script src="/widget.js?v=v1.1.0"></script>
 </body>
 </html>`

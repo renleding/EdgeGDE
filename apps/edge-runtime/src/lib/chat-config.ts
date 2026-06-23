@@ -24,7 +24,7 @@ const ChatFieldDefSchema = z.object({
     max: z.number().optional(),
   }).default({ required: true }),
   placeholder: z.string().optional(),
-})
+}).passthrough()
 
 const ChatRuleSchema = z.object({
   if: z.string(),  // e.g. "annualIncome < 30000"
