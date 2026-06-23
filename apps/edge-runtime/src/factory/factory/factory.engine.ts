@@ -43,8 +43,10 @@ async function commitTenant(rawKv: any, rawDb: any, slug: string, tenantId: stri
   }
 }
 
-async function commitConfig(rawKv: any, tenantId: string, config: Record<string, unknown>): Promise<void> {
+async function commitConfig(rawKv: any, tenantId: string, slug: string, config: Record<string, unknown>): Promise<void> {
+  // Write to both UUID key (internal reference) and slug key (admin/widget lookup)
   await rawKv.put('tenant:' + tenantId + ':chat:config', JSON.stringify(config))
+  await rawKv.put('tenant:' + slug + ':chat:config', JSON.stringify(config))
 }
 
 async function commitBlueprintRef(rawKv: any, slug: string, tenantId: string, bpId: string, bpVersion: string): Promise<void> {
@@ -102,7 +104,7 @@ export async function compileBlueprint(
 
   // Step 6: Persist — all three writes in sequence
   await commitTenant(rawKv, rawDb, slug, tenantId, tenantName || slug)
-  await commitConfig(rawKv, tenantId, config)
+  await commitConfig(rawKv, tenantId, slug, config)
     await commitBlueprintRef(rawKv, slug, tenantId, blueprint.id, blueprint.version)
 
   return { tenantId, slug, config, packs, compiledAt: Date.now() }
