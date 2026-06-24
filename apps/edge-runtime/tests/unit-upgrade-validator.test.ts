@@ -3,166 +3,152 @@
  * Tests validatePackCompatibility (field refs, condition syntax)
  * and generatePackDiff (added/removed/modified rules, compliance,
  * impact scoring, empty diffs, and determinism).
- *
- * Run: npx tsx tests/unit-upgrade-validator.test.ts
  */
-let pass = 0, fail = 0
-async function test(name: string, fn: () => Promise<void>) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`) }
-  catch (e: any) { fail++; console.log(`  ✗ ${name}: ${e.message}`) }
-}
+import { describe, it, expect } from 'vitest'
+import { validatePackCompatibility, generatePackDiff } from '../src/factory/upgrade/upgrade.validator'
 
-async function run() {
-  const { validatePackCompatibility, generatePackDiff } =
-    await import('../src/factory/upgrade/upgrade.validator')
-
-  console.log('\n── Upgrade Validator Unit Tests ──')
-
-  // ── validatePackCompatibility ─────────────────────────────────────
-
-  await test('validatePackCompatibility: passes for valid rules referencing existing fields', async () => {
+describe('validatePackCompatibility', () => {
+  it('passes for valid rules referencing existing fields', () => {
     const rules = [
       { condition: 'annualIncome < 50000', output: 'flag=low_income' },
       { condition: 'age > 65', output: 'flag=senior' },
     ]
     const fields = ['annualIncome', 'age']
     const result = validatePackCompatibility(rules, fields)
-    if (!result.ok) throw new Error(`expected ok=true but got errors: ${result.errors.join(', ')}`)
-    if (result.warnings.length !== 0) throw new Error(`expected 0 warnings got ${result.warnings.length}`)
+    expect(result.ok).toBe(true)
+    expect(result.warnings).toHaveLength(0)
   })
 
-  await test('validatePackCompatibility: warns for unknown field references in conditions', async () => {
+  it('warns for unknown field references in conditions', () => {
     const rules = [
       { condition: 'mysteryField == yes', output: 'flag=unknown' },
     ]
     const fields = ['annualIncome']
     const result = validatePackCompatibility(rules, fields)
-    if (!result.ok) throw new Error('validation should still pass (warnings only)')
-    if (result.warnings.length === 0) throw new Error('expected at least 1 warning for unknown field')
-    if (!result.warnings[0].includes('mysteryField')) throw new Error('warning should mention the unknown field')
+    expect(result.ok).toBe(true)
+    expect(result.warnings.length).toBeGreaterThan(0)
+    expect(result.warnings[0]).toContain('mysteryField')
   })
 
-  await test('validatePackCompatibility: reports errors for invalid condition syntax', async () => {
+  it('reports errors for invalid condition syntax', () => {
     const rules = [
       { condition: '', output: 'flag=bad' },
     ]
     const fields = ['annualIncome']
     const result = validatePackCompatibility(rules, fields)
-    if (result.ok) throw new Error('expected ok=false for invalid condition')
-    if (result.errors.length === 0) throw new Error('expected at least 1 error')
+    expect(result.ok).toBe(false)
+    expect(result.errors.length).toBeGreaterThan(0)
   })
+})
 
-  // ── generatePackDiff: structural detections ───────────────────────
-
-  await test('generatePackDiff: detects added rules (present in new, absent in old)', async () => {
+describe('generatePackDiff — structural detections', () => {
+  it('detects added rules (present in new, absent in old)', () => {
     const oldRules = [{ condition: 'age > 18', output: 'flag=adult' }]
     const newRules = [
       { condition: 'age > 18', output: 'flag=adult' },
       { condition: 'income < 30000', output: 'flag=low_income' },
     ]
     const diff = generatePackDiff(oldRules, newRules)
-    if (diff.rulesAdded.length !== 1) throw new Error(`expected 1 added rule, got ${diff.rulesAdded.length}`)
-    if (diff.rulesAdded[0] !== 'income < 30000') throw new Error('expected added condition "income < 30000"')
-    if (diff.rulesRemoved.length !== 0) throw new Error('expected 0 removed rules')
+    expect(diff.rulesAdded).toHaveLength(1)
+    expect(diff.rulesAdded[0]).toBe('income < 30000')
+    expect(diff.rulesRemoved).toHaveLength(0)
   })
 
-  await test('generatePackDiff: detects removed rules (absent in new, present in old)', async () => {
+  it('detects removed rules (absent in new, present in old)', () => {
     const oldRules = [
       { condition: 'age > 18', output: 'flag=adult' },
       { condition: 'income < 30000', output: 'flag=low_income' },
     ]
     const newRules = [{ condition: 'age > 18', output: 'flag=adult' }]
     const diff = generatePackDiff(oldRules, newRules)
-    if (diff.rulesRemoved.length !== 1) throw new Error(`expected 1 removed rule, got ${diff.rulesRemoved.length}`)
-    if (diff.rulesRemoved[0] !== 'income < 30000') throw new Error('expected removed condition "income < 30000"')
-    if (diff.rulesAdded.length !== 0) throw new Error('expected 0 added rules')
+    expect(diff.rulesRemoved).toHaveLength(1)
+    expect(diff.rulesRemoved[0]).toBe('income < 30000')
+    expect(diff.rulesAdded).toHaveLength(0)
   })
 
-  await test('generatePackDiff: detects modified rules (same condition, different output)', async () => {
+  it('detects modified rules (same condition, different output)', () => {
     const oldRules = [{ condition: 'age > 18', output: 'flag=adult' }]
     const newRules = [{ condition: 'age > 18', output: 'flag=verified_adult' }]
     const diff = generatePackDiff(oldRules, newRules)
-    if (diff.rulesModified.length !== 1) throw new Error(`expected 1 modified rule, got ${diff.rulesModified.length}`)
-    if (diff.rulesModified[0].condition !== 'age > 18') throw new Error('condition mismatch')
-    if (diff.rulesModified[0].oldOutput !== 'flag=adult') throw new Error('oldOutput mismatch')
-    if (diff.rulesModified[0].newOutput !== 'flag=verified_adult') throw new Error('newOutput mismatch')
+    expect(diff.rulesModified).toHaveLength(1)
+    expect(diff.rulesModified[0].condition).toBe('age > 18')
+    expect(diff.rulesModified[0].oldOutput).toBe('flag=adult')
+    expect(diff.rulesModified[0].newOutput).toBe('flag=verified_adult')
   })
 
-  await test('generatePackDiff: detects compliance additions', async () => {
+  it('detects compliance additions', () => {
     const oldCompliance = [{ value: 'lvr_warning', type: 'compliance' }]
     const newCompliance = [
       { value: 'lvr_warning', type: 'compliance' },
       { value: 'fee_disclosure', type: 'compliance' },
     ]
     const diff = generatePackDiff([], [], oldCompliance, newCompliance)
-    if (diff.complianceAdded.length !== 1) throw new Error(`expected 1 compliance added, got ${diff.complianceAdded.length}`)
-    if (diff.complianceAdded[0] !== 'fee_disclosure') throw new Error('expected "fee_disclosure" added')
+    expect(diff.complianceAdded).toHaveLength(1)
+    expect(diff.complianceAdded[0]).toBe('fee_disclosure')
   })
 
-  await test('generatePackDiff: detects compliance removals', async () => {
+  it('detects compliance removals', () => {
     const oldCompliance = [
       { value: 'lvr_warning', type: 'compliance' },
       { value: 'fee_disclosure', type: 'compliance' },
     ]
     const newCompliance = [{ value: 'lvr_warning', type: 'compliance' }]
     const diff = generatePackDiff([], [], oldCompliance, newCompliance)
-    if (diff.complianceRemoved.length !== 1) throw new Error(`expected 1 compliance removed, got ${diff.complianceRemoved.length}`)
-    if (diff.complianceRemoved[0] !== 'fee_disclosure') throw new Error('expected "fee_disclosure" removed')
+    expect(diff.complianceRemoved).toHaveLength(1)
+    expect(diff.complianceRemoved[0]).toBe('fee_disclosure')
   })
+})
 
-  // ── generatePackDiff: impact scoring ──────────────────────────────
-
-  await test('generatePackDiff: impactScore LOW for small changes', async () => {
+describe('generatePackDiff — impact scoring', () => {
+  it('impactScore LOW for small changes', () => {
     const oldRules = [{ condition: 'a == 1', output: 'x' }]
-    const newRules = [{ condition: 'a == 1', output: 'y' }]  // 1 modification
+    const newRules = [{ condition: 'a == 1', output: 'y' }]
     const diff = generatePackDiff(oldRules, newRules)
-    if (diff.impactScore !== 'LOW') throw new Error(`expected LOW impact, got ${diff.impactScore}`)
+    expect(diff.impactScore).toBe('LOW')
   })
 
-  await test('generatePackDiff: impactScore MEDIUM for moderate changes', async () => {
-    const oldRules = [{ condition: 'a == 1', output: 'x' }]
-    const newRules = [
-      { condition: 'a == 1', output: 'y' },  // modified
-      { condition: 'b == 2', output: 'z' },  // added
-      { condition: 'c == 3', output: 'w' },  // added
-    ]
-    const diff = generatePackDiff(oldRules, newRules)
-    // totalChanges = 1 modified + 2 added = 3 → MEDIUM (totalChanges > 2)
-    if (diff.impactScore !== 'MEDIUM') throw new Error(`expected MEDIUM impact, got ${diff.impactScore}`)
-  })
-
-  await test('generatePackDiff: impactScore HIGH for significant changes', async () => {
+  it('impactScore MEDIUM for moderate changes', () => {
     const oldRules = [{ condition: 'a == 1', output: 'x' }]
     const newRules = [
-      { condition: 'a == 1', output: 'y' },   // modified
-      { condition: 'b == 2', output: 'z' },   // added
-      { condition: 'c == 3', output: 'w' },   // added
-      { condition: 'd == 4', output: 'v' },   // added
-      { condition: 'e == 5', output: 'u' },   // added
-      { condition: 'f == 6', output: 't' },   // added
+      { condition: 'a == 1', output: 'y' },
+      { condition: 'b == 2', output: 'z' },
+      { condition: 'c == 3', output: 'w' },
     ]
     const diff = generatePackDiff(oldRules, newRules)
-    // totalChanges = 1 modified + 5 added = 6 → HIGH (> 5)
-    if (diff.impactScore !== 'HIGH') throw new Error(`expected HIGH impact, got ${diff.impactScore}`)
+    expect(diff.impactScore).toBe('MEDIUM')
   })
 
-  // ── generatePackDiff: empty arrays ────────────────────────────────
+  it('impactScore HIGH for significant changes', () => {
+    const oldRules = [{ condition: 'a == 1', output: 'x' }]
+    const newRules = [
+      { condition: 'a == 1', output: 'y' },
+      { condition: 'b == 2', output: 'z' },
+      { condition: 'c == 3', output: 'w' },
+      { condition: 'd == 4', output: 'v' },
+      { condition: 'e == 5', output: 'u' },
+      { condition: 'f == 6', output: 't' },
+    ]
+    const diff = generatePackDiff(oldRules, newRules)
+    expect(diff.impactScore).toBe('HIGH')
+  })
+})
 
-  await test('generatePackDiff: empty arrays when no changes', async () => {
+describe('generatePackDiff — edge cases', () => {
+  it('empty arrays when no changes', () => {
     const rules = [{ condition: 'a == 1', output: 'x' }]
     const diff = generatePackDiff(rules, rules)
-    if (diff.rulesAdded.length !== 0) throw new Error('expected 0 rulesAdded')
-    if (diff.rulesRemoved.length !== 0) throw new Error('expected 0 rulesRemoved')
-    if (diff.rulesModified.length !== 0) throw new Error('expected 0 rulesModified')
-    if (diff.complianceAdded.length !== 0) throw new Error('expected 0 complianceAdded')
-    if (diff.complianceRemoved.length !== 0) throw new Error('expected 0 complianceRemoved')
-    if (diff.impactStatements.length !== 0) throw new Error('expected 0 impactStatements')
-    if (diff.impactScore !== 'LOW') throw new Error('expected LOW impact when no changes')
+    expect(diff.rulesAdded).toHaveLength(0)
+    expect(diff.rulesRemoved).toHaveLength(0)
+    expect(diff.rulesModified).toHaveLength(0)
+    expect(diff.complianceAdded).toHaveLength(0)
+    expect(diff.complianceRemoved).toHaveLength(0)
+    expect(diff.impactStatements).toHaveLength(0)
+    expect(diff.impactScore).toBe('LOW')
   })
+})
 
-  // ── Determinism ───────────────────────────────────────────────────
-
-  await test('generatePackDiff + determinism: 10 identical calls produce identical output', async () => {
+describe('Determinism', () => {
+  it('10 identical generatePackDiff calls produce identical output', () => {
     const oldRules = [
       { condition: 'age > 18', output: 'flag=adult' },
       { condition: 'income < 30000', output: 'flag=low_income' },
@@ -181,20 +167,7 @@ async function run() {
     const first = generatePackDiff(oldRules, newRules, oldCompliance, newCompliance)
     for (let i = 0; i < 10; i++) {
       const result = generatePackDiff(oldRules, newRules, oldCompliance, newCompliance)
-      if (JSON.stringify(result) !== JSON.stringify(first)) {
-        throw new Error(`Non-deterministic output at iteration ${i}`)
-      }
+      expect(JSON.stringify(result)).toBe(JSON.stringify(first))
     }
   })
-
-  // ═══ Summary ═══
-  console.log('')
-  if (fail > 0) {
-    console.error(`❌ ${fail}/${pass + fail} upgrade-validator tests failed`)
-    process.exit(1)
-  } else {
-    console.log(`✅ All ${pass} upgrade-validator tests passed`)
-  }
-}
-
-run().catch(err => { console.error('Fatal:', err.message); process.exit(1) })
+})
