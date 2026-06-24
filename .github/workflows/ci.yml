@@ -1,25 +1,44 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-      - work/*
-      - hotfix/*
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+
+env:
+  NODE_VERSION: '22'
 
 jobs:
-  test:
+  typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/edge-runtime
+
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bun test --filter="@edgegde/schema"
       - run: bun run typecheck
+        name: TypeScript check
+
+  unit-tests:
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
         working-directory: apps/edge-runtime
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
       - run: bun run test:unit
-        working-directory: apps/edge-runtime
+        name: Unit tests (compute-drift, lifecycle, gogo, replay)

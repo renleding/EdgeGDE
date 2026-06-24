@@ -75,6 +75,7 @@ import { getLatestVersion, getVersion } from './lib/versioning'
 import { getLatestHash } from './edr/runtime/hash'
 import { tenantResolver } from './middleware/tenant-resolver'
 import { tenantResolver as tenantContextResolver } from './middleware/tenant-context'
+import { correlationMiddleware } from './middleware/correlation'
 import { adminAuth } from './middleware/auth'
 import { tenantQueryAuth } from './middleware/tenant-query-auth'
 import { rateLimiter } from './lib/rate-limiter'
@@ -157,10 +158,14 @@ function guardKvEventStorage(kvBinding: any, name: string): void {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MIDDLEWARE ORDER — MUST BE STRICTLY ENFORCED
+//   0. correlationMiddleware — sets correlationId on ALL requests
 //   1. tenantResolver — resolves tenant before ANY logic
 //   2. rateLimiter — protects /api/* endpoints
 //   3. adminAuth — protects admin endpoints
 // ═══════════════════════════════════════════════════════════════════════════
+
+// 0. CORRELATION — must be first to ensure every request has trace IDs
+app.use('*', correlationMiddleware)
 
 // 1. KV LIST GUARD — patch TENANT_KV binding on first request
 // Dashboard route — must be BEFORE tenant middleware to avoid tenant resolution
