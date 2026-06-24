@@ -472,9 +472,45 @@ FRS-4 (Dry-Run) ────independent──▶ No dependency on FRS-1/2/3
 
 ---
 
-## Open Questions
+## Resolved Decisions
 
-1. Should compensation be automatic (triggered by the runtime on failure) or explicit (triggered by the mission author's reconcile function)? The current FRS uses automatic for FRS-1 and explicit (via reconcile) for FRS-3 — is this correct?
-2. Replay fixture files — should they be committed to the repo (as test fixtures) or stored externally (e.g., R2)?
-3. Should dry-run mode be accessible via the Hermes CLI (`hermes mission --dry-run`), the API only, or both?
-4. For reconciliation, what constitutes "drift" in a typical EdgeGDE mission? Define the `computeDrift` behavior before implementing — examples of desired vs actual states would help.
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Q1 — Compensation trigger | ✅ **Dual model** — automatic runtime compensation (FRS-1) + explicit mission reconcile (FRS-3) | Runtime handles safety rollback (local, bounded); mission handles domain reconciliation (selective, controlled). Either alone is unsafe. |
+| Q2 — Replay fixture storage | ✅ **Repo** (`tests/fixtures/missions/`) | Deterministic, versioned, offline, PR-reviewable. R2 as secondary archive later if >100MB. |
+| Q3 — Dry-run interface | ✅ **Both CLI + API**, single backend | CLI wraps `POST /api/v1/missions/dry-run`. No logic duplication — API is source of truth. |
+| Q4 — Drift definition | ✅ **Structured state diff** — mismatch, missing, extra, stale, derived error categories | Drift = deterministic diff between expected mission state and actual system state. Pure function, no side effects, operates on projections not live mutation. |
+
+### Drift Categories (formalized)
+
+| Category | Description | Example |
+|----------|-------------|---------|
+| `missing` | Expected key not present | `{ status: "approved" }` but status field absent |
+| `extra` | Unexpected key present | Actual has `{ refundId: "R1" }` but mission didn't specify it |
+| `mismatch` | Value differs | Expected `status: "approved"`, actual `status: "pending"` |
+| `stale` | Version outdated | Expected `version: 5`, actual `version: 3` |
+| `derived_error` | Computed state wrong | Expected `bucket: "hot"` (score ≥ 80), actual score is 60 → `bucket: "warm"` |
+
+### computeDrift() Signature
+
+```typescript
+type DriftCategory = 'missing' | 'extra' | 'mismatch' | 'stale' | 'derived_error'
+
+interface DriftResult {
+  key: string
+  expected: unknown
+  actual: unknown
+  type: DriftCategory
+  path?: string  // dot-notation path for nested fields
+}
+
+function computeDrift(expected: State, actual: State): DriftResult[] {
+  // Pure function — no side effects, deterministic
+}
+```
+
+---
+
+## Open Questions (Resolved)
+
+All 4 open questions have been resolved — see Resolved Decisions above.
