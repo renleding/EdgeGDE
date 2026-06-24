@@ -4,6 +4,10 @@
  * Sends OTLP spans to the SigNoz collector for every request processed by the
  * EdgeGDE worker. Runs inside ctx.waitUntil() so it never blocks the response.
  *
+ * Retry: up to 3 attempts with exponential backoff (100ms, 200ms, 400ms) so a
+ * brief collector restart doesn't lose traces. Spans that fail all retries are
+ * silently dropped — telemetry never blocks execution.
+ *
  * Domain attributes (correlationId, tenantId, missionId, actionId) are injected
  * as flat OTel attributes (app.*) to enable tenant-level and mission-level
  * traceability in SigNoz.
@@ -35,6 +39,40 @@ interface DomainOptions {
 interface OTelEnv {
   OTEL_EXPORTER_OTLP_ENDPOINT?: string
   OTEL_SERVICE_NAME?: string
+}
+
+/**
+ * POST an OTLP payload to the collector with retry.
+ * Retries up to 3 times with exponential backoff (100ms, 200ms, 400ms).
+ * All failures are silently dropped — telemetry never blocks execution.
+ */
+async function postWithRetry(
+  url: string,
+  body: string,
+  attempt: number = 0,
+): Promise<void> {
+  const maxAttempts = 3
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    })
+    if (!res.ok && attempt < maxAttempts - 1) {
+      // Non-2xx: retry with backoff (e.g., collector restarting)
+      const delay = 100 * Math.pow(2, attempt)
+      await new Promise((r) => setTimeout(r, delay))
+      return postWithRetry(url, body, attempt + 1)
+    }
+  } catch {
+    if (attempt < maxAttempts - 1) {
+      // Network error: retry with backoff
+      const delay = 100 * Math.pow(2, attempt)
+      await new Promise((r) => setTimeout(r, delay))
+      return postWithRetry(url, body, attempt + 1)
+    }
+    // All retries exhausted — silently drop
+  }
 }
 
 /** Generate a random 16-byte hex trace ID. */
@@ -158,11 +196,7 @@ export async function instrumentRequest(
   }
 
   try {
-    await fetch(`${otelEndpoint}/v1/traces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+    await postWithRetry(`${otelEndpoint}/v1/traces`, JSON.stringify(payload))
   } catch {
     // Non-blocking: OTel export failures must never break the request
   }
@@ -235,11 +269,7 @@ export async function instrumentQueue(
   }
 
   try {
-    await fetch(`${otelEndpoint}/v1/traces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
+    await postWithRetry(`${otelEndpoint}/v1/traces`, JSON.stringify(payload))
   } catch {
     // Non-blocking
   }

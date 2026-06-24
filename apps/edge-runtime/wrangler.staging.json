@@ -8,7 +8,7 @@
   ],
   "vars": {
     "ENVIRONMENT": "staging",
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://sheriff-pressure-receipt-clay.trycloudflare.com",
     "OTEL_SERVICE_NAME": "edgegde-worker"
   },
   "observability": {
