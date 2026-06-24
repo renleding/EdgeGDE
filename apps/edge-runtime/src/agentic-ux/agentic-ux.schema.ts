@@ -232,6 +232,31 @@ export const AgenticMissionManifestSchema = z
 
     compensationPlan: z.array(CompensationPlanSchema).min(1),
 
+    gogo: z
+      .object({
+        authorizedBy: z.string().min(1),
+        authorizedAt: z.string().min(1),
+        scope: z
+          .object({
+            actions: z.array(z.string()).optional(),
+            paths: z.array(z.string()).optional(),
+            maxDrift: z.number().min(0).optional(),
+            maxCompensationTimeMs: z.number().min(0).optional(),
+          })
+          .optional(),
+        constraints: z
+          .object({
+            allowShell: z.boolean().optional(),
+            allowDelete: z.boolean().optional(),
+            allowDeploy: z.boolean().optional(),
+            allowNetwork: z.boolean().optional(),
+          })
+          .optional(),
+        expiresAt: z.string().optional(),
+        notes: z.string().optional(),
+      })
+      .optional(),
+
     metadata: ActionMetadataSchema,
 
     status: MissionStatusSchema,

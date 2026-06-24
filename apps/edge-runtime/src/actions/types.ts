@@ -183,4 +183,42 @@ export interface MissionDefinition {
   driftThreshold?: number        // Default: Infinity (no drift check)
   maxIterations?: number         // Default: 50
   maxCompensationTimeMs?: number // Default: 30000
+  gogo?: GogoAuthorization       // Structured authorization gate
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// gogo Authorization
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Scope constraint for gogo authorization. */
+export interface GogoScope {
+  /** Allowed action types (empty = all). */
+  actions?: string[]
+  /** Allowed file paths (glob patterns). */
+  paths?: string[]
+  /** Max drift score before auto-halt. */
+  maxDrift?: number
+  /** Max compensation time in ms. */
+  maxCompensationTimeMs?: number
+}
+
+/** Structured authorization gate for mission execution. */
+export interface GogoAuthorization {
+  /** Who authorized this mission. */
+  authorizedBy: string
+  /** When authorization was granted (ISO-8601). */
+  authorizedAt: string
+  /** Optional scope constraints. */
+  scope?: GogoScope
+  /** Optional constraints overrides. */
+  constraints?: {
+    allowShell?: boolean
+    allowDelete?: boolean
+    allowDeploy?: boolean
+    allowNetwork?: boolean
+  }
+  /** Optional expiry (ISO-8601). If set, authorization expires. */
+  expiresAt?: string
+  /** Optional mission-specific notes/reason. */
+  notes?: string
 }
