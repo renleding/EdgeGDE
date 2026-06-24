@@ -1,95 +1,92 @@
 /**
  * EdgeGDE — Unit Tests: Zod Schemas (Blueprint, PackRef, ChatConfig)
  * Tests schema validation rules, defaults, and determinism.
- *
- * Run: npx tsx tests/unit-schema.test.ts
  */
-let pass = 0, fail = 0
-async function test(name: string, fn: () => Promise<void>) {
-  try { await fn(); pass++; console.log(`  ✓ ${name}`) }
-  catch (e: any) { fail++; console.log(`  ✗ ${name}: ${e.message}`) }
-}
+import { describe, it, expect } from 'vitest'
+import { ChatConfigSchema, FALLBACK_CONFIG } from '../src/lib/chat-config'
+import { BlueprintSchema, PackRefSchema } from '../src/factory/blueprint/blueprint.schema'
 
-async function run() {
-  const { ChatConfigSchema } = await import('../src/lib/chat-config')
-  const { BlueprintSchema, PackRefSchema, BlueprintFieldSchema } =
-    await import('../src/factory/blueprint/blueprint.schema')
-
-  console.log('\n── Schema Unit Tests ──')
-
-  // ── ChatConfigSchema ──────────────────────────────────────────────
-
-  await test('ChatConfigSchema: rejects empty objective', async () => {
-    try {
+describe('ChatConfigSchema', () => {
+  it('rejects empty objective', () => {
+    expect(() =>
       ChatConfigSchema.parse({
         objective: '',
         fields: [{ fieldName: 'a', label: 'A' }],
         priorityOrder: ['a'],
-      })
-      throw new Error('expected ZodError but parse succeeded')
-    } catch (e: any) {
-      if (!e.issues && !e.name?.includes('Zod')) {
-        throw new Error(`unexpected error type: ${e.constructor?.name ?? typeof e}`)
-      }
-    }
+      }),
+    ).toThrow()
   })
 
-  await test('ChatConfigSchema: rejects empty fields array', async () => {
-    try {
+  it('rejects empty fields array', () => {
+    expect(() =>
       ChatConfigSchema.parse({
         objective: 'test',
         fields: [],
         priorityOrder: ['a'],
-      })
-      throw new Error('expected ZodError but parse succeeded')
-    } catch (e: any) {
-      if (!e.issues && !e.name?.includes('Zod')) {
-        throw new Error(`unexpected error type: ${e.constructor?.name ?? typeof e}`)
-      }
-    }
+      }),
+    ).toThrow()
   })
 
-  await test('ChatConfigSchema: rejects empty priorityOrder', async () => {
-    try {
+  it('rejects empty priorityOrder', () => {
+    expect(() =>
       ChatConfigSchema.parse({
         objective: 'test',
         fields: [{ fieldName: 'a', label: 'A' }],
         priorityOrder: [],
-      })
-      throw new Error('expected ZodError but parse succeeded')
-    } catch (e: any) {
-      if (!e.issues && !e.name?.includes('Zod')) {
-        throw new Error(`unexpected error type: ${e.constructor?.name ?? typeof e}`)
-      }
-    }
+      }),
+    ).toThrow()
   })
 
-  await test('ChatConfigSchema: accepts valid config with defaults', async () => {
+  it('accepts valid config with defaults', () => {
     const result = ChatConfigSchema.parse({
       objective: 'Collect contact info',
       fields: [{ fieldName: 'email', label: 'Email Address' }],
       priorityOrder: ['email'],
     })
-    if (result.objective !== 'Collect contact info') throw new Error('objective mismatch')
-    if (result.fields.length !== 1) throw new Error('expected 1 field')
-    if (result.fields[0].fieldType !== 'text') throw new Error('expected default fieldType "text"')
-    if (result.fields[0].validation.required !== true) throw new Error('expected default validation required=true')
-    if (!Array.isArray(result.rules)) throw new Error('expected default rules array')
-    if (!result.knowledgeBase || !Array.isArray(result.knowledgeBase.topics)) throw new Error('expected default knowledgeBase')
+    expect(result.objective).toBe('Collect contact info')
+    expect(result.fields).toHaveLength(1)
+    expect(result.fields[0].fieldType).toBe('text')
+    expect(result.fields[0].validation.required).toBe(true)
+    expect(Array.isArray(result.rules)).toBe(true)
+    expect(result.knowledgeBase).toBeDefined()
+    expect(Array.isArray(result.knowledgeBase!.topics)).toBe(true)
   })
 
-  await test('FALLBACK_CONFIG includes deterministic mortgage intake fields', async () => {
-    const { FALLBACK_CONFIG } = await import('../src/lib/chat-config')
-    if (FALLBACK_CONFIG.priorityOrder.length !== 10) throw new Error(`expected 10 fallback fields got ${FALLBACK_CONFIG.priorityOrder.length}`)
-    if (FALLBACK_CONFIG.priorityOrder[2] !== 'phone') throw new Error(`expected phone third got ${FALLBACK_CONFIG.priorityOrder[2]}`)
+  it('FALLBACK_CONFIG includes deterministic mortgage intake fields', () => {
+    expect(FALLBACK_CONFIG.priorityOrder).toHaveLength(10)
+    expect(FALLBACK_CONFIG.priorityOrder[2]).toBe('phone')
     const phone = FALLBACK_CONFIG.fields.find(f => f.fieldName === 'phone')
-    if (!phone) throw new Error('fallback missing phone field')
-    if (phone.fieldType !== 'phone') throw new Error(`expected phone fieldType got ${phone.fieldType}`)
+    expect(phone).toBeDefined()
+    expect(phone!.fieldType).toBe('phone')
   })
 
-  // ── BlueprintSchema ───────────────────────────────────────────────
+  it('preserves all field properties through parse', () => {
+    const input = {
+      objective: 'Test invariant',
+      fields: [
+        {
+          fieldName: 'test1', label: 'Test 1', fieldType: 'text',
+          prompt: 'What is test 1?', options: ['A', 'B'],
+          placeholder: 'Enter here', validation: { required: true },
+        },
+        { fieldName: 'test2', label: 'Test 2', fieldType: 'number', validation: { required: true } },
+      ],
+      priorityOrder: ['test1', 'test2'],
+      knowledgeBase: { topics: [] },
+    }
+    const parsed = ChatConfigSchema.parse(input)
+    const f = parsed.fields[0]
+    expect(f.fieldName).toBe('test1')
+    expect(f.label).toBe('Test 1')
+    expect(f.prompt).toBe('What is test 1?')
+    expect(f.options).toHaveLength(2)
+    expect(f.placeholder).toBe('Enter here')
+    expect(f.validation!.required).toBe(true)
+  })
+})
 
-  await test('BlueprintSchema: accepts valid blueprint with 2 fields + priorityOrder', async () => {
+describe('BlueprintSchema', () => {
+  it('accepts valid blueprint with 2 fields + priorityOrder', () => {
     const result = BlueprintSchema.parse({
       id: 'bp-loan',
       version: '1.0.0',
@@ -99,64 +96,47 @@ async function run() {
       ],
       priorityOrder: ['income', 'name'],
     })
-    if (result.id !== 'bp-loan') throw new Error('id mismatch')
-    if (result.version !== '1.0.0') throw new Error('version mismatch')
-    if (result.fields.length !== 2) throw new Error('expected 2 fields')
-    if (result.priorityOrder.length !== 2) throw new Error('expected 2 priority entries')
+    expect(result.id).toBe('bp-loan')
+    expect(result.version).toBe('1.0.0')
+    expect(result.fields).toHaveLength(2)
+    expect(result.priorityOrder).toHaveLength(2)
   })
 
-  await test('BlueprintSchema: rejects missing id', async () => {
-    try {
+  it('rejects missing id', () => {
+    expect(() =>
       BlueprintSchema.parse({
         version: '1.0.0',
         fields: [{ fieldName: 'a', label: 'A' }],
         priorityOrder: ['a'],
-      })
-      throw new Error('expected ZodError but parse succeeded')
-    } catch (e: any) {
-      if (!e.issues && !e.name?.includes('Zod')) {
-        throw new Error(`unexpected error type: ${e.constructor?.name ?? typeof e}`)
-      }
-    }
+      }),
+    ).toThrow()
   })
 
-  await test('BlueprintSchema: rejects missing version', async () => {
-    try {
+  it('rejects missing version', () => {
+    expect(() =>
       BlueprintSchema.parse({
         id: 'bp-test',
         fields: [{ fieldName: 'a', label: 'A' }],
         priorityOrder: ['a'],
-      })
-      throw new Error('expected ZodError but parse succeeded')
-    } catch (e: any) {
-      if (!e.issues && !e.name?.includes('Zod')) {
-        throw new Error(`unexpected error type: ${e.constructor?.name ?? typeof e}`)
-      }
-    }
+      }),
+    ).toThrow()
   })
+})
 
-  // ── PackRefSchema ─────────────────────────────────────────────────
-
-  await test('PackRefSchema: validates {name, version} object', async () => {
+describe('PackRefSchema', () => {
+  it('validates {name, version} object', () => {
     const result = PackRefSchema.parse({ name: 'lvr-pack', version: '2.1.0' })
-    if (result.name !== 'lvr-pack') throw new Error('name mismatch')
-    if (result.version !== '2.1.0') throw new Error('version mismatch')
+    expect(result.name).toBe('lvr-pack')
+    expect(result.version).toBe('2.1.0')
   })
 
-  await test('PackRefSchema: rejects flat string', async () => {
-    try {
-      PackRefSchema.parse('lvr-pack')
-      throw new Error('expected ZodError but parse succeeded')
-    } catch (e: any) {
-      if (!e.issues && !e.name?.includes('Zod')) {
-        throw new Error(`unexpected error type: ${e.constructor?.name ?? typeof e}`)
-      }
-    }
+  it('rejects flat string', () => {
+    expect(() => PackRefSchema.parse('lvr-pack')).toThrow()
   })
+})
 
-  // ── Determinism ───────────────────────────────────────────────────
-
-  await test('Determinism: 5 identical parses produce identical output', async () => {
+describe('Determinism', () => {
+  it('5 identical parses produce identical output', () => {
     const input = {
       id: 'bp-deter',
       version: '1.0.0',
@@ -169,41 +149,7 @@ async function run() {
     const first = BlueprintSchema.parse(input)
     for (let i = 0; i < 5; i++) {
       const result = BlueprintSchema.parse(input)
-      if (JSON.stringify(result) !== JSON.stringify(first)) {
-        throw new Error(`Non-deterministic result at iteration ${i}`)
-      }
+      expect(JSON.stringify(result)).toBe(JSON.stringify(first))
     }
   })
-
-  // ═══ Projection invariant: all field properties survive full schema parse ═══
-  test('ChatConfigSchema: preserves all field properties through parse', async () => {
-    const input = {
-      objective: 'Test invariant',
-      fields: [
-        { fieldName: 'test1', label: 'Test 1', fieldType: 'text', prompt: 'What is test 1?', options: ['A', 'B'], placeholder: 'Enter here', validation: { required: true } },
-        { fieldName: 'test2', label: 'Test 2', fieldType: 'number', validation: { required: true } },
-      ],
-      priorityOrder: ['test1', 'test2'],
-      knowledgeBase: { topics: [] },
-    }
-    const parsed = ChatConfigSchema.parse(input)
-    const f = parsed.fields[0]
-    if (f.fieldName !== 'test1') throw new Error('fieldName lost')
-    if (f.label !== 'Test 1') throw new Error('label lost')
-    if (f.prompt !== 'What is test 1?') throw new Error(`prompt lost or wrong: "${f.prompt}"`)
-    if (!f.options || f.options.length !== 2) throw new Error('options lost')
-    if (f.placeholder !== 'Enter here') throw new Error('placeholder lost')
-    if (!f.validation?.required) throw new Error('validation lost')
-  })
-
-  // ═══ Summary ═══
-  console.log('')
-  if (fail > 0) {
-    console.error(`❌ ${fail}/${pass + fail} schema tests failed`)
-    process.exit(1)
-  } else {
-    console.log(`✅ All ${pass} schema tests passed`)
-  }
-}
-
-run().catch(err => { console.error('Fatal:', err.message); process.exit(1) })
+})

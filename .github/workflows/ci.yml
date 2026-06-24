@@ -21,3 +21,5 @@ jobs:
       - run: bun test --filter="@edgegde/schema"
       - run: bun run typecheck
         working-directory: apps/edge-runtime
+      - run: bun run test:unit
+        working-directory: apps/edge-runtime
