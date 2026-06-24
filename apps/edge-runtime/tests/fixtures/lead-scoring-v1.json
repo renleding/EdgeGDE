@@ -1,0 +1,50 @@
+{
+  "missionId": "lead-scoring-v1",
+  "description": "Sample lead scoring mission for replay testing",
+  "events": [
+    {
+      "sequence": 1,
+      "actionType": "lead.capture",
+      "input": {
+        "leadId": "L1",
+        "name": "Acme Corp",
+        "email": "info@acme.com"
+      },
+      "expectedOutput": {
+        "leadId": "L1",
+        "captured": true
+      },
+      "expectedStatus": "success",
+      "correlationId": "replay-test-001"
+    },
+    {
+      "sequence": 2,
+      "actionType": "lead.capture",
+      "input": {
+        "leadId": "L2",
+        "name": "Beta Inc",
+        "email": "contact@beta.com"
+      },
+      "expectedOutput": {
+        "leadId": "L2",
+        "captured": true
+      },
+      "expectedStatus": "success",
+      "correlationId": "replay-test-001"
+    },
+    {
+      "sequence": 3,
+      "actionType": "lead.capture",
+      "input": {
+        "leadId": "L3",
+        "name": "Gamma LLC"
+      },
+      "expectedOutput": {
+        "leadId": "L3",
+        "captured": true
+      },
+      "expectedStatus": "success",
+      "correlationId": "replay-test-001"
+    }
+  ]
+}
