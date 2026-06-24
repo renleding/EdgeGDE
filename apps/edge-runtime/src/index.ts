@@ -79,6 +79,7 @@ import { adminAuth } from './middleware/auth'
 import { tenantQueryAuth } from './middleware/tenant-query-auth'
 import { rateLimiter } from './lib/rate-limiter'
 import { logEvent } from './lib/telemetry'
+import { instrumentRequest, instrumentQueue } from './lib/otel-worker'
 import { incrementRequest, flushMetrics } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
@@ -1702,10 +1703,14 @@ app.get('/', async (c) => {
 
 export default {
   async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
-    return app.fetch(request, env, ctx)
+    const start = performance.now()
+    const response = await app.fetch(request, env, ctx)
+    ctx.waitUntil(instrumentRequest(request, response, start, env))
+    return response
   },
 
   async queue(batch: any, env: any, ctx: ExecutionContext): Promise<void> {
+    const start = performance.now()
     try {
       console.warn('[queue] batch received', { size: batch.messages.length })
       for (const msg of batch.messages) {
@@ -1723,6 +1728,7 @@ export default {
     } catch (err) {
       console.error('[queue] fatal handler failure:', err)
     }
+    ctx.waitUntil(instrumentQueue('edgegde-lead-scoring', batch.messages.length, start, env))
   },
 
   async scheduled(_event: any, env: any, _ctx: ExecutionContext): Promise<void> {

@@ -3,34 +3,103 @@
   "name": "edgegde-calculator-staging",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "vars": { "ENVIRONMENT": "staging" },
-  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true }, "traces": { "enabled": true } },
-  "kv_namespaces": [
-    { "binding": "ARTIFACT_KV", "id": "95a35fb5eaa441bd9f6336b4ef894a57" },
-    { "binding": "TENANT_KV", "id": "04893a14b75e41b281177bf558cf3e32" },
-    { "binding": "TELEMETRY_KV", "id": "588cdc5578244acdbaed515dbbc175f7" }
+  "compatibility_flags": [
+    "nodejs_compat"
   ],
-  "assets": { "directory": "public" },
+  "vars": {
+    "ENVIRONMENT": "staging",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+    "OTEL_SERVICE_NAME": "edgegde-worker"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true
+    }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ARTIFACT_KV",
+      "id": "95a35fb5eaa441bd9f6336b4ef894a57"
+    },
+    {
+      "binding": "TENANT_KV",
+      "id": "04893a14b75e41b281177bf558cf3e32"
+    },
+    {
+      "binding": "TELEMETRY_KV",
+      "id": "588cdc5578244acdbaed515dbbc175f7"
+    }
+  ],
+  "assets": {
+    "directory": "public"
+  },
   "durable_objects": {
     "bindings": [
-      { "name": "RATE_LIMITER", "class_name": "RateLimiter" },
-      { "name": "AUDIT_LEDGER", "class_name": "AuditLedger" },
-      { "name": "CHAT_SESSION", "class_name": "ChatSession_DO" },
-      { "name": "CANVAS_SESSION", "class_name": "CanvasSession_DO" }
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiter"
+      },
+      {
+        "name": "AUDIT_LEDGER",
+        "class_name": "AuditLedger"
+      },
+      {
+        "name": "CHAT_SESSION",
+        "class_name": "ChatSession_DO"
+      },
+      {
+        "name": "CANVAS_SESSION",
+        "class_name": "CanvasSession_DO"
+      }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
-    { "tag": "v2", "new_sqlite_classes": ["AuditLedger"] },
-    { "tag": "v3", "new_sqlite_classes": ["ChatSession_DO"] },
-    { "tag": "v4", "new_sqlite_classes": ["CanvasSession_DO"] }
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "RateLimiter"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "AuditLedger"
+      ]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": [
+        "ChatSession_DO"
+      ]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": [
+        "CanvasSession_DO"
+      ]
+    }
   ],
   "d1_databases": [
-    { "binding": "DB", "database_name": "ebroker_leads_staging", "database_id": "a418b4ad-e33b-4088-8eb8-715b5945d10f" }
+    {
+      "binding": "DB",
+      "database_name": "ebroker_leads_staging",
+      "database_id": "a418b4ad-e33b-4088-8eb8-715b5945d10f"
+    }
   ],
   "r2_buckets": [
-    { "binding": "VAULT_BUCKET", "bucket_name": "edgegde-vault-staging" }
+    {
+      "binding": "VAULT_BUCKET",
+      "bucket_name": "edgegde-vault-staging"
+    }
   ],
-  "triggers": { "crons": ["0 8,20 * * *"] }
+  "triggers": {
+    "crons": [
+      "0 8,20 * * *"
+    ]
+  }
 }

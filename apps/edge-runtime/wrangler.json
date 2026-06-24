@@ -6,7 +6,10 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "vars": {},
+  "vars": {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+    "OTEL_SERVICE_NAME": "edgegde-worker"
+  },
   "observability": {
     "enabled": true,
     "logs": {
@@ -57,19 +60,27 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["RateLimiter"]
+      "new_sqlite_classes": [
+        "RateLimiter"
+      ]
     },
     {
       "tag": "v2",
-      "new_sqlite_classes": ["AuditLedger"]
+      "new_sqlite_classes": [
+        "AuditLedger"
+      ]
     },
     {
       "tag": "v3",
-      "new_sqlite_classes": ["ChatSession_DO"]
+      "new_sqlite_classes": [
+        "ChatSession_DO"
+      ]
     },
     {
       "tag": "v4",
-      "new_sqlite_classes": ["CanvasSession_DO"]
+      "new_sqlite_classes": [
+        "CanvasSession_DO"
+      ]
     }
   ],
   "d1_databases": [
