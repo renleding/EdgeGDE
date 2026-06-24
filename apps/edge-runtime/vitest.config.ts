@@ -6,9 +6,13 @@ export default defineConfig({
     include: [
       'tests/unit-*.test.ts',
       'tests/**/unit-*.test.ts',
+      'tests/unit/**/*.test.ts',
+      'tests/agentic-ux/agentic-ux.*.test.ts',
+      'tests/scoring-engine.test.ts',
+      'tests/phase13-hypermedia.test.ts',
+      'tests/domain-swarm.test.ts',
     ],
     exclude: ['node_modules', 'dist'],
-    watchExclude: ['node_modules/**', 'dist/**'],
   },
   // Resolve @edgegde/schema imports
   resolve: {
