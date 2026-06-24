@@ -12,6 +12,7 @@
     "deploy:wrangler": "wrangler deploy",
     "test": "bash scripts/test-local.sh",
     "test:unit": "vitest run --config vitest.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:swarm": "tsx tests/domain-swarm.test.ts",
     "test:domain": "tsx tests/domain-workspace.test.ts",
     "test:renderer": "tsx tests/phase13-hypermedia.test.ts",
