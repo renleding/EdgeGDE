@@ -1705,7 +1705,19 @@ export default {
   async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
     const start = performance.now()
     const response = await app.fetch(request, env, ctx)
-    ctx.waitUntil(instrumentRequest(request, response, start, env))
+    // Extract domain context from the request outside Hono's c.var scope.
+    // Tenant is derived from the host header (matches tenantResolver logic).
+    // Correlation/mission/action IDs come from optional custom headers.
+    const host = request.headers.get('host') || ''
+    const tenantId = host.startsWith('localhost') ? 'dev' : host.split('.')[0]
+    ctx.waitUntil(
+      instrumentRequest(request, response, start, env, {
+        correlationId: request.headers.get('x-correlation-id') || undefined,
+        tenantId,
+        missionId: request.headers.get('x-mission-id') || undefined,
+        actionId: request.headers.get('x-action-id') || undefined,
+      }),
+    )
     return response
   },
 
