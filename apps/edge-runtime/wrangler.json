@@ -124,7 +124,7 @@
     ]
   },
   "vars": {
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://dozen-testimonials-oasis-kodak.trycloudflare.com",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
     "OTEL_SERVICE_NAME": "edgegde-worker"
   }
 }
