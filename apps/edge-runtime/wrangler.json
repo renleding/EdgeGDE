@@ -1,24 +1,38 @@
 {
   "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
-  "name": "edgegde-calculator",
-  "main": "src/index.ts",
+  "assets": {
+    "directory": "public"
+  },
   "compatibility_date": "2025-05-01",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "vars": {
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://sheriff-pressure-receipt-clay.trycloudflare.com",
-    "OTEL_SERVICE_NAME": "edgegde-worker"
-  },
-  "observability": {
-    "enabled": true,
-    "logs": {
-      "enabled": true,
-      "invocation_logs": true
-    },
-    "traces": {
-      "enabled": true
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "1d24d306-9537-4386-929c-60c9e6d882b1",
+      "database_name": "ebroker_leads"
     }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "RateLimiter",
+        "name": "RATE_LIMITER"
+      },
+      {
+        "class_name": "AuditLedger",
+        "name": "AUDIT_LEDGER"
+      },
+      {
+        "class_name": "ChatSession_DO",
+        "name": "CHAT_SESSION"
+      },
+      {
+        "class_name": "CanvasSession_DO",
+        "name": "CANVAS_SESSION"
+      }
+    ]
   },
   "kv_namespaces": [
     {
@@ -34,69 +48,59 @@
       "id": "588cdc5578244acdbaed515dbbc175f7"
     }
   ],
-  "assets": {
-    "directory": "public"
-  },
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "RATE_LIMITER",
-        "class_name": "RateLimiter"
-      },
-      {
-        "name": "AUDIT_LEDGER",
-        "class_name": "AuditLedger"
-      },
-      {
-        "name": "CHAT_SESSION",
-        "class_name": "ChatSession_DO"
-      },
-      {
-        "name": "CANVAS_SESSION",
-        "class_name": "CanvasSession_DO"
-      }
-    ]
-  },
+  "main": "src/index.ts",
   "migrations": [
     {
-      "tag": "v1",
       "new_sqlite_classes": [
         "RateLimiter"
-      ]
+      ],
+      "tag": "v1"
     },
     {
-      "tag": "v2",
       "new_sqlite_classes": [
         "AuditLedger"
-      ]
+      ],
+      "tag": "v2"
     },
     {
-      "tag": "v3",
       "new_sqlite_classes": [
         "ChatSession_DO"
-      ]
+      ],
+      "tag": "v3"
     },
     {
-      "tag": "v4",
       "new_sqlite_classes": [
         "CanvasSession_DO"
-      ]
+      ],
+      "tag": "v4"
     }
   ],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "ebroker_leads",
-      "database_id": "1d24d306-9537-4386-929c-60c9e6d882b1"
+  "name": "edgegde-calculator",
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true
     }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "VAULT_BUCKET",
-      "bucket_name": "edgegde-vault"
-    }
-  ],
+  },
   "queues": {
+    "consumers": [
+      {
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "queue": "edgegde-lead-scoring"
+      },
+      {
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "queue": "edgegde-forecasting"
+      }
+    ],
     "producers": [
       {
         "binding": "LEAD_SCORING_QUEUE",
@@ -106,25 +110,21 @@
         "binding": "FORECASTING_QUEUE",
         "queue": "edgegde-forecasting"
       }
-    ],
-    "consumers": [
-      {
-        "queue": "edgegde-lead-scoring",
-        "max_batch_size": 10,
-        "max_batch_timeout": 5,
-        "max_retries": 3
-      },
-      {
-        "queue": "edgegde-forecasting",
-        "max_batch_size": 10,
-        "max_batch_timeout": 5,
-        "max_retries": 3
-      }
     ]
   },
+  "r2_buckets": [
+    {
+      "binding": "VAULT_BUCKET",
+      "bucket_name": "edgegde-vault"
+    }
+  ],
   "triggers": {
     "crons": [
       "0 8,20 * * *"
     ]
+  },
+  "vars": {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://dozen-testimonials-oasis-kodak.trycloudflare.com",
+    "OTEL_SERVICE_NAME": "edgegde-worker"
   }
 }
