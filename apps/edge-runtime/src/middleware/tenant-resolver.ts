@@ -1,5 +1,14 @@
 /**
- * EdgeGDE Runtime — Tenant Resolver Middleware
+ * Read the resolved tenant ID from the Hono context.
+ * Returns an empty string if tenant resolution hasn't run yet.
+ */
+export function getTenantId(c: Context): string {
+  const tenant = c.get('tenant') as { tenantId?: string } | undefined
+  return tenant?.tenantId ?? ''
+}
+
+/**
+ * Resolve the tenant for the incoming request.
  * Phase 34 v7.0: Resilient, cached, migration-aware tenant resolution.
  *
  * RESOLUTION ORDER (strict):

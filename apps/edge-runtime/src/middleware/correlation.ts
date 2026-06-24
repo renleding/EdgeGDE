@@ -48,7 +48,7 @@ function generateCorrelationId(): string {
 
 export async function correlationMiddleware(c: Context, next: Next): Promise<void> {
   // 1. Read correlation ID from header
-  let correlationId = c.req.header('x-correlation-id') || c.req.header('X-Correlation-Id')
+  let correlationId = c.req.header('x-correlation-id')
 
   // 2. Auto-inject if missing
   if (!correlationId) {
@@ -80,8 +80,4 @@ export async function correlationMiddleware(c: Context, next: Next): Promise<voi
  */
 export function getCorrelationId(c: Context): string {
   return (c.get('correlationId') as string) ?? ''
-}
-
-export function getTenantId(c: Context): string {
-  return (c.get('tenant') as any)?.tenantId ?? (c.get('tenantId') as string) ?? ''
 }
