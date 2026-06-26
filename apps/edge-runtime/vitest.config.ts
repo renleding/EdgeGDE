@@ -11,6 +11,7 @@ export default defineConfig({
       'tests/scoring-engine.test.ts',
       'tests/phase13-hypermedia.test.ts',
       'tests/domain-swarm.test.ts',
+      'tests/domain-workspace.test.ts',
     ],
     exclude: ['node_modules', 'dist'],
   },
