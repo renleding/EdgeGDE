@@ -10,6 +10,10 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { CALCULATOR_REGISTRY, compileToHtml } from '../registry/calculators'
 import type { TenantConfig } from '../lib/tenant'
+import { runMission } from '../actions/lifecycle'
+import { getCorrelationId } from '../middleware/correlation'
+import type { MissionDefinition } from '../actions/types'
+import type { AgenticMissionManifest, MissionStep } from '../agentic-ux/agentic-ux.schema'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Variables type for Hono context
@@ -80,32 +84,100 @@ router.post('/v1/:toolId', async (c) => {
     )
   }
 
-  // ── Execute ────────────────────────────────────────────────────────────
-  const result = tool.execute(parsed.data)
+  // ── Execute via lifecycle runner ─────────────────────────────────────
+  const missionDef: MissionDefinition = {
+    id: `calc-${toolId}-${Date.now()}`,
+    name: `Calculate ${toolId}`,
+    desiredState: {},
+    actions: [],
+  }
+
+  const step: MissionStep = {
+    stepId: 'calculate',
+    description: `Execute ${tool.id} calculator`,
+    actionType: 'calculator.execute',
+    input: { toolId, input: parsed.data },
+    risk: 'low',
+    approvalMode: 'none',
+  }
+
+  const manifest: AgenticMissionManifest = {
+    id: missionDef.id,
+    sessionId: `sess-${toolId}`,
+    tenantId: tenant.tenantId,
+    correlationId: getCorrelationId(c),
+    stateProjectionVersion: 0,
+    intent: `Calculate ${tool.description}`,
+    expectedOutcome: 'Calculator result with repayment summary',
+    steps: [step],
+    verificationPlan: [{ checkId: 'v1', stepId: 'calculate', type: 'calculator_output_check', expected: `${tool.id} result` }],
+    compensationPlan: [{ stepId: 'calculate', mode: 'none' }],
+    createdAt: new Date().toISOString(),
+    status: 'approved',
+  }
+
+  const missionResult = await runMission({
+    mission: missionDef,
+    manifest,
+    correlationId: getCorrelationId(c),
+    tenantId: tenant.tenantId,
+    env: c.env as Record<string, unknown>,
+  })
+
+  const executedAction = missionResult.executedActions[0]
+
+  // ── Handle lifecycle failure ──────────────────────────────────────────
+  if (missionResult.status !== 'success' || !executedAction || executedAction.result.status !== 'success') {
+    return c.json({
+      error: 'Calculation failed',
+      details: executedAction?.result.error ?? missionResult.error ?? 'Unknown lifecycle error',
+      missionStatus: missionResult.status,
+    }, 500)
+  }
+
+  const calcOutput = executedAction.result.output as {
+    toolId: string
+    input: Record<string, unknown>
+    summary: {
+      monthlyRepayment: number
+      fortnightlyRepayment: number
+      weeklyRepayment: number
+      totalInterest: number
+      totalCost: number
+      totalRepayments: number
+      loanTerm: number | null
+      totalFees: number
+    }
+    timestamp: string
+  }
 
   // ── Content negotiation ────────────────────────────────────────────────
   const accept = c.req.header('Accept') || ''
 
   if (accept.includes('application/json')) {
-    // Return raw JSON
+    // Return raw JSON from lifecycle result
     return c.json({
-      input: parsed.data,
-      summary: {
-        monthlyRepayment: result.monthlyRepayment,
-        fortnightlyRepayment: result.fortnightlyRepayment,
-        weeklyRepayment: result.weeklyRepayment,
-        totalInterest: result.totalInterest,
-        totalCost: result.totalCost,
-        totalRepayments: (parsed.data.loanTerm as number) * 12,
-        loanTerm: parsed.data.loanTerm,
-        totalFees: 0,
-      },
-      timestamp: new Date().toISOString(),
+      input: calcOutput.input,
+      summary: calcOutput.summary,
+      timestamp: calcOutput.timestamp,
+      missionId: missionResult.missionId,
+      correlationId: missionResult.correlationId,
     })
   }
 
   // Return HTML for browser / HTMX
-  const html = compileToHtml(result, parsed.data)
+  const html = compileToHtml(
+    {
+      monthlyRepayment: calcOutput.summary.monthlyRepayment,
+      fortnightlyRepayment: calcOutput.summary.fortnightlyRepayment,
+      weeklyRepayment: calcOutput.summary.weeklyRepayment,
+      totalInterest: calcOutput.summary.totalInterest,
+      totalCost: calcOutput.summary.totalCost,
+      monthlyFees: 0,
+      totalInterestOnly: calcOutput.summary.totalInterest,
+    } as any,
+    parsed.data,
+  )
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
 })

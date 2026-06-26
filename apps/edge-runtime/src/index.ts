@@ -88,6 +88,10 @@ import { runDispatcher } from './crons/dispatcher'
 import { guardDB } from './lib/db'
 import { guardKV } from './lib/kv'
 // ═══════════════════════════════════════════════════════════════════════════
+// Action Registry — registers system actions for the lifecycle runner
+// ═══════════════════════════════════════════════════════════════════════════
+import { registerSystemActions } from './actions/registry'
+// ═══════════════════════════════════════════════════════════════════════════
 // Form Registry (Phase 29)
 // ═══════════════════════════════════════════════════════════════════════════
 import { mountFormRoutes } from './lib/form-registry'
@@ -1290,6 +1294,12 @@ app.put('/api/tenants/:slug', adminAuth, async (c) => {
 
 registerForms()
 mountFormRoutes(app)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Initialize Action Registry — registers system actions for the lifecycle runner
+// ═══════════════════════════════════════════════════════════════════════════
+
+registerSystemActions()
 
 // ═══════════════════════════════════════════════════════════════════════════
 // One-Time Counter Seed Route (Phase 30)

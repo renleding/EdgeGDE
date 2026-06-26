@@ -12,6 +12,7 @@
 
 import { registerAction } from './lifecycle'
 import type { EdgeGDEAction, ActionContext } from './types'
+import { CALCULATOR_REGISTRY } from '../registry/calculators'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Canvas Actions
@@ -95,14 +96,79 @@ const siteRollback: EdgeGDEAction = {
 // Calculator Actions
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Dynamic calculator executor — dispatches to CALCULATOR_REGISTRY[toolId].
+ *
+ * Input shape: { toolId: string, input: Record<string, unknown> }
+ * The inner input is validated against the tool's Zod schema before execution.
+ */
 const calculatorExecute: EdgeGDEAction = {
   type: 'calculator.execute',
-  async execute(_ctx, _input) {
-    return { status: 'success', output: null, durationMs: 100 }
+  async execute(_ctx, rawInput: any) {
+    const toolId = rawInput?.toolId as string | undefined
+    if (!toolId) {
+      return { status: 'failure' as const, output: null, error: 'Missing toolId in input', durationMs: 0 }
+    }
+
+    const tool = CALCULATOR_REGISTRY[toolId]
+    if (!tool) {
+      return { status: 'failure' as const, output: null, error: `Calculator not found: ${toolId}`, durationMs: 0 }
+    }
+
+    // Determine inner input — prefer explicit .input field, fall back to full rawInput
+    const innerInput = (rawInput && typeof rawInput === 'object' && 'input' in rawInput) ? rawInput.input : rawInput
+
+    // Validate inner input against the tool's schema
+    const parsed = tool.schema.safeParse(innerInput)
+    if (!parsed.success) {
+      return {
+        status: 'failure' as const,
+        output: null,
+        error: `Validation failed: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+        durationMs: 0,
+      }
+    }
+
+    // Execute the tool
+    const startTime = Date.now()
+    try {
+      const result = tool.execute(parsed.data)
+      return {
+        status: 'success' as const,
+        output: {
+          toolId,
+          input: parsed.data,
+          summary: {
+            monthlyRepayment: result.monthlyRepayment,
+            fortnightlyRepayment: result.fortnightlyRepayment,
+            weeklyRepayment: result.weeklyRepayment,
+            totalInterest: result.totalInterest,
+            totalCost: result.totalCost,
+            totalRepayments: (parsed.data as any).loanTerm ? (parsed.data as any).loanTerm * 12 : 0,
+            loanTerm: (parsed.data as any).loanTerm ?? null,
+            totalFees: 0,
+          },
+          timestamp: new Date().toISOString(),
+        },
+        durationMs: Date.now() - startTime,
+      }
+    } catch (err) {
+      return {
+        status: 'failure' as const,
+        output: null,
+        error: err instanceof Error ? err.message : String(err),
+        durationMs: Date.now() - startTime,
+      }
+    }
   },
-  // calculator.execute is idempotent — no compensation needed
-  dryRun() {
-    return { expectedOutputType: 'calculator result', sideEffects: ['computes result'], idempotent: true }
+  // calculator.execute is read-only — no compensation needed
+  dryRun(_input: any) {
+    return {
+      expectedOutputType: '{ toolId, input, summary }',
+      sideEffects: ['computes calculator result — no state mutation'],
+      idempotent: true,
+      estimatedDurationMs: 100,
+    }
   },
 }
 
