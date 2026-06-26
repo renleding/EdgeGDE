@@ -10,6 +10,7 @@ import {
   SCHEMA_VERSION,
 } from '@edgegde/schema'
 import { z } from 'zod'
+import { sha256Hash } from './versioning'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // KV Interface — matches Workers KV semantics for local dev
@@ -73,7 +74,7 @@ export type DesignArtifact = z.infer<typeof designArtifactSchema>
 // Simple content hashing for idempotency
 // ═══════════════════════════════════════════════════════════════════════════
 
-function hashArtifact(artifact: DesignArtifact): string {
+function hashArtifact(artifact: DesignArtifact): Promise<string> {
   const str = JSON.stringify({
     id: artifact.id,
     type: artifact.type,
@@ -81,14 +82,8 @@ function hashArtifact(artifact: DesignArtifact): string {
     schema: artifact.schema,
     theme: artifact.theme,
   })
-  // Simple hash function for idempotency comparison
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash |= 0 // Convert to 32bit integer
-  }
-  return Math.abs(hash).toString(36)
+  // SHA-256 for collision-resistant idempotency (replaced 32-bit custom hash)
+  return sha256Hash(str)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -126,7 +121,7 @@ export async function publishArtifact(
   const lKey = latestKey(parsed.type, parsed.id)
 
   // 1. Idempotency check — hash the artifact, compare to stored latest
-  const newHash = hashArtifact(parsed)
+  const newHash = await hashArtifact(parsed)
   const existingLatest = await kv.get(lKey)
 
   if (existingLatest) {

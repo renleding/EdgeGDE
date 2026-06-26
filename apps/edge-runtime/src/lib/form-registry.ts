@@ -198,7 +198,13 @@ export function mountFormRoutes(app: Hono): void {
             // ══════════════════════════════════════════════════════════════
             // CIRCUIT BREAKER: D1 insert failed — park in tenant's dead-letter KV
             // ══════════════════════════════════════════════════════════════
-            console.warn(`[circuit-breaker] D1 insert failed for ${def.id}:`, dbErr)
+            console.warn(JSON.stringify({
+              event: 'circuit_breaker',
+              formId: def.id,
+              submissionId,
+              tenantId,
+              error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+            }))
             try {
               const TENANT_KV = (c.env as any)?.TENANT_KV
               if (TENANT_KV && typeof TENANT_KV.put === 'function') {

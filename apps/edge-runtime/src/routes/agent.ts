@@ -25,16 +25,6 @@ import { validateDesign } from '../lib/design-validator'
 import { computeLayoutHash, setLatestHash } from '../edr/runtime/hash'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Constants
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Router
-// ═══════════════════════════════════════════════════════════════════════════
-
-export const agentRouter = new Hono()
-
-// ═══════════════════════════════════════════════════════════════════════════
 // Discriminated union schema for unified publish endpoint
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -58,6 +48,12 @@ const publishSchema = z.discriminatedUnion('kind', [
     idempotencyKey: z.string().optional(),
   }),
 ])
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Router
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const agentRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/v1/agent/publish — unified publish controller
@@ -256,27 +252,6 @@ async function handleTenantDeploy(c: any, body: any) {
     version: result.version,
     url: result.url,
   })
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Simple hash utility
-// ═══════════════════════════════════════════════════════════════════════════
-
-function simpleHash(artifact: DesignArtifact): string {
-  const str = JSON.stringify({
-    id: artifact.id,
-    type: artifact.type,
-    layout: artifact.layout,
-    schema: artifact.schema,
-    theme: artifact.theme,
-  })
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash |= 0
-  }
-  return Math.abs(hash).toString(36)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
