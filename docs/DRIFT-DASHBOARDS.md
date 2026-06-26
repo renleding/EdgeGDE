@@ -1,6 +1,6 @@
 # Mission-Level Drift Dashboards — SigNoz Configuration
 
-**Status:** Ready to apply when lifecycle code is deployed  
+**Status:** Panels 4-5 created in SigNoz UI (awaiting lifecycle data to populate)  
 **Data source:** `signoz_traces.signoz_index_v3`  
 **Prerequisite:** Lifecycle code (FRS-1/3) deployed and producing reconcile/compensate spans
 
