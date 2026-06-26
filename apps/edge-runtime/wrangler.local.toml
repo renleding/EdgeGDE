@@ -72,6 +72,7 @@ tag = "v2"
 new_classes = ["CanvasSession_DO", "ChatSession_DO"]
 
 [vars]
+ADMIN_API_TOKEN = "edgegde-dev-token-2026"
 CANVAS_CHAT_LLM_PROVIDER = "ollama"
 OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 OLLAMA_CHAT_MODEL = "qwen3-coder:30b"

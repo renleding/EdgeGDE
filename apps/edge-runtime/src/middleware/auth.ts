@@ -15,7 +15,7 @@ import type { Context, MiddlewareHandler, Next } from 'hono'
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Read ADMIN_API_TOKEN from env, crash-hard if unset in production context. */
+/** Read ADMIN_API_TOKEN from env, return null if unset (caller handles 401). */
 function resolveAdminToken(c: Context): string | null {
   const env = (c.env as Record<string, unknown> | undefined)
   const token = env?.ADMIN_API_TOKEN
@@ -24,18 +24,6 @@ function resolveAdminToken(c: Context): string | null {
   }
   // In dev / test without the env var, return null so callers can decide.
   return null
-}
-
-/** Read ADMIN_API_TOKEN from a raw env object (for non-middleware contexts). */
-export function requireAdminToken(env: Record<string, unknown>): string {
-  const token = env?.ADMIN_API_TOKEN
-  if (typeof token === 'string' && token.length > 0) {
-    return token
-  }
-  throw new Error(
-    'ADMIN_API_TOKEN is not set. ' +
-    'Set `ADMIN_API_TOKEN` as a Cloudflare Worker secret or environment variable.'
-  )
 }
 
 /** Extract Bearer token from Authorization header. */
