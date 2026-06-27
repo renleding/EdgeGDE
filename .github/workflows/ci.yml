@@ -42,3 +42,19 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run test:unit
         name: Unit tests (compute-drift, lifecycle, gogo, replay)
+
+  swe-bench-lint:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install datasets>=3.0.0
+        name: Install deps
+      - run: python3 -c "import ast; ast.parse(open('tools/swe-bench/adapter.py').read()); print('adapter.py: OK')"
+        name: Validate adapter.py syntax
+      - run: python3 -c "import ast; ast.parse(open('tools/lsp-gate/lsp-validate.py').read()); print('lsp-validate.py: OK')"
+        name: Validate lsp-validate.py syntax
