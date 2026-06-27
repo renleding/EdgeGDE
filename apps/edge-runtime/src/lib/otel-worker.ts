@@ -203,6 +203,60 @@ export async function instrumentRequest(
 }
 
 /**
+ * Build and send an OTLP span for an internal lifecycle event (reconcile, compensate, mission).
+ *
+ * Fire-and-forget — never throws. Used by the lifecycle runner to produce
+ * the spans that drift dashboards in SigNoz query.
+ */
+export async function instrumentLifecycleEvent(
+  eventName: string,
+  attributes: Record<string, string | number | boolean | undefined>,
+  env: OTelEnv,
+): Promise<void> {
+  const otelEndpoint =
+    env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318'
+  const serviceName = env.OTEL_SERVICE_NAME ?? 'edgegde-worker'
+
+  const traceId = traceIdHex()
+  const spanId = spanIdHex()
+  const timestamp = nowUs()
+
+  const attrs = buildAttributes(attributes)
+  const resourceAttrs = buildAttributes({
+    'service.name': serviceName,
+    'telemetry.sdk.name': 'edgegde-otel',
+    'telemetry.sdk.language': 'typescript',
+    'telemetry.sdk.version': '0.1.0',
+  })
+
+  const payload = {
+    resourceSpans: [{
+      resource: { attributes: resourceAttrs },
+      scopeSpans: [{
+        scope: { name: 'edgegde-worker' },
+        spans: [{
+          traceId,
+          spanId,
+          name: eventName,
+          kind: 2, // SPAN_KIND_INTERNAL
+          startTimeUnixNano: String(timestamp * 1000),
+          endTimeUnixNano: String(timestamp * 1000),
+          attributes: attrs,
+          status: { code: 0 },
+          spanKind: 2,
+        }],
+      }],
+    }],
+  }
+
+  try {
+    await postWithRetry(`${otelEndpoint}/v1/traces`, JSON.stringify(payload))
+  } catch {
+    // Non-blocking
+  }
+}
+
+/**
  * OTel envelope for queue handler spans.
  */
 export async function instrumentQueue(
