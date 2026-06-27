@@ -144,21 +144,62 @@ def generate_patch(instance: dict, worktree: Path) -> str:
         for p in files_result.stdout.strip().split("\n") if p
     )
 
+    # Find relevant files by matching problem keywords against file content
+    problem_lower = problem.lower()
+    # Extract keywords (skip common words)
+    stopwords = {"the", "is", "at", "which", "on", "a", "an", "and", "or", "to", "in",
+                 "for", "of", "with", "that", "this", "it", "be", "has", "have", "not",
+                 "are", "was", "were", "been", "being", "do", "does", "did", "will"}
+    keywords = [w.strip(".,!?;:()[]{}") for w in problem_lower.split()
+                if len(w) > 4 and w not in stopwords]
+    keywords = list(set(keywords))[:10]  # top 10 unique keywords
+
+    # Search for files matching keywords (in content or filename)
+    relevant_files = []
+    keyword_hits = {}
+    for kw in keywords:
+        try:
+            r = subprocess.run(
+                ["grep", "-rli", kw, str(worktree), "--include=*.py", "--exclude-dir=.*"],
+                capture_output=True, text=True, timeout=15
+            )
+            if r.stdout.strip():
+                for path in r.stdout.strip().split("\n"):
+                    rel = path.replace(str(worktree) + "/", "")
+                    keyword_hits[rel] = keyword_hits.get(rel, 0) + 1
+        except:
+            pass
+
+    relevant_files = sorted(keyword_hits.keys(), key=lambda f: -keyword_hits[f])[:5]
+
+    # Include file contents for the most relevant files
+    file_contexts = []
+    for f in relevant_files:
+        full_path = worktree / f
+        if full_path.exists():
+            content = full_path.read_text()
+            file_contexts.append(f"--- {f} ---\n{content[:3000]}")
+
+    file_tree = "\n".join(file_list[:80])
+    file_content_section = "\n\n".join(file_contexts) if file_contexts else "(no files matched)"
+    
     system_prompt = (
         f"You are an expert Python developer fixing a bug in {repo_name}.\n\n"
         "Generate a unified git diff patch that fixes the issue.\n"
         "RULES:\n"
-        "1. Output ONLY the diff. No explanations, no markdown.\n"
-        "2. Format: diff --git a/... b/...\\n--- a/...\\n+++ b/...\\n@@ ... @@\n"
-        "3. Only modify files that need changing.\n"
-        "4. Make minimal changes.\n"
-        "5. Output ONLY the diff — no surrounding text."
+        "1. Output ONLY the raw diff. NO markdown, NO code fences, NO explanations.\n"
+        "2. START with: diff --git a/path b/path\n"
+        "3. Use standard unified diff format.\n"
+        "4. Only modify files that need changing.\n"
+        "5. Make minimal changes.\n"
+        "6. The diff MUST match the ACTUAL file contents shown below."
     )
     user_prompt = (
         f"Repository: {repo_name}\n\n"
-        f"File tree:\n" + "\n".join(file_list[:120]) + "\n\n"
+        f"File tree:\n{file_tree}\n\n"
+        f"Relevant file contents:\n{file_content_section}\n\n"
         f"PROBLEM:\n{problem}\n\n"
-        "Generate the diff:"
+        "Generate the exact unified diff patch:"
     )
 
     print(f"  Calling {OPENROUTER_MODEL}...")
@@ -178,9 +219,17 @@ def apply_patch(worktree: Path, patch_text: str) -> bool:
     if "```diff" in cleaned:
         cleaned = cleaned.split("```diff")[1].split("```")[0].strip()
     elif "```" in cleaned:
+        # Handle both "```lang\n...\n```" and trailing-only "```"
         parts = cleaned.split("```")
         if len(parts) >= 3:
             cleaned = parts[1].strip()
+        elif len(parts) == 2:
+            cleaned = parts[0].strip()
+    
+    # Strip any trailing ``` that might remain
+    lines = cleaned.strip().split("\n")
+    lines = [l for l in lines if not l.strip().startswith("```") or len(l.strip()) > 3]
+    cleaned = "\n".join(lines)
 
     patch_file = worktree.parent / f"{worktree.name}_patch.diff"
     patch_file.write_text(cleaned)
