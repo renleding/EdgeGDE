@@ -34,6 +34,7 @@ import { adminRulesRouter } from './api/admin-rules'
 import { adminBlueprintsRouter } from './api/admin-blueprints'
 import { adminFactoryRouter } from './api/admin-factory'
 import { adminDriftRouter } from './api/admin-drift'
+import { adminDeadLetterRouter } from './api/admin-deadletter'
 import { adminPacksRouter } from './api/admin-packs'
 import { adminTenantRouter } from './api/admin-tenant-admin'
 import { embedRouter } from './api/embed'
@@ -491,6 +492,7 @@ app.route('/admin/site', adminSiteRouter)
 app.route('/admin/blueprints', adminBlueprintsRouter)
 app.route('/admin/factory', adminFactoryRouter)
 app.route('/admin/drift', adminDriftRouter)
+app.route('/admin/deadletter', adminDeadLetterRouter)
 app.route('/admin/packs', adminPacksRouter)
 app.route('/admin/tenants', adminTenantRouter)
 app.route('/embed', embedRouter)

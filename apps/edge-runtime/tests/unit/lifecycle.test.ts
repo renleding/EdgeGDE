@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { registerAction, dryRunMission, replayMission } from '../../src/actions/lifecycle'
 import type { MissionDefinition } from '../../src/actions/types'
 import fixtures from '../fixtures/lead-scoring-v1.json'
+import calcFixtures from '../fixtures/calculator-loan-repayment-v1.json'
 
 // Register shared test actions
 const testCaptureAction = {
@@ -29,9 +30,42 @@ const testScoreAction = {
   },
 }
 
+const testCalcExecuteAction = {
+  type: 'calculator.execute',
+  async execute(_ctx: any, input: any) {
+    const toolId = input?.toolId as string
+    const data = input?.input ?? {}
+    if (toolId === 'loan-repayment') {
+      const p = data.principal as number
+      const r = (data.interestRate as number) / 100 / 12
+      const n = (data.loanTerm as number) * 12
+      const monthly = r === 0 ? p / n : p * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1)
+      return {
+        status: 'success' as const,
+        output: {
+          toolId,
+          input: data,
+          summary: {
+            monthlyRepayment: Math.round(monthly * 100) / 100,
+            totalRepayments: n,
+            loanTerm: data.loanTerm,
+            totalFees: 0,
+          },
+        },
+        durationMs: 5,
+      }
+    }
+    return { status: 'success' as const, output: null, durationMs: 5 }
+  },
+  dryRun(_input: any) {
+    return { expectedOutputType: '{ toolId, input, summary }', sideEffects: ['computes result'], idempotent: true, estimatedDurationMs: 50 }
+  },
+}
+
 beforeAll(() => {
   registerAction(testCaptureAction)
   registerAction(testScoreAction)
+  registerAction(testCalcExecuteAction)
 })
 
 describe('dryRunMission (FRS-4)', () => {
@@ -104,5 +138,13 @@ describe('replayMission (FRS-2)', () => {
     ])
     expect(result.passed).toBe(0)
     expect(result.failed).toBe(1)
+  })
+
+  it('replays calculator execution from fixture', async () => {
+    const events = calcFixtures.events as any as Array<{ sequence: number; actionType: string; input: unknown; expectedOutput: unknown; expectedStatus: 'success' | 'failure'; correlationId: string }>
+    const result = await replayMission(calcFixtures.missionId, events)
+    expect(result.totalEvents).toBe(1)
+    expect(result.passed).toBe(1)
+    expect(result.failed).toBe(0)
   })
 })
