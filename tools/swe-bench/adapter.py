@@ -67,7 +67,6 @@ def build_context(instance: dict, worktree: Path) -> dict:
     problem = instance["problem_statement"]
     repo_name = instance["repo"]
 
-    # File list
     files_result = subprocess.run(
         ["find", str(worktree), "-name", "*.py", "-not", "-path", "*/.*"],
         capture_output=True, text=True, timeout=30,
@@ -77,7 +76,10 @@ def build_context(instance: dict, worktree: Path) -> dict:
         for p in files_result.stdout.strip().split("\n") if p
     )
 
-    # Keyword search for relevant files
+    # Score files by relevance
+    file_scores = {}  # file -> score
+
+    # Score 1: Keyword match in file content
     problem_lower = problem.lower()
     stopwords = {"the", "is", "at", "which", "on", "a", "an", "and", "or", "to", "in",
                  "for", "of", "with", "that", "this", "it", "be", "has", "have", "not",
@@ -86,7 +88,6 @@ def build_context(instance: dict, worktree: Path) -> dict:
                 if len(w) > 4 and w not in stopwords]
     keywords = list(set(keywords))[:10]
 
-    keyword_hits = {}
     for kw in keywords:
         try:
             r = subprocess.run(
@@ -96,30 +97,43 @@ def build_context(instance: dict, worktree: Path) -> dict:
             if r.stdout.strip():
                 for path in r.stdout.strip().split("\n"):
                     rel = path.replace(str(worktree) + "/", "")
-                    keyword_hits[rel] = keyword_hits.get(rel, 0) + 1
+                    file_scores[rel] = file_scores.get(rel, 0) + 1
         except:
             pass
 
-    relevant_files = sorted(keyword_hits.keys(), key=lambda f: -keyword_hits[f])[:5]
-
-    # Also use FAIL_TO_PASS test paths to find relevant files (FRS-003 improvement)
-    fail_to_pass = instance.get("FAIL_TO_PASS", "")
-    if fail_to_pass:
-        for test_path in (json.loads(fail_to_pass) if isinstance(fail_to_pass, str) else fail_to_pass):
-            # Extract file/module name from test path
-            parts = test_path.split("::")[0].replace(".", "/")
+    # Score 2: FAIL_TO_PASS test paths (higher weight)
+    f2p = instance.get("FAIL_TO_PASS", "")
+    if f2p:
+        test_paths = json.loads(f2p) if isinstance(f2p, str) else f2p
+        for tp in test_paths:
+            test_file = tp.split("::")[0]  # test/cli/commands_test.py
+            # Add score to all files whose name overlaps with test file
+            test_basename = test_file.split("/")[-1].replace("_test", "").replace("test_", "")
             for f in file_list:
-                if parts.split("/")[-1] in f and f not in relevant_files:
-                    relevant_files.append(f)
-                    break
+                if test_basename in f and f.replace("/", "_") != test_file.replace("/", "_"):
+                    file_scores[f] = file_scores.get(f, 0) + 3  # higher weight
+
+    # Score 3: hints_text (human-written hints about where the bug is)
+    hints = instance.get("hints_text", "") or ""
+    if hints:
+        hint_lower = hints.lower()
+        for f in file_list:
+            for word in hint_lower.split():
+                if len(word) > 3 and word in f.lower():
+                    file_scores[f] = file_scores.get(f, 0) + 5
+
+    relevant_files = sorted(file_scores.keys(), key=lambda f: -file_scores[f])
+
+    # Limit to top 2 files max
+    relevant_files = relevant_files[:2]
 
     # Include file contents
     file_contexts = []
-    for f in relevant_files[:5]:
+    for f in relevant_files:
         full_path = worktree / f
         if full_path.exists():
             content = full_path.read_text()
-            file_contexts.append(f"--- {f} ---\n{content[:3000]}")
+            file_contexts.append(f"--- {f} ---\n{content[:4000]}")
 
     return {
         "file_list": file_list[:80],
