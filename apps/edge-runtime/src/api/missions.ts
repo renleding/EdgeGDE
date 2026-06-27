@@ -1,11 +1,8 @@
 /**
- * EdgeGDE Missions API — Dry-run endpoint
+ * EdgeGDE Missions API — Dry-run & Execute
  *
- * FRS-4: POST /api/v1/missions/dry-run
- * Preview what a mission will do without executing any actions.
- *
- * CLI wrapper:
- *   hermes mission --dry-run <manifest.json>
+ * FRS-4: POST /api/v1/missions/dry-run — preview without executing
+ * FRS-1: POST /api/v1/missions/execute — run a mission through the lifecycle
  *
  * @see docs/FRs-001-compensation-replay-reconcile-dryrun.md
  */
@@ -13,47 +10,23 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { AgenticMissionManifestSchema } from '../agentic-ux/agentic-ux.schema'
-import { dryRunMission } from '../actions/lifecycle'
-import { getAction } from '../actions/lifecycle'
+import { generateManifestFromGoal } from '../agentic-ux/manifest-generator'
+import { dryRunMission, runMission } from '../actions/lifecycle'
+import { getAction, listActions } from '../actions/lifecycle'
 import type { MissionDefinition } from '../actions/types'
 
 const missionRouter = new Hono()
 
-/**
- * POST /api/v1/missions/dry-run
- *
- * Accepts an AgenticMissionManifest and returns a DryRunReport.
- * Never mutates state or calls external services.
- *
- * Request body:
- * ```json
- * {
- *   "manifest": { ... },
- *   "missionId": "optional-mission-id"
- * }
- * ```
- *
- * Response:
- * ```json
- * {
- *   "report": {
- *     "valid": true,
- *     "actions": [...],
- *     "warnings": [],
- *     "errors": [],
- *     "estimatedTotalDurationMs": 1200
- *   }
- * }
- * ```
- */
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/v1/missions/dry-run
+// ═══════════════════════════════════════════════════════════════════════════
+
 missionRouter.post('/dry-run', async (c) => {
   try {
     const body = await c.req.json()
     const manifest = AgenticMissionManifestSchema.parse(body.manifest)
     const missionId = body.missionId ?? manifest.id
 
-    // Build a temporary mission definition from the manifest
-    // In a full implementation, missions would be registered and looked up by ID
     const mission: MissionDefinition = {
       id: missionId,
       name: (manifest as any).intent ?? missionId,
@@ -79,25 +52,88 @@ missionRouter.post('/dry-run', async (c) => {
   }
 })
 
-/**
- * GET /api/v1/missions/actions
- *
- * List all registered action types.
- */
-missionRouter.get('/actions', async (c) => {
-  const actions = Array.from(
-    new Set(
-      [...(await Promise.resolve([]))],
-    ),
-  )
-  // Use the lifecycle module's listActions
-  const { listActions } = await import('../actions/lifecycle')
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/v1/missions/execute
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Accepts either:
+//   1. A SimpleMissionGoal (goal + actionType + input + IDs)
+//   2. A full manifest for direct execution
+//
+// Generates a manifest from the goal, runs it through the lifecycle,
+// and returns the result.
+
+missionRouter.post('/execute', async (c) => {
+  try {
+    const body = await c.req.json()
+
+    // Determine if this is a goal-based request or a full-manifest request
+    let manifest
+    if (body.manifest) {
+      // Full manifest provided directly
+      manifest = AgenticMissionManifestSchema.parse(body.manifest)
+    } else if (body.goal && body.actionType && body.input) {
+      // Simple goal — generate manifest
+      const tenantId = body.tenantId ?? 'default'
+      const correlationId = body.correlationId ?? `corr-${Date.now()}`
+      manifest = generateManifestFromGoal({
+        intent: body.goal,
+        actionType: body.actionType,
+        input: body.input,
+        tenantId,
+        correlationId,
+        sessionId: body.sessionId,
+      })
+    } else {
+      return c.json(
+        { error: 'Provide either a "manifest" object or a "goal" + "actionType" + "input"', success: false },
+        400,
+      )
+    }
+
+    const mission: MissionDefinition = {
+      id: manifest.id,
+      name: manifest.intent,
+      desiredState: {},
+      actions: manifest.steps
+        .map((step) => getAction(step.actionType))
+        .filter((a): a is NonNullable<typeof a> => a !== undefined),
+    }
+
+    const result = await runMission({
+      mission,
+      manifest,
+      correlationId: manifest.correlationId,
+      tenantId: manifest.tenantId,
+      env: c.env as Record<string, unknown>,
+    })
+
+    return c.json({ success: result.status === 'success', result })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return c.json(
+        { success: false, error: err.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') },
+        400,
+      )
+    }
+    return c.json(
+      { success: false, error: err instanceof Error ? err.message : String(err) },
+      500,
+    )
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/v1/missions/actions
+// ═══════════════════════════════════════════════════════════════════════════
+
+missionRouter.get('/actions', async (_c) => {
   const registered = listActions().map((a) => ({
     type: a.type,
     hasCompensation: !!a.compensate,
     hasDryRun: !!a.dryRun,
   }))
-  return c.json({ actions: registered })
+  return _c.json({ actions: registered })
 })
 
 export { missionRouter }

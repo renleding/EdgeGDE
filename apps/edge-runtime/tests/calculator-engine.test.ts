@@ -47,6 +47,7 @@ import { calculateCompoundInterest } from '../src/edr/domain/calculators/compoun
 import { calculateCreditCard } from '../src/edr/domain/calculators/credit-card'
 import { calculateIncomeAnnualisation } from '../src/edr/domain/calculators/income-annualisation'
 import { calculateIncomeGrossUp } from '../src/edr/domain/calculators/income-gross-up'
+import { generateManifestFromGoal } from '../src/agentic-ux/manifest-generator'
 import { calculateSplitLoan } from '../src/edr/domain/calculators/split-loan'
 import { calculateHomeLoanOffset } from '../src/edr/domain/calculators/home-loan-offset'
 import { calculateIntroductoryRateLoan } from '../src/edr/domain/calculators/introductory-rate-loan'
@@ -973,6 +974,42 @@ describe('Income Gross Up Calculator', () => {
       netIncome: 50000, grossUpRate: 25,
     })
     expect(result.effectiveRate).toBe(25)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Manifest Generator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Manifest Generator', () => {
+  it('generates valid manifest from calculator goal', () => {
+    const manifest = generateManifestFromGoal({
+      intent: 'Calculate loan repayment for $500k at 6% over 30 years',
+      actionType: 'calculator.execute',
+      input: { toolId: 'loan-repayment', input: { principal: 500000, annualRate: 6, termYears: 30 } },
+      tenantId: 'test-tenant',
+      correlationId: 'test-corr',
+    })
+    expect(manifest.id).toBeTruthy()
+    expect(manifest.steps.length).toBe(1)
+    expect(manifest.steps[0].actionType).toBe('calculator.execute')
+    expect(manifest.compensationPlan.length).toBe(1)
+    expect(manifest.verificationPlan.length).toBe(1)
+  })
+
+  it('generates manifest with correct risk for different action types', () => {
+    const calcManifest = generateManifestFromGoal({
+      intent: 'calc', actionType: 'calculator.execute', input: {},
+      tenantId: 't', correlationId: 'c',
+    })
+    expect(calcManifest.steps[0].risk).toBe('none')
+    expect(calcManifest.steps[0].approvalMode).toBe('none')
+  })
+
+  it('generates unique IDs per call', () => {
+    const m1 = generateManifestFromGoal({ intent: 'a', actionType: 'calculator.execute', input: {}, tenantId: 't', correlationId: 'c' })
+    const m2 = generateManifestFromGoal({ intent: 'b', actionType: 'calculator.execute', input: {}, tenantId: 't', correlationId: 'c' })
+    expect(m1.id).not.toBe(m2.id)
   })
 })
 
