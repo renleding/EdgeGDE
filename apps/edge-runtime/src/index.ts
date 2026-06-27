@@ -19,6 +19,7 @@ import { mcpDeployRouter } from './routes/mcp-deploy'
 import { dashboardRouter } from './routes/dashboard'
 import { tenantRouter } from './api/tenants'
 import { submissionRouter } from './api/submissions'
+import { missionRouter } from './api/missions'
 import { tenantAuth } from './middleware/tenant-auth'
 import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
@@ -1077,6 +1078,9 @@ app.route('/api/v1', chatViewsRouter)
 
 // OCR Processing (Phase 1)
 app.route('/api/v1', ocrRouter)
+
+// Mission Lifecycle (FRS-4) — dry-run, list actions
+app.route('/api/v1/missions', missionRouter)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 4B — Site Provisioning: renders tenant site at /sites/:slug
