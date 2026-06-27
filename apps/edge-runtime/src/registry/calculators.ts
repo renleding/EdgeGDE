@@ -80,6 +80,26 @@ import {
   calculateLumpSumRepayment,
   LumpSumRepaymentInputSchema,
 } from '../edr/domain/calculators/lump-sum-repayment'
+import {
+  calculateIncomeTax,
+  IncomeTaxInputSchema,
+} from '../edr/domain/calculators/income-tax'
+import {
+  calculateCompoundInterest,
+  CompoundInterestInputSchema,
+} from '../edr/domain/calculators/compound-interest'
+import {
+  calculateCreditCard,
+  CreditCardInputSchema,
+} from '../edr/domain/calculators/credit-card'
+import {
+  calculateIncomeAnnualisation,
+  IncomeAnnualisationInputSchema,
+} from '../edr/domain/calculators/income-annualisation'
+import {
+  calculateIncomeGrossUp,
+  IncomeGrossUpInputSchema,
+} from '../edr/domain/calculators/income-gross-up'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CalculatorTool Interface
@@ -440,6 +460,61 @@ registerCalculator({
   category: 'loan',
   inputSchema: LumpSumRepaymentInputSchema,
   execute: (input) => calculateLumpSumRepayment(input),
+})
+
+registerCalculator({
+  id: 'income-tax',
+  name: 'Income Tax Calculator',
+  description:
+    'Estimate Australian income tax liability using progressive tax brackets ' +
+    'with medicare levy and offsets. Uses 2025-26 ATO rates.',
+  category: 'general',
+  inputSchema: IncomeTaxInputSchema,
+  execute: (input) => calculateIncomeTax(input),
+})
+
+registerCalculator({
+  id: 'compound-interest',
+  name: 'Compound Interest Calculator',
+  description:
+    'Project future value of an investment with regular contributions ' +
+    'and compound interest. Supports monthly, quarterly, and annual compounding.',
+  category: 'investment',
+  inputSchema: CompoundInterestInputSchema,
+  execute: (input) => calculateCompoundInterest(input),
+})
+
+registerCalculator({
+  id: 'credit-card',
+  name: 'Credit Card Calculator',
+  description:
+    'Estimate credit card payoff time and total interest. ' +
+    'Supports introductory rates and balance transfer fees.',
+  category: 'general',
+  inputSchema: CreditCardInputSchema,
+  execute: (input) => calculateCreditCard(input),
+})
+
+registerCalculator({
+  id: 'income-annualisation',
+  name: 'Income Annualisation Calculator',
+  description:
+    'Convert irregular or part-period income into annualized, weekly, ' +
+    'and monthly equivalent figures.',
+  category: 'general',
+  inputSchema: IncomeAnnualisationInputSchema,
+  execute: (input) => calculateIncomeAnnualisation(input),
+})
+
+registerCalculator({
+  id: 'income-gross-up',
+  name: 'Income Gross Up Calculator',
+  description:
+    'Convert net (after-tax) income to gross (pre-tax) equivalent ' +
+    'using a given tax rate or gross-up rate.',
+  category: 'general',
+  inputSchema: IncomeGrossUpInputSchema,
+  execute: (input) => calculateIncomeGrossUp(input),
 })
 
 /** Re-export the engine utilities for convenience */

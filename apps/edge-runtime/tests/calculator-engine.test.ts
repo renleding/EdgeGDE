@@ -42,6 +42,11 @@ import { calculateExtraRepayment } from '../src/edr/domain/calculators/extra-rep
 import { calculateInterestOnly } from '../src/edr/domain/calculators/interest-only-mortgage'
 import { calculateHowLongToRepay } from '../src/edr/domain/calculators/how-long-to-repay'
 import { calculateLumpSumRepayment } from '../src/edr/domain/calculators/lump-sum-repayment'
+import { calculateIncomeTax } from '../src/edr/domain/calculators/income-tax'
+import { calculateCompoundInterest } from '../src/edr/domain/calculators/compound-interest'
+import { calculateCreditCard } from '../src/edr/domain/calculators/credit-card'
+import { calculateIncomeAnnualisation } from '../src/edr/domain/calculators/income-annualisation'
+import { calculateIncomeGrossUp } from '../src/edr/domain/calculators/income-gross-up'
 
 // Register a minimal loan-repayment calculator for execute/list tests
 beforeAll(() => {
@@ -843,5 +848,123 @@ describe('Lump Sum Repayment Calculator', () => {
       principal: 500000, interestRate: 6, termYears: 30, lumpSum: 600000,
     })
     expect(result.monthsSaved).toBe(360) // full term saved
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Income Tax Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Income Tax Calculator', () => {
+  it('$100k income has expected tax', () => {
+    const result = calculateIncomeTax({ taxableIncome: 100000 })
+    expect(result.grossTax).toBeGreaterThan(0)
+    expect(result.medicareLevy).toBeGreaterThan(0)
+    expect(result.netTaxPayable).toBeGreaterThan(0)
+    expect(result.effectiveTaxRate).toBeGreaterThan(0)
+  })
+
+  it('low income pays no tax', () => {
+    const result = calculateIncomeTax({ taxableIncome: 15000 })
+    expect(result.grossTax).toBe(0)
+  })
+
+  it('offsets reduce net tax', () => {
+    const without = calculateIncomeTax({ taxableIncome: 80000 })
+    const with_offsets = calculateIncomeTax({ taxableIncome: 80000, offsets: 5000 })
+    expect(with_offsets.netTaxPayable).toBeLessThan(without.netTaxPayable)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Compound Interest Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Compound Interest Calculator', () => {
+  it('principal grows with compound interest', () => {
+    const result = calculateCompoundInterest({
+      principal: 10000, interestRate: 8, termYears: 10,
+    })
+    expect(result.futureValue).toBeGreaterThan(10000)
+    expect(result.interestEarned).toBeGreaterThan(0)
+  })
+
+  it('regular contributions boost future value', () => {
+    const without = calculateCompoundInterest({
+      principal: 10000, interestRate: 8, termYears: 10,
+    })
+    const withContrib = calculateCompoundInterest({
+      principal: 10000, interestRate: 8, termYears: 10,
+      regularContribution: 500,
+    })
+    expect(withContrib.futureValue).toBeGreaterThan(without.futureValue)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Credit Card Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Credit Card Calculator', () => {
+  it('$5k at 20% with $200/mo has finite payoff', () => {
+    const result = calculateCreditCard({
+      balance: 5000, interestRate: 20, monthlyPayment: 200,
+    })
+    expect(result.monthsToPayoff).toBeGreaterThan(0)
+    expect(result.monthsToPayoff).toBeLessThan(600)
+    expect(result.totalInterest).toBeGreaterThan(0)
+  })
+
+  it('higher payment reduces time and interest', () => {
+    const low = calculateCreditCard({ balance: 5000, interestRate: 20, monthlyPayment: 200 })
+    const high = calculateCreditCard({ balance: 5000, interestRate: 20, monthlyPayment: 500 })
+    expect(high.monthsToPayoff).toBeLessThan(low.monthsToPayoff)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Income Annualisation Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Income Annualisation Calculator', () => {
+  it('$5k/mo annualises to $60k', () => {
+    const result = calculateIncomeAnnualisation({
+      incomeAmount: 5000, incomePeriod: 'monthly',
+    })
+    expect(result.annualisedIncome).toBe(60000)
+    expect(result.weeklyEquivalent).toBeGreaterThan(0)
+    expect(result.monthlyEquivalent).toBe(5000)
+  })
+
+  it('part-year work scales down annualisation', () => {
+    const full = calculateIncomeAnnualisation({
+      incomeAmount: 1000, incomePeriod: 'weekly',
+    })
+    const part = calculateIncomeAnnualisation({
+      incomeAmount: 1000, incomePeriod: 'weekly',
+      weeksWorkedPerYear: 26,
+    })
+    expect(part.annualisedIncome).toBeLessThan(full.annualisedIncome)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Income Gross Up Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Income Gross Up Calculator', () => {
+  it('$70k net at 30% tax rate grosses up correctly', () => {
+    const result = calculateIncomeGrossUp({
+      netIncome: 70000, taxRate: 30,
+    })
+    expect(result.grossIncome).toBeGreaterThan(70000)
+    expect(result.totalTax).toBeGreaterThan(0)
+  })
+
+  it('gross-up rate overrides tax rate', () => {
+    const result = calculateIncomeGrossUp({
+      netIncome: 50000, grossUpRate: 25,
+    })
+    expect(result.effectiveRate).toBe(25)
   })
 })
