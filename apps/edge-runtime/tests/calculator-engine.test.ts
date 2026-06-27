@@ -33,6 +33,9 @@ import { calculateLvr, LvrCalculatorInputSchema } from '../src/edr/domain/calcul
 import type { LvrCalculatorInput } from '../src/edr/domain/calculators/lvr-calculator'
 import { calculateRentVsBuy, RentVsBuyInputSchema } from '../src/edr/domain/calculators/rent-vs-buy'
 import type { RentVsBuyInput } from '../src/edr/domain/calculators/rent-vs-buy'
+import { calculateBorrowingPower } from '../src/edr/domain/calculators/borrowing-power'
+import { calculatePropertyBuyingCost } from '../src/edr/domain/calculators/property-buying-cost'
+import { calculatePropertySellingCost } from '../src/edr/domain/calculators/property-selling-cost'
 
 describe('Rounding Helpers', () => {
   it('roundMoney rounds to 2 decimal places', () => {
@@ -596,5 +599,111 @@ describe('Engine-level', () => {
     expect(ids).toContain('repayment-comparison')
     expect(ids).toContain('lvr-calculator')
     expect(ids).toContain('rent-vs-buy')
+    expect(ids).toContain('borrowing-power')
+    expect(ids).toContain('property-buying-cost')
+    expect(ids).toContain('property-selling-cost')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Borrowing Power Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Borrowing Power Calculator', () => {
+  it('full-time employee with standard expenses', () => {
+    const result = calculateBorrowingPower({
+      annualIncome: 120000,
+      monthlyExpenses: 4000,
+      interestRate: 6,
+      termYears: 30,
+    })
+    expect(result.estimatedBorrowingPower).toBeGreaterThan(0)
+    expect(result.serviceabilitySurplus).toBeGreaterThan(0)
+    expect(result.assessedInterestRate).toBe(9) // rate + 3% buffer
+  })
+
+  it('self-employed has lower borrowing power', () => {
+    const ft = calculateBorrowingPower({
+      annualIncome: 120000, monthlyExpenses: 4000,
+      interestRate: 6, termYears: 30,
+      employmentType: 'full-time',
+    })
+    const se = calculateBorrowingPower({
+      annualIncome: 120000, monthlyExpenses: 4000,
+      interestRate: 6, termYears: 30,
+      employmentType: 'self-employed',
+    })
+    expect(se.estimatedBorrowingPower).toBeLessThan(ft.estimatedBorrowingPower)
+  })
+
+  it('zero income returns zero borrowing power', () => {
+    const result = calculateBorrowingPower({
+      annualIncome: 0, monthlyExpenses: 0,
+      interestRate: 6, termYears: 30,
+    })
+    expect(result.estimatedBorrowingPower).toBe(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Property Buying Cost Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Property Buying Cost Calculator', () => {
+  it('$800k property in NSW with 20% deposit', () => {
+    const result = calculatePropertyBuyingCost({
+      purchasePrice: 800000,
+      deposit: 160000,
+      stateOrTerritory: 'NSW',
+    })
+    expect(result.stampDuty).toBeGreaterThan(0)
+    expect(result.totalUpfrontCashRequired).toBeGreaterThan(160000)
+    expect(result.totalBuyingCost).toBeGreaterThan(800000)
+    expect(result.breakdown.length).toBeGreaterThan(0)
+  })
+
+  it('first home buyer appears in inputs', () => {
+    const result = calculatePropertyBuyingCost({
+      purchasePrice: 500000,
+      deposit: 50000,
+      firstHomeBuyer: true,
+      stateOrTerritory: 'VIC',
+    })
+    expect(result.totalUpfrontCashRequired).toBeGreaterThan(0)
+  })
+
+  it('grant reduces cash required', () => {
+    const without = calculatePropertyBuyingCost({
+      purchasePrice: 600000, deposit: 120000,
+      stateOrTerritory: 'QLD',
+    })
+    const withGrant = calculatePropertyBuyingCost({
+      purchasePrice: 600000, deposit: 120000,
+      stateOrTerritory: 'QLD',
+      grantAmount: 10000,
+    })
+    expect(withGrant.netCashRequiredAfterGrant).toBeLessThan(without.totalUpfrontCashRequired)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Property Selling Cost Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Property Selling Cost Calculator', () => {
+  it('$1M property with standard costs', () => {
+    const result = calculatePropertySellingCost({
+      salePrice: 1000000,
+    })
+    expect(result.agentCommission).toBeGreaterThan(0)
+    expect(result.totalSellingCost).toBeGreaterThan(0)
+    expect(result.netProceeds).toBeLessThan(1000000)
+    expect(result.breakdown.length).toBeGreaterThan(0)
+  })
+
+  it('higher commission rate increases cost', () => {
+    const low = calculatePropertySellingCost({ salePrice: 500000, agentCommissionRate: 2 })
+    const high = calculatePropertySellingCost({ salePrice: 500000, agentCommissionRate: 3 })
+    expect(high.agentCommission).toBeGreaterThan(low.agentCommission)
   })
 })

@@ -48,6 +48,18 @@ import {
   calculateRentVsBuy,
   RentVsBuyInputSchema,
 } from '../edr/domain/calculators/rent-vs-buy'
+import {
+  calculateBorrowingPower,
+  BorrowingPowerInputSchema,
+} from '../edr/domain/calculators/borrowing-power'
+import {
+  calculatePropertyBuyingCost,
+  PropertyBuyingCostInputSchema,
+} from '../edr/domain/calculators/property-buying-cost'
+import {
+  calculatePropertySellingCost,
+  PropertySellingCostInputSchema,
+} from '../edr/domain/calculators/property-selling-cost'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CalculatorTool Interface
@@ -320,6 +332,39 @@ registerCalculator({
   category: 'comparison',
   inputSchema: RentVsBuyInputSchema,
   execute: (input) => calculateRentVsBuy(input),
+})
+
+registerCalculator({
+  id: 'borrowing-power',
+  name: 'Borrowing Power Calculator',
+  description:
+    'Estimate maximum borrowable amount from income, expenses, and serviceability assumptions. ' +
+    'Uses conservative buffer rates and employment-type stability multipliers.',
+  category: 'loan',
+  inputSchema: BorrowingPowerInputSchema,
+  execute: (input) => calculateBorrowingPower(input),
+})
+
+registerCalculator({
+  id: 'property-buying-cost',
+  name: 'Property Buying Cost Calculator',
+  description:
+    'Estimate total upfront and ongoing costs when purchasing a property. ' +
+    'Includes stamp duty (by state), LMI, legal fees, inspection, moving costs, and grants.',
+  category: 'property',
+  inputSchema: PropertyBuyingCostInputSchema,
+  execute: (input) => calculatePropertyBuyingCost(input),
+})
+
+registerCalculator({
+  id: 'property-selling-cost',
+  name: 'Property Selling Cost Calculator',
+  description:
+    'Estimate selling costs and net proceeds. ' +
+    'Includes agent commission, marketing, conveyancing, mortgage discharge, and moving costs.',
+  category: 'property',
+  inputSchema: PropertySellingCostInputSchema,
+  execute: (input) => calculatePropertySellingCost(input),
 })
 
 /** Re-export the engine utilities for convenience */
