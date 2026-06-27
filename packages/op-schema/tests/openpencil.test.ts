@@ -10,6 +10,7 @@ import {
   mortgageCalculatorInputSchema,
   repaymentSummarySchema,
   calculatorResponseSchema,
+  amortizationScheduleSchema,
   layoutDefinitionSchema,
   SCHEMA_VERSION,
   RateType,
@@ -327,5 +328,134 @@ describe('Version Mismatch', () => {
       loanTerm: 30,
     })
     expect(result.success).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Round-Trip — ensures all schemas can parse → serialize → re-parse
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Round-trip: parse → JSON.stringify → JSON.parse → re-parse', () => {
+  const validInput = {
+    schemaVersion: SCHEMA_VERSION,
+    principal: 500000,
+    interestRate: 6.25,
+    loanTerm: 30,
+  }
+
+  it('mortgageCalculatorInputSchema round-trips', () => {
+    const r1 = mortgageCalculatorInputSchema.safeParse(validInput)
+    expect(r1.success).toBe(true)
+    if (!r1.success) return
+    const json = JSON.stringify(r1.data)
+    const obj = JSON.parse(json)
+    const r2 = mortgageCalculatorInputSchema.safeParse(obj)
+    expect(r2.success).toBe(true)
+    if (!r2.success) return
+    expect(r2.data).toEqual(r1.data)
+  })
+
+  it('amortizationScheduleSchema round-trips', () => {
+    const input = {
+      entries: [{ period: 1, repayment: 3000, interest: 2500, principal: 500, remainingBalance: 499500 }],
+      totalEntries: 1,
+    }
+    const r1 = amortizationScheduleSchema.safeParse(input)
+    expect(r1.success).toBe(true)
+    if (!r1.success) return
+    const json = JSON.stringify(r1.data)
+    const obj = JSON.parse(json)
+    const r2 = amortizationScheduleSchema.safeParse(obj)
+    expect(r2.success).toBe(true)
+    if (!r2.success) return
+    expect(r2.data).toEqual(r1.data)
+  })
+
+  it('layoutDefinitionSchema round-trips (with children)', () => {
+    const input = {
+      schemaVersion: SCHEMA_VERSION,
+      rootNode: {
+        id: '0:1',
+        type: 'FRAME',
+        name: 'Root',
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 600,
+        visible: true,
+        children: [{
+          id: '0:2',
+          type: 'TEXT',
+          name: 'Title',
+          x: 20, y: 20,
+          width: 360, height: 40,
+          visible: true,
+        }],
+      },
+      formFields: [{
+        nodeId: '0:3',
+        label: 'Amount',
+        fieldType: 'number',
+        required: true,
+      }],
+    }
+    const r1 = layoutDefinitionSchema.safeParse(input)
+    expect(r1.success).toBe(true)
+    if (!r1.success) return
+    const json = JSON.stringify(r1.data)
+    const obj = JSON.parse(json)
+    const r2 = layoutDefinitionSchema.safeParse(obj)
+    expect(r2.success).toBe(true)
+    if (!r2.success) return
+    expect(r2.data).toEqual(r1.data)
+  })
+
+  it('repaymentSummarySchema round-trips', () => {
+    const input = {
+      monthlyRepayment: 3078.59,
+      fortnightlyRepayment: 1420.89,
+      weeklyRepayment: 710.44,
+      totalInterest: 608292.40,
+      totalCost: 1108292.40,
+      loanTerm: 30,
+      totalRepayments: 360,
+      totalFees: 0,
+    }
+    const r1 = repaymentSummarySchema.safeParse(input)
+    expect(r1.success).toBe(true)
+    if (!r1.success) return
+    const json = JSON.stringify(r1.data)
+    const obj = JSON.parse(json)
+    const r2 = repaymentSummarySchema.safeParse(obj)
+    expect(r2.success).toBe(true)
+    if (!r2.success) return
+    expect(r2.data).toEqual(r1.data)
+  })
+
+  it('calculatorResponseSchema round-trips', () => {
+    const input = {
+      input: { ...validInput },
+      summary: {
+        monthlyRepayment: 3078.59,
+        fortnightlyRepayment: 1420.89,
+        weeklyRepayment: 710.44,
+        totalInterest: 608292.40,
+        totalCost: 1108292.40,
+        loanTerm: 30,
+        totalRepayments: 360,
+        totalFees: 0,
+      },
+      timestamp: '2026-06-26T00:00:00.000Z',
+      schemaVersion: SCHEMA_VERSION,
+    }
+    const r1 = calculatorResponseSchema.safeParse(input)
+    expect(r1.success).toBe(true)
+    if (!r1.success) return
+    const json = JSON.stringify(r1.data)
+    const obj = JSON.parse(json)
+    const r2 = calculatorResponseSchema.safeParse(obj)
+    expect(r2.success).toBe(true)
+    if (!r2.success) return
+    expect(r2.data).toEqual(r1.data)
   })
 })
