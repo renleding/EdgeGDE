@@ -192,46 +192,79 @@ def generate_analysis(instance: dict, ctx: dict) -> dict:
     analysis = call_llm([
         {"role": "system", "content": system},
         {"role": "user", "content": user},
-    ], max_tokens=2000)
+    ], max_tokens=4000)
     dur = time.time() - start
     print(f"  Analysis: {len(analysis)} chars in {dur:.1f}s")
     return {"analysis": analysis, "duration_ms": int(dur * 1000)}
 
 
 def generate_diff_from_analysis(instance: dict, ctx: dict, analysis: str) -> str:
-    """FRS-6 Step 2: Generate the actual diff given the analysis."""
+    """FRS-6 Step 2: Generate corrected file content, then diff against original."""
     problem = instance["problem_statement"]
     repo_name = instance["repo"]
 
+    # Identify target file(s) from analysis
     system = (
         f"You are an expert Python developer fixing a bug in {repo_name}.\n\n"
-        "Generate a unified git diff patch based on the analysis below.\n"
+        "You will be given a file's current content and a description of what to change.\n"
+        "Output the COMPLETE corrected file. DO NOT omit any code.\n"
         "RULES:\n"
-        "1. Output ONLY the raw diff. NO markdown, NO code fences, NO explanations.\n"
-        "2. START with: diff --git a/path b/path\n"
-        "3. Use standard unified diff format.\n"
-        "4. Only modify files that need changing.\n"
-        "5. Make minimal changes.\n"
-        "6. The diff MUST match the ACTUAL file contents shown below."
-    )
-    user = (
-        f"Repository: {repo_name}\n\n"
-        f"File tree:\n{ctx['file_tree']}\n\n"
-        f"Relevant file contents:\n{ctx['file_content_section']}\n\n"
-        f"PROBLEM:\n{problem}\n\n"
-        f"ANALYSIS:\n{analysis}\n\n"
-        "Generate the exact unified diff patch:"
+        "1. Output ONLY the file content. NO markdown, NO code fences.\n"
+        "2. The output MUST be a valid Python file.\n"
+        "3. Keep ALL existing code — only change the specific lines needed.\n"
+        "4. Output the COMPLETE file, not just the changed portions."
     )
 
-    print(f"  [CoT step 2/2] Generating diff...")
-    start = time.time()
-    response = call_llm([
-        {"role": "system", "content": system},
-        {"role": "user", "content": user},
-    ], max_tokens=16000)
-    dur = time.time() - start
-    print(f"  Diff: {len(response)} chars in {dur:.1f}s")
-    return response
+    # For each relevant file, generate corrected content
+    results = []
+    for file_rel in ctx["relevant_files"]:
+        file_path = ctx.get("_worktree", Path()) / file_rel
+        if not file_path.exists():
+            continue
+
+        original_content = file_path.read_text()
+        user = (
+            f"Repository: {repo_name}\n"
+            f"File: {file_rel}\n\n"
+            f"CURRENT CONTENT:\n{original_content}\n\n"
+            f"PROBLEM:\n{problem}\n\n"
+            f"ANALYSIS:\n{analysis}\n\n"
+            f"Output the COMPLETE corrected content of {file_rel}:"
+        )
+
+        print(f"  [Full file] Generating corrected {file_rel}...")
+        try:
+            start = time.time()
+            response = call_llm([
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ], max_tokens=32000)
+            dur = time.time() - start
+            print(f"  Response: {len(response)} chars in {dur:.1f}s")
+
+            # Strip code fences if present
+            cleaned = response
+            if "```python" in cleaned:
+                cleaned = cleaned.split("```python")[1].split("```")[0].strip()
+            elif "```" in cleaned:
+                parts = cleaned.split("```")
+                cleaned = parts[1].strip() if len(parts) >= 2 else cleaned
+
+            # Write corrected file
+            file_path.write_text(cleaned)
+            results.append(file_rel)
+        except Exception as e:
+            print(f"  ⚠️ Failed to generate {file_rel}: {e}")
+
+    # Generate the diff from changes
+    if results:
+        diff = subprocess.run(
+            ["git", "diff"],
+            cwd=ctx.get("_worktree", Path()),
+            capture_output=True, text=True
+        ).stdout
+        return diff or ""
+    return ""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -362,11 +395,14 @@ def run_aider_fallback(instance: dict, worktree: Path) -> str:
 def run_attempt(instance: dict, worktree: Path, ctx: dict, attempt_num: int,
                 log_dir: Path) -> dict:
     """
-    One full attempt: CoT analyze → generate diff → apply.
-    Returns attempt result dict.
+    One full attempt: CoT analyze → generate corrected file(s) → capture diff.
+    No git apply needed — file contents are written directly.
     """
     a_start = time.time()
     print(f"\n  --- Attempt {attempt_num} ---")
+
+    # Inject worktree into context for generate_diff_from_analysis
+    ctx["_worktree"] = worktree
 
     # FRS-6 Step 1: Analyze
     analysis = ""
@@ -392,59 +428,117 @@ def run_attempt(instance: dict, worktree: Path, ctx: dict, attempt_num: int,
         (log_dir / f"attempt_{attempt_num}_result.json").write_text(json.dumps(result, indent=2))
         return result
 
-    # FRS-6 Step 2: Generate diff
+    # FRS-6 Step 2: Generate corrected file content (writes files directly, returns git diff)
+    final_diff = ""
     try:
-        llm_patch = generate_diff_from_analysis(instance, ctx, analysis)
+        final_diff = generate_diff_from_analysis(instance, ctx, analysis)
     except Exception as e:
-        print(f"  ⚠️ Diff generation failed: {e}")
-        llm_patch = ""
-    (log_dir / f"attempt_{attempt_num}_patch_raw.txt").write_text(llm_patch)
+        print(f"  ⚠️ Full-file generation failed: {e}")
+    (log_dir / f"attempt_{attempt_num}_patch_raw.txt").write_text(final_diff or "(empty)")
 
-    # Apply
-    applied, error_msg = apply_patch(worktree, llm_patch)
     a_dur = int((time.time() - a_start) * 1000)
+    has_diff = bool(final_diff and len(final_diff) > 50)
+    applied = has_diff  # File was written directly, no explicit "apply" step needed
 
     result = {
         "attempt": attempt_num,
         "analysis_size": len(analysis),
         "analysis_duration_ms": analysis_result["duration_ms"],
-        "patch_raw_size": len(llm_patch),
+        "patch_raw_size": len(final_diff or ""),
         "applied": applied,
-        "apply_error": error_msg,
+        "apply_error": "" if applied else "no_diff_generated",
         "duration_ms": a_dur,
     }
 
     if applied:
-        print(f"  ✅ Attempt {attempt_num}: patch applied")
-        diff = subprocess.run(["git", "diff"], cwd=worktree, capture_output=True, text=True)
-        result["final_patch"] = diff.stdout
-        result["final_patch_size"] = len(diff.stdout or "")
+        print(f"  ✅ Attempt {attempt_num}: files corrected, diff generated ({len(final_diff)} chars)")
+        result["final_patch"] = final_diff
+        result["final_patch_size"] = len(final_diff or "")
+
+        # FRS-7: LSP-based self-correction
+        _attempt_lsp_correction(instance, worktree, ctx, analysis, final_diff, log_dir, attempt_num, result)
     else:
-        print(f"  ❌ Attempt {attempt_num}: apply failed — {error_msg}")
+        print(f"  ❌ Attempt {attempt_num}: no diff generated")
         result["final_patch"] = ""
         result["final_patch_size"] = 0
-
-    # FRS-7: Self-correction on git apply failure
-    if not applied and attempt_num < 3:
-        retry_patch = _self_correct(instance, worktree, llm_patch, error_msg, log_dir, attempt_num)
-        if retry_patch:
-            (log_dir / f"attempt_{attempt_num}_corrected_patch.txt").write_text(retry_patch)
-            cor_applied, cor_error = apply_patch(worktree, retry_patch)
-            if cor_applied:
-                print(f"  ✅ Attempt {attempt_num} (self-corrected): patch applied")
-                diff = subprocess.run(["git", "diff"], cwd=worktree, capture_output=True, text=True)
-                result["final_patch"] = diff.stdout
-                result["final_patch_size"] = len(diff.stdout or "")
-                result["applied"] = True
-                result["self_corrected"] = True
-            else:
-                print(f"  ❌ Attempt {attempt_num} (self-corrected): still failed — {cor_error[:100]}")
-                result["self_corrected"] = False
-                result["correction_error"] = cor_error[:200]
 
     # Save attempt result
     (log_dir / f"attempt_{attempt_num}_result.json").write_text(json.dumps(result, indent=2))
     return result
+
+
+def _attempt_lsp_correction(instance, worktree, ctx, analysis, current_diff, log_dir, attempt_num, result):
+    """FRS-7: Run LSP diagnostics on the corrected file, retry if errors found."""
+    # Detect language from file extensions
+    py_files = list(worktree.rglob("*.py"))
+    if not py_files:
+        return
+
+    # Try pyright if available
+    import shutil
+    if not shutil.which("pyright"):
+        return
+
+    print(f"  [LSP correction] Running pyright...")
+    try:
+        r = subprocess.run(
+            ["pyright", "--outputjson", str(worktree)],
+            capture_output=True, text=True, timeout=60
+        )
+        data = json.loads(r.stdout)
+        errors = [d for d in data.get("generalDiagnostics", [])
+                  if d.get("severity") == "error"]
+        if not errors:
+            print(f"  [LSP correction] No errors found")
+            return
+
+        print(f"  [LSP correction] {len(errors)} errors found, regenerating...")
+        result["lsp_errors_before"] = len(errors)
+
+        # Feed errors back to LLM
+        error_text = "\n".join(
+            f"{e.get('file','?')}:{e.get('range',{}).get('start',{}).get('line',0)}: {e.get('message','')}"
+            for e in errors[:10]
+        )
+        system = (
+            f"You are an expert Python developer fixing a bug in {instance['repo']}.\n\n"
+            "The corrected file has type errors. Fix them and output the COMPLETE corrected file.\n"
+            "RULES:\n"
+            "1. Output ONLY the file content. NO markdown, NO code fences.\n"
+            "2. Fix ALL type errors listed below.\n"
+            "3. Output the COMPLETE file."
+        )
+        for file_rel in ctx.get("relevant_files", []):
+            fp = worktree / file_rel
+            if fp.exists():
+                content = fp.read_text()
+                user = (
+                    f"File: {file_rel}\n"
+                    f"CURRENT CONTENT:\n{content}\n\n"
+                    f"TYPE ERRORS:\n{error_text}\n\n"
+                    "Output the COMPLETE corrected file with all type errors fixed:"
+                )
+                response = call_llm([
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ], max_tokens=32000)
+                cleaned = response
+                if "```python" in cleaned:
+                    cleaned = cleaned.split("```python")[1].split("```")[0].strip()
+                elif "```" in cleaned:
+                    parts = cleaned.split("```")
+                    cleaned = parts[1].strip() if len(parts) >= 2 else cleaned
+                fp.write_text(cleaned)
+
+        # Capture corrected diff
+        diff = subprocess.run(["git", "diff"], cwd=worktree, capture_output=True, text=True).stdout
+        if diff and len(diff) > 50:
+            result["final_patch"] = diff
+            result["final_patch_size"] = len(diff)
+            result["lsp_corrected"] = True
+            print(f"  [LSP correction] Fixed, patch now {len(diff)} chars")
+    except Exception as e:
+        print(f"  [LSP correction] Failed: {e}")
 
 
 def _self_correct(instance: dict, worktree: Path, failed_patch: str,
