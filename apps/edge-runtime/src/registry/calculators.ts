@@ -100,6 +100,34 @@ import {
   calculateIncomeGrossUp,
   IncomeGrossUpInputSchema,
 } from '../edr/domain/calculators/income-gross-up'
+import {
+  calculateSplitLoan,
+  SplitLoanInputSchema,
+} from '../edr/domain/calculators/split-loan'
+import {
+  calculateHomeLoanOffset,
+  HomeLoanOffsetInputSchema,
+} from '../edr/domain/calculators/home-loan-offset'
+import {
+  calculateIntroductoryRateLoan,
+  IntroductoryRateLoanInputSchema,
+} from '../edr/domain/calculators/introductory-rate-loan'
+import {
+  calculateLoanComparison,
+  LoanComparisonInputSchema,
+} from '../edr/domain/calculators/loan-comparison'
+import {
+  calculateMortgageSwitching,
+  MortgageSwitchingInputSchema,
+} from '../edr/domain/calculators/mortgage-switching'
+import {
+  calculateLeasing,
+  LeasingInputSchema,
+} from '../edr/domain/calculators/leasing'
+import {
+  calculateReverseMortgage,
+  ReverseMortgageInputSchema,
+} from '../edr/domain/calculators/reverse-mortgage'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CalculatorTool Interface
@@ -515,6 +543,69 @@ registerCalculator({
   category: 'general',
   inputSchema: IncomeGrossUpInputSchema,
   execute: (input) => calculateIncomeGrossUp(input),
+})
+
+registerCalculator({
+  id: 'split-loan',
+  name: 'Split Loan Calculator',
+  description: 'Calculate loans split across fixed and variable portions. Returns individual repayments, total, and weighted average rate.',
+  category: 'loan',
+  inputSchema: SplitLoanInputSchema,
+  execute: (input) => calculateSplitLoan(input),
+})
+
+registerCalculator({
+  id: 'home-loan-offset',
+  name: 'Home Loan Offset Calculator',
+  description: 'Estimate interest savings from an offset account. Compares with-offset amortization against no-offset baseline.',
+  category: 'loan',
+  inputSchema: HomeLoanOffsetInputSchema,
+  execute: (input) => calculateHomeLoanOffset(input),
+})
+
+registerCalculator({
+  id: 'introductory-rate-loan',
+  name: 'Introductory Rate Loan Calculator',
+  description: 'Model an introductory (honeymoon) rate loan that reverts after a fixed period. Shows the jump in repayments.',
+  category: 'loan',
+  inputSchema: IntroductoryRateLoanInputSchema,
+  execute: (input) => calculateIntroductoryRateLoan(input),
+})
+
+registerCalculator({
+  id: 'loan-comparison',
+  name: 'Loan Comparison Calculator',
+  description: 'Compare two or more loan options side-by-side. Finds best by total cost, monthly repayment, and interest saved.',
+  category: 'comparison',
+  inputSchema: LoanComparisonInputSchema,
+  execute: (input) => calculateLoanComparison(input),
+})
+
+registerCalculator({
+  id: 'mortgage-switching',
+  name: 'Mortgage Switching Calculator',
+  description: 'Compare staying with current loan vs switching/refinancing. Includes break-even analysis with upfront costs.',
+  category: 'comparison',
+  inputSchema: MortgageSwitchingInputSchema,
+  execute: (input) => calculateMortgageSwitching(input),
+})
+
+registerCalculator({
+  id: 'leasing',
+  name: 'Leasing Calculator',
+  description: 'Estimate lease payments for an asset given price, residual value, interest rate, term, and fees.',
+  category: 'general',
+  inputSchema: LeasingInputSchema,
+  execute: (input) => calculateLeasing(input),
+})
+
+registerCalculator({
+  id: 'reverse-mortgage',
+  name: 'Reverse Mortgage Calculator',
+  description: 'Estimate reverse mortgage drawdown and projected loan balance over time. Includes equity remaining analysis.',
+  category: 'general',
+  inputSchema: ReverseMortgageInputSchema,
+  execute: (input) => calculateReverseMortgage(input),
 })
 
 /** Re-export the engine utilities for convenience */

@@ -47,6 +47,13 @@ import { calculateCompoundInterest } from '../src/edr/domain/calculators/compoun
 import { calculateCreditCard } from '../src/edr/domain/calculators/credit-card'
 import { calculateIncomeAnnualisation } from '../src/edr/domain/calculators/income-annualisation'
 import { calculateIncomeGrossUp } from '../src/edr/domain/calculators/income-gross-up'
+import { calculateSplitLoan } from '../src/edr/domain/calculators/split-loan'
+import { calculateHomeLoanOffset } from '../src/edr/domain/calculators/home-loan-offset'
+import { calculateIntroductoryRateLoan } from '../src/edr/domain/calculators/introductory-rate-loan'
+import { calculateLoanComparison } from '../src/edr/domain/calculators/loan-comparison'
+import { calculateMortgageSwitching } from '../src/edr/domain/calculators/mortgage-switching'
+import { calculateLeasing } from '../src/edr/domain/calculators/leasing'
+import { calculateReverseMortgage } from '../src/edr/domain/calculators/reverse-mortgage'
 
 // Register a minimal loan-repayment calculator for execute/list tests
 beforeAll(() => {
@@ -966,5 +973,124 @@ describe('Income Gross Up Calculator', () => {
       netIncome: 50000, grossUpRate: 25,
     })
     expect(result.effectiveRate).toBe(25)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Split Loan Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Split Loan Calculator', () => {
+  it('$500k split 60/40 fixed/variable', () => {
+    const result = calculateSplitLoan({
+      totalPrincipal: 500000, fixedPortion: 300000,
+      fixedRate: 5.5, fixedTermYears: 3,
+      variableRate: 6.5, variableTermYears: 30,
+    })
+    expect(result.fixedRepayment).toBeGreaterThan(0)
+    expect(result.variableRepayment).toBeGreaterThan(0)
+    expect(result.totalRepayment).toBeGreaterThan(0)
+    expect(result.weightedAverageRate).toBeGreaterThan(5.5)
+    expect(result.weightedAverageRate).toBeLessThan(6.5)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Home Loan Offset Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Home Loan Offset Calculator', () => {
+  it('offset reduces interest and term', () => {
+    const result = calculateHomeLoanOffset({
+      loanBalance: 400000, offsetBalance: 50000,
+      interestRate: 6, termYears: 30,
+    })
+    expect(result.interestSaved).toBeGreaterThan(0)
+    expect(result.noOffsetMonthly).toBeGreaterThan(0)
+    expect(result.withOffsetMonthly).toBeGreaterThan(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Introductory Rate Loan Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Introductory Rate Loan Calculator', () => {
+  it('2% intro for 12 months then reverts to 6%', () => {
+    const result = calculateIntroductoryRateLoan({
+      principal: 500000, introductoryRate: 2,
+      introductoryMonths: 12, revertRate: 6, termYears: 30,
+    })
+    expect(result.introductoryRepayment).toBeGreaterThan(0)
+    expect(result.revertRepayment).toBeGreaterThan(result.introductoryRepayment)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Loan Comparison Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Loan Comparison Calculator', () => {
+  it('compares 3 loan options and finds best', () => {
+    const result = calculateLoanComparison({
+      loans: [
+        { name: 'Bank A', principal: 500000, interestRate: 6, termYears: 30 },
+        { name: 'Bank B', principal: 500000, interestRate: 5.5, termYears: 30 },
+        { name: 'Bank C', principal: 500000, interestRate: 5.8, termYears: 30, feesAnnual: 395 },
+      ],
+    })
+    expect(result.bestByTotalCost.length).toBeGreaterThan(0)
+    expect(result.bestByMonthlyRepayment.length).toBeGreaterThan(0)
+    expect(result.comparisonTable.length).toBe(3)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mortgage Switching Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Mortgage Switching Calculator', () => {
+  it('lower rate with fees may still save money', () => {
+    const result = calculateMortgageSwitching({
+      currentBalance: 400000, currentRate: 6.5,
+      currentRemainingYears: 25, newRate: 5.5,
+      newFeesUpfront: 2000, breakCosts: 800,
+    })
+    expect(result.stayMonthlyRepayment).toBeGreaterThan(result.switchMonthlyRepayment)
+    expect(result.breakEvenMonths).toBeGreaterThan(0)
+    expect(result.breakEvenMonths).toBeLessThan(999)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Leasing Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Leasing Calculator', () => {
+  it('$50k car lease over 3 years', () => {
+    const result = calculateLeasing({
+      assetPrice: 50000, residualValue: 20000,
+      interestRate: 7, termYears: 3,
+    })
+    expect(result.leasePayment).toBeGreaterThan(0)
+    expect(result.totalLeaseCost).toBeGreaterThan(0)
+    expect(result.capitalizedCost).toBe(50000)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reverse Mortgage Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Reverse Mortgage Calculator', () => {
+  it('$800k property, $100k initial drawdown, $2k/mo regular', () => {
+    const result = calculateReverseMortgage({
+      propertyValue: 800000, borrowerAge: 65,
+      interestRate: 6, initialDrawdown: 100000,
+      regularDrawdown: 2000, termYears: 10,
+    })
+    expect(result.projectedLoanBalance).toBeGreaterThan(100000)
+    expect(result.remainingEquity).toBeGreaterThan(0)
+    expect(result.drawdownTotal).toBeGreaterThan(100000)
   })
 })
