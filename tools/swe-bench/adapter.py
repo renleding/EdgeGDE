@@ -230,6 +230,35 @@ def apply_patch(worktree: Path, patch_text: str) -> bool:
     lines = cleaned.strip().split("\n")
     lines = [l for l in lines if not l.strip().startswith("```") or len(l.strip()) > 3]
     cleaned = "\n".join(lines)
+    
+    # Auto-correct file paths: check that --- a/... files exist in the worktree
+    import re
+    def correct_path(match):
+        path = match.group(1)
+        # Check both the raw path and common prefix variations
+        candidates = [path]
+        # Try removing common hallucinated prefixes
+        for prefix in ["core/", "src/core/", "lib/", "source/"]:
+            if path.startswith(prefix):
+                candidates.append(path[len(prefix):])
+        # Try searching for the file by basename
+        basename = path.split("/")[-1]
+        found = list(worktree.rglob(basename))
+        if found:
+            rel = str(found[0].relative_to(worktree))
+            if rel != path:
+                candidates.append(rel)
+        # Use first valid candidate
+        for c in candidates:
+            if (worktree / c).exists():
+                return match.group(0).replace(path, c, 1)
+        return match.group(0)  # no correction found, keep original
+    
+    cleaned = re.sub(r'^--- a/(.+)$', correct_path, cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'^\+\+\+ b/(.+)$', correct_path, cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'^diff --git a/(.+) b/(.+)$', 
+                     lambda m: f"diff --git a/{m.group(1)} b/{correct_path(re.match(r'^--- a/(.+)', '--- a/'+m.group(2)) or m.group(2))}", 
+                     cleaned, flags=re.MULTILINE)
 
     patch_file = worktree.parent / f"{worktree.name}_patch.diff"
     patch_file.write_text(cleaned)
