@@ -60,6 +60,26 @@ import {
   calculatePropertySellingCost,
   PropertySellingCostInputSchema,
 } from '../edr/domain/calculators/property-selling-cost'
+import {
+  calculateComparisonRate,
+  ComparisonRateInputSchema,
+} from '../edr/domain/calculators/comparison-rate'
+import {
+  calculateExtraRepayment,
+  ExtraRepaymentInputSchema,
+} from '../edr/domain/calculators/extra-repayment'
+import {
+  calculateInterestOnly,
+  InterestOnlyInputSchema,
+} from '../edr/domain/calculators/interest-only-mortgage'
+import {
+  calculateHowLongToRepay,
+  HowLongToRepayInputSchema,
+} from '../edr/domain/calculators/how-long-to-repay'
+import {
+  calculateLumpSumRepayment,
+  LumpSumRepaymentInputSchema,
+} from '../edr/domain/calculators/lump-sum-repayment'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CalculatorTool Interface
@@ -365,6 +385,61 @@ registerCalculator({
   category: 'property',
   inputSchema: PropertySellingCostInputSchema,
   execute: (input) => calculatePropertySellingCost(input),
+})
+
+registerCalculator({
+  id: 'comparison-rate',
+  name: 'Comparison Rate Calculator',
+  description:
+    'Estimate the true annualised cost of a loan including fees and charges. ' +
+    'Uses Newton-Raphson iteration to solve for the comparison rate.',
+  category: 'loan',
+  inputSchema: ComparisonRateInputSchema,
+  execute: (input) => calculateComparisonRate(input),
+})
+
+registerCalculator({
+  id: 'extra-repayment',
+  name: 'Extra Repayment Calculator',
+  description:
+    'Model the impact of additional repayments on a loan. ' +
+    'Shows months saved, interest saved, and new total cost.',
+  category: 'loan',
+  inputSchema: ExtraRepaymentInputSchema,
+  execute: (input) => calculateExtraRepayment(input),
+})
+
+registerCalculator({
+  id: 'interest-only-mortgage',
+  name: 'Interest Only Mortgage Calculator',
+  description:
+    'Calculate interest-only repayments and compare with principal-and-interest. ' +
+    'Shows the extra cost of an interest-only period vs standard P&I.',
+  category: 'loan',
+  inputSchema: InterestOnlyInputSchema,
+  execute: (input) => calculateInterestOnly(input),
+})
+
+registerCalculator({
+  id: 'how-long-to-repay',
+  name: 'How Long to Repay Calculator',
+  description:
+    'Calculate how long it will take to repay a loan given a fixed repayment amount. ' +
+    'Returns months to payoff and total interest paid.',
+  category: 'loan',
+  inputSchema: HowLongToRepayInputSchema,
+  execute: (input) => calculateHowLongToRepay(input),
+})
+
+registerCalculator({
+  id: 'lump-sum-repayment',
+  name: 'Lump Sum Repayment Calculator',
+  description:
+    'Calculate the impact of a lump sum payment on a loan. ' +
+    'Shows months saved, interest saved, and new payoff date.',
+  category: 'loan',
+  inputSchema: LumpSumRepaymentInputSchema,
+  execute: (input) => calculateLumpSumRepayment(input),
 })
 
 /** Re-export the engine utilities for convenience */

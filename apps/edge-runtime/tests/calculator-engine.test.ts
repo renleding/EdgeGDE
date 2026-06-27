@@ -37,6 +37,11 @@ import type { RentVsBuyInput } from '../src/edr/domain/calculators/rent-vs-buy'
 import { calculateBorrowingPower } from '../src/edr/domain/calculators/borrowing-power'
 import { calculatePropertyBuyingCost } from '../src/edr/domain/calculators/property-buying-cost'
 import { calculatePropertySellingCost } from '../src/edr/domain/calculators/property-selling-cost'
+import { calculateComparisonRate } from '../src/edr/domain/calculators/comparison-rate'
+import { calculateExtraRepayment } from '../src/edr/domain/calculators/extra-repayment'
+import { calculateInterestOnly } from '../src/edr/domain/calculators/interest-only-mortgage'
+import { calculateHowLongToRepay } from '../src/edr/domain/calculators/how-long-to-repay'
+import { calculateLumpSumRepayment } from '../src/edr/domain/calculators/lump-sum-repayment'
 
 // Register a minimal loan-repayment calculator for execute/list tests
 beforeAll(() => {
@@ -725,5 +730,118 @@ describe('Property Selling Cost Calculator', () => {
     const low = calculatePropertySellingCost({ salePrice: 500000, agentCommissionRate: 2 })
     const high = calculatePropertySellingCost({ salePrice: 500000, agentCommissionRate: 3 })
     expect(high.agentCommission).toBeGreaterThan(low.agentCommission)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Comparison Rate Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Comparison Rate Calculator', () => {
+  it('standard loan without fees has comparison rate near nominal', () => {
+    const result = calculateComparisonRate({
+      principal: 500000, interestRate: 6, termYears: 30,
+      upfrontFees: 0, ongoingAnnualFees: 0,
+    })
+    expect(result.comparisonRate).toBeGreaterThan(5.9)
+    expect(result.comparisonRate).toBeLessThan(6.1)
+  })
+
+  it('upfront fees increase comparison rate', () => {
+    const result = calculateComparisonRate({
+      principal: 500000, interestRate: 6, termYears: 30,
+      upfrontFees: 5000,
+    })
+    expect(result.comparisonRate).toBeGreaterThan(6)
+    expect(result.totalFees).toBe(5000)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Extra Repayment Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Extra Repayment Calculator', () => {
+  it('extra $200/mo saves months and interest', () => {
+    const result = calculateExtraRepayment({
+      principal: 500000, interestRate: 6, termYears: 30, extraRepayment: 200,
+    })
+    expect(result.monthsSaved).toBeGreaterThan(0)
+    expect(result.interestSaved).toBeGreaterThan(0)
+    expect(result.newRepayment).toBeGreaterThan(result.standardRepayment)
+  })
+
+  it('zero extra repayment matches standard', () => {
+    const result = calculateExtraRepayment({
+      principal: 500000, interestRate: 6, termYears: 30, extraRepayment: 0,
+    })
+    expect(result.monthsSaved).toBe(0)
+    expect(result.interestSaved).toBe(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Interest Only Mortgage Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Interest Only Mortgage Calculator', () => {
+  it('IO period has lower repayment than P&I', () => {
+    const result = calculateInterestOnly({
+      principal: 500000, interestRate: 6,
+      interestOnlyYears: 5, totalTermYears: 30,
+    })
+    expect(result.interestOnlyRepayment).toBeGreaterThan(0)
+    expect(result.principalAndInterestRepaymentAfterIo).toBeGreaterThan(result.interestOnlyRepayment)
+  })
+
+  it('IO loan costs more than standard P&I', () => {
+    const result = calculateInterestOnly({
+      principal: 500000, interestRate: 6,
+      interestOnlyYears: 5, totalTermYears: 30,
+    })
+    expect(result.extraCostVsPAndI).toBeGreaterThan(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// How Long to Repay Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('How Long to Repay Calculator', () => {
+  it('standard repayment pays off within term', () => {
+    const result = calculateHowLongToRepay({
+      principal: 500000, interestRate: 6,
+      repaymentAmount: 3000,
+    })
+    expect(result.monthsToPayoff).toBeGreaterThan(0)
+    expect(result.monthsToPayoff).toBeLessThan(600)
+    expect(result.totalRepaid).toBeGreaterThan(500000)
+  })
+
+  it('larger repayment reduces time', () => {
+    const low = calculateHowLongToRepay({ principal: 500000, interestRate: 6, repaymentAmount: 3000 })
+    const high = calculateHowLongToRepay({ principal: 500000, interestRate: 6, repaymentAmount: 5000 })
+    expect(high.monthsToPayoff).toBeLessThan(low.monthsToPayoff)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Lump Sum Repayment Calculator Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Lump Sum Repayment Calculator', () => {
+  it('lump sum reduces loan term', () => {
+    const result = calculateLumpSumRepayment({
+      principal: 500000, interestRate: 6, termYears: 30, lumpSum: 50000,
+    })
+    expect(result.monthsSaved).toBeGreaterThan(0)
+    expect(result.interestSaved).toBeGreaterThan(0)
+  })
+
+  it('lump sum larger than principal pays off immediately', () => {
+    const result = calculateLumpSumRepayment({
+      principal: 500000, interestRate: 6, termYears: 30, lumpSum: 600000,
+    })
+    expect(result.monthsSaved).toBe(360) // full term saved
   })
 })
