@@ -12,13 +12,14 @@ export default defineConfig({
       'tests/phase13-hypermedia.test.ts',
       'tests/domain-swarm.test.ts',
       'tests/domain-workspace.test.ts',
+      'tests/calculator-engine.test.ts',
     ],
     exclude: ['node_modules', 'dist'],
   },
   // Resolve @edgegde/schema imports
   resolve: {
     alias: {
-      '@edgegde/schema': '../../packages/op-schema/src',
+      '@edgegde/schema': '/Users/warren/Documents/_HQ_AI/EdgeGDE/.worktrees/hermes-ef56f142/packages/op-schema/src/openpencil.ts',
     },
   },
 })

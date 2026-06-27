@@ -25,7 +25,7 @@ export const PropertySellingCostInputSchema = z
   })
   .strict()
 
-export type PropertySellingCostInput = z.infer<typeof PropertySellingCostInputSchema>
+export type PropertySellingCostInput = z.input<typeof PropertySellingCostInputSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Output Type
@@ -46,8 +46,12 @@ export interface PropertySellingCostOutput {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function calculatePropertySellingCost(input: PropertySellingCostInput): PropertySellingCostOutput {
-  const { salePrice, agentCommissionRate, marketingCosts,
-    conveyancingFees, mortgageDischargeFee, movingCosts } = input
+  const salePrice = input.salePrice ?? 0
+  const agentCommissionRate = input.agentCommissionRate ?? 2.5
+  const marketingCosts = input.marketingCosts ?? 3000
+  const conveyancingFees = input.conveyancingFees ?? 1500
+  const mortgageDischargeFee = input.mortgageDischargeFee ?? 400
+  const movingCosts = input.movingCosts ?? 2000
 
   const agentCommission = roundMoney(salePrice * (agentCommissionRate / 100))
   const totalSellingCost = roundMoney(agentCommission + marketingCosts + conveyancingFees + mortgageDischargeFee + movingCosts)

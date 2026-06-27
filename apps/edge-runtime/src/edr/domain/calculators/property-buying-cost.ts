@@ -28,7 +28,7 @@ export const PropertyBuyingCostInputSchema = z
   })
   .strict()
 
-export type PropertyBuyingCostInput = z.infer<typeof PropertyBuyingCostInputSchema>
+export type PropertyBuyingCostInput = z.input<typeof PropertyBuyingCostInputSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Output Type
@@ -125,8 +125,15 @@ function estimateLmi(loanAmount: number, propertyPrice: number): number {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function calculatePropertyBuyingCost(input: PropertyBuyingCostInput): PropertyBuyingCostOutput {
-  const { purchasePrice, deposit, stateOrTerritory, firstHomeBuyer,
-    lmiRequired, legalFees, inspectionFees, movingCosts, grantAmount } = input
+  const purchasePrice = input.purchasePrice ?? 0
+  const deposit = input.deposit ?? 0
+  const stateOrTerritory = input.stateOrTerritory ?? 'NSW'
+  const firstHomeBuyer = input.firstHomeBuyer ?? false
+  const lmiRequired = input.lmiRequired ?? false
+  const legalFees = input.legalFees ?? 2000
+  const inspectionFees = input.inspectionFees ?? 1000
+  const movingCosts = input.movingCosts ?? 1500
+  const grantAmount = input.grantAmount ?? 0
 
   const loanAmount = Math.max(0, purchasePrice - deposit)
   const stampDuty = estimateStampDuty(purchasePrice, stateOrTerritory)

@@ -30,7 +30,7 @@ export const BorrowingPowerInputSchema = z
   })
   .strict()
 
-export type BorrowingPowerInput = z.infer<typeof BorrowingPowerInputSchema>
+export type BorrowingPowerInput = z.input<typeof BorrowingPowerInputSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Output Type
@@ -77,11 +77,16 @@ const DEPENDENT_COST = 500
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function calculateBorrowingPower(input: BorrowingPowerInput): BorrowingPowerOutput {
-  const {
-    annualIncome, monthlyExpenses, existingDebtPayments, deposit,
-    interestRate, termYears, interestRateBuffer, employmentType,
-    dependents, creditCommitments,
-  } = input
+  const annualIncome = input.annualIncome ?? 0
+  const monthlyExpenses = input.monthlyExpenses ?? 0
+  const existingDebtPayments = input.existingDebtPayments ?? 0
+  const deposit = input.deposit ?? 0
+  const interestRate = input.interestRate ?? 0
+  const termYears = input.termYears ?? 1
+  const interestRateBuffer = input.interestRateBuffer ?? 3
+  const employmentType = input.employmentType ?? 'full-time'
+  const dependents = input.dependents ?? 0
+  const creditCommitments = input.creditCommitments ?? 0
 
   // 1. Assessable income (scaled by employment type stability)
   const effectiveIncome = annualIncome * incomeMultiplier(employmentType)
