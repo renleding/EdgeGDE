@@ -55,6 +55,7 @@ import { calculateLoanComparison } from '../src/edr/domain/calculators/loan-comp
 import { calculateMortgageSwitching } from '../src/edr/domain/calculators/mortgage-switching'
 import { calculateLeasing } from '../src/edr/domain/calculators/leasing'
 import { calculateReverseMortgage } from '../src/edr/domain/calculators/reverse-mortgage'
+import { CircuitBreaker, llmCircuitBreaker } from '../src/lib/circuit-breaker'
 
 // Register a minimal loan-repayment calculator for execute/list tests
 beforeAll(() => {
@@ -1095,7 +1096,7 @@ describe('Calculator Edge Cases', () => {
   })
 
   it('repayment-comparison: extra repayment equals zero', () => {
-    const r = calculateRepaymentComparison({ loanAmount: 300000, interestRate: 6, termYears: 30, extraRepayment: 0 })
+    const r = calculateRepaymentComparison({ loanAmount: 300000, interestRate: 6, termYears: 30, extraRepayment: 0, extraFrequency: 'monthly' })
     expect(r.monthsSaved).toBe(0)
     expect(r.interestSaved).toBe(0)
   })
@@ -1134,6 +1135,42 @@ describe('Calculator Edge Cases', () => {
     const r = calculateIncomeGrossUp({ netIncome: 0, taxRate: 30 })
     expect(r.grossIncome).toBe(0)
     expect(r.totalTax).toBe(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Circuit Breaker Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Circuit Breaker', () => {
+  it('starts closed and available', () => {
+    const cb = new CircuitBreaker()
+    const status = cb.getStatus()
+    expect(status.state).toBe('closed')
+    expect(status.available).toBe(true)
+  })
+
+  it('opens after failure threshold', () => {
+    const cb = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 60000, maxHalfOpenAttempts: 3 })
+    expect(cb.isAvailable()).toBe(true)
+    cb.recordFailure('err1')
+    cb.recordFailure('err2')
+    cb.recordFailure('err3')
+    expect(cb.isAvailable()).toBe(false)
+    expect(cb.getStatus().state).toBe('open')
+  })
+
+  it('resets on success', () => {
+    const cb = new CircuitBreaker({ failureThreshold: 3, cooldownMs: 60000, maxHalfOpenAttempts: 3 })
+    cb.recordFailure('err')
+    cb.recordFailure('err')
+    cb.recordSuccess()
+    expect(cb.getStatus().state).toBe('closed')
+    expect(cb.getStatus().failureCount).toBe(0)
+  })
+
+  it('singleton llmCircuitBreaker exists', () => {
+    expect(llmCircuitBreaker.getStatus().state).toBe('closed')
   })
 })
 

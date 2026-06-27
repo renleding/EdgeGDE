@@ -23,8 +23,6 @@ import { runReconcileLoop } from './reconcile'
 import type { CompensationReport } from './types'
 import type { ReconcileLoopResult } from './reconcile'
 import { instrumentLifecycleEvent } from '../lib/otel-worker'
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 

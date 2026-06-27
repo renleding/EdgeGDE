@@ -176,7 +176,27 @@ router.get('/', async (c) => {
       </div>
     </div>`
 
-  const body = `${tenantSelector}${statsCard}${toolCards}`
+  // Worktree status card (HTMX-fetched from dashboard API)
+  const worktreeCard = `
+    <div class="card">
+      <h3>🔧 Worktrees</h3>
+      <p style="font-size:12px;color:#8b949e;margin-bottom:8px">Active git worktrees — stale cleanup available</p>
+      <div hx-get="/api/dashboard/worktrees?tenant=${encodeURIComponent(tenantId)}"
+           hx-trigger="load"
+           hx-swap="innerHTML"
+           style="font-size:12px;color:#4a4d55;padding:8px">
+        Loading worktree status...
+      </div>
+      <div style="margin-top:8px">
+        <a href="#" style="font-size:11px;color:#8b949e"
+           onclick="event.preventDefault();document.querySelector('[hx-get*=\"/api/dashboard/worktrees\"]').setAttribute('hx-trigger','none');fetch('/api/dashboard/worktrees?tenant=${encodeURIComponent(tenantId)}').then(r=>r.text()).then(t=>document.querySelector('[hx-get*=\"/api/dashboard/worktrees\"]').innerHTML=t)">
+          ↻ Refresh
+        </a>
+        <span style="font-size:11px;color:#4a4d55;margin-left:8px">bash scripts/cleanup-worktrees.sh --prune</span>
+      </div>
+    </div>`
+
+  const body = `${tenantSelector}${statsCard}${worktreeCard}${toolCards}`
   const html = adminPageLayout('Dashboard', body, tenantId, token, '/admin')
   return c.html(html)
 })
