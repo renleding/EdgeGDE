@@ -233,32 +233,41 @@ def apply_patch(worktree: Path, patch_text: str) -> bool:
     
     # Auto-correct file paths: check that --- a/... files exist in the worktree
     import re
-    def correct_path(match):
-        path = match.group(1)
-        # Check both the raw path and common prefix variations
-        candidates = [path]
-        # Try removing common hallucinated prefixes
+    def _correct_path_str(path_str: str, wt: Path) -> str:
+        """String version of correct_path for use in lambdas."""
+        candidates = [path_str]
         for prefix in ["core/", "src/core/", "lib/", "source/"]:
-            if path.startswith(prefix):
-                candidates.append(path[len(prefix):])
-        # Try searching for the file by basename
-        basename = path.split("/")[-1]
-        found = list(worktree.rglob(basename))
+            if path_str.startswith(prefix):
+                candidates.append(path_str[len(prefix):])
+        basename = path_str.split("/")[-1]
+        found = list(wt.rglob(basename))
         if found:
-            rel = str(found[0].relative_to(worktree))
-            if rel != path:
+            rel = str(found[0].relative_to(wt))
+            if rel != path_str:
                 candidates.append(rel)
-        # Use first valid candidate
         for c in candidates:
-            if (worktree / c).exists():
-                return match.group(0).replace(path, c, 1)
-        return match.group(0)  # no correction found, keep original
+            if (wt / c).exists():
+                return c
+        return path_str
+    
+    def correct_path(match):
+        """Regex substitution: correct file path in --- a/ or +++ b/ lines."""
+        return match.group(0).replace(match.group(1), _correct_path_str(match.group(1), worktree), 1)
     
     cleaned = re.sub(r'^--- a/(.+)$', correct_path, cleaned, flags=re.MULTILINE)
     cleaned = re.sub(r'^\+\+\+ b/(.+)$', correct_path, cleaned, flags=re.MULTILINE)
-    cleaned = re.sub(r'^diff --git a/(.+) b/(.+)$', 
-                     lambda m: f"diff --git a/{m.group(1)} b/{correct_path(re.match(r'^--- a/(.+)', '--- a/'+m.group(2)) or m.group(2))}", 
+    cleaned = re.sub(r'^diff --git a/(.+) b/(.+)$',
+                     lambda m: f"diff --git a/{m.group(1)} b/{_correct_path_str(m.group(2), worktree)}",
                      cleaned, flags=re.MULTILINE)
+
+    # Normalize: ensure blank line before each hunk header (except the first)
+    lines = cleaned.split("\n")
+    normalized = []
+    for i, line in enumerate(lines):
+        if i > 0 and line.startswith("@@") and normalized and normalized[-1].strip() != "":
+            normalized.append("")
+        normalized.append(line)
+    cleaned = "\n".join(normalized)
 
     patch_file = worktree.parent / f"{worktree.name}_patch.diff"
     patch_file.write_text(cleaned)
