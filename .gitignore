@@ -13,3 +13,4 @@ apps/edge-runtime/.wrangler/
 *.sqlite-wal
 .hermes/
 .worktrees/
+__pycache__/
