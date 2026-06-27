@@ -109,6 +109,8 @@ export async function tenantResolver(
     path.startsWith('/api/v1/admin/') ||
     path === '/api/tenants' ||
     path.startsWith('/api/tenants/') ||
+    path === '/admin' ||
+    path.startsWith('/admin/') ||
     path.startsWith('/admin/blueprints') ||
     path.startsWith('/admin/factory') ||
     path.startsWith('/admin/drift') ||
