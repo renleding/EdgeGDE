@@ -159,7 +159,10 @@ def call_llm(messages: list, max_tokens: int = 16000) -> str:
     )
     response = urlopen(req, timeout=300)
     result = json.loads(response.read())
-    return result["choices"][0]["message"]["content"]
+    content = result.get("choices", [{}])[0].get("message", {}).get("content")
+    if content is None:
+        raise RuntimeError(f"LLM returned no content. Response: {json.dumps(result)[:500]}")
+    return content
 
 
 def generate_analysis(instance: dict, ctx: dict) -> dict:
@@ -366,12 +369,35 @@ def run_attempt(instance: dict, worktree: Path, ctx: dict, attempt_num: int,
     print(f"\n  --- Attempt {attempt_num} ---")
 
     # FRS-6 Step 1: Analyze
-    analysis_result = generate_analysis(instance, ctx)
-    analysis = analysis_result["analysis"]
-    (log_dir / f"attempt_{attempt_num}_analysis.txt").write_text(analysis)
+    analysis = ""
+    analysis_dur = 0
+    try:
+        analysis_result = generate_analysis(instance, ctx)
+        analysis = analysis_result["analysis"]
+        analysis_dur = analysis_result["duration_ms"]
+        (log_dir / f"attempt_{attempt_num}_analysis.txt").write_text(analysis)
+    except Exception as e:
+        print(f"  ⚠️ CoT analysis failed: {e}")
+        result = {
+            "attempt": attempt_num,
+            "analysis_size": 0,
+            "analysis_duration_ms": 0,
+            "patch_raw_size": 0,
+            "applied": False,
+            "apply_error": f"analysis_failed: {e}",
+            "duration_ms": int((time.time() - a_start) * 1000),
+            "final_patch": "",
+            "final_patch_size": 0,
+        }
+        (log_dir / f"attempt_{attempt_num}_result.json").write_text(json.dumps(result, indent=2))
+        return result
 
     # FRS-6 Step 2: Generate diff
-    llm_patch = generate_diff_from_analysis(instance, ctx, analysis)
+    try:
+        llm_patch = generate_diff_from_analysis(instance, ctx, analysis)
+    except Exception as e:
+        print(f"  ⚠️ Diff generation failed: {e}")
+        llm_patch = ""
     (log_dir / f"attempt_{attempt_num}_patch_raw.txt").write_text(llm_patch)
 
     # Apply
