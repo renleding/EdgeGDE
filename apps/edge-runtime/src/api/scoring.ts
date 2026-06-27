@@ -8,6 +8,7 @@ import { scoreLead, type Ruleset, type RulesetRule, type ScoreResult } from '../
 import { addSubscriber, removeSubscriber } from '../lib/sse'
 import { validateUiConfig, validateUiConfigSafe } from '../lib/ui-primitives'
 import { renderUiConfigToHtml } from '../lib/renderer'
+import { hotLeadIndexKey, hotLeadKey, deadLetterIndexKey, deadLetterKey } from '../lib/kv-keys'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -328,7 +329,7 @@ scoringAdminRouter.get('/hot-alerts', async (c) => {
 
 // Helper: fetch all alerts for a tenant from the index pointer
 async function fetchAlertsForTenant(kv: any, tenantId: string): Promise<any[]> {
-  const indexKey = `tenant:${tenantId}:alerts:hot:index`
+  const indexKey = hotLeadIndexKey(tenantId)
   const indexRaw = await kv.get(indexKey)
   if (!indexRaw) return []
 
@@ -343,7 +344,7 @@ async function fetchAlertsForTenant(kv: any, tenantId: string): Promise<any[]> {
   // Fetch individual alerts in parallel
   const results = await Promise.allSettled(
     submissionIds.map((id: string) =>
-      kv.get(`tenant:${tenantId}:alert:hot:${id}`).then((raw: string | null) => {
+      kv.get(hotLeadKey(tenantId, id)).then((raw: string | null) => {
         if (!raw) return null
         const parsed = JSON.parse(raw)
         return {
@@ -376,10 +377,10 @@ scoringAdminRouter.delete('/hot-alerts/:submissionId', async (c) => {
 
   try {
     // 1. Delete the individual alert
-    await TENANT_KV.delete(`tenant:${tenantId}:alert:hot:${submissionId}`)
+    await TENANT_KV.delete(hotLeadKey(tenantId, submissionId))
 
     // 2. Remove from index
-    const indexKey = `tenant:${tenantId}:alerts:hot:index`
+    const indexKey = hotLeadIndexKey(tenantId)
     const indexRaw = await TENANT_KV.get(indexKey)
     if (indexRaw) {
       try {
@@ -523,7 +524,7 @@ scoringAdminRouter.post('/replay-deadletters', async (c) => {
 
   try {
     // 1. Read index pointer
-    const indexKey = `tenant:${tenantId}:deadletter:index`
+    const indexKey = deadLetterIndexKey(tenantId)
     const indexRaw = await TENANT_KV.get(indexKey)
     if (!indexRaw) {
       return c.json({ replayed: 0, failed: 0, results: [], message: 'No deadletters found for this tenant.' })
@@ -545,7 +546,7 @@ scoringAdminRouter.post('/replay-deadletters', async (c) => {
 
     for (const submissionId of batch) {
       try {
-        const dlKey = `tenant:${tenantId}:deadletter:${submissionId}`
+        const dlKey = deadLetterKey(tenantId, submissionId)
         const payload = await TENANT_KV.get(dlKey)
         if (!payload) {
           results.push({ submissionId, status: 'skipped', error: 'payload not found' })

@@ -11,14 +11,7 @@ import {
   getVersion,
   getLatestVersion,
 } from './versioning'
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Lock Key Helper
-// ═══════════════════════════════════════════════════════════════════════════
-
-function lockKey(tenantId: string): string {
-  return `lock:${tenantId}:deploy`
-}
+import { deployLockKey } from './kv-keys'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // acquireDeployLock — try to acquire a deploy lock for a tenant
@@ -28,7 +21,7 @@ export async function acquireDeployLock(
   kv: KvStore,
   tenantId: string,
 ): Promise<boolean> {
-  const key = lockKey(tenantId)
+  const key = deployLockKey(tenantId)
   const existing = await kv.get(key)
   if (existing !== null) {
     return false // Already locked
@@ -45,7 +38,7 @@ export async function releaseDeployLock(
   kv: KvStore,
   tenantId: string,
 ): Promise<void> {
-  await kv.delete(lockKey(tenantId))
+  await kv.delete(deployLockKey(tenantId))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

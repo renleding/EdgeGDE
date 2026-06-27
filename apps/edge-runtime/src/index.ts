@@ -86,6 +86,7 @@ import { incrementRequest, flushMetrics } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
 import { runDispatcher } from './crons/dispatcher'
+import { hotLeadIndexKey, hotLeadKey, tenantLayoutKey, canvasCacheGenKey, tenantLayoutLatestKey, tenantLayoutStagingKey, tenantCompiledKey } from './lib/kv-keys'
 import { guardDB } from './lib/db'
 import { guardKV } from './lib/kv'
 // ═══════════════════════════════════════════════════════════════════════════
@@ -334,7 +335,7 @@ app.get('/api/leads/feed', adminAuth, async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const ctx = { tenantId }
   const kv = guardKV(rawKv)
-  const indexKey = `tenant:${tenantId}:alerts:hot:index`
+  const indexKey = hotLeadIndexKey(tenantId)
   const raw = await kv.get(indexKey, ctx)
   if (!raw) return c.json({ alerts: [] })
 
@@ -675,7 +676,7 @@ app.post('/api/canvas/generate', async (c) => {
         await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify(result), undefined, { expirationTtl: 300 }).catch(() => {})
       }
       if (tenantKv && typeof tenantKv.put === 'function') {
-        await tenantKv.put('cache:canvas:gen:' + pHash, JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), undefined, { expirationTtl: 86400 }).catch(() => {})
+        await tenantKv.put(canvasCacheGenKey(pHash), JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), undefined, { expirationTtl: 86400 }).catch(() => {})
       }
     } catch (e: any) {
       console.error('[CanvasGen] background error:', e.message)
@@ -1420,7 +1421,7 @@ app.get('/', async (c) => {
     if (!layout) {
       const layoutSuffix = layoutTool === 'gallery' ? 'gallery' : layoutTool === 'budget' ? 'budget' : layoutTool === 'metrics' ? 'metrics' : 'latest'
       const envSuffix = isStaging ? ':staging' : ''
-      const layoutKvKey = `tenant:${tenantId}:layout:${layoutSuffix}${envSuffix}`
+      const layoutKvKey = tenantLayoutKey(tenantId, `${layoutSuffix}${envSuffix}`)
       layout = await kv.getJson(layoutKvKey, ctx)
       if (layout) setCachedLayout(layoutCacheKey, layout)
     }

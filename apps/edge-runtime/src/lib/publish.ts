@@ -11,6 +11,7 @@ import {
 } from '@edgegde/schema'
 import { z } from 'zod'
 import { sha256Hash } from './versioning'
+import { artifactLatestKey, artifactVersionKey, artifactPrefix } from './kv-keys'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // KV Interface — matches Workers KV semantics for local dev
@@ -90,23 +91,6 @@ function hashArtifact(artifact: DesignArtifact): Promise<string> {
 // Type-specific key prefixes
 // ═══════════════════════════════════════════════════════════════════════════
 
-function keyPrefix(type: string): string {
-  switch (type) {
-    case 'calculator': return 'calc:'
-    case 'page':       return 'page:'
-    case 'theme':      return 'theme:'
-    default:           return 'art:'
-  }
-}
-
-function latestKey(type: string, id: string): string {
-  return `${keyPrefix(type)}${id}:latest`
-}
-
-function versionKey(type: string, id: string, version: string): string {
-  return `${keyPrefix(type)}${id}:${version}`
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // publishArtifact — idempotent, versioned artifact publishing
 // ═══════════════════════════════════════════════════════════════════════════
@@ -117,8 +101,8 @@ export async function publishArtifact(
   db?: unknown,  // D1 binding for atomic versioning
 ): Promise<{ version: string; url: string }> {
   const parsed = artifact
-  const prefix = keyPrefix(parsed.type)
-  const lKey = latestKey(parsed.type, parsed.id)
+  const prefix = artifactPrefix(parsed.type)
+  const lKey = artifactLatestKey(parsed.type, parsed.id)
 
   // 1. Idempotency check — hash the artifact, compare to stored latest
   const newHash = await hashArtifact(parsed)
@@ -153,7 +137,7 @@ export async function publishArtifact(
   }
 
   const version = `v${nextVersionNumber}`
-  const vKey = versionKey(parsed.type, parsed.id, version)
+  const vKey = artifactVersionKey(parsed.type, parsed.id, version)
 
   // 3. Persist
   await kv.put(vKey, JSON.stringify(parsed))
@@ -201,7 +185,7 @@ export async function readArtifact(
   type: string,
   id: string,
 ): Promise<DesignArtifact | null> {
-  const lKey = latestKey(type, id)
+  const lKey = artifactLatestKey(type, id)
   const latestInfo = await kv.get(lKey)
   if (!latestInfo) return null
 
@@ -210,7 +194,7 @@ export async function readArtifact(
     const version = parsedInfo.version
     if (!version) return null
 
-    const vKey = versionKey(type, id, version)
+    const vKey = artifactVersionKey(type, id, version)
     const artifactData = await kv.get(vKey)
     if (!artifactData) return null
 

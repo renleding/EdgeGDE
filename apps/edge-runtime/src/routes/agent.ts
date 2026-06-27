@@ -254,14 +254,11 @@ async function handleTenantDeploy(c: any, body: any) {
   })
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Per-request MemoryKvStore cache
-// ═══════════════════════════════════════════════════════════════════════════
+// Per-request MemoryKvStore cache — use shared singleton from index.ts
+import { kv } from '../index'
 
-const globalKv = new MemoryKvStore()
-
-function getOrCreateMemoryKv(c: any): KvStore {
-  return globalKv
+function getOrCreateMemoryKv(_c: any): KvStore {
+  return kv
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
