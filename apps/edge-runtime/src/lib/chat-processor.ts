@@ -167,7 +167,7 @@ export async function processChatMessage(
             const baseQuestion = next.prompt || `Could you please provide your ${next.label.toLowerCase()}?`
             const prefix = firstName ? `Thanks ${firstName}! ` : `Thank you! `
             const optionsSuffix = next.options?.length ? ` Options: ${next.options.join(', ')}.` : ''
-            if (prevValue && next.fieldType !== 'password') {
+            if (prevValue && (next.fieldType as string) !== 'password') {
               const ack = prevValue.length > 30 ? prevValue.substring(0, 27) + '...' : prevValue
               finalResponseText = `${prefix}Got ${ack}. ${baseQuestion}${optionsSuffix}`
             } else {
@@ -245,7 +245,7 @@ export async function processChatMessage(
         const baseQuestion = next.prompt || `Could you please provide your ${next.label.toLowerCase()}?`
         const prefix = firstName ? `Thanks ${firstName}! ` : `Thank you! `
         const optionsSuffix = next.options?.length ? ` Options: ${next.options.join(', ')}.` : ''
-        if (prevValue && next.fieldType !== 'password') {
+        if (prevValue && (next.fieldType as string) !== 'password') {
           const ack = prevValue.length > 30 ? prevValue.substring(0, 27) + '...' : prevValue
           finalResponseText = `${prefix}Got ${ack}. ${baseQuestion}${optionsSuffix}`
         } else {

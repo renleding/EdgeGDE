@@ -42,7 +42,7 @@ export interface CalculatorDefinition {
   id: string
   name: string
   description: string
-  category: 'loan' | 'budget' | 'stamp-duty' | 'investment' | 'general'
+  category: 'loan' | 'budget' | 'stamp-duty' | 'investment' | 'general' | 'property' | 'comparison'
   inputSchema: z.ZodType<any, any, any>
   execute: (input: any) => Record<string, any>
 }

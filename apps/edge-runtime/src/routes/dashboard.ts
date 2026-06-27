@@ -232,8 +232,15 @@ dashboardRouter.get('/telemetry', async (c) => {
  */
 dashboardRouter.get('/dashboard/worktrees', async (c) => {
   try {
-    const { execSync } = await import('node:child_process')
-    const output = execSync('git worktree list --porcelain', {
+    // Only available in Node.js environments (local dev, not Workers)
+    // @ts-expect-error — process.cwd not in Workers env type
+    if (typeof process === 'undefined' || !process.cwd) {
+      return c.json({ worktrees: [], note: 'Not available in Workers environment' })
+    }
+    // @ts-expect-error — node:child_process only available in Node.js env (local dev)
+    const cp: any = await import('node:child_process')
+    const output: string = cp.execSync('git worktree list --porcelain', {
+      // @ts-expect-error — cwd not in Workers env type
       cwd: process.cwd(),
       timeout: 5000,
       encoding: 'utf-8',
@@ -266,7 +273,7 @@ dashboardRouter.get('/dashboard/worktrees', async (c) => {
     // Check dirty status and age for each worktree
     for (const wt of worktrees) {
       try {
-        const status = execSync('git status --porcelain', {
+        const status = cp.execSync('git status --porcelain', {
           cwd: wt.path,
           timeout: 3000,
           encoding: 'utf-8',
@@ -275,7 +282,7 @@ dashboardRouter.get('/dashboard/worktrees', async (c) => {
       } catch { wt.dirty = false }
 
       try {
-        const ageStr = execSync('git log -1 --format=%ar', {
+        const ageStr = cp.execSync('git log -1 --format=%ar', {
           cwd: wt.path,
           timeout: 3000,
           encoding: 'utf-8',
