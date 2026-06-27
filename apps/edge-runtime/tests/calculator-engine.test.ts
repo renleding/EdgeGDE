@@ -498,6 +498,9 @@ describe('Rent vs Buy Calculator', () => {
       savings: 160_000,
       investmentReturnRate: 7,
       timeHorizonYears: 10,
+      mortgageRate: 6.5,
+      propertyAppreciation: 3,
+      rentIncrease: 2,
     })
     expect(result.buyNetWorth).toBeGreaterThan(0)
     expect(result.rentNetWorth).toBeGreaterThan(0)
@@ -511,6 +514,9 @@ describe('Rent vs Buy Calculator', () => {
       savings: 120_000,
       investmentReturnRate: 7,
       timeHorizonYears: 25,
+      mortgageRate: 6.5,
+      propertyAppreciation: 3,
+      rentIncrease: 2,
     })
     for (let i = 1; i < result.yearSnapshots.length; i++) {
       expect(result.yearSnapshots[i].buyNetWorth).toBeGreaterThanOrEqual(result.yearSnapshots[i - 1].buyNetWorth)
@@ -524,6 +530,9 @@ describe('Rent vs Buy Calculator', () => {
       savings: 120_000,
       investmentReturnRate: 7,
       timeHorizonYears: 30,
+      mortgageRate: 6.5,
+      propertyAppreciation: 3,
+      rentIncrease: 2,
     })
     expect(result.breakEvenYear === null || (result.breakEvenYear >= 1 && result.breakEvenYear <= 30)).toBeTruthy()
   })
@@ -535,6 +544,9 @@ describe('Rent vs Buy Calculator', () => {
       savings: 500_000,
       investmentReturnRate: 2,
       timeHorizonYears: 5,
+      mortgageRate: 6.5,
+      propertyAppreciation: 3,
+      rentIncrease: 2,
     })
     expect(result.buyNetWorth).toBeGreaterThan(500_000)
     expect(result.breakEvenYear).not.toBeNull()

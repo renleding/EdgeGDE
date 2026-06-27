@@ -167,7 +167,8 @@ export async function processChatMessage(
             const baseQuestion = next.prompt || `Could you please provide your ${next.label.toLowerCase()}?`
             const prefix = firstName ? `Thanks ${firstName}! ` : `Thank you! `
             const optionsSuffix = next.options?.length ? ` Options: ${next.options.join(', ')}.` : ''
-            if (prevValue && next.fieldType !== 'password') {
+            const ackTypes = ['text', 'email', 'phone', 'number'] as const
+            if (prevValue && ackTypes.includes(next.fieldType as typeof ackTypes[number])) {
               const ack = prevValue.length > 30 ? prevValue.substring(0, 27) + '...' : prevValue
               finalResponseText = `${prefix}Got ${ack}. ${baseQuestion}${optionsSuffix}`
             } else {
@@ -245,7 +246,8 @@ export async function processChatMessage(
         const baseQuestion = next.prompt || `Could you please provide your ${next.label.toLowerCase()}?`
         const prefix = firstName ? `Thanks ${firstName}! ` : `Thank you! `
         const optionsSuffix = next.options?.length ? ` Options: ${next.options.join(', ')}.` : ''
-        if (prevValue && next.fieldType !== 'password') {
+        const ackTypes2 = ['text', 'email', 'phone', 'number'] as const
+        if (prevValue && ackTypes2.includes(next.fieldType as typeof ackTypes2[number])) {
           const ack = prevValue.length > 30 ? prevValue.substring(0, 27) + '...' : prevValue
           finalResponseText = `${prefix}Got ${ack}. ${baseQuestion}${optionsSuffix}`
         } else {

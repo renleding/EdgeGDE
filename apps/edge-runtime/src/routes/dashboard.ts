@@ -232,12 +232,13 @@ dashboardRouter.get('/telemetry', async (c) => {
  */
 dashboardRouter.get('/dashboard/worktrees', async (c) => {
   try {
+    // @ts-expect-error — Node.js module not available in Workers runtime
     const { execSync } = await import('node:child_process')
     const output = execSync('git worktree list --porcelain', {
-      cwd: process.cwd(),
+      cwd: (process as any).cwd(),
       timeout: 5000,
       encoding: 'utf-8',
-    })
+    } as any)
 
     const worktrees: Array<{
       path: string
