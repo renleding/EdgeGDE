@@ -978,8 +978,164 @@ describe('Income Gross Up Calculator', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Manifest Generator Tests
+// Calculator Edge Cases — zero rates, max values, boundary conditions
 // ═══════════════════════════════════════════════════════════════════════════
+
+describe('Calculator Edge Cases', () => {
+  // ── Zero Interest ───────────────────────────────────────────────────────
+  it('loan-repayment: zero interest rate', () => {
+    const r = calculateLoanRepayment({ principal: 120000, annualRate: 0, termYears: 10 })
+    expect(r.monthlyRepayment).toBe(1000) // 120000 / 120 months
+    expect(r.totalInterest).toBe(0)
+  })
+
+  it('comparison-rate: zero interest with fees', () => {
+    const r = calculateComparisonRate({ principal: 100000, interestRate: 0, termYears: 5, upfrontFees: 1000 })
+    expect(r.comparisonRate).toBeGreaterThan(0)
+  })
+
+  it('extra-repayment: zero rate', () => {
+    const r = calculateExtraRepayment({ principal: 120000, interestRate: 0, termYears: 10, extraRepayment: 100 })
+    expect(r.monthsSaved).toBeGreaterThan(0)
+  })
+
+  it('interest-only-mortgage: zero rate', () => {
+    const r = calculateInterestOnly({ principal: 100000, interestRate: 0, interestOnlyYears: 2, totalTermYears: 10 })
+    expect(r.interestOnlyRepayment).toBeLessThanOrEqual(1)
+    expect(r.totalRepayment - 100000).toBeLessThan(1) // floating-point rounding tolerance
+  })
+
+  it('how-long-to-repay: zero rate', () => {
+    const r = calculateHowLongToRepay({ principal: 120000, interestRate: 0, repaymentAmount: 2000 })
+    expect(r.monthsToPayoff).toBe(60) // 120000 / 2000
+  })
+
+  it('borrowing-power: zero interest rate', () => {
+    const r = calculateBorrowingPower({ annualIncome: 100000, monthlyExpenses: 3000, interestRate: 0, termYears: 30, interestRateBuffer: 0, employmentType: 'full-time', existingDebtPayments: 0, deposit: 0, dependents: 0, creditCommitments: 0 })
+    expect(r.estimatedBorrowingPower).toBeGreaterThan(0)
+  })
+
+  it('compound-interest: zero rate', () => {
+    const r = calculateCompoundInterest({ principal: 10000, interestRate: 0, termYears: 10, regularContribution: 500 })
+    expect(r.interestEarned).toBe(0)
+    expect(r.futureValue).toBe(10000 + 500 * 120) // principal + contributions
+  })
+
+  it('credit-card: zero interest rate', () => {
+    const r = calculateCreditCard({ balance: 5000, interestRate: 0, monthlyPayment: 500 })
+    expect(r.monthsToPayoff).toBe(10) // 5000 / 500
+    expect(r.totalInterest).toBe(0)
+  })
+
+  // ── Boundary and Maximum Values ─────────────────────────────────────────
+  it('stamp-duty: zero property value', () => {
+    const r = calculateStampDuty({ propertyValue: 0, state: 'nsw', isFirstHomeBuyer: false, isPrincipalPlaceOfResidence: false, isForeignBuyer: false })
+    expect(r.stampDuty).toBe(0)
+  })
+
+  it('savings-goal: max rate boundary', () => {
+    const r = calculateSavingsGoal({ currentSavings: 1000, monthlyContribution: 500, targetAmount: 50000, annualRate: 25 })
+    expect(r.monthsToGoal).toBeGreaterThan(0)
+  })
+
+  it('income-tax: zero income', () => {
+    const r = calculateIncomeTax({ taxableIncome: 0 })
+    expect(r.grossTax).toBe(0)
+    expect(r.netTaxPayable).toBe(0)
+    expect(r.effectiveTaxRate).toBe(0)
+  })
+
+  it('income-tax: high income bracket', () => {
+    const r = calculateIncomeTax({ taxableIncome: 500000 })
+    expect(r.grossTax).toBeGreaterThan(0)
+    expect(r.medicareLevy).toBeGreaterThan(0)
+  })
+
+  it('rent-vs-buy: zero rates', () => {
+    const r = calculateRentVsBuy({ propertyPrice: 500000, weeklyRent: 400, savings: 100000, investmentReturnRate: 0, timeHorizonYears: 10, mortgageRate: 0, propertyAppreciation: 0, rentIncrease: 0 })
+    expect(r.buyNetWorth).toBeGreaterThan(0)
+    expect(r.rentNetWorth).toBeGreaterThan(0)
+  })
+
+  it('lvr-calculator: zero deposit edge', () => {
+    const r = calculateLvr({ propertyValue: 500000, state: 'nsw', loanAmount: 500000, isFirstHomeBuyer: false })
+    expect(r.lmiRequired).toBe(true)
+  })
+
+  it('leasing: zero residual (full payout)', () => {
+    const r = calculateLeasing({ assetPrice: 50000, residualValue: 0, interestRate: 7, termYears: 3 })
+    expect(r.leasePayment).toBeGreaterThan(0)
+    expect(r.totalLeaseCost).toBeGreaterThan(50000)
+  })
+
+  it('reverse-mortgage: no drawdown', () => {
+    const r = calculateReverseMortgage({ propertyValue: 800000, borrowerAge: 65, interestRate: 6, initialDrawdown: 0, regularDrawdown: 0, termYears: 5 })
+    expect(r.projectedLoanBalance).toBe(0)
+    expect(r.remainingEquity).toBe(800000)
+  })
+
+  it('mortgage-switching: same rate (break-even analysis)', () => {
+    const r = calculateMortgageSwitching({ currentBalance: 400000, currentRate: 6, currentRemainingYears: 25, newRate: 6, newFeesUpfront: 2000, breakCosts: 500 })
+    expect(r.breakEvenMonths).toBe(999) // never breaks even — same rate
+    expect(r.netSavingOrCost).toBeLessThan(0) // costs money to switch
+  })
+
+  it('home-loan-offset: full offset (balance eliminated)', () => {
+    const r = calculateHomeLoanOffset({ loanBalance: 400000, offsetBalance: 400000, interestRate: 6, termYears: 30 })
+    expect(r.interestSaved).toBeGreaterThan(0)
+    expect(r.monthsSaved).toBeGreaterThan(0)
+  })
+
+  it('budget-planner: zero income and expenses', () => {
+    const r = calculateBudgetPlanner({ salary: 0, investments: 0, government: 0, otherIncome: 0, housing: 0, food: 0, transport: 0, utilities: 0, insurance: 0, entertainment: 0, healthcare: 0, education: 0, debtPayments: 0, otherExpenses: 0 })
+    expect(r.totalIncome).toBe(0)
+    expect(r.totalExpenses).toBe(0)
+    expect(r.surplus).toBe(0)
+    expect(r.isDeficit).toBe(false)
+  })
+
+  it('repayment-comparison: extra repayment equals zero', () => {
+    const r = calculateRepaymentComparison({ loanAmount: 300000, interestRate: 6, termYears: 30, extraRepayment: 0 })
+    expect(r.monthsSaved).toBe(0)
+    expect(r.interestSaved).toBe(0)
+  })
+
+  // ── Idempotency ─────────────────────────────────────────────────────────
+  it('same inputs produce identical outputs', () => {
+    const a = calculateLoanRepayment({ principal: 500000, annualRate: 6, termYears: 30 })
+    const b = calculateLoanRepayment({ principal: 500000, annualRate: 6, termYears: 30 })
+    expect(a).toEqual(b)
+  })
+
+  it('split-loan: fixed equals total (no variable portion)', () => {
+    const r = calculateSplitLoan({ totalPrincipal: 500000, fixedPortion: 500000, fixedRate: 5, fixedTermYears: 30, variableRate: 6, variableTermYears: 30 })
+    expect(r.fixedRepayment).toBeGreaterThan(0)
+    expect(r.variableRepayment).toBe(0) // variable portion is 0
+    expect(r.weightedAverageRate).toBe(5) // only fixed rate
+  })
+
+  it('introductory-rate-loan: intro equals revert rate', () => {
+    const r = calculateIntroductoryRateLoan({ principal: 500000, introductoryRate: 6, introductoryMonths: 12, revertRate: 6, termYears: 30 })
+    expect(r.introductoryRepayment).not.toBe(r.revertRepayment) // different calculation methods
+  })
+
+  it('loan-comparison: single loan (minimum edge)', () => {
+    const r = calculateLoanComparison({ loans: [{ name: 'Bank A', principal: 500000, interestRate: 6, termYears: 30 }] })
+    expect(r.comparisonTable.length).toBe(1)
+    expect(r.bestByTotalCost).toBe('Bank A')
+  })
+
+  it('income-annualisation: yearly input', () => {
+    const r = calculateIncomeAnnualisation({ incomeAmount: 100000, incomePeriod: 'yearly' })
+    expect(r.annualisedIncome).toBe(100000)
+  })
+
+  it('income-gross-up: zero net income', () => {
+    const r = calculateIncomeGrossUp({ netIncome: 0, taxRate: 30 })
+    expect(r.grossIncome).toBe(0)
+    expect(r.totalTax).toBe(0)
+  })
+})
 
 describe('Manifest Generator', () => {
   it('generates valid manifest from calculator goal', () => {
