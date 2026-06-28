@@ -23,6 +23,11 @@ import { runReconcileLoop } from './reconcile'
 import type { CompensationReport } from './types'
 import type { ReconcileLoopResult } from './reconcile'
 import { instrumentLifecycleEvent } from '../lib/otel-worker'
+import {
+  auditActionExecuted,
+  auditMissionExecuted,
+  auditCompensationExecuted,
+} from './audit-writer'
 // Types
 // ---------------------------------------------------------------------------
 
@@ -161,6 +166,8 @@ export async function runMission(
       }
       executedActions.push(record)
       opts.onActionComplete?.(step, result, ctx)
+      // Fire-and-forget audit event
+      auditActionExecuted(opts.env, record)
 
       if (result.status === 'failure') {
         failedAction = record
@@ -311,6 +318,10 @@ export async function runMission(
           },
           opts.env as any,
         ).catch(() => {})
+        // Fire-and-forget audit event
+        auditCompensationExecuted(
+          opts.env, opts.tenantId, opts.mission.id, opts.correlationId, record.actionId,
+        )
       }
 
       return {
@@ -335,7 +346,7 @@ export async function runMission(
   // -----------------------------------------------------------------------
 
   const hasFailures = executedActions.some((e) => e.result.status === 'failure')
-  return {
+  const missionResult: MissionLifecycleResult = {
     missionId: opts.mission.id,
     correlationId: opts.correlationId,
     status: hasFailures ? 'failure' : 'success',
@@ -344,6 +355,11 @@ export async function runMission(
     totalDurationMs: Date.now() - startTime,
     error: failedAction?.result.error,
   }
+
+  // Fire-and-forget mission audit event
+  auditMissionExecuted(opts.env, missionResult)
+
+  return missionResult
 }
 
 // ---------------------------------------------------------------------------
