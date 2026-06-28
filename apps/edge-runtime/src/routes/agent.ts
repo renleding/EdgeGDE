@@ -25,16 +25,6 @@ import { validateDesign } from '../lib/design-validator'
 import { computeLayoutHash, setLatestHash } from '../edr/runtime/hash'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Constants
-// ═══════════════════════════════════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Router
-// ═══════════════════════════════════════════════════════════════════════════
-
-export const agentRouter = new Hono()
-
-// ═══════════════════════════════════════════════════════════════════════════
 // Discriminated union schema for unified publish endpoint
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -58,6 +48,12 @@ const publishSchema = z.discriminatedUnion('kind', [
     idempotencyKey: z.string().optional(),
   }),
 ])
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Router
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const agentRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
 // POST /api/v1/agent/publish — unified publish controller
@@ -258,35 +254,11 @@ async function handleTenantDeploy(c: any, body: any) {
   })
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Simple hash utility
-// ═══════════════════════════════════════════════════════════════════════════
+// Per-request MemoryKvStore cache — use shared singleton from index.ts
+import { kv } from '../index'
 
-function simpleHash(artifact: DesignArtifact): string {
-  const str = JSON.stringify({
-    id: artifact.id,
-    type: artifact.type,
-    layout: artifact.layout,
-    schema: artifact.schema,
-    theme: artifact.theme,
-  })
-  let hash = 0
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash |= 0
-  }
-  return Math.abs(hash).toString(36)
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Per-request MemoryKvStore cache
-// ═══════════════════════════════════════════════════════════════════════════
-
-const globalKv = new MemoryKvStore()
-
-function getOrCreateMemoryKv(c: any): KvStore {
-  return globalKv
+function getOrCreateMemoryKv(_c: any): KvStore {
+  return kv
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

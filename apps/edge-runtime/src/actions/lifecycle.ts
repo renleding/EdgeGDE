@@ -22,8 +22,7 @@ import { runCompensation } from './compensation'
 import { runReconcileLoop } from './reconcile'
 import type { CompensationReport } from './types'
 import type { ReconcileLoopResult } from './reconcile'
-
-// ---------------------------------------------------------------------------
+import { instrumentLifecycleEvent } from '../lib/otel-worker'
 // Types
 // ---------------------------------------------------------------------------
 
@@ -187,6 +186,20 @@ export async function runMission(
         })
         opts.onReconcile?.(reconcileResult)
 
+        // Fire-and-forget OTel span for drift dashboard
+        instrumentLifecycleEvent(
+          `mission.reconcile.${opts.mission.name || opts.mission.id}`,
+          {
+            'app.correlation.id': opts.correlationId,
+            'app.tenant.id': opts.tenantId,
+            'app.mission.id': opts.mission.id,
+            'drift.score': reconcileResult.allDriftResults.length,
+            'drift.iterations': reconcileResult.iterations,
+            'reconcile.decision': reconcileResult.terminatedBy,
+          },
+          opts.env as any,
+        ).catch(() => {})
+
         if (reconcileResult.terminatedBy === 'complete') {
           return {
             missionId: opts.mission.id,
@@ -284,6 +297,21 @@ export async function runMission(
         env: opts.env,
       })
       opts.onCompensation?.(compensationReport)
+
+      // Fire-and-forget OTel spans for each compensated action
+      for (const record of compensationReport.records) {
+        instrumentLifecycleEvent(
+          `action.compensate.${record.actionId}`,
+          {
+            'app.correlation.id': opts.correlationId,
+            'app.tenant.id': opts.tenantId,
+            'app.mission.id': opts.mission.id,
+            'app.action.id': record.actionId,
+            'compensation.status': record.status,
+          },
+          opts.env as any,
+        ).catch(() => {})
+      }
 
       return {
         missionId: opts.mission.id,

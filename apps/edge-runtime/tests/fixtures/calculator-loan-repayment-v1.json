@@ -1,0 +1,34 @@
+{
+  "missionId": "calculator-loan-repayment-v1",
+  "description": "Sample loan repayment calculator mission for replay testing",
+  "events": [
+    {
+      "sequence": 1,
+      "actionType": "calculator.execute",
+      "input": {
+        "toolId": "loan-repayment",
+        "input": {
+          "principal": 500000,
+          "interestRate": 6.25,
+          "loanTerm": 30
+        }
+      },
+      "expectedOutput": {
+        "toolId": "loan-repayment",
+        "input": {
+          "principal": 500000,
+          "interestRate": 6.25,
+          "loanTerm": 30
+        },
+        "summary": {
+          "monthlyRepayment": 3078.59,
+          "totalRepayments": 360,
+          "loanTerm": 30,
+          "totalFees": 0
+        }
+      },
+      "expectedStatus": "success",
+      "correlationId": "replay-test-calc-001"
+    }
+  ]
+}

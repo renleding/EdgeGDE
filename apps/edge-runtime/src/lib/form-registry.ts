@@ -10,6 +10,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import type { FormDefinition } from './schemas'
 import { buildFormSchema } from './schemas'
+import { deadLetterKey, deadLetterIndexKey } from './kv-keys'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -198,15 +199,21 @@ export function mountFormRoutes(app: Hono): void {
             // ══════════════════════════════════════════════════════════════
             // CIRCUIT BREAKER: D1 insert failed — park in tenant's dead-letter KV
             // ══════════════════════════════════════════════════════════════
-            console.warn(`[circuit-breaker] D1 insert failed for ${def.id}:`, dbErr)
+            console.warn(JSON.stringify({
+              event: 'circuit_breaker',
+              formId: def.id,
+              submissionId,
+              tenantId,
+              error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+            }))
             try {
               const TENANT_KV = (c.env as any)?.TENANT_KV
               if (TENANT_KV && typeof TENANT_KV.put === 'function') {
-                const dlKey = `tenant:${tenantId}:deadletter:${submissionId}`
+                const dlKey = deadLetterKey(tenantId, submissionId)
                 await TENANT_KV.put(dlKey, payloadStr, { expirationTtl: 604800 })
 
                 // Maintain deadletter index pointer
-                const indexKey = `tenant:${tenantId}:deadletter:index`
+                const indexKey = deadLetterIndexKey(tenantId)
                 const existingRaw = await TENANT_KV.get(indexKey)
                 const existing: string[] = existingRaw
                   ? JSON.parse(existingRaw)

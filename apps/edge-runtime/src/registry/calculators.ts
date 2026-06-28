@@ -48,6 +48,86 @@ import {
   calculateRentVsBuy,
   RentVsBuyInputSchema,
 } from '../edr/domain/calculators/rent-vs-buy'
+import {
+  calculateBorrowingPower,
+  BorrowingPowerInputSchema,
+} from '../edr/domain/calculators/borrowing-power'
+import {
+  calculatePropertyBuyingCost,
+  PropertyBuyingCostInputSchema,
+} from '../edr/domain/calculators/property-buying-cost'
+import {
+  calculatePropertySellingCost,
+  PropertySellingCostInputSchema,
+} from '../edr/domain/calculators/property-selling-cost'
+import {
+  calculateComparisonRate,
+  ComparisonRateInputSchema,
+} from '../edr/domain/calculators/comparison-rate'
+import {
+  calculateExtraRepayment,
+  ExtraRepaymentInputSchema,
+} from '../edr/domain/calculators/extra-repayment'
+import {
+  calculateInterestOnly,
+  InterestOnlyInputSchema,
+} from '../edr/domain/calculators/interest-only-mortgage'
+import {
+  calculateHowLongToRepay,
+  HowLongToRepayInputSchema,
+} from '../edr/domain/calculators/how-long-to-repay'
+import {
+  calculateLumpSumRepayment,
+  LumpSumRepaymentInputSchema,
+} from '../edr/domain/calculators/lump-sum-repayment'
+import {
+  calculateIncomeTax,
+  IncomeTaxInputSchema,
+} from '../edr/domain/calculators/income-tax'
+import {
+  calculateCompoundInterest,
+  CompoundInterestInputSchema,
+} from '../edr/domain/calculators/compound-interest'
+import {
+  calculateCreditCard,
+  CreditCardInputSchema,
+} from '../edr/domain/calculators/credit-card'
+import {
+  calculateIncomeAnnualisation,
+  IncomeAnnualisationInputSchema,
+} from '../edr/domain/calculators/income-annualisation'
+import {
+  calculateIncomeGrossUp,
+  IncomeGrossUpInputSchema,
+} from '../edr/domain/calculators/income-gross-up'
+import {
+  calculateSplitLoan,
+  SplitLoanInputSchema,
+} from '../edr/domain/calculators/split-loan'
+import {
+  calculateHomeLoanOffset,
+  HomeLoanOffsetInputSchema,
+} from '../edr/domain/calculators/home-loan-offset'
+import {
+  calculateIntroductoryRateLoan,
+  IntroductoryRateLoanInputSchema,
+} from '../edr/domain/calculators/introductory-rate-loan'
+import {
+  calculateLoanComparison,
+  LoanComparisonInputSchema,
+} from '../edr/domain/calculators/loan-comparison'
+import {
+  calculateMortgageSwitching,
+  MortgageSwitchingInputSchema,
+} from '../edr/domain/calculators/mortgage-switching'
+import {
+  calculateLeasing,
+  LeasingInputSchema,
+} from '../edr/domain/calculators/leasing'
+import {
+  calculateReverseMortgage,
+  ReverseMortgageInputSchema,
+} from '../edr/domain/calculators/reverse-mortgage'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CalculatorTool Interface
@@ -320,6 +400,212 @@ registerCalculator({
   category: 'comparison',
   inputSchema: RentVsBuyInputSchema,
   execute: (input) => calculateRentVsBuy(input),
+})
+
+registerCalculator({
+  id: 'borrowing-power',
+  name: 'Borrowing Power Calculator',
+  description:
+    'Estimate maximum borrowable amount from income, expenses, and serviceability assumptions. ' +
+    'Uses conservative buffer rates and employment-type stability multipliers.',
+  category: 'loan',
+  inputSchema: BorrowingPowerInputSchema,
+  execute: (input) => calculateBorrowingPower(input),
+})
+
+registerCalculator({
+  id: 'property-buying-cost',
+  name: 'Property Buying Cost Calculator',
+  description:
+    'Estimate total upfront and ongoing costs when purchasing a property. ' +
+    'Includes stamp duty (by state), LMI, legal fees, inspection, moving costs, and grants.',
+  category: 'property',
+  inputSchema: PropertyBuyingCostInputSchema,
+  execute: (input) => calculatePropertyBuyingCost(input),
+})
+
+registerCalculator({
+  id: 'property-selling-cost',
+  name: 'Property Selling Cost Calculator',
+  description:
+    'Estimate selling costs and net proceeds. ' +
+    'Includes agent commission, marketing, conveyancing, mortgage discharge, and moving costs.',
+  category: 'property',
+  inputSchema: PropertySellingCostInputSchema,
+  execute: (input) => calculatePropertySellingCost(input),
+})
+
+registerCalculator({
+  id: 'comparison-rate',
+  name: 'Comparison Rate Calculator',
+  description:
+    'Estimate the true annualised cost of a loan including fees and charges. ' +
+    'Uses Newton-Raphson iteration to solve for the comparison rate.',
+  category: 'loan',
+  inputSchema: ComparisonRateInputSchema,
+  execute: (input) => calculateComparisonRate(input),
+})
+
+registerCalculator({
+  id: 'extra-repayment',
+  name: 'Extra Repayment Calculator',
+  description:
+    'Model the impact of additional repayments on a loan. ' +
+    'Shows months saved, interest saved, and new total cost.',
+  category: 'loan',
+  inputSchema: ExtraRepaymentInputSchema,
+  execute: (input) => calculateExtraRepayment(input),
+})
+
+registerCalculator({
+  id: 'interest-only-mortgage',
+  name: 'Interest Only Mortgage Calculator',
+  description:
+    'Calculate interest-only repayments and compare with principal-and-interest. ' +
+    'Shows the extra cost of an interest-only period vs standard P&I.',
+  category: 'loan',
+  inputSchema: InterestOnlyInputSchema,
+  execute: (input) => calculateInterestOnly(input),
+})
+
+registerCalculator({
+  id: 'how-long-to-repay',
+  name: 'How Long to Repay Calculator',
+  description:
+    'Calculate how long it will take to repay a loan given a fixed repayment amount. ' +
+    'Returns months to payoff and total interest paid.',
+  category: 'loan',
+  inputSchema: HowLongToRepayInputSchema,
+  execute: (input) => calculateHowLongToRepay(input),
+})
+
+registerCalculator({
+  id: 'lump-sum-repayment',
+  name: 'Lump Sum Repayment Calculator',
+  description:
+    'Calculate the impact of a lump sum payment on a loan. ' +
+    'Shows months saved, interest saved, and new payoff date.',
+  category: 'loan',
+  inputSchema: LumpSumRepaymentInputSchema,
+  execute: (input) => calculateLumpSumRepayment(input),
+})
+
+registerCalculator({
+  id: 'income-tax',
+  name: 'Income Tax Calculator',
+  description:
+    'Estimate Australian income tax liability using progressive tax brackets ' +
+    'with medicare levy and offsets. Uses 2025-26 ATO rates.',
+  category: 'general',
+  inputSchema: IncomeTaxInputSchema,
+  execute: (input) => calculateIncomeTax(input),
+})
+
+registerCalculator({
+  id: 'compound-interest',
+  name: 'Compound Interest Calculator',
+  description:
+    'Project future value of an investment with regular contributions ' +
+    'and compound interest. Supports monthly, quarterly, and annual compounding.',
+  category: 'investment',
+  inputSchema: CompoundInterestInputSchema,
+  execute: (input) => calculateCompoundInterest(input),
+})
+
+registerCalculator({
+  id: 'credit-card',
+  name: 'Credit Card Calculator',
+  description:
+    'Estimate credit card payoff time and total interest. ' +
+    'Supports introductory rates and balance transfer fees.',
+  category: 'general',
+  inputSchema: CreditCardInputSchema,
+  execute: (input) => calculateCreditCard(input),
+})
+
+registerCalculator({
+  id: 'income-annualisation',
+  name: 'Income Annualisation Calculator',
+  description:
+    'Convert irregular or part-period income into annualized, weekly, ' +
+    'and monthly equivalent figures.',
+  category: 'general',
+  inputSchema: IncomeAnnualisationInputSchema,
+  execute: (input) => calculateIncomeAnnualisation(input),
+})
+
+registerCalculator({
+  id: 'income-gross-up',
+  name: 'Income Gross Up Calculator',
+  description:
+    'Convert net (after-tax) income to gross (pre-tax) equivalent ' +
+    'using a given tax rate or gross-up rate.',
+  category: 'general',
+  inputSchema: IncomeGrossUpInputSchema,
+  execute: (input) => calculateIncomeGrossUp(input),
+})
+
+registerCalculator({
+  id: 'split-loan',
+  name: 'Split Loan Calculator',
+  description: 'Calculate loans split across fixed and variable portions. Returns individual repayments, total, and weighted average rate.',
+  category: 'loan',
+  inputSchema: SplitLoanInputSchema,
+  execute: (input) => calculateSplitLoan(input),
+})
+
+registerCalculator({
+  id: 'home-loan-offset',
+  name: 'Home Loan Offset Calculator',
+  description: 'Estimate interest savings from an offset account. Compares with-offset amortization against no-offset baseline.',
+  category: 'loan',
+  inputSchema: HomeLoanOffsetInputSchema,
+  execute: (input) => calculateHomeLoanOffset(input),
+})
+
+registerCalculator({
+  id: 'introductory-rate-loan',
+  name: 'Introductory Rate Loan Calculator',
+  description: 'Model an introductory (honeymoon) rate loan that reverts after a fixed period. Shows the jump in repayments.',
+  category: 'loan',
+  inputSchema: IntroductoryRateLoanInputSchema,
+  execute: (input) => calculateIntroductoryRateLoan(input),
+})
+
+registerCalculator({
+  id: 'loan-comparison',
+  name: 'Loan Comparison Calculator',
+  description: 'Compare two or more loan options side-by-side. Finds best by total cost, monthly repayment, and interest saved.',
+  category: 'comparison',
+  inputSchema: LoanComparisonInputSchema,
+  execute: (input) => calculateLoanComparison(input),
+})
+
+registerCalculator({
+  id: 'mortgage-switching',
+  name: 'Mortgage Switching Calculator',
+  description: 'Compare staying with current loan vs switching/refinancing. Includes break-even analysis with upfront costs.',
+  category: 'comparison',
+  inputSchema: MortgageSwitchingInputSchema,
+  execute: (input) => calculateMortgageSwitching(input),
+})
+
+registerCalculator({
+  id: 'leasing',
+  name: 'Leasing Calculator',
+  description: 'Estimate lease payments for an asset given price, residual value, interest rate, term, and fees.',
+  category: 'general',
+  inputSchema: LeasingInputSchema,
+  execute: (input) => calculateLeasing(input),
+})
+
+registerCalculator({
+  id: 'reverse-mortgage',
+  name: 'Reverse Mortgage Calculator',
+  description: 'Estimate reverse mortgage drawdown and projected loan balance over time. Includes equity remaining analysis.',
+  category: 'general',
+  inputSchema: ReverseMortgageInputSchema,
+  execute: (input) => calculateReverseMortgage(input),
 })
 
 /** Re-export the engine utilities for convenience */

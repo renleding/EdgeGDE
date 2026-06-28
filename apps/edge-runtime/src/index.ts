@@ -19,6 +19,7 @@ import { mcpDeployRouter } from './routes/mcp-deploy'
 import { dashboardRouter } from './routes/dashboard'
 import { tenantRouter } from './api/tenants'
 import { submissionRouter } from './api/submissions'
+import { missionRouter } from './api/missions'
 import { tenantAuth } from './middleware/tenant-auth'
 import { templateRouter, instantiateRouter } from './api/templates'
 import { builderRouter } from './api/builder'
@@ -33,6 +34,8 @@ import { adminRulesRouter } from './api/admin-rules'
 import { adminBlueprintsRouter } from './api/admin-blueprints'
 import { adminFactoryRouter } from './api/admin-factory'
 import { adminDriftRouter } from './api/admin-drift'
+import { adminDeadLetterRouter } from './api/admin-deadletter'
+import { adminLandingRouter } from './api/admin-landing'
 import { adminPacksRouter } from './api/admin-packs'
 import { adminTenantRouter } from './api/admin-tenant-admin'
 import { embedRouter } from './api/embed'
@@ -85,8 +88,13 @@ import { incrementRequest, flushMetrics } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
 import { runDispatcher } from './crons/dispatcher'
+import { hotLeadIndexKey, hotLeadKey, tenantLayoutKey, canvasCacheGenKey, tenantLayoutLatestKey, tenantLayoutStagingKey, tenantCompiledKey } from './lib/kv-keys'
 import { guardDB } from './lib/db'
 import { guardKV } from './lib/kv'
+// ═══════════════════════════════════════════════════════════════════════════
+// Action Registry — registers system actions for the lifecycle runner
+// ═══════════════════════════════════════════════════════════════════════════
+import { registerSystemActions } from './actions/registry'
 // ═══════════════════════════════════════════════════════════════════════════
 // Form Registry (Phase 29)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -256,6 +264,7 @@ app.use('/admin/blueprints/*', adminAuth)
 app.use('/admin/factory/*', adminAuth)
 app.use('/admin/drift/*', adminAuth)
 app.use('/admin/packs/*', adminAuth)
+app.use('/admin/*', adminAuth)
 app.use('/api/v1/admin/audit/*', adminAuth)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -329,7 +338,7 @@ app.get('/api/leads/feed', adminAuth, async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const ctx = { tenantId }
   const kv = guardKV(rawKv)
-  const indexKey = `tenant:${tenantId}:alerts:hot:index`
+  const indexKey = hotLeadIndexKey(tenantId)
   const raw = await kv.get(indexKey, ctx)
   if (!raw) return c.json({ alerts: [] })
 
@@ -485,8 +494,10 @@ app.route('/admin/site', adminSiteRouter)
 app.route('/admin/blueprints', adminBlueprintsRouter)
 app.route('/admin/factory', adminFactoryRouter)
 app.route('/admin/drift', adminDriftRouter)
+app.route('/admin/deadletter', adminDeadLetterRouter)
 app.route('/admin/packs', adminPacksRouter)
 app.route('/admin/tenants', adminTenantRouter)
+app.route('/admin', adminLandingRouter)
 app.route('/embed', embedRouter)
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -670,7 +681,7 @@ app.post('/api/canvas/generate', async (c) => {
         await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify(result), undefined, { expirationTtl: 300 }).catch(() => {})
       }
       if (tenantKv && typeof tenantKv.put === 'function') {
-        await tenantKv.put('cache:canvas:gen:' + pHash, JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), undefined, { expirationTtl: 86400 }).catch(() => {})
+        await tenantKv.put(canvasCacheGenKey(pHash), JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), undefined, { expirationTtl: 86400 }).catch(() => {})
       }
     } catch (e: any) {
       console.error('[CanvasGen] background error:', e.message)
@@ -1074,6 +1085,9 @@ app.route('/api/v1', chatViewsRouter)
 // OCR Processing (Phase 1)
 app.route('/api/v1', ocrRouter)
 
+// Mission Lifecycle (FRS-4) — dry-run, list actions
+app.route('/api/v1/missions', missionRouter)
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 4B — Site Provisioning: renders tenant site at /sites/:slug
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1292,6 +1306,12 @@ registerForms()
 mountFormRoutes(app)
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Initialize Action Registry — registers system actions for the lifecycle runner
+// ═══════════════════════════════════════════════════════════════════════════
+
+registerSystemActions()
+
+// ═══════════════════════════════════════════════════════════════════════════
 // One-Time Counter Seed Route (Phase 30)
 // ═══════════════════════════════════════════════════════════════════════════
 app.get('/api/dev/seed-counters', async (c) => {
@@ -1406,7 +1426,7 @@ app.get('/', async (c) => {
     if (!layout) {
       const layoutSuffix = layoutTool === 'gallery' ? 'gallery' : layoutTool === 'budget' ? 'budget' : layoutTool === 'metrics' ? 'metrics' : 'latest'
       const envSuffix = isStaging ? ':staging' : ''
-      const layoutKvKey = `tenant:${tenantId}:layout:${layoutSuffix}${envSuffix}`
+      const layoutKvKey = tenantLayoutKey(tenantId, `${layoutSuffix}${envSuffix}`)
       layout = await kv.getJson(layoutKvKey, ctx)
       if (layout) setCachedLayout(layoutCacheKey, layout)
     }

@@ -26,18 +26,15 @@ import {
   validationErrorResponse,
 } from '../lib/schemas'
 
-// ═══════════════════════════════════════════════════════════════════════════
-// KV Resolver — Workers KV binding or MemoryKvStore fallback
-// ═══════════════════════════════════════════════════════════════════════════
-
-const globalKv = new MemoryKvStore()
+// KV Resolver — Workers KV binding or shared MemoryKvStore singleton
+import { kv } from '../index'
 
 function resolveKv(c: any): KvStore {
   const bindings = (c.env as any)?.ARTIFACT_KV
   if (bindings && typeof bindings.get === 'function') {
     return bindings as KvStore
   }
-  return globalKv
+  return kv
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

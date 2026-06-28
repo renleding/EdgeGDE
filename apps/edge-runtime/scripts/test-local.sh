@@ -9,15 +9,30 @@ TENANT="${EDGE_RUNTIME_TENANT:-afirmico}"
 WRANGLER_PID=""
 started=0
 
-UNIT_TESTS=(
+# Files using node:assert (custom test runner) — run with tsx (no vitest context needed)
+TSX_TESTS=(
   "tests/admin-pages.test.ts"
   "tests/canvas/canvas-engine.test.ts"
   "tests/canvas/canvas-editor.test.ts"
   "tests/canvas/compile-from-canvas.test.ts"
   "tests/cloner/website-cloner.test.ts"
   "tests/transpiler/design-extractor.test.ts"
+)
+
+# Files importing from vitest (describe/it/expect) — must use vitest run because
+# vitest 4.x's describe() requires a runner context that tsx doesn't initialize.
+# These are pure unit tests and can run before wrangler starts.
+VITEST_UNIT_TESTS=(
   "tests/unit-chat-constraint.test.ts"
   "tests/unit-schema.test.ts"
+  "tests/scoring-engine.test.ts"
+  "tests/phase13-hypermedia.test.ts"
+  "tests/domain-swarm.test.ts"
+)
+
+# These vitest-based tests need a running wrangler dev server for HTTP calls.
+VITEST_INTEGRATION_TESTS=(
+  "tests/domain-workspace.test.ts"
 )
 
 cleanup_started_wrangler() {
@@ -28,9 +43,18 @@ cleanup_started_wrangler() {
 }
 
 run_unit_tests() {
-  for test_file in "${UNIT_TESTS[@]}"; do
+  for test_file in "${TSX_TESTS[@]}"; do
     tsx "$test_file"
   done
+  if [ ${#VITEST_UNIT_TESTS[@]} -gt 0 ]; then
+    vitest run "${VITEST_UNIT_TESTS[@]}"
+  fi
+}
+
+run_integration_tests() {
+  if [ ${#VITEST_INTEGRATION_TESTS[@]} -gt 0 ]; then
+    vitest run "${VITEST_INTEGRATION_TESTS[@]}"
+  fi
 }
 
 export EDGE_RUNTIME_BASE_URL="$BASE"
@@ -105,7 +129,4 @@ if ! curl -fsS "$BASE/healthz" >/dev/null 2>&1; then
   exit 1
 fi
 run_unit_tests
-tsx tests/scoring-engine.test.ts && \
-tsx tests/phase13-hypermedia.test.ts && \
-tsx tests/domain-workspace.test.ts && \
-tsx tests/domain-swarm.test.ts
+run_integration_tests
