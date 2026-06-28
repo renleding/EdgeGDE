@@ -46,14 +46,15 @@ async function checkKvRateLimit(
  * - Per-IP: max 3 per hour
  * - Per-email: max 2 per day
  */
-export function rateLimitRegistration(kv: any): MiddlewareHandler {
+export function rateLimitRegistration(): MiddlewareHandler {
   return async (c: Context, next: Next) => {
+    const kv = (c.env as any)?.TENANT_KV
+    if (!kv) { await next(); return }
     const ip = clientIp(c)
     const ipResult = await checkKvRateLimit(kv, `rl:register:ip:${ip}`, 3, 3600)
     if (!ipResult.allowed) {
       return c.json({ error: 'Too many registration attempts. Try again later.', retryAfter: 3600 }, 429)
     }
-
     await next()
   }
 }
@@ -62,8 +63,10 @@ export function rateLimitRegistration(kv: any): MiddlewareHandler {
  * Rate limit login.
  * - Per-IP: max 10 per 15 minutes
  */
-export function rateLimitLogin(kv: any): MiddlewareHandler {
+export function rateLimitLogin(): MiddlewareHandler {
   return async (c: Context, next: Next) => {
+    const kv = (c.env as any)?.TENANT_KV
+    if (!kv) { await next(); return }
     const ip = clientIp(c)
     const result = await checkKvRateLimit(kv, `rl:login:ip:${ip}`, 10, 900)
     if (!result.allowed) {
