@@ -23,6 +23,11 @@ import { runReconcileLoop } from './reconcile'
 import type { CompensationReport } from './types'
 import type { ReconcileLoopResult } from './reconcile'
 import { instrumentLifecycleEvent } from '../lib/otel-worker'
+import {
+  auditActionExecuted,
+  auditMissionExecuted,
+  auditCompensationExecuted,
+} from './audit-writer'
 // Types
 // ---------------------------------------------------------------------------
 
@@ -161,6 +166,8 @@ export async function runMission(
       }
       executedActions.push(record)
       opts.onActionComplete?.(step, result, ctx)
+      // Fire-and-forget audit event
+      auditActionExecuted(opts.env, record)
 
       if (result.status === 'failure') {
         failedAction = record
@@ -311,6 +318,10 @@ export async function runMission(
           },
           opts.env as any,
         ).catch(() => {})
+        // Fire-and-forget audit event
+        auditCompensationExecuted(
+          opts.env, opts.tenantId, opts.mission.id, opts.correlationId, record.actionId,
+        )
       }
 
       return {
@@ -335,7 +346,7 @@ export async function runMission(
   // -----------------------------------------------------------------------
 
   const hasFailures = executedActions.some((e) => e.result.status === 'failure')
-  return {
+  const missionResult: MissionLifecycleResult = {
     missionId: opts.mission.id,
     correlationId: opts.correlationId,
     status: hasFailures ? 'failure' : 'success',
@@ -344,6 +355,11 @@ export async function runMission(
     totalDurationMs: Date.now() - startTime,
     error: failedAction?.result.error,
   }
+
+  // Fire-and-forget mission audit event
+  auditMissionExecuted(opts.env, missionResult)
+
+  return missionResult
 }
 
 // ---------------------------------------------------------------------------
@@ -558,4 +574,41 @@ function hasDependencyCycle(steps: MissionStep[]): boolean {
     if (dfs(step.stepId)) return true
   }
   return false
+}
+
+/**
+ * Replay a mission directly from the AuditLedger Durable Object.
+ * Fetches action_executed events for a given mission and runs replayMission().
+ */
+export async function replayFromAuditLedger(
+  stub: DurableObjectStub,
+  missionId: string,
+): Promise<ReplayResult & { ledgerEvents: number }> {
+  let ledgerEvents = 0
+  const replayEvents: ReplayEvent[] = []
+  let cursor: number | null = 0
+
+  while (cursor !== null) {
+    const url = `/list?cursor=${cursor}&limit=500`
+    const resp = await stub.fetch(url)
+    const data: any = await resp.json()
+    if (!data.entries) break
+    for (const entry of data.entries) {
+      if (entry.type === 'action_executed') {
+        replayEvents.push({
+          sequence: entry.seq,
+          actionType: entry.data.actionType,
+          input: entry.data.input,
+          expectedOutput: entry.data.expectedOutput,
+          expectedStatus: entry.data.expectedStatus,
+          correlationId: entry.data.correlationId,
+        })
+        ledgerEvents++
+      }
+    }
+    cursor = data.nextCursor
+  }
+
+  const result = await replayMission(missionId, replayEvents)
+  return { ...result, ledgerEvents }
 }

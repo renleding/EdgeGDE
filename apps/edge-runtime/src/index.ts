@@ -36,6 +36,13 @@ import { adminFactoryRouter } from './api/admin-factory'
 import { adminDriftRouter } from './api/admin-drift'
 import { adminDeadLetterRouter } from './api/admin-deadletter'
 import { adminLandingRouter } from './api/admin-landing'
+import { registerRouter } from './api/register'
+import { loginRouter } from './api/login'
+import { onboardingRouter } from './routes/onboarding'
+import { tenantDashboardRouter } from './routes/tenant-dashboard'
+import { verifyRouter } from './api/verify'
+import { clearSessionCookie } from './middleware/session'
+import { rateLimitRegistration, rateLimitLogin } from './middleware/rate-limit'
 import { adminPacksRouter } from './api/admin-packs'
 import { adminTenantRouter } from './api/admin-tenant-admin'
 import { embedRouter } from './api/embed'
@@ -499,6 +506,22 @@ app.route('/admin/packs', adminPacksRouter)
 app.route('/admin/tenants', adminTenantRouter)
 app.route('/admin', adminLandingRouter)
 app.route('/embed', embedRouter)
+
+// Tenant self-service — registration, login, onboarding, dashboard
+app.use('/register', rateLimitRegistration())
+app.use('/login', rateLimitLogin())
+app.route('/register', registerRouter)
+app.route('/login', loginRouter)
+app.route('/onboarding', onboardingRouter)
+app.route('/tenant', tenantDashboardRouter)
+app.route('/verify', verifyRouter)
+
+// Logout — clear session
+app.post('/logout', async (c) => {
+  clearSessionCookie(c)
+  c.header('Location', '/login')
+  return c.body(null, 302)
+})
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Canvas Routes

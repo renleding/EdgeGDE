@@ -9,6 +9,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { CALCULATOR_REGISTRY, compileToHtml } from '../registry/calculators'
+import { getCalculator } from '../lib/calculator-engine'
 import type { TenantConfig } from '../lib/tenant'
 import { runMission } from '../actions/lifecycle'
 import { getCorrelationId } from '../middleware/correlation'
@@ -50,8 +51,17 @@ function formatZodError(error: z.ZodError): ValidationError[] {
 router.post('/v1/:toolId', async (c) => {
   const toolId = c.req.param('toolId')
 
-  // ── Lookup tool in registry ────────────────────────────────────────────
-  const tool = CALCULATOR_REGISTRY[toolId]
+  // ── Lookup tool in registry (legacy + engine) ───────────────────────
+  const tool = CALCULATOR_REGISTRY[toolId] || (() => {
+    const engineCalc = getCalculator(toolId)
+    if (!engineCalc) return undefined
+    return {
+      id: engineCalc.id, description: engineCalc.description,
+      schema: engineCalc.inputSchema as any,
+      layout: { schemaVersion: '0.1.0', rootNode: { id: 'r', type: 'FRAME' as const, name: 'Results', x: 0, y: 0, width: 600, height: 300 }, formFields: [] },
+      execute(input: any) { return engineCalc.execute(input) },
+    }
+  })()
   if (!tool) {
     return c.json({ error: 'Tool not found', toolId }, 404)
   }
