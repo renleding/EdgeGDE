@@ -9,6 +9,7 @@
 
 import { Hono } from 'hono'
 import { requireSession } from '../middleware/session'
+import { hashPassword } from '../lib/password'
 
 const router = new Hono()
 
@@ -137,6 +138,41 @@ router.get('/dashboard', requireSession(), async (c) => {
     </div>`
 
   return c.html(layout('Dashboard', body))
+})
+
+/**
+ * POST /tenant/api-key/regenerate — Generate a new API key (protected).
+ * Returns the new key exactly once via HTMX fragment.
+ */
+router.post('/api-key/regenerate', requireSession(), async (c) => {
+  const session = (c as any).get('tenantSession') as any
+  const slug = session.slug
+  const TENANT_KV = (c.env as any)?.TENANT_KV
+
+  if (!TENANT_KV) {
+    return c.html('<span style="color:#da3633">Tenant storage unavailable</span>')
+  }
+
+  const newKey = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '')
+  const apiKeyHash = await hashPassword(newKey)
+
+  // Load existing credentials to preserve password hash
+  const existing: any = await TENANT_KV.get(`tenant:${slug}:credentials`, 'json')
+  const credentials = {
+    passwordHash: existing?.passwordHash || '',
+    apiKeyHash,
+    apiKeyPlaintext: newKey, // shown once
+    createdAt: existing?.createdAt || new Date().toISOString(),
+    regeneratedAt: new Date().toISOString(),
+  }
+  await TENANT_KV.put(`tenant:${slug}:credentials`, JSON.stringify(credentials))
+
+  // Return the key as an HTMX fragment
+  return c.html(`<div style="margin-top:8px;padding:8px;background:#0d1117;border:1px solid #3fb950;border-radius:6px">
+    <p style="font-size:11px;color:#3fb950;margin-bottom:4px">New API key (shown once):</p>
+    <code style="font-size:13px;font-family:monospace;word-break:break-all">${newKey}</code>
+    <button class="btn btn-secondary" style="margin-top:4px" onclick="navigator.clipboard.writeText('${newKey}')">Copy</button>
+  </div>`)
 })
 
 export { router as tenantDashboardRouter }
