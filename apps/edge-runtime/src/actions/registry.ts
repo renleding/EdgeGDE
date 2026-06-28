@@ -18,6 +18,7 @@
 import { registerAction } from './lifecycle'
 import type { EdgeGDEAction, ActionContext } from './types'
 import { CALCULATOR_REGISTRY } from '../registry/calculators'
+import { getCalculator } from '../lib/calculator-engine'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -226,7 +227,15 @@ const calculatorExecute: EdgeGDEAction = {
       return { status: 'failure' as const, output: null, error: 'Missing toolId in input', durationMs: 0 }
     }
 
-    const tool = CALCULATOR_REGISTRY[toolId]
+    const tool = CALCULATOR_REGISTRY[toolId] || (() => {
+      const engineCalc = getCalculator(toolId)
+      if (!engineCalc) return undefined
+      return {
+        id: engineCalc.id, description: engineCalc.description,
+        schema: engineCalc.inputSchema as any,
+        execute(input: any) { return engineCalc.execute(input) },
+      }
+    })()
     if (!tool) {
       return { status: 'failure' as const, output: null, error: `Calculator not found: ${toolId}`, durationMs: 0 }
     }
