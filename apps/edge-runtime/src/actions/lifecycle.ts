@@ -559,3 +559,40 @@ function hasDependencyCycle(steps: MissionStep[]): boolean {
   }
   return false
 }
+
+/**
+ * Replay a mission directly from the AuditLedger Durable Object.
+ * Fetches action_executed events for a given mission and runs replayMission().
+ */
+export async function replayFromAuditLedger(
+  stub: DurableObjectStub,
+  missionId: string,
+): Promise<ReplayResult & { ledgerEvents: number }> {
+  let ledgerEvents = 0
+  const replayEvents: ReplayEvent[] = []
+  let cursor: number | null = 0
+
+  while (cursor !== null) {
+    const url = `/list?cursor=${cursor}&limit=500`
+    const resp = await stub.fetch(url)
+    const data: any = await resp.json()
+    if (!data.entries) break
+    for (const entry of data.entries) {
+      if (entry.type === 'action_executed') {
+        replayEvents.push({
+          sequence: entry.seq,
+          actionType: entry.data.actionType,
+          input: entry.data.input,
+          expectedOutput: entry.data.expectedOutput,
+          expectedStatus: entry.data.expectedStatus,
+          correlationId: entry.data.correlationId,
+        })
+        ledgerEvents++
+      }
+    }
+    cursor = data.nextCursor
+  }
+
+  const result = await replayMission(missionId, replayEvents)
+  return { ...result, ledgerEvents }
+}

@@ -27,6 +27,9 @@ const ALLOWED_EVENTS = new Set([
   'document_uploaded',
   'automation_executed',
   'ui_config_updated',
+  'action_executed',
+  'mission_executed',
+  'compensation_executed',
 ])
 
 // ═════════════════════════════════════════════════════════════════════════════
