@@ -36,6 +36,8 @@ import { adminFactoryRouter } from './api/admin-factory'
 import { adminDriftRouter } from './api/admin-drift'
 import { adminDeadLetterRouter } from './api/admin-deadletter'
 import { adminLandingRouter } from './api/admin-landing'
+import { registerRouter } from './api/register'
+import { loginRouter } from './api/login'
 import { adminPacksRouter } from './api/admin-packs'
 import { adminTenantRouter } from './api/admin-tenant-admin'
 import { embedRouter } from './api/embed'
@@ -499,6 +501,10 @@ app.route('/admin/packs', adminPacksRouter)
 app.route('/admin/tenants', adminTenantRouter)
 app.route('/admin', adminLandingRouter)
 app.route('/embed', embedRouter)
+
+// Tenant self-service — registration + login (no auth required)
+app.route('/register', registerRouter)
+app.route('/login', loginRouter)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Canvas Routes
