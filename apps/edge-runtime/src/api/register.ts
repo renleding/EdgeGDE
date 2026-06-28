@@ -116,6 +116,7 @@ router.post('/', async (c) => {
     const credentials = {
       passwordHash,
       apiKeyHash: await hashPassword(apiKey),
+      apiKeyPlaintext: apiKey,  // temporary — shown once during onboarding, then removed
       createdAt: now,
     }
 

@@ -38,6 +38,7 @@ import { adminDeadLetterRouter } from './api/admin-deadletter'
 import { adminLandingRouter } from './api/admin-landing'
 import { registerRouter } from './api/register'
 import { loginRouter } from './api/login'
+import { onboardingRouter } from './routes/onboarding'
 import { adminPacksRouter } from './api/admin-packs'
 import { adminTenantRouter } from './api/admin-tenant-admin'
 import { embedRouter } from './api/embed'
@@ -505,6 +506,7 @@ app.route('/embed', embedRouter)
 // Tenant self-service — registration + login (no auth required)
 app.route('/register', registerRouter)
 app.route('/login', loginRouter)
+app.route('/onboarding', onboardingRouter)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Canvas Routes
