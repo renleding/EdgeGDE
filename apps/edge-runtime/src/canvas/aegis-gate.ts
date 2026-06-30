@@ -13,7 +13,7 @@
 
 import { z, ZodError } from 'zod'
 import { MutationSchema } from './canvas-schemas'
-import type { Mutation } from './canvas-types'
+import type { Mutation, AuditEntry } from './canvas-types'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Validation Result Types
@@ -24,12 +24,16 @@ export interface ValidationSuccess {
   mutation: Mutation
   schemaVersion: string
   checksum: string
+  /** Chain-of-thought reasoning trace (FRS v3 Rec #4) */
+  reasoning: ValidationReasoning
 }
 
 export interface ValidationFailure {
   valid: false
   errors: ValidationError[]
   raw: unknown
+  /** Chain-of-thought reasoning for why validation failed */
+  reasoning: ValidationReasoning
 }
 
 export type ValidationResult = ValidationSuccess | ValidationFailure
@@ -40,6 +44,17 @@ export interface ValidationError {
   message: string
   expected?: string
   received?: string
+}
+
+/** CoT reasoning trace — stored in audit trail (FRS v3 Rec #4) */
+export interface ValidationReasoning {
+  gate: string
+  structuralPass: boolean
+  governancePass: boolean
+  checksumPass: boolean
+  steps: string[]
+  startTime: number
+  durationMs: number
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -61,16 +76,60 @@ const SCHEMA_VERSION = '3.0.0'
  * Every mutation entering the append-only history MUST pass this gate.
  *
  * @param raw - The raw mutation object (from WebSocket, HTTP request, or agent)
- * @returns Structured validation result
+ * @returns Structured validation result with CoT reasoning trace
  */
 export function validateMutation(raw: unknown): ValidationResult {
+  const startTime = Date.now()
+  const steps: string[] = []
+
+  // Step 1: Determine mutation type
+  const rawType = (raw as any)?.type
+  steps.push(`Step 1: Detected mutation type "${rawType || 'unknown'}"`)
+
+  if (!rawType || typeof rawType !== 'string') {
+    return {
+      valid: false,
+      errors: [{ path: 'type', code: 'invalid_type', message: 'Mutation type must be a non-empty string' }],
+      raw,
+      reasoning: {
+        gate: 'aegis-structural-v1',
+        structuralPass: false,
+        governancePass: false,
+        checksumPass: false,
+        steps: [...steps, 'Step 2: REJECTED — type field missing or non-string'],
+        startTime,
+        durationMs: Date.now() - startTime,
+      },
+    }
+  }
+
+  steps.push(`Step 2: Parsing mutation against Zod schema "${rawType}"`)
+
   try {
     const parsed = MutationSchema.parse(raw)
+    steps.push(`Step 3: Structural validation PASSED for type "${rawType}"`)
+
+    const checksum = computeChecksum(parsed)
+    steps.push(`Step 4: Checksum computed: ${checksum}`)
+
+    // Step 5: Governance checks
+    const governancePass = runGovernanceChecks(parsed as Mutation, steps)
+    steps.push(`Step 5: Governance checks ${governancePass ? 'PASSED' : 'WARNINGS (non-blocking)'}`)
+
     return {
       valid: true,
       mutation: parsed as Mutation,
       schemaVersion: SCHEMA_VERSION,
-      checksum: computeChecksum(parsed),
+      checksum,
+      reasoning: {
+        gate: 'aegis-structural-v1',
+        structuralPass: true,
+        governancePass,
+        checksumPass: true,
+        steps,
+        startTime,
+        durationMs: Date.now() - startTime,
+      },
     }
   } catch (err) {
     if (err instanceof ZodError) {
@@ -81,14 +140,77 @@ export function validateMutation(raw: unknown): ValidationResult {
         expected: 'expected' in issue ? String((issue as any).expected) : undefined,
         received: 'received' in issue ? String((issue as any).received) : undefined,
       }))
-      return { valid: false, errors, raw }
+      steps.push(`Step 3: REJECTED — ${errors.length} structural error(s) found`)
+      return {
+        valid: false,
+        errors,
+        raw,
+        reasoning: {
+          gate: 'aegis-structural-v1',
+          structuralPass: false,
+          governancePass: false,
+          checksumPass: false,
+          steps,
+          startTime,
+          durationMs: Date.now() - startTime,
+        },
+      }
     }
+    steps.push(`Step 3: REJECTED — unknown error: ${String(err)}`)
     return {
       valid: false,
       errors: [{ path: '', code: 'unknown', message: String(err) }],
       raw,
+      reasoning: {
+        gate: 'aegis-structural-v1',
+        structuralPass: false,
+        governancePass: false,
+        checksumPass: false,
+        steps,
+        startTime,
+        durationMs: Date.now() - startTime,
+      },
     }
   }
+}
+
+/**
+ * Run governance checks on a structurally valid mutation.
+ * Returns true if all checks pass, false if warnings found.
+ * These checks are non-blocking at the structural level — the
+ * full document-context check happens in the CanvasSession_DO.
+ */
+function runGovernanceChecks(mutation: Mutation, steps: string[]): boolean {
+  let allPass = true
+
+  if (mutation.type === 'transition_agent_state') {
+    const validTransitions: Record<string, string[]> = {
+      Idle: ['Running'],
+      Running: ['Paused', 'Failed', 'Completed'],
+      Paused: ['Running', 'Completed'],
+      Failed: ['Running'],
+      Completed: ['Idle'],
+    }
+    // Note: full check requires document context for current state
+    const fromState = mutation.nodeId
+    steps.push(`  Governance: transition_agent_state on node "${fromState}" — valid paths documented`)
+  }
+
+  if (mutation.type === 'create_proposal') {
+    if (!mutation.proposalData.title || mutation.proposalData.title.trim() === '') {
+      steps.push('  Governance WARNING: create_proposal title is empty')
+      allPass = false
+    }
+  }
+
+  if (mutation.type === 'rollback_to_point') {
+    if (mutation.targetPointer < -1) {
+      steps.push('  Governance WARNING: rollback targetPointer out of range (< -1)')
+      allPass = false
+    }
+  }
+
+  return allPass
 }
 
 /**
