@@ -968,4 +968,184 @@ policyDecision: ${proposal.policyDecision}</pre>
   loadTransient()
   loadProposals()
   registerServiceWorker()
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FRS v3 Extensions — AgentNode, ProposalNode, Timeline, Audit, Handoff
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Feature A: Agent state colors and status badge. */
+  function agentStateColor(state) {
+    const colors = { Running: '#22c55e', Paused: '#eab308', Failed: '#ef4444', Completed: '#3b82f6', Idle: '#6b7280' }
+    return colors[state] || '#6b7280'
+  }
+
+  function agentStateLabel(state) {
+    const labels = { Running: '● RUNNING', Paused: '⏸ PAUSED', Failed: '✕ FAILED', Completed: '✓ DONE', Idle: '○ IDLE' }
+    return labels[state] || state
+  }
+
+  /** Feature A: Render an AgentNode overlay — colored ring + status badge. */
+  function renderAgentNode(object) {
+    if (object.type !== 'agent-node' && object.type !== 'agent-panel') return
+    const el = document.querySelector(`[data-id="${object.id}"]`)
+    if (!el) return
+    const state = object.agentState || 'Idle'
+    el.style.boxShadow = `inset 0 0 0 2px ${agentStateColor(state)}`
+    const badge = document.createElement('div')
+    badge.className = 'agent-state-badge'
+    badge.textContent = agentStateLabel(state)
+    badge.style.cssText = `position:absolute;top:-8px;right:-8px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${agentStateColor(state)};color:#0f172a;z-index:10`
+    el.appendChild(badge)
+  }
+
+  /** Feature B: Render the Timeline Rail — fixed strip at top. */
+  function renderTimelineRail(mutations) {
+    let rail = document.getElementById('timeline-rail')
+    if (!rail) {
+      rail = document.createElement('div')
+      rail.id = 'timeline-rail'
+      rail.style.cssText = 'position:fixed;top:52px;left:0;right:0;height:36px;background:rgba(15,23,42,0.92);border-bottom:1px solid rgba(148,163,184,0.15);display:flex;align-items:center;gap:4px;padding:0 12px;overflow-x:auto;z-index:100;backdrop-filter:blur(8px)'
+      document.body.appendChild(rail)
+    }
+    rail.innerHTML = ''
+    if (!mutations || !mutations.length) {
+      rail.innerHTML = '<span style="color:#64748b;font-size:11px;padding:4px">No mutations</span>'
+      return
+    }
+    for (let i = Math.max(0, mutations.length - 50); i < mutations.length; i++) {
+      const m = mutations[i]
+      const chip = document.createElement('span')
+      const type = typeof m === 'string' ? m : (m.type || 'unknown')
+      const ts = m.ts ? new Date(m.ts).toLocaleTimeString() : ''
+      chip.textContent = `${ts} ${type}`
+      chip.dataset.index = i
+      chip.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(148,163,184,0.1);color:#94a3b8;cursor:pointer;white-space:nowrap;flex-shrink:0'
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#timeline-rail span').forEach(c => c.style.background = 'rgba(148,163,184,0.1)')
+        chip.style.background = 'rgba(59,130,246,0.3)'
+        chip.style.color = '#60a5fa'
+        console.log(`[Timeline] State jump to mutation ${i}`)
+        // Component handles dispatch via WebSocket
+      })
+      rail.appendChild(chip)
+    }
+  }
+
+  /** Feature C: Render a ProposalNode overlay — status badge + flow arrow. */
+  function renderProposalNode(object) {
+    if (object.type !== 'proposal-node') return
+    const el = document.querySelector(`[data-id="${object.id}"]`)
+    if (!el) return
+    const status = object.status || 'Draft'
+    const colors = { Draft: '#eab308', Review: '#3b82f6', Approved: '#22c55e', Rejected: '#ef4444' }
+    el.style.borderLeft = `4px solid ${colors[status] || '#6b7280'}`
+    const badge = document.createElement('div')
+    badge.className = 'proposal-status-badge'
+    badge.textContent = status
+    badge.style.cssText = `position:absolute;top:-8px;left:-8px;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;background:${colors[status]};color:#0f172a;z-index:10`
+    el.appendChild(badge)
+    // Flow arrow to target nodes
+    if (object.targetNodes) {
+      for (const targetId of object.targetNodes) {
+        const targetEl = document.querySelector(`[data-id="${targetId}"]`)
+        if (targetEl) drawFlowArrow(el, targetEl, colors[status])
+      }
+    }
+  }
+
+  /** Feature C: Draw an SVG flow arrow between two elements. */
+  function drawFlowArrow(from, to, color) {
+    const id = `arrow-${from.dataset.id}-${to.dataset.id}`
+    if (document.getElementById(id)) return
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.id = id
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5'
+    canvasStage.appendChild(svg)
+
+    function updateArrow() {
+      const fr = from.getBoundingClientRect()
+      const tr = to.getBoundingClientRect()
+      const sr = canvasStage.getBoundingClientRect()
+      const x1 = fr.left + fr.width / 2 - sr.left
+      const y1 = fr.top + fr.height / 2 - sr.top
+      const x2 = tr.left + tr.width / 2 - sr.left
+      const y2 = tr.top + tr.height / 2 - sr.top
+      svg.innerHTML = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrowhead-${id})" opacity="0.6"/>
+        <defs><marker id="arrowhead-${id}" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto"><polygon points="0 0, 10 5, 0 10" fill="${color}" opacity="0.8"/></marker></defs>`
+    }
+    updateArrow()
+    window.addEventListener('resize', updateArrow)
+  }
+
+  /** Feature D: Render WorkspacePane borders + handoff links. */
+  function renderWorkspacePanes(objects) {
+    for (const object of objects) {
+      if (object.type !== 'workspace-pane') continue
+      const el = document.querySelector(`[data-id="${object.id}"]`)
+      if (!el) continue
+      el.style.border = '2px dashed rgba(148,163,184,0.3)'
+      el.style.borderRadius = '12px'
+      const label = document.createElement('div')
+      label.textContent = object.workspaceName || 'Workspace'
+      label.style.cssText = 'position:absolute;top:-12px;left:12px;padding:0 8px;font-size:10px;font-weight:600;color:#94a3b8;background:#0f172a;z-index:10'
+      el.appendChild(label)
+    }
+  }
+
+  /** Feature E: Render the Audit Trail overlay — right-side vertical timeline. */
+  function renderAuditTrail(auditEntries) {
+    let trail = document.getElementById('audit-trail')
+    if (!trail) {
+      trail = document.createElement('div')
+      trail.id = 'audit-trail'
+      trail.style.cssText = 'position:fixed;top:90px;right:0;width:200px;max-height:calc(100vh - 100px);overflow-y:auto;background:rgba(15,23,42,0.92);border-left:1px solid rgba(148,163,184,0.15);padding:8px;z-index:100;backdrop-filter:blur(8px);font-size:11px'
+      document.body.appendChild(trail)
+    }
+    if (!auditEntries || !auditEntries.length) {
+      trail.innerHTML = '<div style="color:#64748b;padding:8px;text-align:center">No audit events</div>'
+      return
+    }
+    trail.innerHTML = '<div style="font-weight:600;color:#94a3b8;margin-bottom:8px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Audit Trail</div>'
+    for (const entry of auditEntries.slice(-20).reverse()) {
+      const colors = { approve: '#22c55e', reject: '#ef4444', rollback: '#f97316', info: '#3b82f6' }
+      const el = document.createElement('div')
+      el.style.cssText = 'padding:4px 0;border-left:2px solid ' + (colors[entry.type] || '#6b7280') + ';padding-left:8px;margin-bottom:4px;cursor:pointer'
+      el.innerHTML = `<div style="color:${colors[entry.type] || '#94a3b8'};font-weight:600">${entry.type.toUpperCase()}</div>
+        <div style="color:#64748b">${entry.detail || ''}</div>
+        <div style="color:#475569;font-size:9px">${entry.ts ? new Date(entry.ts).toLocaleTimeString() : ''}</div>`
+      el.addEventListener('click', () => {
+        // Highlight affected nodes
+        if (entry.targetNodeIds) {
+          document.querySelectorAll('.canvas-object').forEach(e => e.style.opacity = '0.3')
+          for (const nid of entry.targetNodeIds) {
+            const target = document.querySelector(`[data-id="${nid}"]`)
+            if (target) target.style.opacity = '1'
+          }
+        }
+      })
+      trail.appendChild(el)
+    }
+  }
+
+  // Override renderObjects to include FRS v3 overlays
+  const _origRenderObjects = renderObjects
+  renderObjects = function() {
+    _origRenderObjects()
+    for (const object of state.objects) {
+      renderAgentNode(object)
+      renderProposalNode(object)
+    }
+    renderWorkspacePanes(state.objects)
+    // Timeline and audit trail are updated via mutation events
+  }
+
+  // Override renderProposals to sync with ProposalNode rendering
+  const _origRenderProposals = renderProposals
+  renderProposals = function() {
+    _origRenderProposals()
+    renderTimelineRail(state.objects.map(o => ({ type: 'render', ts: Date.now() })))
+  }
+
+  // Expose for WebSocket integration
+  window.__edgegdeCanvas = { renderTimelineRail, renderAuditTrail, renderFlowArrows: drawFlowArrow }
 })()

@@ -10,11 +10,20 @@ const MAX_UNDO_STACK = 100
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface ClientMessage {
-  type: 'request_state' | 'mutation' | 'mcp_call' | 'undo'
+  type: 'request_state' | 'mutation' | 'mcp_call' | 'undo' | 'redo'
+    | 'deploy' | 'approve_proposal' | 'reject_proposal'
+    | 'jump_to_timeline' | 'filter_timeline' | 'inspect_link' | 'rollback_replay'
   mutation?: Mutation
   tool?: string
   payload?: any
   expectedVersion?: number
+  // FRS v3
+  nodeId?: string
+  index?: number
+  mutationType?: string
+  agentId?: string
+  linkId?: string
+  auditEntryId?: string
 }
 
 interface ApplyResult {
@@ -92,6 +101,34 @@ export class CanvasSession_DO implements DurableObject {
     }
 
     if (path === '/deploy' && request.method === 'POST') return self.handleDeploy()
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FRS v3 Routes
+    // ═══════════════════════════════════════════════════════════════════════
+    if (path === '/transition_agent_state' && request.method === 'POST') {
+      const { nodeId, newState, expectedVersion } = await request.json() as { nodeId: string; newState: any; expectedVersion: number }
+      return this.handleMutation({ type: 'transition_agent_state', nodeId, newState }, expectedVersion)
+    }
+    if (path === '/create_proposal' && request.method === 'POST') {
+      const { node, proposalData, expectedVersion } = await request.json() as { node: any; proposalData: any; expectedVersion: number }
+      return this.handleMutation({ type: 'create_proposal', node, proposalData }, expectedVersion)
+    }
+    if (path === '/approve_proposal' && request.method === 'POST') {
+      const { nodeId, expectedVersion } = await request.json() as { nodeId: string; expectedVersion: number }
+      return this.handleMutation({ type: 'approve_proposal', nodeId }, expectedVersion)
+    }
+    if (path === '/reject_proposal' && request.method === 'POST') {
+      const { nodeId, expectedVersion } = await request.json() as { nodeId: string; expectedVersion: number }
+      return this.handleMutation({ type: 'reject_proposal', nodeId }, expectedVersion)
+    }
+    if (path === '/rollback' && request.method === 'POST') {
+      const { targetPointer, expectedVersion } = await request.json() as { targetPointer: number; expectedVersion: number }
+      return this.handleMutation({ type: 'rollback_to_point', targetPointer }, expectedVersion)
+    }
+    if (path === '/link_workspaces' && request.method === 'POST') {
+      const { link, expectedVersion } = await request.json() as { link: any; expectedVersion: number }
+      return this.handleMutation({ type: 'link_workspaces', link }, expectedVersion)
+    }
 
     return new Response('Not found', { status: 404 })
   }
