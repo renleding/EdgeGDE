@@ -37,15 +37,18 @@
   "kv_namespaces": [
     {
       "binding": "ARTIFACT_KV",
-      "id": "95a35fb5eaa441bd9f6336b4ef894a57"
+      "id": "95a35fb5eaa441bd9f6336b4ef894a57",
+      "preview_id": "95a35fb5eaa441bd9f6336b4ef894a57"
     },
     {
       "binding": "TENANT_KV",
-      "id": "04893a14b75e41b281177bf558cf3e32"
+      "id": "04893a14b75e41b281177bf558cf3e32",
+      "preview_id": "04893a14b75e41b281177bf558cf3e32"
     },
     {
       "binding": "TELEMETRY_KV",
-      "id": "588cdc5578244acdbaed515dbbc175f7"
+      "id": "588cdc5578244acdbaed515dbbc175f7",
+      "preview_id": "588cdc5578244acdbaed515dbbc175f7"
     }
   ],
   "main": "src/index.ts",
@@ -92,6 +95,32 @@
       "bucket_name": "edgegde-vault-staging"
     }
   ],
+  "queues": {
+    "consumers": [
+      {
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "queue": "edgegde-lead-scoring-staging"
+      },
+      {
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "queue": "edgegde-forecasting-staging"
+      }
+    ],
+    "producers": [
+      {
+        "binding": "LEAD_SCORING_QUEUE",
+        "queue": "edgegde-lead-scoring-staging"
+      },
+      {
+        "binding": "FORECASTING_QUEUE",
+        "queue": "edgegde-forecasting-staging"
+      }
+    ]
+  },
   "triggers": {
     "crons": [
       "0 8,20 * * *"
