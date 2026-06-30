@@ -1,5 +1,6 @@
 import type { CanvasDocument, Node, Mutation } from '../canvas/canvas-types'
 import { applyMutation } from '../canvas/canvas-engine'
+import { AegisMutationGate } from '../canvas/aegis-gate'
 import { guardKV } from '../lib/kv'
 
 const SNAPSHOT_INTERVAL = 5
@@ -44,6 +45,8 @@ export class CanvasSession_DO implements DurableObject {
   private undoStack: CanvasDocument[] = []
   private scheduledSnapshot = false
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
+  /** Aegis governance gate — validates every mutation before execution */
+  private aegis = new AegisMutationGate()
 
   constructor(state: DurableObjectState, env: any) {
     this.state_ = state
@@ -228,8 +231,17 @@ export class CanvasSession_DO implements DurableObject {
     if (!this.doc) return { success: false, error: 'Canvas not initialized' }
     if (this.doc.version !== expectedVersion) return { success: false, error: 'Version conflict' }
 
+    // ═══ Aegis Gate: Validate mutation structure before execution (FRS v3 Rec #1) ═══
+    const gateResult = this.aegis.validate(mutation)
+    if (!gateResult.valid) {
+      return {
+        success: false,
+        error: `Aegis rejected mutation: ${gateResult.errors.map(e => `${e.path}: ${e.message}`).join('; ')}`,
+      }
+    }
+
     try {
-      this.doc = applyMutation(this.doc, mutation)
+      this.doc = applyMutation(this.doc, gateResult.mutation)
       this.doc.version += 1
       this.triggerSnapshot()
       return { success: true, newVersion: this.doc.version }
