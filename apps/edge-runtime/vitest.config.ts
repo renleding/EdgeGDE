@@ -12,6 +12,7 @@ export default defineConfig({
       'tests/phase13-hypermedia.test.ts',
       'tests/domain-swarm.test.ts',
       'tests/calculator-engine.test.ts',
+      'tests/uat-calculators.test.ts',
     ],
     exclude: ['node_modules', 'dist'],
   },
