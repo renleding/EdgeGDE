@@ -8,6 +8,7 @@
 
 import { Hono } from 'hono'
 import { verifyPassword } from '../lib/password'
+import { envFromContext } from '../lib/env'
 import { createSessionToken, setSessionCookie } from '../middleware/session'
 
 const router = new Hono()
@@ -26,7 +27,8 @@ router.post('/', async (c) => {
     }
 
     // ── 1. Look up tenant ──────────────────────────────────────────────
-    const TENANT_KV = (c.env as any)?.TENANT_KV
+    const env = envFromContext(c)
+    const TENANT_KV = env.TENANT_KV
     if (!TENANT_KV || typeof TENANT_KV.get !== 'function') {
       return c.json({ error: 'Authentication unavailable' }, 500)
     }
@@ -48,7 +50,7 @@ router.post('/', async (c) => {
     }
 
     // ── 3. Create session ──────────────────────────────────────────────
-    const jwtSecret = (c.env as any)?.JWT_SECRET as string | undefined
+    const jwtSecret = env.JWT_SECRET
     if (!jwtSecret) {
       return c.json({ error: 'JWT_SECRET not configured' }, 500)
     }

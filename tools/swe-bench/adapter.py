@@ -51,7 +51,13 @@ def _get_api_key() -> str:
     return os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
 
 OPENROUTER_API_KEY = _get_api_key()
-OPENROUTER_MODEL = "deepseek/deepseek-v4-flash"
+
+# ── Model Selection ─────────────────────────────────────────────────────────
+# Set LLM_PROVIDER to "ollama" for local inference, "openrouter" for cloud.
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
+OPENROUTER_MODEL = os.environ.get("LLM_MODEL", "ornith:9b")
+OPENROUTER_MODEL_FALLBACK = "deepseek/deepseek-v4-flash"
 
 # ── Aider venv path (FRS-9 fallback) ───────────────────────────────────────
 AIDER_VENV = Path("/tmp/aider-venv")
@@ -149,32 +155,68 @@ def build_context(instance: dict, worktree: Path) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def call_llm(messages: list, max_tokens: int = 16000) -> str:
-    """Call OpenRouter API and return response text."""
-    api_key = OPENROUTER_API_KEY
-    if not api_key or len(api_key) < 10:
-        raise RuntimeError("OPENROUTER_API_KEY not found or too short.")
+    """Call configured LLM provider and return response text."""
+    provider = LLM_PROVIDER
+    model = OPENROUTER_MODEL
 
-    payload = json.dumps({
-        "model": OPENROUTER_MODEL,
-        "messages": messages,
-        "temperature": 0.1,
-        "max_tokens": max_tokens,
-    }).encode()
+    if provider == "ollama":
+        # Local Ollama endpoint — no API key needed
+        payload = json.dumps({
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": 0.1,
+            },
+            "chat_template_kwargs": {"enable_thinking": False},
+        }).encode()
+        req = Request(
+            OLLAMA_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            response = urlopen(req, timeout=300)
+        except Exception as exc:
+            # Fallback to OpenRouter if Ollama is down
+            if OPENROUTER_API_KEY and len(OPENROUTER_API_KEY) >= 10:
+                print(f"  [warn] Ollama unavailable ({exc}), falling back to OpenRouter")
+                provider = "openrouter"
+            else:
+                raise
 
-    req = Request(
-        "https://openrouter.ai/api/v1/chat/completions",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://edgegde.dev",
-        },
-        method="POST",
-    )
-    response = urlopen(req, timeout=300)
+    if provider == "openrouter":
+        api_key = OPENROUTER_API_KEY
+        if not api_key or len(api_key) < 10:
+            raise RuntimeError("OPENROUTER_API_KEY not found or too short.")
+        payload = json.dumps({
+            "model": OPENROUTER_MODEL_FALLBACK,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": max_tokens,
+        }).encode()
+        req = Request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://edgegde.dev",
+            },
+            method="POST",
+        )
+        response = urlopen(req, timeout=300)
+    else:
+        raise RuntimeError(f"Unknown LLM provider: {provider}")
+
     result = json.loads(response.read())
     content = result.get("choices", [{}])[0].get("message", {}).get("content")
-    if content is None:
+    # Some Ollama models put output in reasoning field when thinking renderer is active
+    if content is None or not content.strip():
+        content = result.get("message", {}).get("content")
+    if content is None or not content.strip():
         raise RuntimeError(f"LLM returned no content. Response: {json.dumps(result)[:500]}")
     return content
 
@@ -386,7 +428,7 @@ def run_aider_fallback(instance: dict, worktree: Path) -> str:
     start = time.time()
     r = subprocess.run(
         [str(AIDER_BIN),
-         "--model", f"openrouter/{OPENROUTER_MODEL}",
+         "--model", f"ollama/{OPENROUTER_MODEL}",
          "--yes-always", "--no-git", "--no-show-model-warnings",
          "--no-check-model-accepts-settings", "--no-auto-commits",
          "--message", problem],

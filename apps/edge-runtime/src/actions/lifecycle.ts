@@ -70,14 +70,26 @@ export interface MissionLifecycleResult {
 
 const _actionRegistry = new Map<string, EdgeGDEAction>()
 
+/**
+ * Register an action in the global action registry.
+ * Actions are looked up by type string during mission execution.
+ */
 export function registerAction(action: EdgeGDEAction): void {
   _actionRegistry.set(action.type, action)
 }
 
+/**
+ * Retrieve a registered action by type string.
+ * Returns undefined if no action with that type is registered.
+ */
 export function getAction(type: string): EdgeGDEAction | undefined {
   return _actionRegistry.get(type)
 }
 
+/**
+ * List all currently registered actions.
+ * Returns a shallow copy of the registry values.
+ */
 export function listActions(): EdgeGDEAction[] {
   return Array.from(_actionRegistry.values())
 }
@@ -204,7 +216,7 @@ export async function runMission(
             'drift.iterations': reconcileResult.iterations,
             'reconcile.decision': reconcileResult.terminatedBy,
           },
-          opts.env as any,
+          opts.env,
         ).catch(() => {})
 
         if (reconcileResult.terminatedBy === 'complete') {

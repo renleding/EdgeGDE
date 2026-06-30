@@ -1,0 +1,61 @@
+name: Post-Merge Analysis
+
+on:
+  push:
+    branches: [main]
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  post-merge-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/edge-runtime
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+        name: Install dependencies
+
+      - run: git diff HEAD~1...HEAD > /tmp/last-merge.diff
+        working-directory: .
+        name: Capture merge diff
+
+      - run: bun run test:unit
+        name: Verify tests still pass
+
+      - run: bun run typecheck
+        name: Verify typecheck clean
+
+      - run: |
+          echo "=== Merge Stats ==="
+          wc -l /tmp/last-merge.diff
+          echo "Changed files:"
+          git diff --name-only HEAD~1...HEAD
+        working-directory: .
+        name: Code quality summary
+
+      - run: |
+          mkdir -p .hermes/logs/post-merge
+          echo '{
+            "sha": "'$(git rev-parse HEAD)'",
+            "changed_files": '$(git diff --name-only HEAD~1...HEAD | wc -l)',
+            "diff_lines": '$(wc -l < /tmp/last-merge.diff)',
+            "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+          }' > .hermes/logs/post-merge/latest.json
+        working-directory: .
+        name: Generate metrics report
+
+      - name: Archive metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-merge-metrics
+          path: .hermes/logs/post-merge/latest.json

@@ -8,6 +8,7 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
+import { envFromContext } from '../lib/env'
 
 function clientIp(c: Context): string {
   return c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown'
@@ -48,7 +49,7 @@ async function checkKvRateLimit(
  */
 export function rateLimitRegistration(): MiddlewareHandler {
   return async (c: Context, next: Next) => {
-    const kv = (c.env as any)?.TENANT_KV
+    const kv = envFromContext(c).TENANT_KV
     if (!kv) { await next(); return }
     const ip = clientIp(c)
     const ipResult = await checkKvRateLimit(kv, `rl:register:ip:${ip}`, 3, 3600)
@@ -65,7 +66,7 @@ export function rateLimitRegistration(): MiddlewareHandler {
  */
 export function rateLimitLogin(): MiddlewareHandler {
   return async (c: Context, next: Next) => {
-    const kv = (c.env as any)?.TENANT_KV
+    const kv = envFromContext(c).TENANT_KV
     if (!kv) { await next(); return }
     const ip = clientIp(c)
     const result = await checkKvRateLimit(kv, `rl:login:ip:${ip}`, 10, 900)

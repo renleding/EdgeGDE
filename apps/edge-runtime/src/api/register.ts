@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { validateSlug } from '../lib/tenant'
 import { hashPassword } from '../lib/password'
 
@@ -51,7 +52,7 @@ const router = new Hono()
 router.post('/', async (c) => {
   try {
     const body: RegisterBody = await c.req.json()
-    const env = c.env as Record<string, unknown>
+    const env = envFromContext(c)
 
     // ── 1. Verify captcha ──────────────────────────────────────────────
     const turnstileSecret = env.TURNSTILE_SECRET_KEY as string | undefined
@@ -83,7 +84,7 @@ router.post('/', async (c) => {
     }
 
     // ── 5. Check duplicate slug ────────────────────────────────────────
-    const TENANT_KV = (env.TENANT_KV as any)
+    const TENANT_KV = env.TENANT_KV
     if (!TENANT_KV || typeof TENANT_KV.get !== 'function') {
       return c.json({ error: 'Tenant storage unavailable' }, 500)
     }
@@ -145,7 +146,7 @@ router.post('/', async (c) => {
     ])
 
     // ── 11. Mirror to D1 (non-fatal) ───────────────────────────────────
-    const DB = env.DB as any
+    const DB = env.DB
     if (DB && typeof DB.prepare === 'function') {
       try {
         await DB.prepare(

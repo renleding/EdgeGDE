@@ -8,6 +8,7 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
+import { envFromContext } from '../lib/env'
 import { verifyPassword } from '../lib/password'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -98,7 +99,7 @@ const COOKIE_NAME = 'edgegde_session'
  */
 export function requireSession(): MiddlewareHandler {
   return async (c: Context, next: Next) => {
-    const jwtSecret = (c.env as any)?.JWT_SECRET as string | undefined
+    const jwtSecret = envFromContext(c).JWT_SECRET
     if (!jwtSecret) {
       return c.json({ error: 'JWT_SECRET not configured on this Worker' }, 500)
     }

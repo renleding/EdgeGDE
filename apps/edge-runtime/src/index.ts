@@ -98,6 +98,7 @@ import { runDispatcher } from './crons/dispatcher'
 import { hotLeadIndexKey, hotLeadKey, tenantLayoutKey, canvasCacheGenKey, tenantLayoutLatestKey, tenantLayoutStagingKey, tenantCompiledKey } from './lib/kv-keys'
 import { guardDB } from './lib/db'
 import { guardKV } from './lib/kv'
+import { safeEnv, envFromContext, type Env } from './lib/env'
 // ═══════════════════════════════════════════════════════════════════════════
 // Action Registry — registers system actions for the lifecycle runner
 // ═══════════════════════════════════════════════════════════════════════════
@@ -118,6 +119,11 @@ const app = new Hono()
 // Global KV store for local dev — shared across handlers
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Global KV store for local development.
+ * Uses MemoryKvStore — ephemeral, in-memory. Shared across all handlers
+ * within the same worker instance. Not persisted between cold starts.
+ */
 export const kv = new MemoryKvStore()
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -191,11 +197,12 @@ app.get('/dashboard', async (c) => {
 
 app.use('*', async (c, next) => {
   // This middleware is idempotent — patching a frozen binding is a no-op
-  guardKvList((c.env as any)?.TENANT_KV, 'TENANT_KV')
-  guardKvList((c.env as any)?.ARTIFACT_KV, 'ARTIFACT_KV')
-  guardKvList((c.env as any)?.TELEMETRY_KV, 'TELEMETRY_KV')
-  guardKvEventStorage((c.env as any)?.TENANT_KV, 'TENANT_KV')
-  guardKvEventStorage((c.env as any)?.TELEMETRY_KV, 'TELEMETRY_KV')
+  const env = envFromContext(c)
+  guardKvList(env.TENANT_KV, 'TENANT_KV')
+  guardKvList(env.ARTIFACT_KV, 'ARTIFACT_KV')
+  guardKvList(env.TELEMETRY_KV, 'TELEMETRY_KV')
+  guardKvEventStorage(env.TENANT_KV, 'TENANT_KV')
+  guardKvEventStorage(env.TELEMETRY_KV, 'TELEMETRY_KV')
   await next()
 })
 
@@ -311,10 +318,11 @@ app.post('/api/webhook/leads', adminAuth, async (c) => {
     const eventId = crypto.randomUUID()
     const tenantId = body.tenantId || 'unknown'
 
-    console.log(JSON.stringify({ event: 'webhook_received', eventId, ...body }))
+    console.warn(JSON.stringify({ event: 'webhook_received', eventId, ...body }))
 
     // Persist to D1 for audit trail
-    const rawDb = (c.env as any)?.DB
+    const env = envFromContext(c)
+    const rawDb = env.DB
     if (rawDb && typeof rawDb.prepare === 'function') {
       const db = guardDB(rawDb)
       const ctx = { tenantId }
@@ -1413,7 +1421,7 @@ app.post('/api/render', async (c) => {
     }
 
     if (body.debugDesign) {
-      console.log('[Design Tokens]', JSON.stringify(design))
+      console.warn('[Design Tokens]', JSON.stringify(design))
     }
 
     const html = compileLayoutCompat(layout, design)
@@ -1792,7 +1800,7 @@ export default {
   },
 
   async scheduled(_event: any, env: any, _ctx: ExecutionContext): Promise<void> {
-    console.log('[cron] dispatcher triggered')
+    console.warn('[cron] dispatcher triggered')
     await runDispatcher(env)
     // Flush any accumulated metrics to KV before the isolate is reclaimed
   // eslint-disable-next-line local/no-raw-storage-access

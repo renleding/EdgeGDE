@@ -12,6 +12,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 
 const router = new Hono()
 
@@ -53,7 +54,8 @@ router.post('/', async (c) => {
     const code = (body.code || '').trim()
     if (!slug || !code) return c.json({ error: 'Slug and code are required' }, 400)
 
-    const TENANT_KV = (c.env as any)?.TENANT_KV
+    const env = envFromContext(c)
+    const TENANT_KV = env.TENANT_KV
     if (!TENANT_KV) return c.json({ error: 'Verification unavailable' }, 500)
 
     const record: any = await TENANT_KV.get(`tenant:${slug}:email_verification`, 'json')
@@ -98,7 +100,8 @@ router.post('/resend', async (c) => {
     const slug = (body.slug || '').trim()
     if (!slug) return c.json({ error: 'Slug is required' }, 400)
 
-    const TENANT_KV = (c.env as any)?.TENANT_KV
+    const env = envFromContext(c)
+    const TENANT_KV = env.TENANT_KV
     if (!TENANT_KV) return c.json({ error: 'Verification unavailable' }, 500)
 
     // Load tenant to get email
@@ -124,7 +127,7 @@ router.post('/resend', async (c) => {
     await TENANT_KV.put(`tenant:${slug}:email_verification`, JSON.stringify(record))
 
     // Send email
-    const resendKey = (c.env as any)?.RESEND_API_KEY as string | undefined
+    const resendKey = env.RESEND_API_KEY
     if (resendKey && tenant.email) {
       const sent = await sendEmail(resendKey, tenant.email, code)
       if (!sent) {

@@ -60,3 +60,24 @@ jobs:
         name: adapter.py imports
       - run: python3 tools/lsp-gate/lsp-validate.py --help > /dev/null 2>&1 || true
         name: lsp-validate.py imports
+
+  code-quality:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        working-directory: apps/edge-runtime
+        run: bun install --frozen-lockfile
+      - name: Governance compliance check
+        run: npx tsx tools/governance-check.ts --diff-only
+      - name: Lint check
+        working-directory: apps/edge-runtime
+        run: bun run lint 2>&1 || true
+        continue-on-error: true

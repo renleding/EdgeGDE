@@ -19,6 +19,7 @@ import { registerAction } from './lifecycle'
 import type { EdgeGDEAction, ActionContext } from './types'
 import { CALCULATOR_REGISTRY } from '../registry/calculators'
 import { getCalculator } from '../lib/calculator-engine'
+import { safeEnv } from '../lib/env'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -27,7 +28,8 @@ import { getCalculator } from '../lib/calculator-engine'
 /** Try to get D1 binding — return null if unavailable. */
 function tryD1(env: Record<string, unknown>): any | null {
   try {
-    const rawDB = (env as any)?.DB
+    const typed = safeEnv(env)
+    const rawDB = typed.DB as any
     if (!rawDB || typeof rawDB.prepare !== 'function') return null
     return rawDB
   } catch { return null }
@@ -162,8 +164,9 @@ const sitePublish: EdgeGDEAction = {
     }
 
     // Try writing a rollback marker to KV
-    const rawKv = (ctx.env as any)?.TENANT_KV
-    if (rawKv && typeof rawKv.put === 'function') {
+    const typedEnv = safeEnv(ctx.env)
+    const rawKv = typedEnv.TENANT_KV as any
+    if (!rawKv) {
       try {
         const marker = JSON.stringify({
           event: 'compensation_rollback',
