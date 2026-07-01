@@ -13,21 +13,26 @@ describe('AegisPolicyGate', () => {
     expect(gate.evaluate('action.search_files', 'hermes').verdict).toBe('allow')
   })
 
-  it('allows Droid to write files', () => {
+  it('allows Droid to write code', () => {
     const gate = new AegisPolicyGate()
-    expect(gate.evaluate('action.write_file', 'droid').verdict).toBe('allow')
+    expect(gate.evaluate('action.write_code', 'droid').verdict).toBe('allow')
   })
 
-  it('blocks Hermes from writing files directly', () => {
+  it('allows Hermes to write documentation directly', () => {
     const gate = new AegisPolicyGate()
-    const decision = gate.evaluate('action.write_file', 'hermes')
+    expect(gate.evaluate('action.write_documentation', 'hermes').verdict).toBe('allow')
+  })
+
+  it('blocks Hermes from writing code directly', () => {
+    const gate = new AegisPolicyGate()
+    const decision = gate.evaluate('action.write_code', 'hermes')
     expect(decision.verdict).toBe('block')
     expect(decision.reason).toContain('not allowed')
   })
 
-  it('blocks Hermes from patching files directly', () => {
+  it('blocks Hermes from patching code directly', () => {
     const gate = new AegisPolicyGate()
-    expect(gate.evaluate('action.patch', 'hermes').verdict).toBe('block')
+    expect(gate.evaluate('action.patch_code', 'hermes').verdict).toBe('block')
   })
 
   it('blocks Hermes from executing shell commands', () => {
@@ -63,15 +68,17 @@ describe('AegisPolicyGate', () => {
 
   it('audits all decisions', () => {
     const gate = new AegisPolicyGate()
-    gate.evaluate('action.write_file', 'hermes')  // blocked
+    gate.evaluate('action.write_code', 'hermes')   // blocked
+    gate.evaluate('action.write_documentation', 'hermes')  // allowed
     gate.evaluate('action.read_file', 'hermes')    // allowed
     gate.evaluate('action.deploy', 'droid')         // allowed
 
     const log = gate.getAuditLog()
-    expect(log.length).toBe(3)
+    expect(log.length).toBe(4)
     expect(log[0].verdict).toBe('block')
     expect(log[1].verdict).toBe('allow')
     expect(log[2].verdict).toBe('allow')
+    expect(log[3].verdict).toBe('allow')
   })
 
   it('exposes audit stats', () => {
@@ -90,14 +97,17 @@ describe('AegisPolicyGate', () => {
   it('enforces delegation path: Hermes delegates, Droid executes', () => {
     const gate = new AegisPolicyGate()
 
-    // Hermes cannot write files
-    expect(gate.checkFileWrite('hermes', '/tmp/test.ts').verdict).toBe('block')
+    // Hermes cannot write code
+    expect(gate.evaluate('action.write_code', 'hermes').verdict).toBe('block')
+
+    // Hermes can write documentation
+    expect(gate.evaluate('action.write_documentation', 'hermes').verdict).toBe('allow')
 
     // Hermes can delegate
     expect(gate.evaluate('action.delegate_task', 'hermes').verdict).toBe('allow')
 
-    // Droid can write files
-    expect(gate.checkFileWrite('droid', '/tmp/test.ts').verdict).toBe('allow')
+    // Droid can write code
+    expect(gate.evaluate('action.write_code', 'droid').verdict).toBe('allow')
   })
 
   it('provides singleton instance', () => {

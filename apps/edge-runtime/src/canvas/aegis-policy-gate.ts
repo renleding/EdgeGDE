@@ -58,9 +58,12 @@ const POLICY: PolicyAction[] = [
   { id: 'action.validate_mutation', description: 'Validate mutation against schema', allowedActors: ['aegis'], requiresApproval: false, sideEffects: 'none', rule: 'always_allow' },
   { id: 'action.audit_log', description: 'Write audit trail entry', allowedActors: ['aegis'], requiresApproval: false, sideEffects: 'audit_write', rule: 'always_allow' },
 
-  // Mutation — Hermes must delegate to Droid
-  { id: 'action.write_file', description: 'Write content to a file', allowedActors: ['droid'], requiresApproval: true, sideEffects: 'disk_write', rule: 'Hermes CANNOT write files directly. Must delegate to Droid via Mission Manifest.' },
-  { id: 'action.patch', description: 'Apply a patch to a file', allowedActors: ['droid'], requiresApproval: true, sideEffects: 'disk_write', rule: 'Hermes CANNOT patch files directly. Must delegate to Droid.' },
+  // Documentation, config, reports — Hermes can write directly (per Agent Selection Matrix)
+  { id: 'action.write_documentation', description: 'Write docs, FRS, reports, markdown, config', allowedActors: ['hermes', 'droid'], requiresApproval: false, sideEffects: 'disk_write', rule: 'Hermes can write docs, FRS, config, markdown directly. Per Agent Selection Matrix: \"Config / docs / markdown change -> Hermes (direct)\".' },
+
+  // Code changes — Hermes must delegate to Droid
+  { id: 'action.write_code', description: 'Write or modify source code files', allowedActors: ['droid'], requiresApproval: true, sideEffects: 'disk_write', rule: 'Code changes must go through Droid. Hermes delegates via Mission Manifest.' },
+  { id: 'action.patch_code', description: 'Apply a patch to source code', allowedActors: ['droid'], requiresApproval: true, sideEffects: 'disk_write', rule: 'Code patches must go through Droid.' },
   { id: 'action.shell', description: 'Execute a shell command', allowedActors: ['droid'], requiresApproval: true, sideEffects: 'disk_write', rule: 'Shell is high-risk. Requires allow_shell: true in Mission Manifest.' },
   { id: 'action.deploy', description: 'Deploy to staging or production', allowedActors: ['droid'], requiresApproval: true, sideEffects: 'production', rule: 'Deploy requires deploy gogo. Only Droid can execute.' },
 ]
