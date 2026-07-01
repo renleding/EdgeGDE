@@ -126,5 +126,16 @@
   "vars": {
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
     "OTEL_SERVICE_NAME": "edgegde-worker"
+  },
+  "env": {
+    "production": {
+      "name": "edgegde-calculator",
+      "queues": {
+        "producers": [
+          { "binding": "LEAD_SCORING_QUEUE", "queue": "edgegde-lead-scoring" },
+          { "binding": "FORECASTING_QUEUE",  "queue": "edgegde-forecasting" }
+        ]
+      }
+    }
   }
 }
