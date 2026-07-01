@@ -11,7 +11,6 @@ import {
   mortgageCalculatorInputSchema,
   SCHEMA_VERSION,
 } from '@edgegde/schema'
-import { compileLayoutCompat } from '../lib/compile-layout-compat'
 import type { KvStore, DesignArtifact } from '../lib/publish'
 import type { LayoutDefinition, MortgageCalculatorInput } from '@edgegde/schema'
 import {
@@ -224,16 +223,17 @@ function calculateMortgage(input: MortgageCalculatorInput): CalcResult {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Build a LayoutDefinition from calculation result data and compile it to HTML.
+ * Build HTML from calculation result data directly.
+ * OpenPencil migration was deprecated Jun 21 — no longer routes through
+ * compileLayoutCompat → openpencil-migration.
  *
- * Constructs a deterministic LayoutDefinition describing the result display,
- * then delegates to compileLayout for structured HTML generation.
+ * @returns HTML string for HTMX/browser rendering
  */
 export function compileToHtml(
   result: CalcResult,
   input: MortgageCalculatorInput,
 ): string {
-  const labelValuePairs: [string, string][] = [
+  const rows = [
     ['Monthly Repayment', `$${result.monthlyRepayment.toFixed(2)}`],
     ['Fortnightly Repayment', `$${result.fortnightlyRepayment.toFixed(2)}`],
     ['Weekly Repayment', `$${result.weeklyRepayment.toFixed(2)}`],
@@ -245,37 +245,19 @@ export function compileToHtml(
     ['NCCP Warning', result.nccpWarning],
   ]
 
-  // Build result display text nodes
-  const resultChildren = labelValuePairs.map(([label, value], idx) => ({
-    id: `result-${idx}`,
-    type: 'TEXT' as const,
-    name: `${label}: ${value}`,
-    x: 10,
-    y: 10 + idx * 32,
-    width: 560,
-    height: 28,
-  }))
+  const rowsHtml = rows
+    .filter(([_, v]) => v && v !== 'undefined' && v !== 'null')
+    .map(([label, value]) =>
+      `<tr><td style="padding:6px 12px;font-weight:600;border-bottom:1px solid #eee">${label}</td>` +
+      `<td style="padding:6px 12px;border-bottom:1px solid #eee">${value}</td></tr>`
+    )
+    .join('\n')
 
-  const resultLayout: LayoutDefinition = {
-    schemaVersion: SCHEMA_VERSION,
-    rootNode: {
-      id: 'calculator-results',
-      type: 'FRAME',
-      name: 'Mortgage Calculator Results',
-      x: 0,
-      y: 0,
-      width: 600,
-      height: labelValuePairs.length * 32 + 20,
-      children: resultChildren,
-    },
-    formFields: [],
-    resultDisplay: {
-      nodeId: 'calculator-results',
-      type: 'card',
-    },
-  }
-
-  return compileLayoutCompat(resultLayout)
+  return `<div class="calculator-results" style="font-family:-apple-system,sans-serif;max-width:600px;margin:16px 0">
+    <table style="width:100%;border-collapse:collapse">
+      ${rowsHtml}
+    </table>
+  </div>`
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

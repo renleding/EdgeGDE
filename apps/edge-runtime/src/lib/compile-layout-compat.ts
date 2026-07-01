@@ -7,6 +7,10 @@
  * This allows registry callers to switch to the new pipeline
  * without any caller-side changes.
  *
+ * Note: OpenPencil pipeline was deprecated Jun 2026. This file is kept
+ * for the agent.ts publish route which may still serve legacy layouts
+ * from KV. calculators.ts no longer imports this.
+ *
  * @packageDocumentation
  */
 
