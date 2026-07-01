@@ -1,0 +1,114 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  // ═══════════════════════════════════════════════════════════════════
+  // EdgeGDE — Environment-Aware Worker Configuration
+  // ═══════════════════════════════════════════════════════════════════
+  // Deploy:
+  //   npx wrangler deploy                        → production (default)
+  //   npx wrangler deploy --env staging          → staging
+  //   npx wrangler deploy --env production       → production (explicit)
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ── Shared (applies to all environments) ────────────────────────
+  "main": "src/index.ts",
+  "assets": { "directory": "public" },
+  "compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": true },
+    "traces": { "enabled": true }
+  },
+
+  // ── DEFAULT ENVIRONMENT: production ─────────────────────────────
+  "name": "edgegde-calculator",
+  "d1_databases": [{
+    "binding": "DB",
+    "database_id": "1d24d306-9537-4386-929c-60c9e6d882b1",
+    "database_name": "ebroker_leads"
+  }],
+  "durable_objects": {
+    "bindings": [
+      { "class_name": "RateLimiter", "name": "RATE_LIMITER" },
+      { "class_name": "AuditLedger", "name": "AUDIT_LEDGER" },
+      { "class_name": "ChatSession_DO", "name": "CHAT_SESSION" },
+      { "class_name": "CanvasSession_DO", "name": "CANVAS_SESSION" }
+    ]
+  },
+  "kv_namespaces": [
+    { "binding": "ARTIFACT_KV", "id": "95a35fb5eaa441bd9f6336b4ef894a57" },
+    { "binding": "TENANT_KV",   "id": "04893a14b75e41b281177bf558cf3e32" },
+    { "binding": "TELEMETRY_KV","id": "588cdc5578244acdbaed515dbbc175f7" }
+  ],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RateLimiter"] },
+    { "tag": "v2", "new_sqlite_classes": ["AuditLedger"] },
+    { "tag": "v3", "new_sqlite_classes": ["ChatSession_DO"] },
+    { "tag": "v4", "new_sqlite_classes": ["CanvasSession_DO"] }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "LEAD_SCORING_QUEUE", "queue": "edgegde-lead-scoring" },
+      { "binding": "FORECASTING_QUEUE",  "queue": "edgegde-forecasting" }
+    ],
+    "consumers": [
+      { "queue": "edgegde-lead-scoring", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3 },
+      { "queue": "edgegde-forecasting",  "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3 }
+    ]
+  },
+  "r2_buckets": [{
+    "binding": "VAULT_BUCKET",
+    "bucket_name": "edgegde-vault"
+  }],
+  "triggers": { "crons": ["0 8,20 * * *"] },
+  "vars": {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
+    "OTEL_SERVICE_NAME": "edgegde-worker"
+  },
+
+  // ── ENVIRONMENTS ────────────────────────────────────────────────
+  "env": {
+    // ── STAGING ──────────────────────────────────────────────────
+    // Deploy: npx wrangler deploy --env staging
+    // Requires: separate D1, KV namespaces, and queues created in Cloudflare dashboard
+    "staging": {
+      "name": "edgegde-calculator-staging",
+      "d1_databases": [{
+        "binding": "DB",
+        "database_id": "",      // ← SET: staging D1 database ID
+        "database_name": "ebroker_leads_staging"
+      }],
+      "kv_namespaces": [
+        { "binding": "ARTIFACT_KV",  "id": "" },  // ← SET: staging KV ID
+        { "binding": "TENANT_KV",    "id": "" },   // ← SET: staging KV ID
+        { "binding": "TELEMETRY_KV", "id": "" }    // ← SET: staging KV ID
+      ],
+      "queues": {
+        "producers": [
+          { "binding": "LEAD_SCORING_QUEUE", "queue": "edgegde-lead-scoring-staging" },
+          { "binding": "FORECASTING_QUEUE",  "queue": "edgegde-forecasting-staging" }
+        ],
+        "consumers": [
+          { "queue": "edgegde-lead-scoring-staging", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3 },
+          { "queue": "edgegde-forecasting-staging",  "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3 }
+        ]
+      },
+      "r2_buckets": [{
+        "binding": "VAULT_BUCKET",
+        "bucket_name": "edgegde-vault-staging"
+      }],
+      "vars": {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
+        "OTEL_SERVICE_NAME": "edgegde-worker-staging"
+      },
+      "triggers": { "crons": [] }  // No cron on staging
+    },
+
+
+    // ── PRODUCTION (explicit — same as default) ──────────────────
+    // Deploy: npx wrangler deploy --env production
+    "production": {
+      "name": "edgegde-calculator"
+    }
+  }
+}

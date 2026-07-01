@@ -1,0 +1,63 @@
+name: Deploy — Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/edge-runtime
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test:unit
+
+  deploy-production:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/edge-runtime
+
+    # ═══ Manual approval gate ═══
+    environment: production
+    concurrency: production
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Deploy to production
+        run: npx wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl -s -o /dev/null -w "%{http_code}" https://edgegde-calculator.renleding.workers.dev/ | grep -q "200\|302\|401" && echo "Production healthy" || echo "Warning: health check failed"
+
+      - name: Record deployment
+        run: |
+          echo "Deployed at $(date -u)" >> .deploy-log
+          echo "Commit: ${{ github.sha }}" >> .deploy-log
+          echo "Version: $(npx wrangler deploy --env production --dry-run --outdir /tmp/wrangler-out 2>&1 | head -5)" >> .deploy-log
