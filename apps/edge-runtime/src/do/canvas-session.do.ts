@@ -86,7 +86,7 @@ export class CanvasSession_DO implements DurableObject {
     }
 
     if (path === '/state') return this.handleGetState()
-    const self = this as CanvasSession_DO & { handleMcpCall: (tool: string, payload: unknown, expectedVersion: number) => Promise<Response>; handleDeploy: () => Promise<Response> }
+    const self = this as unknown as CanvasSession_DO & { handleMcpCall: (tool: string, payload: unknown, expectedVersion: number) => Promise<Response>; handleDeploy: () => Promise<Response> }
 
     if (path === '/mutation' && request.method === 'POST') {
       const { mutation, expectedVersion } = await request.json() as { mutation: Mutation; expectedVersion: number }
