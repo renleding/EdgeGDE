@@ -76,7 +76,8 @@ jobs:
         working-directory: apps/edge-runtime
         run: bun install --frozen-lockfile
       - name: Governance compliance check
-        run: npx tsx tools/governance-check.ts --diff-only
+        working-directory: apps/edge-runtime
+        run: npx tsx ../../tools/governance-check.ts --diff-only
       - name: Lint check
         working-directory: apps/edge-runtime
         run: bun run lint 2>&1 || true
