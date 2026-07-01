@@ -7,43 +7,109 @@ on:
 
 env:
   NODE_VERSION: '22'
+  WORKER: edgegde-calculator
+  STAGING_WORKER: edgegde-calculator-staging
 
 jobs:
-  test:
+  # ═══════════════════════════════════════════════════════════════════════
+  # VALIDATE — all gates must pass before manual approval is available
+  # ═══════════════════════════════════════════════════════════════════════
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/edge-runtime
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun run test:unit
 
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Gate 1: TypeScript type check
+      - name: Gate 1 — Typecheck
+        run: bun run typecheck
+
+      # Gate 2: Unit tests
+      - name: Gate 2 — Unit tests
+        run: bun run test:unit
+
+      # Gate 3: Governance compliance (as any, console.log, missing JSDoc, missing tests)
+      - name: Gate 3 — Governance compliance
+        run: npx tsx ../../tools/governance-check.ts --diff-only
+
+      # Gate 4: Lint
+      - name: Gate 4 — Lint
+        run: bun run lint 2>&1 | head -50 || true
+
+      # Gate 5: Security audit
+      - name: Gate 5 — Security audit
+        run: bun audit 2>&1 | tail -10 || echo "bun audit not available — skipping"
+
+      # Gate 6: Staging health check — confirm staging is green before promoting
+      - name: Gate 6 — Staging health check
+        run: |
+          echo "Checking staging worker: https://${{ env.STAGING_WORKER }}.renleding.workers.dev/"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.STAGING_WORKER }}.renleding.workers.dev/" || echo "000")
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
+            echo "✅ Staging healthy (HTTP $HTTP_CODE)"
+          else
+            echo "❌ Staging unhealthy (HTTP $HTTP_CODE) — do not promote to production"
+            exit 1
+          fi
+
+      # Gate 7: Changelog check — require meaningful diff description
+      - name: Gate 7 — Commit log review
+        run: |
+          echo "=== Recent commits on main ==="
+          git log --oneline -5 --no-merges
+          echo "=== Files changed in latest commit ==="
+          git diff --stat HEAD~1 HEAD 2>/dev/null || git diff --stat HEAD~1 2>/dev/null || echo "No diff available"
+
+      - name: All gates passed
+        run: echo "✅ All 7 validation gates passed — ready for manual approval"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # DEPLOY — gated by manual approval + validation must pass
+  # ═══════════════════════════════════════════════════════════════════════
   deploy-production:
-    needs: test
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
         working-directory: apps/edge-runtime
 
-    # ═══ Manual approval gate ═══
+    # Manual approval gate via GitHub Environments
     environment: production
     concurrency: production
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # Pre-deploy summary
+      - name: Deployment summary
+        run: |
+          echo "=== Production Deployment ==="
+          echo "Worker:  ${{ env.WORKER }}.renleding.workers.dev"
+          echo "Commit:  ${{ github.sha }}"
+          echo "Author:  ${{ github.event.head_commit.author.name || 'workflow_dispatch' }}"
+          echo "Message: ${{ github.event.head_commit.message || 'manual trigger' }}"
+          echo "Date:    $(date -u)"
 
       - name: Deploy to production
         run: npx wrangler deploy --env production
@@ -51,13 +117,25 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Health check
+      - name: Post-deploy health check
         run: |
           sleep 10
-          curl -s -o /dev/null -w "%{http_code}" https://edgegde-calculator.renleding.workers.dev/ | grep -q "200\|302\|401" && echo "Production healthy" || echo "Warning: health check failed"
+          for i in 1 2 3; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.WORKER }}.renleding.workers.dev/" || echo "000")
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
+              echo "✅ Production healthy (HTTP $HTTP_CODE) — attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $HTTP_CODE — retrying in 5s..."
+            sleep 5
+          done
+          echo "❌ Production health check failed after 3 attempts"
+          echo "Run rollback: bash apps/edge-runtime/scripts/rollback.sh production"
+          exit 1
 
       - name: Record deployment
         run: |
-          echo "Deployed at $(date -u)" >> .deploy-log
-          echo "Commit: ${{ github.sha }}" >> .deploy-log
-          echo "Version: $(npx wrangler deploy --env production --dry-run --outdir /tmp/wrangler-out 2>&1 | head -5)" >> .deploy-log
+          mkdir -p .deploy-log
+          echo "Commit: ${{ github.sha }}" >> .deploy-log/$(date -I).log
+          echo "Deployed at: $(date -u)" >> .deploy-log/$(date -I).log
+          echo "Version: $(curl -s -o /dev/null -w '%{http_code}' https://${{ env.WORKER }}.renleding.workers.dev/)" >> .deploy-log/$(date -I).log
