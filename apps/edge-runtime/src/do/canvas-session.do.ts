@@ -1,6 +1,7 @@
 import type { CanvasDocument, Node, Mutation } from '../canvas/canvas-types'
 import { applyMutation } from '../canvas/canvas-engine'
 import { AegisMutationGate } from '../canvas/aegis-gate'
+import { AegisPolicyGate, getPolicyGate } from '../canvas/aegis-policy-gate'
 import { guardKV } from '../lib/kv'
 
 const SNAPSHOT_INTERVAL = 5
@@ -47,10 +48,13 @@ export class CanvasSession_DO implements DurableObject {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   /** Aegis governance gate — validates every mutation before execution */
   private aegis = new AegisMutationGate()
+  /** Aegis policy gate — enforces three-role separation */
+  private policy: AegisPolicyGate
 
   constructor(state: DurableObjectState, env: any) {
     this.state_ = state
     this.env_ = env
+    this.policy = getPolicyGate()
   }
 
   get env(): any { return this.env_ }
