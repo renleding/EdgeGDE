@@ -257,6 +257,8 @@ console.log("EdgeGDE Widget v1.1.0");
           for (var i = 0; i < lines.length; i++) {
             var line = lines[i].trim();
             if (!line) continue;
+            // Strip SSE data: prefix if present
+            if (line.startsWith('data:')) line = line.slice(5).trim();
             try {
               var parsed = JSON.parse(line);
               if (parsed.token !== undefined) {
