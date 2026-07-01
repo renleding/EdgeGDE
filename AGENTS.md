@@ -102,6 +102,7 @@ README.md
 TEACHING.md
 TOPOLOGY.md
 runbooks/
+prompts/       ← Role-specific system prompts (Hermes, Aegis, Droid)
 ```
 
 ## 4. Droid Operation Contract
