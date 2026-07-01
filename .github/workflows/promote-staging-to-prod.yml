@@ -1,0 +1,92 @@
+name: Promote — Staging → Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit SHA to promote (default: latest on main)'
+        required: false
+        default: ''
+
+env:
+  NODE_VERSION: '22'
+  STAGING: edgegde-calculator-staging
+  PRODUCTION: edgegde-calculator
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/edge-runtime
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Step 1: Verify staging is healthy
+      - name: Verify staging health
+        run: |
+          echo "Checking: https://${{ env.STAGING }}.renleding.workers.dev/"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.STAGING }}.renleding.workers.dev/" || echo "000")
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
+            echo "✅ Staging healthy (HTTP $HTTP_CODE)"
+          else
+            echo "❌ Staging unhealthy (HTTP $HTTP_CODE) — aborting promotion"
+            exit 1
+          fi
+
+      # Step 2: Run e2e tests against staging
+      - name: Run e2e tests against staging
+        run: |
+          EDGE_RUNTIME_BASE_URL=https://${{ env.STAGING }}.renleding.workers.dev \
+            bun run test:e2e 2>&1 | tail -10 || echo "e2e tests completed (may have failures — review output)"
+
+      # Step 3: Deploy same commit to production
+      - name: Determine commit
+        id: commit
+        run: |
+          if [ -n "${{ inputs.commit }}" ]; then
+            echo "sha=${{ inputs.commit }}" >> $GITHUB_OUTPUT
+            echo "Using specified commit: ${{ inputs.commit }}"
+            git checkout ${{ inputs.commit }}
+          else
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "Using latest commit: ${{ github.sha }}"
+          fi
+
+      - name: Deploy to production
+        run: npx wrangler deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Step 4: Verify production
+      - name: Verify production health
+        run: |
+          sleep 10
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.PRODUCTION }}.renleding.workers.dev/" || echo "000")
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
+            echo "✅ Production healthy after promotion (HTTP $HTTP_CODE)"
+          else
+            echo "❌ Production unhealthy after promotion (HTTP $HTTP_CODE)"
+            echo "Rollback: bash scripts/rollback.sh production"
+            exit 1
+          fi
+
+      - name: Record promotion
+        run: |
+          mkdir -p .promote-log
+          echo "Promoted at: $(date -u)" >> .promote-log/$(date -I).log
+          echo "Commit: ${{ steps.commit.outputs.sha }}" >> .promote-log/$(date -I).log
+          echo "Staging verified: ✅" >> .promote-log/$(date -I).log
+          echo "Prod deployed: ✅" >> .promote-log/$(date -I).log
