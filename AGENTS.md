@@ -156,6 +156,10 @@ Every mission must include:
   "mission_id": "stable-id",
   "objective": "human-readable goal",
   "autonomy_level": "low | medium | high",
+  "saga": {
+    "compensation_strategy": "reverse_order | parallel | manual",
+    "partial_failure_policy": "compensate_all | stop | continue"
+  },
   "tasks": [
     {
       "task_id": "step_1",
@@ -165,7 +169,12 @@ Every mission must include:
       "scope": ["relative/path"],
       "depends_on": [],
       "idempotent": true,
-      "verification_criteria": ["explicit verification rule"]
+      "verification_criteria": ["explicit verification rule"],
+      "compensate": {
+        "operation": "reverse_operation",
+        "args": {},
+        "condition": "on_failure"
+      }
     }
   ],
   "constraints": {
@@ -182,6 +191,44 @@ Every mission must include:
 }
 ```
 
+### Saga Compensation (Compensating Transaction Pattern)
+
+The Saga pattern ensures that if a multi-step mission fails partway through, all completed steps are automatically compensated (rolled back) in reverse order.
+
+**Compensation strategies:**
+- `reverse_order`: (Default) Compensate tasks in reverse dependency order. If task C depends on B depends on A, and C fails, compensate B then A.
+- `parallel`: Compensate all completed tasks simultaneously. Use when compensations are independent.
+- `manual`: Log all completed tasks but do not auto-compensate. Require human intervention.
+
+**Partial failure policies:**
+- `compensate_all`: (Default) If any task fails, compensate ALL completed tasks.
+- `stop`: Stop at the failed task but do NOT compensate previously completed tasks. Requires human review.
+- `continue`: Skip the failed task and continue with remaining tasks. Only safe for non-critical failures.
+
+**Task compensation definition:**
+Each task may define a `compensate` block with:
+- `operation`: The reverse operation to undo this task (e.g., `delete_file` for `write_text`, `restore_checkpoint` for `shell`)
+- `args`: Arguments for the compensation operation
+- `condition`: When to trigger - `on_failure` (default), `on_reject` (Hermes verification rejection), `always` (compensate even on success — for staging/mock mode)
+
+**Compensation flow:**
+```
+Task 1: File A → write_text(path=A, content=X)
+  compensate: write_text(path=A, content=<original content from checkpoint>)
+
+Task 2: File B → write_text(path=B, content=Y)
+  compensate: write_text(path=B, content=<original content from checkpoint>)
+
+Task 3: Run tests → shell(command="npm test")
+  compensate: (no-op — tests have no side effects)
+
+Failure on Task 3 → Droid executes compensations in reverse:
+  Task 2 compensate → restore File B from checkpoint
+  Task 1 compensate → restore File A from checkpoint
+```
+
+Checkpoints are always created before mutation (under `.hermes/checkpoints/`), so compensation is a simple restore operation for file-level tasks.
+
 ## 6. Verification Rules
 
 Before mission success, Hermes must verify:
@@ -192,23 +239,44 @@ Before mission success, Hermes must verify:
 - diffs are expected or absent
 - logs exist under `.hermes/logs/missions/`
 - rollback/checkpoint exists for mutations
+- Saga compensation path is defined for multi-step missions
 - tests/typecheck/build results match the mission criteria
+- no partial failure was left uncompensated (if Saga.partial_failure_policy triggers compensation)
 
-## 7. Rollback Rules
+## 7. Rollback & Saga Compensation
 
-Before mutation:
+### Checkpoint (Before Mutation)
+
+Before any mutation:
 
 ```text
 snapshot target file or directory under .hermes/checkpoints/
 ```
 
-On failure:
+### On Failure
 
 ```text
-restore latest snapshot or isolate failed changes
+1. Identify failed task
+2. Determine Saga compensation strategy:
+   - reverse_order (default): compensate completed tasks in reverse dependency order
+   - parallel: compensate all completed tasks simultaneously
+   - manual: log completed tasks, require human intervention
+3. Execute compensation operations
+4. Restore checkpoints for compensated tasks
+5. Log the compensation event with checksums
 ```
 
-No silent rollback is allowed. The execution report must state whether rollback occurred.
+No silent rollback is allowed. The execution report must state whether rollback occurred and which compensations were executed.
+
+### Reconciliation (Post-Failure)
+
+After compensation, Hermes should run a reconciliation check:
+
+```text
+1. Verify all compensated files match their checkpoint originals (diff == 0)
+2. Verify the mission log records the failure + compensation chain
+3. Report: "Mission [id] failed at task [X]. Compensation: [Y tasks reversed]. State: [consistent|inconsistent]"
+```
 
 ## 8. Aider Boundary
 
