@@ -11,6 +11,15 @@ apps/edge-runtime/.wrangler/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
-.hermes/
+# .hermes/ — keep local artifacts ignored but track authoritative policy/instructions
+.hermes/checkpoints/
+.hermes/logs/
+.hermes/missions/
+.hermes/scripts/
+.hermes/skills/
+.hermes/scratch/
+.hermes/baselines/
+.hermes/prompts/
+.hermes/bin/
 .worktrees/
 __pycache__/
