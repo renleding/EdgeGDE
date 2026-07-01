@@ -64,7 +64,7 @@ jobs:
       - name: Gate 6 — Staging health check
         run: |
           echo "Checking staging worker: https://${{ env.STAGING_WORKER }}.renleding.workers.dev/"
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.STAGING_WORKER }}.renleding.workers.dev/" || echo "000")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.STAGING_WORKER }}.renleding.workers.dev/healthz" || echo "000")
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
             echo "✅ Staging healthy (HTTP $HTTP_CODE)"
           else
@@ -111,7 +111,7 @@ jobs:
         run: |
           sleep 10
           for i in 1 2 3; do
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.WORKER }}.renleding.workers.dev/" || echo "000")
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.WORKER }}.renleding.workers.dev/healthz" || echo "000")
             if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
               echo "✅ Production healthy (HTTP $HTTP_CODE)"
               exit 0
@@ -128,4 +128,4 @@ jobs:
           mkdir -p .deploy-log
           echo "Commit: ${{ github.sha }}" >> .deploy-log/$(date -I).log
           echo "Deployed at: $(date -u)" >> .deploy-log/$(date -I).log
-          echo "Version: $(curl -s -o /dev/null -w '%{http_code}' https://${{ env.WORKER }}.renleding.workers.dev/)" >> .deploy-log/$(date -I).log
+          echo "Version: $(curl -s -o /dev/null -w '%{http_code}' https://${{ env.WORKER }}.renleding.workers.dev/healthz)" >> .deploy-log/$(date -I).log
