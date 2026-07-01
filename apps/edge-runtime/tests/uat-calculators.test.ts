@@ -137,14 +137,14 @@ describe('3. stamp-duty', () => {
     // NSW: 0-308k @ 1.25%, 308k-1,077k @ 3.0%
     // 800k: 308k@1.25% = 3,850, (800k-308k)@3.0% = 14,760
     // Total ≈ 3,850 + 14,760 = 18,610
-    const result = calculateStampDuty({ propertyValue: 800000, state: 'nsw', isFirstHomeBuyer: false })
+    const result = calculateStampDuty({ propertyValue: 800000, state: 'nsw', isFirstHomeBuyer: false, isPrincipalPlaceOfResidence: true, isForeignBuyer: false })
     expect(result.stampDuty).toBeGreaterThan(18000)
     expect(result.stampDuty).toBeLessThan(20000)
     expect(result.concessionApplied).toBe(false)
   })
 
   it('(2) compute NSW FHB exemption for value <= $1M', () => {
-    const result = calculateStampDuty({ propertyValue: 800000, state: 'nsw', isFirstHomeBuyer: true })
+    const result = calculateStampDuty({ propertyValue: 800000, state: 'nsw', isFirstHomeBuyer: true, isPrincipalPlaceOfResidence: true, isForeignBuyer: false })
     expect(result.stampDuty).toBe(0)
     expect(result.concessionApplied).toBe(true)
     expect(result.concessionAmount).toBeGreaterThan(0)
@@ -154,14 +154,14 @@ describe('3. stamp-duty', () => {
   it('(2) compute VIC stamp duty', () => {
     // VIC: 0-25k @ 1.4%, 25k-130k @ 2.4%, 130k-960k @ 5.0%
     // 800k: 25k@1.4%=350, 105k@2.4%=2520, 670k@5.0%=33500 => 36,370
-    const result = calculateStampDuty({ propertyValue: 800000, state: 'vic', isFirstHomeBuyer: false })
+    const result = calculateStampDuty({ propertyValue: 800000, state: 'vic', isFirstHomeBuyer: false, isPrincipalPlaceOfResidence: true, isForeignBuyer: false })
     expect(result.stampDuty).toBeGreaterThan(35000)
     expect(result.stampDuty).toBeLessThan(38000)
   })
 
   it('(2) compute QLD stamp duty', () => {
     // QLD: 0-5k@0%, 5k-75k@1%, 75k-540k@3.5%, 540k-1M@4.5%
-    const result = calculateStampDuty({ propertyValue: 600000, state: 'qld', isFirstHomeBuyer: false })
+    const result = calculateStampDuty({ propertyValue: 600000, state: 'qld', isFirstHomeBuyer: false, isPrincipalPlaceOfResidence: true, isForeignBuyer: false })
     expect(result.stampDuty).toBeGreaterThan(15000)
   })
 
@@ -173,7 +173,7 @@ describe('3. stamp-duty', () => {
 
   it('(4) output shape has all required fields', () => {
     const keys: (keyof StampDutyOutput)[] = ['stampDuty', 'stampDutyFormatted', 'effectiveRate', 'concessionApplied', 'concessionAmount', 'concessionDescription', 'isFirstHomeBuyerEligible']
-    const result = calculateStampDuty({ propertyValue: 500000, state: 'nsw' })
+    const result = calculateStampDuty({ propertyValue: 500000, state: 'nsw', isFirstHomeBuyer: false, isPrincipalPlaceOfResidence: true, isForeignBuyer: false })
     keys.forEach(k => expect(result).toHaveProperty(k))
     expect(Object.keys(result).length).toBe(keys.length)
   })
@@ -292,14 +292,14 @@ describe('6. lvr-calculator', () => {
   })
 
   it('(2) compute correct LVR = loan / property * 100', () => {
-    const result = calculateLvr({ propertyValue: 800000, loanAmount: 600000, state: 'nsw' })
+    const result = calculateLvr({ propertyValue: 800000, loanAmount: 600000, state: 'nsw', isFirstHomeBuyer: false })
     expect(result.lvrPercentage).toBe(75)
     expect(result.lmiRequired).toBe(false)
     expect(result.lvrFormatted).toBe('75.00%')
   })
 
   it('(2) LMI required when LVR > 80%', () => {
-    const result = calculateLvr({ propertyValue: 800000, loanAmount: 720000, state: 'nsw' })
+    const result = calculateLvr({ propertyValue: 800000, loanAmount: 720000, state: 'nsw', isFirstHomeBuyer: false })
     expect(result.lvrPercentage).toBe(90)
     expect(result.lmiRequired).toBe(true)
     expect(result.lmiWarning).toContain('LMI')
@@ -312,12 +312,12 @@ describe('6. lvr-calculator', () => {
   })
 
   it('(3) compute rejects loan > property value', () => {
-    expect(() => calculateLvr({ propertyValue: 500000, loanAmount: 600000, state: 'nsw' })).toThrow('Loan amount cannot exceed')
+    expect(() => calculateLvr({ propertyValue: 500000, loanAmount: 600000, state: 'nsw', isFirstHomeBuyer: false })).toThrow('Loan amount cannot exceed')
   })
 
   it('(4) output shape has all required fields', () => {
     const keys: (keyof LvrCalculatorOutput)[] = ['lvrPercentage', 'lvrFormatted', 'stampDutyEstimate', 'stampDutyFormatted', 'lmiRequired', 'lmiWarning']
-    const result = calculateLvr({ propertyValue: 800000, loanAmount: 600000, state: 'nsw' })
+    const result = calculateLvr({ propertyValue: 800000, loanAmount: 600000, state: 'nsw', isFirstHomeBuyer: false })
     keys.forEach(k => expect(result).toHaveProperty(k))
     expect(Object.keys(result).length).toBe(keys.length)
   })
