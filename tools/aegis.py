@@ -314,9 +314,9 @@ class AegisCLI:
                 "mission_id": self.manifest_data.get("mission_id", "?"),
                 "status": exec_result.get("status", "?"),
                 "task_count": len(self.manifest_data.get("tasks", [])),
-                "completed": len(exec_result.get("completed", exec_result.get("tasks", {}).get("completed", []))),
-                "failed": len(exec_result.get("failed", exec_result.get("tasks", {}).get("failed", []))),
-                "compensated": exec_result.get("tasks", {}).get("compensated", 0),
+                "completed": exec_result.get("completed", exec_result.get("tasks", {}).get("completed", 0)),
+                "failed": exec_result.get("failed", exec_result.get("tasks", {}).get("failed", 0)),
+                "compensated": exec_result.get("tasks", {}).get("compensated", 0) if isinstance(exec_result.get("tasks"), dict) else exec_result.get("compensated", 0),
                 "duration": exec_result.get("duration_seconds", 0),
             }
             report_file.write_text(json.dumps(report, indent=2))

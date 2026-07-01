@@ -432,9 +432,19 @@ class SagaCoordinator:
         print(f"    [{task.task_id}] {result.get('output', 'OK')}")
 
     def _report(self) -> dict:
-        """Produce the structured execution report."""
+        """Produce the structured execution report with hash chain integrity."""
         duration = (self.end_time - self.start_time) if self.end_time and self.start_time else 0
         status = "failure" if self.failed else "success"
+
+        # Compute previous mission hash for chain integrity
+        previous_hash = ""
+        try:
+            existing = sorted(LOG_DIR.glob("*.report.json"), key=lambda p: p.stat().st_mtime)
+            if existing:
+                prev = json.loads(existing[-1].read_text())
+                previous_hash = prev.get("mission_hash", "")
+        except Exception:
+            previous_hash = ""
 
         report = {
             "mission_id": self.manifest.mission_id,
@@ -454,7 +464,12 @@ class SagaCoordinator:
             "task_details": [t.to_dict() for t in self.manifest.tasks],
             "errors": [t.error for t in self.manifest.tasks if t.error],
             "dry_run": self.dry_run,
+            "previous_mission_hash": previous_hash,
         }
+
+        # Compute this report's hash (excluding the hash fields themselves)
+        canonical = json.dumps(report, sort_keys=True, default=str)
+        report["mission_hash"] = hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
         return report
 
