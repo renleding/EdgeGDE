@@ -312,12 +312,71 @@ class SagaCoordinator:
             task.status = "completed"
             self.completed.append(task)
             print(f"OK ({result.get('output', '')[:60]})")
+
+            # Reconciliation: verify actual state matches expected
+            reconcile_result = self._reconcile(task)
+            if reconcile_result.get("drift_detected"):
+                print(f"    ⚠️  Reconciliation drift: {reconcile_result.get('summary', '')}")
+                # Store reconciliation result for report
+                task.output = {**(task.output or {}), "reconciliation": reconcile_result}
+
             return True
 
         except Exception as e:
             task.status = "failed"
             task.error = str(e)
             return False
+
+    def _reconcile(self, task: SagaTask) -> dict:
+        """Reconcile expected vs actual state after task execution.
+
+        For write_text: verify file content matches expected
+        For delete: verify file no longer exists
+        For shell: verify exit code (already done)
+        For read_file: no side effects
+        """
+        if task.operation == "write_text":
+            path = Path(task.args.get("path", "")).expanduser().resolve()
+            expected_content = task.args.get("content", "")
+            if path.exists():
+                actual_content = path.read_text()
+                if actual_content != expected_content:
+                    return {
+                        "drift_detected": True,
+                        "summary": f"Content mismatch: expected {len(expected_content)}b, got {len(actual_content)}b",
+                        "expected_size": len(expected_content),
+                        "actual_size": len(actual_content),
+                        "match": False,
+                    }
+            else:
+                return {
+                    "drift_detected": True,
+                    "summary": f"File missing after write: {path}",
+                    "match": False,
+                }
+            return {"drift_detected": False, "summary": "Content verified OK", "match": True}
+
+        if task.operation == "delete":
+            path = Path(task.args.get("path", "")).expanduser().resolve()
+            if path.exists():
+                return {
+                    "drift_detected": True,
+                    "summary": f"File still exists after delete: {path}",
+                    "match": False,
+                }
+            return {"drift_detected": False, "summary": "Deletion verified OK", "match": True}
+
+        if task.operation == "shell":
+            ec = task.output.get("exit_code") if task.output else -1
+            match = ec == 0
+            return {
+                "drift_detected": not match,
+                "summary": f"Exit code: {ec}",
+                "match": match,
+            }
+
+        # read_file/architecture_summary: no side effects
+        return {"drift_detected": False, "summary": "Read-only — no drift possible", "match": True}
 
     def _compensate(self) -> None:
         """Execute compensation for all completed tasks in reverse order."""
