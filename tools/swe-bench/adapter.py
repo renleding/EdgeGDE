@@ -40,7 +40,47 @@ _PODMAN_SOCK = Path.home() / ".local/share/containers/podman/machine/podman.sock
 if _PODMAN_SOCK.exists() and not os.environ.get("DOCKER_HOST"):
     os.environ["DOCKER_HOST"] = f"unix://{_PODMAN_SOCK}"
 
-# ── API Key ─────────────────────────────────────────────────────────────────
+# ── Circuit Breaker ──────────────────────────────────────────────────────────
+# Tracks consecutive failures per provider. After max_failures, the circuit
+# opens and subsequent calls fail fast for cooldown_seconds before retrying.
+_CIRCUIT_BREAKER = {
+    "ollama": {"failures": 0, "last_failure": 0.0, "open": False},
+    "openrouter": {"failures": 0, "last_failure": 0.0, "open": False},
+}
+MAX_FAILURES = 3
+COOLDOWN_SECONDS = 30
+
+def _circuit_check(provider: str) -> None:
+    """Raise RuntimeError if circuit is open for this provider."""
+    state = _CIRCUIT_BREAKER[provider]
+    if not state["open"]:
+        return
+    elapsed = time.time() - state["last_failure"]
+    if elapsed >= COOLDOWN_SECONDS:
+        # Half-open: allow one trial
+        state["open"] = False
+        state["failures"] = 0
+        print(f"  [circuit] {provider} reopened after {elapsed:.0f}s cooldown")
+        return
+    raise RuntimeError(
+        f"Circuit breaker OPEN for {provider} "
+        f"({state['failures']} failures, {COOLDOWN_SECONDS - elapsed:.0f}s remaining)"
+    )
+
+def _circuit_fail(provider: str) -> None:
+    """Record a failure and possibly open the circuit."""
+    state = _CIRCUIT_BREAKER[provider]
+    state["failures"] += 1
+    state["last_failure"] = time.time()
+    if state["failures"] >= MAX_FAILURES:
+        state["open"] = True
+        print(f"  [circuit] {provider} OPEN after {state['failures']} failures")
+
+def _circuit_success(provider: str) -> None:
+    """Reset failure count on success."""
+    state = _CIRCUIT_BREAKER[provider]
+    state["failures"] = 0
+    state["open"] = False
 def _get_api_key() -> str:
     env_path = Path.home() / ".env"
     if env_path.exists():
@@ -155,9 +195,17 @@ def build_context(instance: dict, worktree: Path) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def call_llm(messages: list, max_tokens: int = 16000) -> str:
-    """Call configured LLM provider and return response text."""
+    """Call configured LLM provider and return response text.
+
+    Circuit breaker: after MAX_FAILURES consecutive failures, the circuit
+    opens for COOLDOWN_SECONDS before allowing another trial.
+    Falls back from Ollama to OpenRouter when the primary is unavailable.
+    """
     provider = LLM_PROVIDER
     model = OPENROUTER_MODEL
+
+    # Primary attempt
+    _circuit_check(provider)
 
     if provider == "ollama":
         # Local Ollama endpoint — no API key needed
@@ -179,11 +227,14 @@ def call_llm(messages: list, max_tokens: int = 16000) -> str:
         )
         try:
             response = urlopen(req, timeout=300)
+            _circuit_success("ollama")
         except Exception as exc:
-            # Fallback to OpenRouter if Ollama is down
+            _circuit_fail("ollama")
+            # Fallback to OpenRouter if Ollama is down AND key exists
             if OPENROUTER_API_KEY and len(OPENROUTER_API_KEY) >= 10:
                 print(f"  [warn] Ollama unavailable ({exc}), falling back to OpenRouter")
                 provider = "openrouter"
+                _circuit_check(provider)
             else:
                 raise
 
@@ -207,7 +258,16 @@ def call_llm(messages: list, max_tokens: int = 16000) -> str:
             },
             method="POST",
         )
-        response = urlopen(req, timeout=300)
+        try:
+            response = urlopen(req, timeout=300)
+            _circuit_success("openrouter")
+        except Exception as exc:
+            _circuit_fail("openrouter")
+            # If OpenRouter also fails and we started with Ollama, try OpenRouter
+            # only if we haven't already tried it
+            if provider == "openrouter" and _CIRCUIT_BREAKER["openrouter"]["failures"] < MAX_FAILURES:
+                print(f"  [warn] OpenRouter unavailable ({exc}), will retry after circuit opens")
+            raise RuntimeError(f"LLM provider {provider} failed: {exc}")
     else:
         raise RuntimeError(f"Unknown LLM provider: {provider}")
 
@@ -785,6 +845,19 @@ def run_single(instance_id: str, split: str = "dev",
 # ══════════════════════════════════════════════════════════════════════════════
 
 def cmd_run(args):
+    if args.dry_run:
+        inst = load_instance(args.instance_id, args.split)
+        print(f"[DRY RUN] Would process: {args.instance_id}")
+        print(f"  Repo: {inst['repo']}")
+        print(f"  Problem: {len(inst['problem_statement'])} chars")
+        print(f"  Ground truth patch: {len(inst.get('patch','') or '')} chars")
+        print(f"  Attempts: {args.attempts}")
+        print(f"  Provider: {LLM_PROVIDER}, Model: {OPENROUTER_MODEL}")
+        print(f"  Log directory: {SWE_BENCH_LOGS / args.instance_id}")
+        print(f"  Circuits: ollama={'OPEN' if _CIRCUIT_BREAKER['ollama']['open'] else 'CLOSED'}, "
+              f"openrouter={'OPEN' if _CIRCUIT_BREAKER['openrouter']['open'] else 'CLOSED'}")
+        print("[DRY RUN] No files modified.")
+        sys.exit(0)
     result = run_single(args.instance_id, args.split,
                         attempts=args.attempts,
                         force_fallback=args.force_fallback)
@@ -793,6 +866,12 @@ def cmd_run(args):
 
 def cmd_run_all(args):
     ds = load_dataset("SWE-bench/SWE-bench_Lite", split=args.split)
+    if args.dry_run:
+        print(f"[DRY RUN] Would process {len(ds)} instances from {args.split} split")
+        for i, inst in enumerate(ds):
+            print(f"  [{i+1}/{len(ds)}] {inst['instance_id']} ({inst['repo']})")
+        print(f"[DRY RUN] No files modified.")
+        sys.exit(0)
     results = []
     for i, inst in enumerate(ds):
         print(f"\n{'='*60}")
@@ -851,6 +930,8 @@ def main():
                    help="FRS-8: Number of attempts (default: 3, 1=baseline)")
     p.add_argument("--force-fallback", action="store_true",
                    help="FRS-9: Force Aider fallback even without retries")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Preview what would happen without executing")
 
     # run-all
     p = sub.add_parser("run-all", help="Run all instances in a split")
@@ -858,6 +939,8 @@ def main():
     p.add_argument("--skip-eval", action="store_true")
     p.add_argument("--attempts", type=int, default=3)
     p.add_argument("--force-fallback", action="store_true")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Preview what would happen without executing")
 
     # evaluate
     p = sub.add_parser("evaluate", help="Evaluate predictions via SWE-bench harness")
