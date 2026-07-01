@@ -1,0 +1,142 @@
+# Aegis Policy Catalog v1
+# Non-bypassable. Every Hermes action is checked against these rules.
+# Policy version: aegis-policy-v1
+# Last updated: 2026-07-01
+
+# ── Action Types ─────────────────────────────────────────────────────────
+# Each action type maps to a policy rule that determines allow/deny.
+
+actions:
+
+  # ── PLANNING (always allowed — no side effects) ─────────────────────
+  - id: action.plan
+    description: "Hermes plans, decomposes, decides approach"
+    allowed_actors: [hermes]
+    requires_approval: false
+    side_effects: none
+    rule: always_allow
+
+  - id: action.read_file
+    description: "Read a file from disk"
+    allowed_actors: [hermes, droid]
+    requires_approval: false
+    side_effects: none
+    rule: always_allow
+
+  - id: action.search_files
+    description: "Search file contents or find files"
+    allowed_actors: [hermes, droid]
+    requires_approval: false
+    side_effects: none
+    rule: always_allow
+
+  # ── MUTATION (Hermes must delegate to Droid) ───────────────────────
+  - id: action.write_file
+    description: "Write content to a file"
+    allowed_actors: [droid]
+    requires_approval: true
+    side_effects: disk_write
+    rule: |
+      Hermes CANNOT write files directly.
+      Hermes must delegate to Droid via Mission Manifest.
+      Violation: blocked + logged as policy breach.
+
+  - id: action.patch
+    description: "Apply a patch to a file"
+    allowed_actors: [droid]
+    requires_approval: true
+    side_effects: disk_write
+    rule: |
+      Hermes CANNOT patch files directly.
+      Hermes must delegate to Droid via Mission Manifest.
+      Violation: blocked + logged as policy breach.
+
+  - id: action.shell
+    description: "Execute a shell command"
+    allowed_actors: [droid]
+    requires_approval: true
+    side_effects: disk_write
+    rule: |
+      Hermes CANNOT execute shell commands directly.
+      Shell is high-risk — requires allow_shell: true in Mission Manifest.
+      Violation: blocked + logged as policy breach.
+
+  - id: action.canvas_mutation
+    description: "Apply a mutation to the CanvasDocument"
+    allowed_actors: [droid]
+    requires_approval: true
+    side_effects: state_mutation
+    rule: |
+      Mutations pass through AegisMutationGate.validate() before applyMutation().
+      Already enforced in CanvasSession_DO.
+
+  # ── GOVERNANCE (Aegis only) ─────────────────────────────────────────
+  - id: action.validate_mutation
+    description: "Validate a mutation against its schema"
+    allowed_actors: [aegis]
+    requires_approval: false
+    side_effects: none
+    rule: always_allow
+
+  - id: action.audit_log
+    description: "Write an audit trail entry"
+    allowed_actors: [aegis]
+    requires_approval: false
+    side_effects: audit_write
+    rule: always_allow
+
+  # ── COMMUNICATION (Hermes only) ────────────────────────────────────
+  - id: action.delegate_task
+    description: "Delegate a task to Droid for execution"
+    allowed_actors: [hermes]
+    requires_approval: false
+    side_effects: none
+    rule: always_allow
+
+  - id: action.kanban_create
+    description: "Create a Kanban task"
+    allowed_actors: [hermes, droid]
+    requires_approval: false
+    side_effects: kanban_write
+    rule: always_allow
+
+  - id: action.clarify
+    description: "Ask the user a question"
+    allowed_actors: [hermes]
+    requires_approval: false
+    side_effects: none
+    rule: always_allow
+
+  - id: action.deploy
+    description: "Deploy to staging or production"
+    allowed_actors: [droid]
+    requires_approval: true
+    side_effects: production
+    rule: |
+      Deploy requires 'deploy gogo' authorization.
+      Only Droid can execute deploys.
+      Violation: blocked + escalated to user.
+
+# ── Violation Severity ────────────────────────────────────────────────────
+# Determines what happens when a policy rule is violated.
+
+violation_severity:
+  block_and_log:
+    - action.write_file
+    - action.patch
+    - action.shell
+    - action.deploy
+  warn_and_log:
+    - action.canvas_mutation
+  log_only:
+    - action.kanban_create
+
+# ── Integrity Check ───────────────────────────────────────────────────────
+# Aegis checks its own policy file at startup.
+# If the file is missing, modified, or hash doesn't match, Aegis enters
+# fail-secure mode (block all mutations).
+
+integrity:
+  check_on_startup: true
+  policy_version: aegis-policy-v1
+  require_signature: false  # Future: GPG-sign policy files
