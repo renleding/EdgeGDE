@@ -75,18 +75,18 @@ export class CanvasSession_DO implements DurableObject {
     }
 
     if (path === '/init' && request.method === 'POST') {
-      const data = await request.json() as any
+      const data = await request.json() as { id: string; rootId: string; nodes: Node[]; designTokens?: unknown }
       const { id, rootId, nodes } = data
       return this.handleInit(id, rootId, nodes, data.designTokens)
     }
 
     if (path === '/restore' && request.method === 'POST') {
-      const data = await request.json() as any
+      const data = await request.json() as { canvasId: string }
       return this.handleRestore(data.canvasId)
     }
 
     if (path === '/state') return this.handleGetState()
-    const self = this as any
+    const self = this as CanvasSession_DO
 
     if (path === '/mutation' && request.method === 'POST') {
       const { mutation, expectedVersion } = await request.json() as { mutation: Mutation; expectedVersion: number }
@@ -203,7 +203,7 @@ export class CanvasSession_DO implements DurableObject {
       nodes: JSON.parse(JSON.stringify(nodes)),
       history: [], stagingPointer: -1, livePointer: -1,
     }
-    if (designTokens) (this.doc as any).designTokens = designTokens
+    if (designTokens) (this.doc as CanvasDocument & { designTokens: unknown }).designTokens = designTokens
     await this.snapshotNow()
     return new Response(JSON.stringify(this.doc))
   }

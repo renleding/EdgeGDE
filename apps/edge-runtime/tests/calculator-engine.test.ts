@@ -18,6 +18,7 @@ import {
   formatPercent,
   executeCalculator,
   listCalculators,
+  getCalculator,
   registerCalculator,
 } from '../src/lib/calculator-engine'
 import { calculateLoanRepayment, LoanRepaymentInputSchema } from '../src/edr/domain/calculators/loan-repayment'
@@ -57,16 +58,22 @@ import { calculateLeasing } from '../src/edr/domain/calculators/leasing'
 import { calculateReverseMortgage } from '../src/edr/domain/calculators/reverse-mortgage'
 import { CircuitBreaker, llmCircuitBreaker } from '../src/lib/circuit-breaker'
 
+// Import registry to trigger calculator registration side effects
+import '../src/registry/calculators'
+
 // Register a minimal loan-repayment calculator for execute/list tests
+// Only register if not already registered by the registry
 beforeAll(() => {
-  registerCalculator({
-    id: 'loan-repayment',
-    name: 'Loan Repayment Calculator',
-    description: 'Standard mortgage repayment calculator',
-    category: 'loan',
-    inputSchema: LoanRepaymentInputSchema,
-    execute: (input) => calculateLoanRepayment(input as LoanRepaymentInput),
-  })
+  if (!getCalculator('loan-repayment')) {
+    registerCalculator({
+      id: 'loan-repayment',
+      name: 'Loan Repayment Calculator',
+      description: 'Standard mortgage repayment calculator',
+      category: 'loan',
+      inputSchema: LoanRepaymentInputSchema,
+      execute: (input) => calculateLoanRepayment(input as LoanRepaymentInput),
+    })
+  }
 })
 
 describe('Rounding Helpers', () => {
@@ -606,8 +613,6 @@ describe('Rent vs Buy Calculator', () => {
 })
 
 describe('Engine-level', () => {
-  // Import registry to trigger calculator registration
-  import('../src/registry/calculators')
 
   it('executeCalculator returns error for unknown calculator', () => {
     const result = executeCalculator('nonexistent', {})
