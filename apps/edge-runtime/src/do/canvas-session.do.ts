@@ -75,7 +75,7 @@ export class CanvasSession_DO implements DurableObject {
     }
 
     if (path === '/init' && request.method === 'POST') {
-      const data = await request.json() as { id: string; rootId: string; nodes: Node[]; designTokens?: unknown }
+      const data = await request.json() as { id: string; rootId: string; nodes: Record<string, Node>; designTokens?: unknown }
       const { id, rootId, nodes } = data
       return this.handleInit(id, rootId, nodes, data.designTokens)
     }
@@ -86,7 +86,7 @@ export class CanvasSession_DO implements DurableObject {
     }
 
     if (path === '/state') return this.handleGetState()
-    const self = this as CanvasSession_DO
+    const self = this as CanvasSession_DO & { handleMcpCall: (tool: string, payload: unknown, expectedVersion: number) => Promise<Response>; handleDeploy: () => Promise<Response> }
 
     if (path === '/mutation' && request.method === 'POST') {
       const { mutation, expectedVersion } = await request.json() as { mutation: Mutation; expectedVersion: number }
