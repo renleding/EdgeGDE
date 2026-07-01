@@ -130,6 +130,11 @@
   "env": {
     "production": {
       "name": "edgegde-calculator",
+      "kv_namespaces": [
+        { "binding": "ARTIFACT_KV", "id": "381fcc882dd147a9a0f8e706fb40064c" },
+        { "binding": "TENANT_KV",   "id": "5a9096680bce482f94a897fe640bafe6" },
+        { "binding": "TELEMETRY_KV","id": "78c1f43b67e9483e9f02ed66aa4ac8fc" }
+      ],
       "queues": {
         "producers": [
           { "binding": "LEAD_SCORING_QUEUE", "queue": "edgegde-lead-scoring" },
