@@ -33,7 +33,7 @@ jobs:
         run: bun run test:unit
 
       - name: Copy AI Tutor PWA assets
-        run: node ../../ai-tutor/scripts/copy-static.mjs
+        run: node ../../apps/ai-tutor/scripts/copy-static.mjs
 
       - name: Deploy to staging
         run: npx wrangler deploy --env staging

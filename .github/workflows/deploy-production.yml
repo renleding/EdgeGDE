@@ -102,7 +102,7 @@ jobs:
           echo "Date:    $(date -u)"
 
       - name: Copy AI Tutor PWA assets
-        run: node ../../ai-tutor/scripts/copy-static.mjs
+        run: node ../../apps/ai-tutor/scripts/copy-static.mjs
 
       - name: Deploy to production
         run: npx wrangler deploy --env production
