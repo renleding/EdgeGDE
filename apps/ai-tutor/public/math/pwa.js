@@ -9,6 +9,9 @@
   const CSV_API = '/api/tutor/math/progress/csv';
   const VIEWS = ['chat', 'practice', 'dashboard'];
 
+  // ── Document context for AI ──
+  let docContext = '';
+
   // ── Navigation ──
   function showView(name) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -73,6 +76,7 @@
         body: JSON.stringify({
           message: text,
           tutor_subject: 'maths-standard',
+          context: docContext || undefined,
           stream: false
         })
       });
@@ -100,6 +104,10 @@
       const form = new FormData();
       form.append('file', file);
       try {
+        // Read file content client-side for AI context
+        const text = await file.text();
+        docContext = (docContext + '\n\n' + text).slice(0, 64000);
+
         await fetch(UPLOAD_API, { method: 'POST', body: form });
         addMsg('tutor', `Got it! I've read "${file.name}". Ask me anything about it.`);
       } catch {
