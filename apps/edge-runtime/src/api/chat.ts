@@ -766,7 +766,7 @@ chatRouter.post('/chat/stream', async (c) => {
 
         controller.enqueue(encoder.encode(`event: complete\ndata: ${JSON.stringify({
           done: true,
-          message: buildChatDoneMessage(inference),
+          message: buildChatDoneMessage({ ...inference, collected: inference.updatedCollected }),
           fields: inference.validFields,
           errors: inference.errors,
           state: finalState.state,
@@ -885,9 +885,41 @@ function buildChatDoneMessage(inference: {
   validFields: string[]
   errors: string[]
   state: ChatSessionState
+  collected?: Record<string, unknown>
 }): string {
   if (inference.errors.length) return inference.errors[0]
-  if (inference.validFields.length && inference.state.currentField) return `Thanks, I've captured that. Please provide ${inference.state.currentField}.`
+  if (inference.validFields.length && inference.state.currentField) {
+    const fieldName = inference.state.currentField
+    // Collect-friendly label
+    const friendly: Record<string, string> = {
+      fullName: 'your full name',
+      email: 'your email address',
+      phone: 'your phone number',
+      employmentStatus: 'your employment status',
+      annualIncome: 'your annual income',
+      loanAmount: 'your desired loan amount',
+      propertyValue: 'the property value',
+      propertyType: 'the property type',
+      dependants: 'the number of dependants',
+      existingMortgage: 'whether you have an existing mortgage',
+    }
+    return `Thanks, I've captured that. Please provide ${friendly[fieldName] || fieldName}.`
+  }
+  if (inference.validFields.length && !inference.state.currentField) {
+    // Completion message with next steps
+    const collected = inference.collected || {}
+    const firstName = (collected as any)?.firstName || (collected as any)?.fullName?.split(' ')[0] || ''
+    const email = (collected as any)?.email || ''
+    const phone = (collected as any)?.phone || ''
+    const ref = 'APP-' + Date.now().toString(36).toUpperCase().slice(-6)
+    let msg = 'Thank you'
+    if (firstName) msg += `, ${firstName}`
+    msg += `. Your application has been submitted.\n\nWhat happens next:\n1. A broker will review your details within 24 hours`
+    if (email) msg += `\n2. You'll receive a confirmation at ${email}`
+    if (phone) msg += `\n3. We may call you at ${phone} if we need more information`
+    msg += `\n\nReference: ${ref}`
+    return msg
+  }
   if (inference.validFields.length) return "Thanks, I've captured that. All details are collected."
   if (inference.state.currentField) return `Thanks for that. Please provide ${inference.state.currentField}.`
   return "Thanks, I've captured that."

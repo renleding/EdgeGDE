@@ -210,6 +210,12 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
                     }
                     typingEl.querySelector('.msg-bubble').after(pillContainer);
                   }
+                  // ── P4: Completion state — disable input, show checkmark ──
+                  if (parsed.complete === true || (parsed.state && parsed.state.phase === 'complete')) {
+                    if (tx) { tx.disabled = true; tx.placeholder = 'Application complete \u2713'; }
+                    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '\u2713'; }
+                    if (chat) chat.classList.add('chat-complete');
+                  }
                 }
               } catch(e) {}
             }
