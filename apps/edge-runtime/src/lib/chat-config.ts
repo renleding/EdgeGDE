@@ -1,16 +1,4 @@
-/**
- * EdgeGDE — Chat Config Loader
- * Loads tenant chat config from TENANT_KV. Validates against Zod schema.
- * Single read per request — stable snapshot.
- *
- * @packageDocumentation
- */
-
 import { z } from 'zod'
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Zod schema
-// ═══════════════════════════════════════════════════════════════════════════
 
 const ChatFieldDefSchema = z.object({
   fieldName: z.string().min(1),
@@ -27,7 +15,7 @@ const ChatFieldDefSchema = z.object({
 }).passthrough()
 
 const ChatRuleSchema = z.object({
-  if: z.string(),  // e.g. "annualIncome < 30000"
+  if: z.string(),
   set: z.object({
     field: z.string(),
     value: z.union([z.string(), z.number(), z.boolean()]),
@@ -51,13 +39,10 @@ export const ChatConfigSchema = z.object({
   rules: z.array(ChatRuleSchema).default([]),
   knowledgeBase: KnowledgeBaseSchema.default({ topics: [] }),
   ui: UiConfigSchema.optional(),
+  llmFallback: z.boolean().default(true),
 })
 
 export type ChatConfig = z.infer<typeof ChatConfigSchema>
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Fallback config (used when KV key is missing or invalid)
-// ═══════════════════════════════════════════════════════════════════════════
 
 export const FALLBACK_CONFIG: ChatConfig = {
   objective: 'Collect contact information',
@@ -77,11 +62,8 @@ export const FALLBACK_CONFIG: ChatConfig = {
   rules: [],
   knowledgeBase: { topics: [] },
   ui: { title: 'EdgeGDE Chat', greeting: "Welcome! Let's get started.", colorAccent: '#58a6ff' },
+  llmFallback: true,
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Loader
-// ═══════════════════════════════════════════════════════════════════════════
 
 export async function loadChatConfig(kv: any, tenantId: string): Promise<ChatConfig> {
   try {
@@ -91,15 +73,11 @@ export async function loadChatConfig(kv: any, tenantId: string): Promise<ChatCon
       return FALLBACK_CONFIG
     }
     const parsed = ChatConfigSchema.parse(raw)
-
-    // Hard gate: if upgrade is mid-flight, block execution
     const rawObj = typeof raw === 'string' ? JSON.parse(raw) : raw
     if (rawObj && rawObj.upgrade_status === 'pending') {
       console.warn('[chat-config] Upgrade pending for', tenantId, '— blocking')
       throw new Error('System update in progress. Please try again shortly.')
     }
-
-    // Validate priorityOrder matches fields
     const fieldNames = new Set(parsed.fields.map(f => f.fieldName))
     for (const p of parsed.priorityOrder) {
       if (!fieldNames.has(p)) {
@@ -107,7 +85,6 @@ export async function loadChatConfig(kv: any, tenantId: string): Promise<ChatCon
         return FALLBACK_CONFIG
       }
     }
-
     return parsed
   } catch (err) {
     console.warn('[chat-config] Load/validation failed for', tenantId, '— using fallback', err)

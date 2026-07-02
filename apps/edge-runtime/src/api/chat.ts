@@ -723,14 +723,14 @@ chatRouter.post('/chat/stream', async (c) => {
           return null
         })()
 
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+        controller.enqueue(encoder.encode(`event: complete\ndata: ${JSON.stringify({
           done: true,
           message: buildChatDoneMessage(inference),
           fields: inference.validFields,
           errors: inference.errors,
           state: finalState.state,
           complete: finalState.state.phase === 'complete',
-          llmFallback: true,
+          llmFallback: config.llmFallback !== false,
           firstName: computedFirstName,
           fullName: (inference.updatedCollected as any)?.fullName || null,
         })}\n\n`))
