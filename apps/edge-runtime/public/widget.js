@@ -1,4 +1,4 @@
-console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
+console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
 (function(){
   'use strict';
   var baseUrl = window.location.origin;
@@ -12,7 +12,8 @@ console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
   var gn = document.getElementById('chat-guest-name');
   var closeBtn = document.getElementById('gde-close-btn');
   var errorBar = null;
-  var sidReady = false; // ← NEW: init completion flag
+  var sidReady = false;
+  var pendingMsg = null;
 
   function showError(msg) {
     if (!errorBar) {
@@ -23,10 +24,10 @@ console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
     }
     errorBar.innerHTML = msg + ' <button id="chat-retry-btn" style="background:#5c2a2a;color:white;border:1px solid #8a3a3a;border-radius:4px;padding:2px 10px;margin-left:8px;cursor:pointer">Retry</button>';
     errorBar.style.display = 'block';
-    document.getElementById('chat-retry-btn')?.addEventListener('click', function() {
-      errorBar.style.display = 'none';
-      initSession();
-    });
+    var retryBtn = document.getElementById('chat-retry-btn');
+    if (retryBtn) {
+      retryBtn.onclick = function() { errorBar.style.display = 'none'; initSession(); };
+    }
   }
   function hideError() { if (errorBar) errorBar.style.display = 'none'; }
 
@@ -34,21 +35,23 @@ console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
     sidReady = true;
     if (tx) tx.disabled = false;
     if (sendBtn) sendBtn.disabled = false;
+    hideError();
+    // If there's a pending message, send it now
+    if (pendingMsg) {
+      chatSend();
+    }
   }
 
   function initSession() {
     var sidInput = document.getElementById('chat-session-id');
     if (sidInput && sidInput.value) { sid = sidInput.value; enableInput(); return; }
     if (!tenantId) return;
-    hideError();
-    // Disable input until init completes
     if (tx) tx.disabled = true;
     if (sendBtn) sendBtn.disabled = true;
     var timedOut = false;
     var initTimeout = setTimeout(function() {
       timedOut = true;
       showError('Connection timed out');
-      // Re-enable input even on timeout — user can retry manually
       if (tx) tx.disabled = false;
       if (sendBtn) sendBtn.disabled = false;
     }, 5000);
@@ -65,6 +68,7 @@ console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
     }).catch(function() {
       clearTimeout(initTimeout);
       if (!timedOut) {
+        // Init failed — show retry bar but keep input enabled
         showError('Connection failed');
         if (tx) tx.disabled = false;
         if (sendBtn) sendBtn.disabled = false;
@@ -79,19 +83,14 @@ console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
     return (gn && gn.value) ? gn.value : 'You';
   }
 
-  function getFrameOffset() {
-    var frame = window.frameElement;
-    if (!frame) return { left: 0, top: 0 };
-    return { left: frame.offsetLeft || 0, top: frame.offsetTop || 0 };
-  }
-
   function chatSend() {
     if (isStreaming) return;
-    // Block send if session not ready yet
     if (!sid || !sidReady) {
-      showError('Still connecting...');
-      return;
+      // Session not ready — queue message and try init again
+      pendingMsg = (tx && tx.value.trim()) || pendingMsg;
+      if (!sidReady) { initSession(); return; }
     }
+    pendingMsg = null;
     hideError();
     isStreaming = true;
     if (sendBtn) sendBtn.disabled = true;
@@ -162,13 +161,6 @@ console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
                       for (var ui = 0; ui < labels.length; ui++) {
                         if (labels[ui].textContent === 'You') labels[ui].textContent = fn;
                       }
-                    }
-                  }
-                  if (gn && !gn.value && d.state && d.state.completedFields) {
-                    var cf = d.state.completedFields;
-                    if (cf.indexOf('firstName') >= 0) {
-                      var nw = msg.split(' ')[0];
-                      if (nw.length > 1) gn.value = nw;
                     }
                   }
                 } catch(e) {}
@@ -243,11 +235,11 @@ console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
     doStream(0);
   }
 
-  document.getElementById('chat-send-btn').addEventListener('click', function() { if (sidReady) chatSend(); else showError('Still connecting...'); });
+  document.getElementById('chat-send-btn').addEventListener('click', chatSend);
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && document.activeElement === tx) {
       e.preventDefault();
-      if (sidReady) chatSend(); else showError('Still connecting...');
+      chatSend();
     }
   });
 
