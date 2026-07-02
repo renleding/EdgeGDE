@@ -148,15 +148,15 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
               if (responseText) {
                 try {
                   var d = JSON.parse(responseText);
-                  if (d && d.firstName && gn && !gn.value) {
-                    gn.value = d.firstName;
+                  if (d && d.firstName) {
+                    if (gn) gn.value = d.firstName;
                     var labels = ml.querySelectorAll('.msg-user .msg-label');
                     for (var ui = 0; ui < labels.length; ui++) {
                       if (labels[ui].textContent === 'You') labels[ui].textContent = d.firstName;
                     }
-                  } else if (d && d.fullName && gn && !gn.value) {
+                  } else if (d && d.fullName) {
                     var fn = d.fullName.split(' ')[0];
-                    if (fn.length > 1) { gn.value = fn;
+                    if (fn.length > 1) { if (gn) gn.value = fn;
                       var labels = ml.querySelectorAll('.msg-user .msg-label');
                       for (var ui = 0; ui < labels.length; ui++) {
                         if (labels[ui].textContent === 'You') labels[ui].textContent = fn;
@@ -188,8 +188,8 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
                 if (parsed.done) {
                   streamCompleted = true;
                   if (parsed.message && typingEl) { var bubble = typingEl.querySelector('.msg-bubble'); if (bubble) bubble.textContent = parsed.message; }
-                  if (parsed.firstName && gn && !gn.value) {
-                    gn.value = parsed.firstName;
+                  if (parsed.firstName) {
+                    if (gn) gn.value = parsed.firstName;
                     var labels = ml.querySelectorAll('.msg-user .msg-label');
                     for (var ui = 0; ui < labels.length; ui++) {
                       if (labels[ui].textContent === 'You') labels[ui].textContent = parsed.firstName;
