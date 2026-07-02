@@ -670,20 +670,49 @@ chatRouter.post('/chat/stream', async (c) => {
   if (!userText || !sessionId) return c.json({ error: 'Missing text or session_id' }, 400)
 
   const env = c.env as any
-  const db = guardDB(env?.['DB'])
   const tenantKv = guardKV(env?.['TENANT_KV'])
-  const LLM_API_KEY = env?.LLM_API_KEY || ''
-
-  // Load session + config
-  const sessionRow: any = await db.prepare(
-    `SELECT objective, state_json, collected_fields_json FROM chat_sessions WHERE id = ?`
-  ).bind(sessionId).first()
-  if (!sessionRow) return c.json({ error: 'Session not found' }, 404)
-
-  const state = JSON.parse(sessionRow.state_json || '{}')
-  const collected = JSON.parse(sessionRow.collected_fields_json || '{}')
   const config: ChatConfig = await loadChatConfig(tenantKv, tenantId)
   const fields: ChatFieldDef[] = normalizeChatFields(config.fields || [])
+  const db = guardDB(env?.['DB'])
+
+  // ── Load session state via DO (single source of truth) ──────────
+  let collected: Record<string, unknown> = {}
+  let state: any = {}
+  let sessionFound = false
+  const doId = env.CHAT_SESSION?.idFromName ? env.CHAT_SESSION.idFromName(sessionId) : null
+  const stub = doId ? env.CHAT_SESSION.get(doId) : null
+
+  if (stub) {
+    try {
+      // Read from DO
+      const stateRes = await stub.fetch('http://internal/state')
+      if (stateRes.ok) {
+        const doState = await stateRes.json()
+        collected = doState.collected || {}
+        state = { currentField: doState.currentField || '' }
+        sessionFound = true
+      }
+    } catch { /* DO cold — fall through to D1 */ }
+  }
+
+  if (!sessionFound) {
+    // Fallback: hydrate from D1
+    const sessionRow: any = await db.prepare(
+      `SELECT objective, state_json, collected_fields_json FROM chat_sessions WHERE id = ?`
+    ).bind(sessionId).first()
+    if (!sessionRow) return c.json({ error: 'Session not found' }, 404)
+    state = JSON.parse(sessionRow.state_json || '{}')
+    collected = JSON.parse(sessionRow.collected_fields_json || '{}')
+    // Hydrate DO for future reads
+    if (stub) {
+      c.executionCtx.waitUntil(
+        stub.fetch('http://internal/hydrate', {
+          method: 'POST',
+          body: JSON.stringify({ tenantId }),
+        }).catch(() => {})
+      )
+    }
+  }
 
   const encoder = new TextEncoder()
 
@@ -695,14 +724,24 @@ chatRouter.post('/chat/stream', async (c) => {
         const inference = inferFieldUpdate(fields, collected, userText)
         const finalState = { state: inference.state }
         const now = Date.now()
-        await db.prepare(
-          `UPDATE chat_sessions SET collected_fields_json = ?, state_json = ?, updated_at = ? WHERE id = ?`
-        ).bind(
-          JSON.stringify(inference.updatedCollected),
-          JSON.stringify(finalState.state),
-          now,
-          sessionId,
-        ).run()
+        // Write through DO (single source of truth)
+        if (stub) {
+          await stub.fetch('http://internal/update', {
+            method: 'POST',
+            body: JSON.stringify({ collected: inference.updatedCollected, nextField: inference.state.currentField }),
+          }).catch(() => {})
+        }
+        // Also persist to D1 for cold-start recovery
+        if (db) {
+          await db.prepare(
+            `UPDATE chat_sessions SET collected_fields_json = ?, state_json = ?, updated_at = ? WHERE id = ?`
+          ).bind(
+            JSON.stringify(inference.updatedCollected),
+            JSON.stringify(finalState.state),
+            now,
+            sessionId,
+          ).run().catch(() => {})
+        }
 
         for (const f of inference.validFields) {
           c.executionCtx.waitUntil(logAuditEvent(c.env, tenantId, 'field_updated', '', sessionId, { field: f, value: inference.updatedCollected[f] }))

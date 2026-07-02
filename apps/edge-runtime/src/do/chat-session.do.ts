@@ -21,6 +21,7 @@ export interface ChatSessionState {
   currentField: string
   status: 'active' | 'complete' | 'abandoned'
   stepCount: number
+  version: number
   flowStack?: FlowStackEntry[]
   activeFlowIndex?: number
   globalCollected?: Record<string, unknown>
@@ -73,6 +74,7 @@ export class ChatSession_DO {
         currentField: '',
         status: 'active',
         stepCount: 0,
+        version: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }
@@ -98,6 +100,7 @@ export class ChatSession_DO {
           status: 'active',
           ocrStatus: '',
           stepCount: 0,
+        version: 0,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         }
@@ -107,9 +110,24 @@ export class ChatSession_DO {
       state.collected = { ...state.collected, ...(collected || {}) }
       state.currentField = nextField || ''
       state.stepCount++
+      state.version++
       state.updatedAt = Date.now()
       if (this.shouldSnapshot()) this.triggerSnapshot()
       return new Response(JSON.stringify(this.state))
+    }
+
+    if (path === '/sync') {
+      if (!this.state) return new Response('Not initialized', { status: 400 })
+      const s = this.state
+      return new Response(JSON.stringify({
+        sessionId: s.sessionId,
+        version: s.version,
+        collected: s.collected,
+        currentField: s.currentField,
+        status: s.status,
+        stepCount: s.stepCount,
+        updatedAt: s.updatedAt,
+      }))
     }
 
     if (path === '/complete') {
@@ -138,6 +156,7 @@ export class ChatSession_DO {
           currentField: row.state_json ? (JSON.parse(row.state_json).currentField || '') : '',
           status: row.status || 'active',
           stepCount: 0,
+        version: 0,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         }
