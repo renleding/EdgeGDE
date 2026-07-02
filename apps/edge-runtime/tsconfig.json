@@ -4,8 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": [
-      "ESNext",
-      "dom"
+      "ESNext"
     ],
     "strict": true,
     "noEmit": true,
