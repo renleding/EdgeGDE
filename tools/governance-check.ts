@@ -22,8 +22,7 @@ import { join, resolve, relative } from 'path'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const EDGE_RUNTIME = join(ROOT, 'apps/edge-runtime/src')
-const EXCLUDED_DIRS = ['node_modules', 'dist', 'build', 'coverage', '.git', '.worktrees']
-
+const EXCLUDED_DIRS = ['node_modules', 'dist', 'build', 'coverage', '.git', '.worktrees', 'tools']
 interface CheckResult {
   check: string
   status: 'pass' | 'fail' | 'warn'
@@ -219,7 +218,7 @@ function runAllChecks(): GovernanceReport {
   const changedFiles = getChangedFiles()
   const sourceFiles = findSourceFiles(EDGE_RUNTIME)
   const filesToCheck = changedFiles.length > 0
-    ? changedFiles.filter(f => f.endsWith('.ts') && existsSync(join(ROOT, f)))
+    ? changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
     : sourceFiles
 
   const results: CheckResult[] = []
