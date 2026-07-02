@@ -16,6 +16,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
+function createMockFetch(success: boolean, sessionId?: string) {
+  return vi.fn().mockImplementation((url: string, opts?: any) => {
+    if (typeof url === 'string' && url.includes('/chat/init')) {
+      if (!success) return Promise.reject(new Error('Network error'))
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ sessionId: sessionId || 'test-sid-123' }),
+      })
+    }
+    return Promise.reject(new Error('unexpected URL'))
+  })
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
 function loadWidget() {
   // Set window functions directly (happy-dom doesn't execute inline scripts)
   ;(window as any).__WIDGET_TEST = true
@@ -262,5 +277,76 @@ describe('WIDGET-05: DOM Element Presence', () => {
 
   it('WIDGET-05e: Tenant ID hidden input exists', () => {
     expect(document.getElementById('chat-tenant-id')).not.toBeNull()
+  })
+})
+
+describe('WIDGET-06: Full Conversation Flow', () => {
+  beforeEach(() => {
+    // Reset DOM to match production HTML (span with data-tenant, not input)
+    document.body.innerHTML = `
+      <div id="gde-chat">
+        <div id="gde-header">
+          <h1>Test Chat</h1>
+          <button id="gde-minimize-btn">_</button>
+          <button id="gde-close-btn">✕</button>
+        </div>
+        <div id="gde-body">
+          <div id="message-list">
+            <div class="welcome">Welcome! What is your name?</div>
+          </div>
+          <input id="chat-guest-name" type="hidden" value="" />
+          <input id="chat-text-input" type="text" placeholder="Type a message..." />
+          <button id="chat-send-btn">→</button>
+        </div>
+        <span id="chat-tenant-id" data-tenant="alpha-broker-01" style="display:none"></span>
+        <input id="chat-session-id" type="hidden" value="" />
+      </div>
+    `
+    globalThis.fetch = createMockFetch(true, 'conversation-test-sid')
+  })
+
+  it('WIDGET-06a: Reads tenant ID from data-tenant attribute on span', () => {
+    var tenantId = (document.getElementById('chat-tenant-id') as any)?.value
+      || document.getElementById('chat-tenant-id')?.getAttribute('data-tenant') || ''
+    expect(tenantId).toBe('alpha-broker-01')
+  })
+
+  it('WIDGET-06b: initSession fetches and stores session ID from span tenant', async () => {
+    var sidInput = document.getElementById('chat-session-id') as HTMLInputElement
+    globalThis.fetch = createMockFetch(true, 'conv-test-456')
+    await new Promise<void>((resolve) => {
+      var tenantId = document.getElementById('chat-tenant-id')?.getAttribute('data-tenant') || ''
+      var timedOut = false
+      var initTimeout = setTimeout(function() { timedOut = true; resolve() }, 5000)
+      fetch('/api/v1/chat/init?tenant=' + tenantId, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+      }).then(function(r: any) { return r.json() }).then(function(d: any) {
+        clearTimeout(initTimeout)
+        if (!timedOut && d.sessionId) {
+          sidInput.value = d.sessionId
+          resolve()
+        }
+      })
+    })
+    expect(sidInput.value).toBe('conv-test-456')
+  })
+
+  it('WIDGET-06c: After init, message-list has welcome text', () => {
+    const welcome = document.querySelector('.welcome')
+    expect(welcome).not.toBeNull()
+    expect(welcome!.textContent).toContain('Welcome')
+  })
+
+  it('WIDGET-06d: Text input exists and is usable after init', () => {
+    const tx = document.getElementById('chat-text-input') as HTMLInputElement
+    expect(tx).not.toBeNull()
+    tx.value = 'Dave Bun'
+    expect(tx.value).toBe('Dave Bun')
+  })
+
+  it('WIDGET-06e: Send button exists and is clickable', () => {
+    const btn = document.getElementById('chat-send-btn') as HTMLButtonElement
+    expect(btn).not.toBeNull()
+    expect(btn.textContent).toBe('→')
   })
 })

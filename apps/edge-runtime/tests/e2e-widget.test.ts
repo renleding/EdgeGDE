@@ -359,3 +359,100 @@ describe('E2E-07: Error Recovery', () => {
     expect(parsed1.firstName).toBe('Retry')
   })
 })
+
+describe('E2E-08: Full Conversation Question/Response', () => {
+  const CONV_TENANT = 'alpha-broker-01'
+
+  it('E2E-08a: Widget HTML loads with title and tenant for alpha-broker-01', async () => {
+    const res = await fetch(`${WORKER}/embed/chat?tenant=${CONV_TENANT}`)
+    const body = await res.text()
+    expect(res.ok).toBeTruthy()
+    expect(body).toContain('AFIRMICO')
+    expect(body).toContain('alpha-broker-01')
+    expect(body).toContain('chat-tenant-id')
+    expect(body).toContain('widget.js')
+  })
+
+  it('E2E-08b: Init creates session for alpha-broker-01', async () => {
+    const res = await fetch(`${WORKER}/api/v1/chat/init?tenant=${CONV_TENANT}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })
+    const body = await res.json()
+    expect(res.ok).toBeTruthy()
+    expect(typeof body.sessionId).toBe('string')
+    expect(body.sessionId.length).toBeGreaterThan(10)
+    expect(body.tenantId).toBe(CONV_TENANT)
+    expect(body.status).toBe('active')
+  })
+
+  it('E2E-08c: Full conversation: send name, get prompt for email', async () => {
+    // Step 1: Init session
+    const initRes = await fetch(`${WORKER}/api/v1/chat/init?tenant=${CONV_TENANT}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })
+    const { sessionId } = await initRes.json()
+    expect(sessionId).toBeTruthy()
+
+    // Step 2: Send "dave bun" (full name)
+    const res1 = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${CONV_TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `session_id=${encodeURIComponent(sessionId)}&text=dave+bun`,
+    })
+    expect(res1.ok).toBeTruthy()
+    const text1 = await res1.text()
+    const lines1 = text1.trim().split('\n').filter(Boolean)
+
+    // Verify SSE format
+    const hasEventComplete = lines1.some(l => l.startsWith('event: complete'))
+    expect(hasEventComplete).toBeTruthy()
+
+    // Parse response
+    const dataLine1 = lines1.find(l => l.startsWith('data:'))!
+    const parsed1 = JSON.parse(dataLine1.slice(5).trim())
+    expect(parsed1.done).toBe(true)
+    expect(parsed1.message).toContain('email')       // Should ask for email next
+    expect(parsed1.firstName).toBe('dave')            // firstName extracted
+    expect(parsed1.fullName).toBe('dave bun')         // fullName preserved
+    expect(parsed1.state.currentField).toBe('email')  // Next field is email
+
+    // Step 3: Send email
+    const res2 = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${CONV_TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `session_id=${encodeURIComponent(sessionId)}&text=dave@test.com`,
+    })
+    const text2 = await res2.text()
+    const lines2 = text2.trim().split('\n').filter(Boolean)
+    const dataLine2 = lines2.find(l => l.startsWith('data:'))!
+    const parsed2 = JSON.parse(dataLine2.slice(5).trim())
+    expect(parsed2.done).toBe(true)
+    expect(parsed2.message).toContain('phone')       // Should ask for phone next
+    expect(parsed2.state.currentField).toBe('phone')
+
+    // Step 4: Send phone number
+    const res3 = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${CONV_TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `session_id=${encodeURIComponent(sessionId)}&text=0412345678`,
+    })
+    const text3 = await res3.text()
+    const lines3 = text3.trim().split('\n').filter(Boolean)
+    const dataLine3 = lines3.find(l => l.startsWith('data:'))!
+    const parsed3 = JSON.parse(dataLine3.slice(5).trim())
+    expect(parsed3.done).toBe(true)
+    expect(parsed3.message).toBeTruthy()
+    // After phone, should have 3 completed fields
+    const completedFields = parsed3.state?.completedFields || []
+    expect(completedFields.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('E2E-08d: Widget.js serves correct version', async () => {
+    const res = await fetch(`${WORKER}/widget.js`)
+    const text = await res.text()
+    expect(res.ok).toBeTruthy()
+    expect(text).toContain('v1.2.2')
+    expect(text).toContain('getAttribute')
+    expect(text).toContain('data-tenant')
+  })
+})

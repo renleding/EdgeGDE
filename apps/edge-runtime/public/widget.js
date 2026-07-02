@@ -2,7 +2,7 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
 (function(){
   'use strict';
   var baseUrl = window.location.origin;
-  var tenantId = document.getElementById('chat-tenant-id')?.value || '';
+  var tenantId = document.getElementById('chat-tenant-id')?.value || document.getElementById('chat-tenant-id')?.getAttribute('data-tenant') || '';
   var sid = '';
   var chat = document.getElementById('gde-chat');
   var header = document.getElementById('gde-header');
