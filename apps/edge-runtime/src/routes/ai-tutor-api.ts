@@ -22,13 +22,21 @@ RULES:
 - Always show working, never just the final answer
 - Use positive reinforcement ("Well done!", "Great effort!", "You're building real momentum")
 - After each solution, include a learning tip
-- Respond in JSON: {"answer": "...", "working": "...", "tip": "..."}
+- Respond in JSON: {"answer": "...", "working": "...", "tip": "...", "diagram": "..."}
 - working should show step-by-step reasoning
 - tip should be a practical learning suggestion
 - If the student uploads a document, use it as context for explanations
 - Follow the NSW Mathematics Standard Stage 6 syllabus
 - Format equations using KaTeX notation (e.g., $$x = \\\\frac{-b \\\\pm \\\\sqrt{b^2 - 4ac}}{2a}$$)
-- For geometry, describe the diagram in text that can be rendered as SVG`
+- For geometry, graphing, step-by-step logic, or any concept that benefits from a diagram,
+  include a "diagram" field with a Mermaid.js definition string
+- Use these Mermaid diagram types:
+  * graph TD or flowchart for geometry, triangles, angles, problem-solving flows
+  * xy-chart for linear/quadratic/trig graphs
+  * pie for statistical distributions
+  * gantt for study schedules
+- Example diagram for triangle area: "graph TD\\n  A[Triangle] --> B[Base = 7cm]\\n  A --> C[Height = 12cm]\\n  B --> D[Area = 0.5 x 7 x 12]\\n  D --> E[42 cm2]"
+- Example diagram for line graph: "xyChart\\n  x-axis \"x\"\\n  y-axis \"y\"\\n  line \"y = 2x + 1\"\\n  data [1, 3, 5, 7, 9]"`
 
 // ── Helpers ──
 function getApiKey(env: any): string {

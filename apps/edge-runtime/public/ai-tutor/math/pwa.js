@@ -38,14 +38,19 @@
   const fileInput = document.getElementById('file-input');
   const uploadBtn = document.getElementById('btn-upload');
 
-  function addMsg(role, content, working, tip) {
+  function addMsg(role, content, working, tip, diagram) {
     const div = document.createElement('div');
     div.className = 'msg ' + role;
     let html = `<div class="msg-content">${escapeHtml(content)}</div>`;
     if (working) html += `<div class="working">${escapeHtml(working)}</div>`;
+    if (diagram) html += `<div class="mermaid">${escapeHtml(diagram)}</div>`;
     if (tip) html += `<div class="tip">💡 ${escapeHtml(tip)}</div>`;
     div.innerHTML = html;
     chatThread.appendChild(div);
+    // Render any Mermaid diagrams in this message
+    if (diagram && typeof mermaid !== 'undefined') {
+      mermaid.run({ nodes: [div.querySelector('.mermaid')] }).catch(() => {});
+    }
     chatThread.scrollTop = chatThread.scrollHeight;
   }
 
@@ -72,10 +77,11 @@
         })
       });
       const data = await resp.json();
-      const reply = data?.response || data?.message || data?.text || '(no response)';
+      const reply = data?.response || data?.answer || '(no response)';
       const working = data?.working || '';
       const tip = data?.tip || 'Keep practicing — you are building real skills.';
-      addMsg('tutor', reply, working, tip);
+      const diagram = data?.diagram || '';
+      addMsg('tutor', reply, working, tip, diagram);
     } catch (err) {
       addMsg('tutor', 'Sorry, I had trouble reaching the tutor engine. Check your connection and try again.');
     } finally {
@@ -139,11 +145,29 @@
     try {
       const resp = await fetch(PROGRESS_API);
       const data = await resp.json();
-      if (data.mastery) document.querySelector('#card-mastery .card-body').textContent = data.mastery + '%';
-      if (data.time_on_task) document.querySelector('#card-time .card-body').textContent = data.time_on_task + ' min';
-      if (data.test_count) document.querySelector('#card-tests .card-body').textContent = data.test_count + ' tests';
-      if (data.streak_days) document.querySelector('#card-streak .card-body').textContent = data.streak_days + ' days';
-    } catch { /* dashboard will show defaults */ }
+
+      // Update metric cards
+      if (data.mastery != null) document.querySelector('#card-mastery .card-body').textContent = data.mastery + '%';
+      if (data.time_on_task != null) document.querySelector('#card-time .card-body').textContent = data.time_on_task + ' min';
+      if (data.test_count != null) document.querySelector('#card-tests .card-body').textContent = data.test_count + ' tests';
+      if (data.streak_days != null) document.querySelector('#card-streak .card-body').textContent = data.streak_days + ' days';
+
+      // Mermaid charts
+      const chartContainer = document.getElementById('chart-container');
+      if (!chartContainer) return;
+
+      // Mastery bar chart
+      const masteryMermaid = `xychart-beta
+  title "Mastery by Strand"
+  x-axis "Strand" ["Algebra", "Measurement", "Financial", "Statistics", "Networks"]
+  y-axis "Mastery (%)" 0 --> 100
+  bar [${data.mastery_chart ? data.mastery_chart : '20, 45, 60, 30, 15'}]`;
+
+      chartContainer.innerHTML = `<div class="mermaid">${masteryMermaid.replace(/</g, '&lt;')}</div>`;
+      if (typeof mermaid !== 'undefined') {
+        mermaid.run({ nodes: [chartContainer.querySelector('.mermaid')] }).catch(() => {});
+      }
+    } catch { /* dashboard defaults */ }
   }
 
   document.getElementById('btn-export').addEventListener('click', () => {
