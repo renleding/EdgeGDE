@@ -37,6 +37,7 @@
     "tests/domain-workspace.test.ts",
     "tests/domain-swarm.test.ts",
     "tests/e2e-widget.test.ts",
+    "tests/widget",
     "tests/audit-events.test.ts",
     "tests/compliance-e2e.test.ts",
     "tests/contract-stream-api.test.ts",
