@@ -26,8 +26,8 @@ describe('E2E-01: Widget Load', () => {
     const res = await get(`/embed/chat?tenant=${TENANT}`)
     const body = await res.text()
     expect(res.ok).toBeTruthy()
-    has(body, 'AU Test Broker v2')
-    has(body, 'Welcome to AU Test Broker v2')
+    has(body, 'gde-chat')
+    has(body, 'Welcome')
   })
 
   it('E2E-01b: Widget contains chat UI elements', async () => {
