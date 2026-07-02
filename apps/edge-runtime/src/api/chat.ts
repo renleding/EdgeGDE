@@ -774,6 +774,16 @@ chatRouter.post('/chat/stream', async (c) => {
           llmFallback: config.llmFallback !== false,
           firstName: computedFirstName,
           fullName: (inference.updatedCollected as any)?.fullName || null,
+          ...(finalState.state.phase === 'complete' ? {
+            summary: {
+              sessionRef: 'APP-' + Date.now().toString(36).toUpperCase().slice(-6),
+              completedAt: new Date().toISOString(),
+              fieldsCollected: finalState.state.completedFields.length,
+              totalFields: fields.length,
+              completionPercentage: fields.length > 0 ? Math.round(finalState.state.completedFields.length / fields.length * 100) : 100,
+              firstName: computedFirstName,
+            },
+          } : {}),
         })}\n\n`))
       } catch (err: any) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err.message })}\n\n`))

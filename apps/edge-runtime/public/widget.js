@@ -216,6 +216,20 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
                     if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = '\u2713'; }
                     if (chat) chat.classList.add('chat-complete');
                   }
+                  // ── P3: Summary card ──
+                  if (parsed.summary && parsed.summary.sessionRef && typingEl) {
+                    var sc = document.createElement('div');
+                    sc.className = 'summary-card';
+                    sc.style.cssText = 'background:#1c2128;border:1px solid #2d3140;border-radius:8px;padding:12px;margin-top:8px;font-size:12px;line-height:1.6';
+                    var s = parsed.summary;
+                    sc.innerHTML = '<div style="font-weight:600;color:#f0f6fc;margin-bottom:8px">\uD83D\uDCCB Application Summary</div>'
+                      + '<div style="color:#8b949e">Ref: ' + s.sessionRef + '</div>'
+                      + '<div style="color:#8b949e">Completed: ' + (s.completedAt ? new Date(s.completedAt).toLocaleString() : 'just now') + '</div>'
+                      + '<div style="margin-top:8px;height:4px;background:#2d3140;border-radius:2px;overflow:hidden">'
+                      + '<div style="height:100%;width:' + (s.completionPercentage || 100) + '%;background:#238636;border-radius:2px;transition:width 0.3s"></div></div>'
+                      + '<div style="color:#8b949e;font-size:11px;margin-top:4px">' + s.fieldsCollected + '/' + s.totalFields + ' fields collected</div>';
+                    typingEl.querySelector('.msg-bubble')?.after(sc);
+                  }
                 }
               } catch(e) {}
             }
