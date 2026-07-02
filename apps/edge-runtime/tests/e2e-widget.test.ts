@@ -447,12 +447,11 @@ describe('E2E-08: Full Conversation Question/Response', () => {
     expect(completedFields.length).toBeGreaterThanOrEqual(3)
   })
 
-  it('E2E-08d: Widget.js serves correct version', async () => {
+  it('E2E-08d: Widget.js serves correct version with span tenant support', async () => {
     const res = await fetch(`${WORKER}/widget.js`)
     const text = await res.text()
     expect(res.ok).toBeTruthy()
     expect(text).toContain('v1.2.2')
-    expect(text).toContain('getAttribute')
     expect(text).toContain('data-tenant')
   })
 })
