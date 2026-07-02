@@ -23,6 +23,7 @@ import { loadKnowledgeBase, formatKbContext } from '../lib/knowledge-base'
 import { initRouter } from './chat-init'
 import { logAuditEvent } from './chat-audit'
 import { triggerScoring } from './chat-scoring'
+import { chatViewsRouter } from './chat-views'
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Router — compose sub-routers
@@ -30,6 +31,7 @@ import { triggerScoring } from './chat-scoring'
 
 export const chatRouter = new Hono()
 chatRouter.route('/', initRouter)
+chatRouter.route('/', chatViewsRouter)
 
 // ═════════════════════════════════════════════════════════════════════════════
 // POST /chat/tool — secure tool dispatch endpoint

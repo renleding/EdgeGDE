@@ -52,7 +52,6 @@ import { auditRouter } from './api/audit-export'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { vaultRouter } from './api/vault'
 import { chatRouter } from './api/chat'
-import { chatViewsRouter } from './api/chat-views'
 import { workspaceRouter } from './api/workspace'
 import { ChatSession_DO } from './do/chat-session.do'
 import type { CanvasDocument } from './canvas/canvas-types'
@@ -1109,9 +1108,6 @@ app.route('/api/v1', workspaceRouter)
 
 // MCP Swarm Intelligence Ingress (Phase 21)
 app.route('/api/v1', swarmRouter)
-
-// Chat Widget Views + Identity (Phase 2.7)
-app.route('/api/v1', chatViewsRouter)
 
 // OCR Processing (Phase 1)
 app.route('/api/v1', ocrRouter)
