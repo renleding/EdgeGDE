@@ -87,6 +87,7 @@ import { getLatestHash } from './edr/runtime/hash'
 import { tenantResolver } from './middleware/tenant-resolver'
 import { tenantResolver as tenantContextResolver } from './middleware/tenant-context'
 import { correlationMiddleware } from './middleware/correlation'
+import { securityHeaders } from './middleware/security-headers'
 import { adminAuth } from './middleware/auth'
 import { tenantQueryAuth } from './middleware/tenant-query-auth'
 import { rateLimiter } from './lib/rate-limiter'
@@ -188,6 +189,9 @@ function guardKvEventStorage(kvBinding: any, name: string): void {
 
 // 0. CORRELATION — must be first to ensure every request has trace IDs
 app.use('*', correlationMiddleware)
+
+// 0b. SECURITY HEADERS — set secure defaults on every response
+app.use('*', securityHeaders)
 
 // 1. KV LIST GUARD — patch TENANT_KV binding on first request
 // Dashboard route — must be BEFORE tenant middleware to avoid tenant resolution
@@ -1150,12 +1154,12 @@ async function renderSite(slug: string, activePage: string, rawKv: any, isHtmx =
 
     const pages = (config.pages || {}) as Record<string, { title?: string; content?: string }>
     const pageContent = {
-      home: pages.home?.content || '<h2>Welcome</h2><p>Welcome to our site.</p>',
-      about: pages.about?.content || '<h2>About</h2><p>About us content coming soon.</p>',
-      services: pages.services?.content || '<h2>Services</h2><p>Our services coming soon.</p>',
-      calculators: pages.calculators?.content || '<h2>Calculators</h2><p>Calculators coming soon.</p>',
-      media: pages.media?.content || '<h2>Media</h2><p>Media content coming soon.</p>',
-      contact: pages.contact?.content || '<h2>Contact</h2><p>Contact form coming soon.</p>',
+      home: esc(pages.home?.content || '<h2>Welcome</h2><p>Welcome to our site.</p>'),
+      about: esc(pages.about?.content || '<h2>About</h2><p>About us content coming soon.</p>'),
+      services: esc(pages.services?.content || '<h2>Services</h2><p>Our services coming soon.</p>'),
+      calculators: esc(pages.calculators?.content || '<h2>Calculators</h2><p>Calculators coming soon.</p>'),
+      media: esc(pages.media?.content || '<h2>Media</h2><p>Media content coming soon.</p>'),
+      contact: esc(pages.contact?.content || '<h2>Contact</h2><p>Contact form coming soon.</p>'),
     }
 
     const navItems = SITE_PAGES.map(p => ({
