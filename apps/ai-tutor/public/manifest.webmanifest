@@ -1,0 +1,12 @@
+{
+  "name": "Math Tutor",
+  "short_name": "Math Tutor",
+  "start_url": "/ai-tutor/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "icons": [
+    { "src": "/ai-tutor/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/ai-tutor/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
