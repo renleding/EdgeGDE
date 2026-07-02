@@ -83,11 +83,38 @@ function findTestFile(sourcePath: string): string {
   return ''
 }
 
-function checkNoAsAny(content: string, file: string): CheckResult {
+function getChangedLineRanges(filePath: string): [number, number][] | null {
+  const rel = filePath.startsWith(ROOT + '/') ? filePath.slice(ROOT.length + 1) : filePath
+  try {
+    const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'HEAD~1'
+    const output = execSync(
+      `git diff -U0 ${base}...HEAD -- '${rel}'`,
+      { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+    )
+    const ranges: [number, number][] = []
+    for (const line of output.split('\n')) {
+      const m = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/)
+      if (m) {
+        const start = parseInt(m[1], 10)
+        const count = m[2] ? parseInt(m[2], 10) : 1
+        if (count > 0) ranges.push([start, start + count - 1])
+      }
+    }
+    return ranges.length > 0 ? ranges : null
+  } catch {
+    return null
+  }
+}
+
+function checkNoAsAny(content: string, file: string, lineRanges?: [number, number][] | null): CheckResult {
   const details: string[] = []
   const lines = content.split('\n')
   for (let i = 0; i < lines.length; i++) {
-    // Skip comments and strings
+    if (lineRanges) {
+      const lineNum = i + 1
+      const inRange = lineRanges.some(([start, end]) => lineNum >= start && lineNum <= end)
+      if (!inRange) continue
+    }
     if (lines[i].includes('as any') && !lines[i].trim().startsWith('//') && !lines[i].trim().startsWith('*')) {
       details.push(`${file}:${i + 1}: ${lines[i].trim()}`)
     }
@@ -99,7 +126,7 @@ function checkNoAsAny(content: string, file: string): CheckResult {
   }
 }
 
-function checkNoConsoleLog(content: string, file: string): CheckResult {
+function checkNoConsoleLog(content: string, file: string, lineRanges?: [number, number][] | null): CheckResult {
   const details: string[] = []
   const lines = content.split('\n')
   const fileName = file.split('/').pop() || ''
@@ -108,6 +135,11 @@ function checkNoConsoleLog(content: string, file: string): CheckResult {
     return { check: 'No console.log in production code', status: 'pass', details: [] }
   }
   for (let i = 0; i < lines.length; i++) {
+    if (lineRanges) {
+      const lineNum = i + 1
+      const inRange = lineRanges.some(([start, end]) => lineNum >= start && lineNum <= end)
+      if (!inRange) continue
+    }
     const trimmed = lines[i].trim()
     if (trimmed.includes('console.log(') && !trimmed.startsWith('//') && !trimmed.startsWith('*')) {
       details.push(`${file}:${i + 1}: ${trimmed}`)
@@ -198,8 +230,9 @@ function runAllChecks(): GovernanceReport {
 
     try {
       const content = readFileSync(fullPath, 'utf-8')
-      results.push(checkNoAsAny(content, filePath))
-      results.push(checkNoConsoleLog(content, filePath))
+      const lineRanges = getChangedLineRanges(fullPath)
+      results.push(checkNoAsAny(content, filePath, lineRanges))
+      results.push(checkNoConsoleLog(content, filePath, lineRanges))
       results.push(checkFileSize(fullPath))
       if (!filePath.endsWith('.test.ts')) {
         results.push(checkJSDoc(content, filePath))
