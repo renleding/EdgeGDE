@@ -104,14 +104,28 @@
       const form = new FormData();
       form.append('file', file);
       try {
-        // Read file content client-side for AI context
-        const text = await file.text();
-        docContext = (docContext + '\n\n' + text).slice(0, 64000);
+        // Extract text from PDF using pdf.js, or plain text for txt/md
+        let extractedText = '';
+        if (file.name.endsWith('.pdf') && typeof pdfjsLib !== 'undefined') {
+          const arrayBuf = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+          for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            extractedText += content.items.map((item) => item.str).join(' ') + '\n';
+          }
+        } else {
+          extractedText = await file.text();
+        }
+
+        docContext = (docContext + '\n\n' + extractedText).slice(0, 64000);
 
         await fetch(UPLOAD_API, { method: 'POST', body: form });
-        addMsg('tutor', `Got it! I've read "${file.name}". Ask me anything about it.`);
-      } catch {
-        addMsg('tutor', `Could not process "${file.name}". Try a PDF or text file.`);
+
+        // Auto-summarise to confirm understanding
+        sendMessage(`I've uploaded "${file.name}" for study. Please read it and confirm what topics it covers so I know you understand it. Be specific — list the key topics, formulas, or concepts found in the document.`);
+      } catch (e) {
+        addMsg('tutor', `Could not process "${file.name}". Try a text file or PDF. (${e.message || e})`);
       }
     }
     fileInput.value = '';
