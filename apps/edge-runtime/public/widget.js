@@ -222,12 +222,22 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
                     sc.className = 'summary-card';
                     sc.style.cssText = 'background:#1c2128;border:1px solid #2d3140;border-radius:8px;padding:12px;margin-top:8px;font-size:12px;line-height:1.6';
                     var s = parsed.summary;
-                    sc.innerHTML = '<div style="font-weight:600;color:#f0f6fc;margin-bottom:8px">\uD83D\uDCCB Application Summary</div>'
-                      + '<div style="color:#8b949e">Ref: ' + s.sessionRef + '</div>'
-                      + '<div style="color:#8b949e">Completed: ' + (s.completedAt ? new Date(s.completedAt).toLocaleString() : 'just now') + '</div>'
-                      + '<div style="margin-top:8px;height:4px;background:#2d3140;border-radius:2px;overflow:hidden">'
-                      + '<div style="height:100%;width:' + (s.completionPercentage || 100) + '%;background:#238636;border-radius:2px;transition:width 0.3s"></div></div>'
-                      + '<div style="color:#8b949e;font-size:11px;margin-top:4px">' + s.fieldsCollected + '/' + s.totalFields + ' fields collected</div>';
+                    var scHtml = '<div style="font-weight:600;color:#f0f6fc;margin-bottom:8px">📋 Application Summary</div>';
+                    var refDiv = document.createElement('div');
+                    refDiv.style.cssText = 'color:#8b949e';
+                    refDiv.textContent = 'Ref: ' + s.sessionRef;
+                    scHtml += refDiv.outerHTML;
+                    var timeDiv = document.createElement('div');
+                    timeDiv.style.cssText = 'color:#8b949e';
+                    timeDiv.textContent = 'Completed: ' + (s.completedAt ? new Date(s.completedAt).toLocaleString() : 'just now');
+                    scHtml += timeDiv.outerHTML;
+                    scHtml += '<div style="margin-top:8px;height:4px;background:#2d3140;border-radius:2px;overflow:hidden">'
+                      + '<div style="height:100%;width:' + (s.completionPercentage || 100) + '%;background:#238636;border-radius:2px;transition:width 0.3s"></div></div>';
+                    var fieldsDiv = document.createElement('div');
+                    fieldsDiv.style.cssText = 'color:#8b949e;font-size:11px;margin-top:4px';
+                    fieldsDiv.textContent = s.fieldsCollected + '/' + s.totalFields + ' fields collected';
+                    scHtml += fieldsDiv.outerHTML;
+                    sc.innerHTML = scHtml;
                     typingEl.querySelector('.msg-bubble')?.after(sc);
                   }
                 }

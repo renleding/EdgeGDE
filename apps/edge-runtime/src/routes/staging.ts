@@ -153,6 +153,7 @@ stagingRouter.get('/staging/versions', async (c) => {
 
   try {
     const index: VersionEntry[] = (await kv.get(VERSIONS_INDEX_KEY, 'json')) || []
+    const hxAttr = (s: string) => s.replace(/'/g, '&#39;').replace(/"/g, '&quot;')
     const html = index.length === 0
       ? '<div style="color:rgba(255,255,255,0.3);padding:16px;text-align:center;font-size:13px">No saved versions</div>'
       : index.slice().reverse().map(v => `
@@ -160,12 +161,12 @@ stagingRouter.get('/staging/versions', async (c) => {
           <span style="flex:1;color:#fff;font-size:13px">${v.label}</span>
           <span style="color:rgba(255,255,255,0.3);font-size:11px">${v.named ? '&#9733;' : ''}</span>
           <button hx-post="/api/staging/restore-version"
-                  hx-vals='{"id":"${v.id}"}'
+                  hx-vals='{"id":"${hxAttr(v.id)}"}'
                   hx-target="body"
                   hx-swap="innerHTML"
                   style="padding:4px 10px;border-radius:6px;background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.3);color:#818CF8;font-size:11px;cursor:pointer">Restore</button>
           <button hx-post="/api/staging/delete-version"
-                  hx-vals='{"id":"${v.id}"}'
+                  hx-vals='{"id":"${hxAttr(v.id)}"}'
                   hx-target="closest div"
                   hx-swap="outerHTML"
                   style="width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,107,107,0.3);background:rgba(255,107,107,0.1);color:#ff6b6b;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button>

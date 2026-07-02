@@ -38,7 +38,7 @@ async function checkKvRateLimit(
     await kv.put(key, JSON.stringify({ ...current, count: current.count + 1 }), { expirationTtl: windowSeconds + 10 })
     return { allowed: true, remaining: maxRequests - current.count - 1 }
   } catch {
-    return { allowed: true, remaining: 1 } // fail open
+    return { allowed: false, remaining: 0 } // fail closed — deny on KV error
   }
 }
 

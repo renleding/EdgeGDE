@@ -130,7 +130,7 @@ export function requireSession(): MiddlewareHandler {
 export function setSessionCookie(c: Context, token: string): void {
   c.header(
     'Set-Cookie',
-    `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=86400`,
+    `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400`,
   )
 }
 
@@ -140,6 +140,6 @@ export function setSessionCookie(c: Context, token: string): void {
 export function clearSessionCookie(c: Context): void {
   c.header(
     'Set-Cookie',
-    `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+    `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`,
   )
 }
