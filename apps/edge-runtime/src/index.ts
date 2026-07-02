@@ -67,6 +67,8 @@ import {
 } from './routes/pwa-canvas'
 import { handleCanvasChat } from './api/canvas-chat'
 import { swarmRouter } from './api/swarm'
+import { aiTutorRouter } from './routes/ai-tutor'
+import { aiTutorApiRouter } from './routes/ai-tutor-api'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
 import leadScorer from './queues/lead-scorer'
@@ -540,6 +542,8 @@ app.get('/canvas', async (c) => {
 })
 app.get('/pwa-canvas', redirectPwaCanvas)
 app.get('/pwa-canvas/', redirectPwaCanvas)
+app.route('/ai-tutor', aiTutorRouter)
+app.route('/api/tutor/math', aiTutorApiRouter)
 app.get('/api/pwa/workspaces/:workspaceId/transient', getPwaTransient)
 app.post('/api/pwa/workspaces/:workspaceId/transient', postPwaTransient)
 app.get('/api/pwa/workspaces/:workspaceId/action-proposals', getPwaActionProposals)

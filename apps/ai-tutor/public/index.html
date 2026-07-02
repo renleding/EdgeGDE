@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1a1a2e">
+  <link rel="manifest" href="manifest.webmanifest">
+  <title>AI Tutor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #1a1a2e; --surface: #16213e; --accent: #0f3460; --primary: #e94560; --text: #eaeaea; --muted: #8899aa; --radius: 12px; font-family: -apple-system, system-ui, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
+    .hub { max-width: 600px; text-align: center; }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    p { color: var(--muted); margin-bottom: 2rem; }
+    .tutor-grid { display: flex; flex-direction: column; gap: 1rem; }
+    .tutor-card { display: flex; align-items: center; gap: 1rem; padding: 1.25rem; background: var(--surface); border-radius: var(--radius); text-decoration: none; color: var(--text); transition: 0.2s; border: 1px solid transparent; }
+    .tutor-card:hover { border-color: var(--primary); background: var(--accent); }
+    .tutor-icon { font-size: 2rem; }
+    .tutor-name { font-weight: 700; font-size: 1.1rem; }
+    .tutor-desc { font-size: 0.85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="hub">
+    <h1>📚 AI Tutor</h1>
+    <p>Select a subject to start learning.</p>
+    <div class="tutor-grid">
+      <a href="/ai-tutor/math/" class="tutor-card">
+        <div class="tutor-icon">📐</div>
+        <div>
+          <div class="tutor-name">Mathematics Standard</div>
+          <div class="tutor-desc">NSW Year 10–12 — Stage 6 Syllabus</div>
+        </div>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

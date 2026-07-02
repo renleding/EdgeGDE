@@ -1,0 +1,52 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #1a1a2e; --surface: #16213e; --accent: #0f3460; --primary: #e94560;
+  --text: #eaeaea; --muted: #8899aa; --radius: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+/* Nav */
+.nav { display: flex; align-items: center; gap: 1.5rem; padding: 0.75rem 1.5rem; background: var(--surface); border-bottom: 1px solid #2a2a4e; }
+.logo { font-size: 1.2rem; font-weight: 700; color: var(--primary); }
+.nav-links { display: flex; gap: 0.5rem; }
+.nav-link { padding: 0.4rem 0.9rem; border-radius: 8px; text-decoration: none; color: var(--muted); font-size: 0.9rem; transition: 0.2s; }
+.nav-link.active, .nav-link:hover { color: var(--text); background: var(--accent); }
+
+/* Views */
+main { flex: 1; display: flex; flex-direction: column; }
+.view { display: none; flex: 1; }
+.view.active { display: flex; }
+
+/* Chat */
+.chat-thread { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.msg { max-width: 85%; padding: 0.75rem 1rem; border-radius: var(--radius); line-height: 1.5; font-size: 0.95rem; }
+.msg.tutor { align-self: flex-start; background: var(--surface); border-bottom-left-radius: 4px; }
+.msg.student { align-self: flex-end; background: var(--accent); border-bottom-right-radius: 4px; }
+.msg .working { margin-top: 0.5rem; padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; white-space: pre-wrap; }
+.msg .tip { margin-top: 0.4rem; font-style: italic; color: #8bc34a; font-size: 0.85rem; }
+.chat-input-bar { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--surface); border-top: 1px solid #2a2a4e; }
+.chat-input-bar input { flex: 1; padding: 0.6rem 1rem; border: 1px solid #2a2a4e; border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.95rem; }
+.btn-upload, .btn-send, .btn-primary, .btn-secondary { padding: 0.5rem 1.2rem; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
+.btn-send, .btn-primary { background: var(--primary); color: #fff; }
+.btn-secondary { background: var(--accent); color: var(--text); }
+.btn-upload { background: transparent; font-size: 1.2rem; padding: 0.4rem 0.6rem; }
+
+/* Practice */
+.practice-config, #practice-area { padding: 1.5rem; }
+.practice-config label { display: block; margin-bottom: 0.75rem; }
+.practice-config select, .practice-config input[type=number] { margin-left: 0.5rem; padding: 0.3rem 0.6rem; border-radius: 6px; border: 1px solid #2a2a4e; background: var(--bg); color: var(--text); }
+
+/* Dashboard */
+.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; padding: 1rem; }
+.card { background: var(--surface); padding: 1rem; border-radius: var(--radius); }
+.card h3 { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+.card-body { font-size: 1.5rem; font-weight: 700; }
+
+/* Math rendering */
+.katex-block { overflow-x: auto; padding: 0.25rem 0; }
+.svg-diagram { max-width: 100%; margin: 0.5rem 0; }
+
+/* Mermaid diagrams */
+.mermaid { background: var(--surface); padding: 0.75rem; border-radius: 8px; margin: 0.5rem 0; overflow-x: auto; }
+.mermaid svg { max-width: 100%; height: auto; }

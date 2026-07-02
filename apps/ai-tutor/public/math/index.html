@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1a1a2e">
+  <link rel="manifest" href="/ai-tutor/math/manifest.webmanifest">
+  <link rel="stylesheet" href="pwa.css">
+  <title>Math Tutor — AI Tutor</title>
+</head>
+<body>
+  <nav class="nav" id="topnav">
+    <a href="/ai-tutor/" class="logo" style="text-decoration:none">← AI Tutor</a>
+    <span style="color:var(--muted);font-size:0.85rem">Mathematics Standard</span>
+    <div class="nav-links">
+      <a href="#chat" class="nav-link active" data-view="chat">Chat</a>
+      <a href="#practice" class="nav-link" data-view="practice">Practice</a>
+      <a href="#dashboard" class="nav-link" data-view="dashboard">Dashboard</a>
+    </div>
+  </nav>
+  <main>
+    <section id="view-chat" class="view active">
+      <div class="chat-thread" id="chat-thread">
+        <div class="msg tutor"><div class="msg-content">Hi! I'm your Maths Tutor. Ask me anything about NSW Mathematics Standard, or upload a document to study from.</div></div>
+      </div>
+      <div class="chat-input-bar">
+        <button class="btn-upload" id="btn-upload" title="Upload document">📄</button>
+        <input type="text" id="chat-input" placeholder="Ask a maths question..." autofocus>
+        <button class="btn-send" id="btn-send">Ask</button>
+      </div>
+      <input type="file" id="file-input" accept=".pdf,.txt,.md" hidden multiple>
+    </section>
+    <section id="view-practice" class="view">
+      <div class="practice-config">
+        <h2>Practice Test</h2>
+        <label>Topic <select id="practice-topic"><option value="">All Topics</option></select></label>
+        <label>Questions <input type="number" id="practice-count" value="5" min="1" max="20"></label>
+        <button class="btn-primary" id="btn-start-test">Start Test</button>
+      </div>
+      <div id="practice-area" hidden></div>
+    </section>
+    <section id="view-dashboard" class="view">
+      <h2>Progress Dashboard</h2>
+      <div class="dashboard-grid">
+        <div class="card" id="card-mastery"><h3>Mastery</h3><div class="card-body">—</div></div>
+        <div class="card" id="card-time"><h3>Time on Task</h3><div class="card-body">—</div></div>
+        <div class="card" id="card-tests"><h3>Test History</h3><div class="card-body">—</div></div>
+        <div class="card" id="card-streak"><h3>Streak</h3><div class="card-body">—</div></div>
+      </div>
+      <div id="chart-container" style="padding:1rem;min-height:200px"></div>
+      <button class="btn-secondary" id="btn-export">Export CSV</button>
+    </section>
+  </main>
+  <script src="pwa.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: false, theme: 'dark', themeVariables: { primaryColor: '#0f3460', primaryTextColor: '#eaeaea', lineColor: '#e94560' } });</script>
+  <script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }</script>
+</body>
+</html>
