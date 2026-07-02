@@ -2,7 +2,11 @@
 (function() {
   'use strict';
 
-  const API = '/chat/stream';
+  const API = '/api/tutor/math/ask';
+  const UPLOAD_API = '/api/tutor/math/upload';
+  const TEST_API = '/api/tutor/math/test';
+  const PROGRESS_API = '/api/tutor/math/progress';
+  const CSV_API = '/api/tutor/math/progress/csv';
   const VIEWS = ['chat', 'practice', 'dashboard'];
 
   // ── Navigation ──
@@ -90,7 +94,7 @@
       const form = new FormData();
       form.append('file', file);
       try {
-        await fetch('/api/tutor/upload', { method: 'POST', body: form });
+        await fetch(UPLOAD_API, { method: 'POST', body: form });
         addMsg('tutor', `Got it! I've read "${file.name}". Ask me anything about it.`);
       } catch {
         addMsg('tutor', `Could not process "${file.name}". Try a PDF or text file.`);
@@ -109,7 +113,7 @@
     practiceArea.hidden = false;
     practiceArea.innerHTML = '<p>Generating test...</p>';
     try {
-      const resp = await fetch('/api/tutor/test', {
+      const resp = await fetch(TEST_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: parseInt(count), topic: topic || undefined })
@@ -133,7 +137,7 @@
   // ── Dashboard ──
   async function loadDashboard() {
     try {
-      const resp = await fetch('/api/tutor/progress');
+      const resp = await fetch(PROGRESS_API);
       const data = await resp.json();
       if (data.mastery) document.querySelector('#card-mastery .card-body').textContent = data.mastery + '%';
       if (data.time_on_task) document.querySelector('#card-time .card-body').textContent = data.time_on_task + ' min';
@@ -143,7 +147,7 @@
   }
 
   document.getElementById('btn-export').addEventListener('click', () => {
-    fetch('/api/tutor/progress/csv')
+    fetch(CSV_API)
       .then(r => r.blob())
       .then(blob => {
         const url = URL.createObjectURL(blob);

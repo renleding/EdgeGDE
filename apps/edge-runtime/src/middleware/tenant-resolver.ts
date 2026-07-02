@@ -129,6 +129,7 @@ export async function tenantResolver(
     path.startsWith('/canvas') ||
     path.startsWith('/pwa-canvas') ||
     path.startsWith('/ai-tutor') ||
+    path.startsWith('/api/tutor') ||
     path.startsWith('/api/canvas/') ||
     path.startsWith('/api/pwa/') ||
     path.startsWith('/api/mcp') ||

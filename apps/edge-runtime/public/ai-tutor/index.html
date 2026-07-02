@@ -5,64 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#1a1a2e">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="pwa.css">
-  <title>Math Tutor</title>
+  <title>AI Tutor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #1a1a2e; --surface: #16213e; --accent: #0f3460; --primary: #e94560; --text: #eaeaea; --muted: #8899aa; --radius: 12px; font-family: -apple-system, system-ui, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; }
+    .hub { max-width: 600px; text-align: center; }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    p { color: var(--muted); margin-bottom: 2rem; }
+    .tutor-grid { display: flex; flex-direction: column; gap: 1rem; }
+    .tutor-card { display: flex; align-items: center; gap: 1rem; padding: 1.25rem; background: var(--surface); border-radius: var(--radius); text-decoration: none; color: var(--text); transition: 0.2s; border: 1px solid transparent; }
+    .tutor-card:hover { border-color: var(--primary); background: var(--accent); }
+    .tutor-icon { font-size: 2rem; }
+    .tutor-name { font-weight: 700; font-size: 1.1rem; }
+    .tutor-desc { font-size: 0.85rem; color: var(--muted); }
+  </style>
 </head>
 <body>
-  <nav class="nav" id="topnav">
-    <span class="logo">Math Tutor</span>
-    <div class="nav-links">
-      <a href="#chat" class="nav-link active" data-view="chat">Chat</a>
-      <a href="#practice" class="nav-link" data-view="practice">Practice</a>
-      <a href="#dashboard" class="nav-link" data-view="dashboard">Dashboard</a>
-    </div>
-  </nav>
-
-  <main>
-    <!-- Chat View -->
-    <section id="view-chat" class="view active">
-      <div class="chat-thread" id="chat-thread">
-        <div class="msg tutor">
-          <div class="msg-content">Hi! I'm your Maths Tutor. Ask me anything about NSW Mathematics Standard, or upload a document to study from.</div>
+  <div class="hub">
+    <h1>📚 AI Tutor</h1>
+    <p>Select a subject to start learning.</p>
+    <div class="tutor-grid">
+      <a href="/ai-tutor/math/" class="tutor-card">
+        <div class="tutor-icon">📐</div>
+        <div>
+          <div class="tutor-name">Mathematics Standard</div>
+          <div class="tutor-desc">NSW Year 10–12 — Stage 6 Syllabus</div>
         </div>
-      </div>
-      <div class="chat-input-bar">
-        <button class="btn-upload" id="btn-upload" title="Upload document">📄</button>
-        <input type="text" id="chat-input" placeholder="Ask a maths question..." autofocus>
-        <button class="btn-send" id="btn-send">Ask</button>
-      </div>
-      <input type="file" id="file-input" accept=".pdf,.txt,.md" hidden multiple>
-    </section>
-
-    <!-- Practice View -->
-    <section id="view-practice" class="view">
-      <div class="practice-config">
-        <h2>Practice Test</h2>
-        <label>Topic <select id="practice-topic"><option value="">All Topics</option></select></label>
-        <label>Questions <input type="number" id="practice-count" value="5" min="1" max="20"></label>
-        <button class="btn-primary" id="btn-start-test">Start Test</button>
-      </div>
-      <div id="practice-area" hidden></div>
-    </section>
-
-    <!-- Dashboard View -->
-    <section id="view-dashboard" class="view">
-      <h2>Progress Dashboard</h2>
-      <div class="dashboard-grid">
-        <div class="card" id="card-mastery"><h3>Mastery</h3><div class="card-body">—</div></div>
-        <div class="card" id="card-time"><h3>Time on Task</h3><div class="card-body">—</div></div>
-        <div class="card" id="card-tests"><h3>Test History</h3><div class="card-body">—</div></div>
-        <div class="card" id="card-streak"><h3>Streak</h3><div class="card-body">—</div></div>
-      </div>
-      <button class="btn-secondary" id="btn-export">Export CSV</button>
-    </section>
-  </main>
-
-  <script src="pwa.js"></script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js');
-    }
-  </script>
+      </a>
+    </div>
+  </div>
 </body>
 </html>
