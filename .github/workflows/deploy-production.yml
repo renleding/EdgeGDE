@@ -101,6 +101,9 @@ jobs:
           echo "Message: ${{ github.event.head_commit.message || 'manual trigger' }}"
           echo "Date:    $(date -u)"
 
+      - name: Copy AI Tutor PWA assets
+        run: node ../../ai-tutor/scripts/copy-static.mjs
+
       - name: Deploy to production
         run: npx wrangler deploy --env production
         env:
