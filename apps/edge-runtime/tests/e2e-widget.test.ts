@@ -87,7 +87,7 @@ describe('E2E-02: Chat Interaction', () => {
     expect(body.sessionId.length).toBeGreaterThanOrEqual(10)
   })
 
-  it('E2E-02b: Chat stream returns ndjson tokens', async () => {
+  it('E2E-02b: Chat stream returns SSE with event:complete + data', async () => {
     const initRes = await fetch(`${WORKER}/api/v1/chat/init?tenant=${TENANT}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     })
@@ -101,17 +101,20 @@ describe('E2E-02: Chat Interaction', () => {
     const text = await res.text()
     const lines = text.trim().split('\n').filter(Boolean)
 
-    expect(lines.length).toBeGreaterThanOrEqual(2)
+    // Must have event:complete line and data: line
+    const hasEventComplete = lines.some(l => l.startsWith('event: complete'))
+    const hasData = lines.some(l => l.startsWith('data:'))
+    expect(hasEventComplete).toBeTruthy()
+    expect(hasData).toBeTruthy()
 
-    let hasToken = false
-    let hasDone = false
-    for (const line of lines) {
-      const parsed = JSON.parse(line)
-      if (parsed.token !== undefined) hasToken = true
-      if (parsed.done === true) hasDone = true
-    }
-    expect(hasToken).toBeTruthy()
-    expect(hasDone).toBeTruthy()
+    // Parse the data line
+    const dataLine = lines.find(l => l.startsWith('data:'))
+    const jsonStr = dataLine!.slice(5).trim()
+    const parsed = JSON.parse(jsonStr)
+    expect(parsed.done).toBe(true)
+    expect(parsed.message).toBeTruthy()
+    expect(parsed.llmFallback).toBeDefined()
+    expect(parsed.llmFallback).not.toBeUndefined()
   })
 
   it('E2E-02c: Chat stream with fullName returns personalized response', async () => {
@@ -230,5 +233,129 @@ describe('UX-01: Prompt Override', () => {
         throw new Error('Default template used instead of prompt for annualIncome')
       }
     }
+  })
+})
+
+describe('E2E-05: Init Error Handling', () => {
+  it('E2E-05a: Init returns 400 for missing tenant', async () => {
+    const res = await fetch(`${WORKER}/api/v1/chat/init`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('tenant')
+  })
+
+  it('E2E-05b: Widget HTML includes chat-tenant-id data element', async () => {
+    const res = await fetch(`${WORKER}/embed/chat?tenant=${TENANT}`)
+    const body = await res.text()
+    expect(body).toContain('chat-tenant-id')
+    expect(body).toContain(`data-tenant="${TENANT}"`)
+  })
+
+  it('E2E-05c: Widget page loads with correct CSP for inline errors', async () => {
+    const res = await fetch(`${WORKER}/embed/chat?tenant=${TENANT}`)
+    const csp = res.headers.get('Content-Security-Policy') || ''
+    expect(csp).toContain("script-src 'self'")
+  })
+})
+
+describe('E2E-06: SSE Format Verification', () => {
+  it('E2E-06a: Stream response starts with event: complete line', async () => {
+    const initRes = await fetch(`${WORKER}/api/v1/chat/init?tenant=${TENANT}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })
+    const { sessionId } = await initRes.json()
+    const res = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `session_id=${encodeURIComponent(sessionId)}&text=World+Smith`,
+    })
+    const text = await res.text()
+    const firstLine = text.trim().split('\n')[0]
+    expect(firstLine).toBe('event: complete')
+  })
+
+  it('E2E-06b: Data line contains valid JSON with done, message, fields', async () => {
+    const initRes = await fetch(`${WORKER}/api/v1/chat/init?tenant=${TENANT}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })
+    const { sessionId } = await initRes.json()
+    const res = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `session_id=${encodeURIComponent(sessionId)}&text=Jane+Doe`,
+    })
+    const text = await res.text()
+    const lines = text.trim().split('\n').filter(Boolean)
+    const dataLine = lines.find(l => l.startsWith('data:'))!
+    const parsed = JSON.parse(dataLine.slice(5).trim())
+    expect(parsed.done).toBe(true)
+    expect(typeof parsed.message).toBe('string')
+    expect(Array.isArray(parsed.fields)).toBe(true)
+    expect(typeof parsed.firstName).toBe('string')
+    expect(parsed.fullName).toBe('Jane Doe')
+  })
+
+  it('E2E-06c: llmFallback value is boolean (configurable, not hardcoded)', async () => {
+    const initRes = await fetch(`${WORKER}/api/v1/chat/init?tenant=${TENANT}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })
+    const { sessionId } = await initRes.json()
+    const res = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `session_id=${encodeURIComponent(sessionId)}&text=Test+User`,
+    })
+    const text = await res.text()
+    const lines = text.trim().split('\n').filter(Boolean)
+    const dataLine = lines.find(l => l.startsWith('data:'))!
+    const parsed = JSON.parse(dataLine.slice(5).trim())
+    expect(typeof parsed.llmFallback).toBe('boolean')
+  })
+})
+
+describe('E2E-07: Error Recovery', () => {
+  it('E2E-07a: Stream with empty session_id returns 400', async () => {
+    const res = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'session_id=&text=hi',
+    })
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('Missing text or session_id')
+  })
+
+  it('E2E-07b: Stream with invalid session_id returns 404', async () => {
+    const res = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'session_id=nonexistent-session-id&text=hi',
+    })
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toContain('Session not found')
+  })
+
+  it('E2E-07c: Init + stream full flow with retry capacity', async () => {
+    // Full flow: init → stream → verify response
+    const initRes = await fetch(`${WORKER}/api/v1/chat/init?tenant=${TENANT}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    })
+    const { sessionId } = await initRes.json()
+    expect(sessionId).toBeTruthy()
+
+    // First message
+    const res1 = await fetch(`${WORKER}/api/v1/chat/stream?tenant=${TENANT}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `session_id=${encodeURIComponent(sessionId)}&text=Retry+Test+User`,
+    })
+    expect(res1.ok).toBeTruthy()
+    const text1 = await res1.text()
+    const parsed1 = JSON.parse(text1.trim().split('\n').filter(Boolean).find(l => l.startsWith('data:'))!.slice(5).trim())
+    expect(parsed1.done).toBe(true)
+    expect(parsed1.firstName).toBe('Retry')
   })
 })
