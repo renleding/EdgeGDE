@@ -1,9 +1,4 @@
-console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
-/**
- * EdgeGDE — Chat Widget Runtime (client-side)
- * P1: Init error handling, stream completion signaling, retry logic
- * Loaded by /embed/chat endpoint.
- */
+console.log("EdgeGDE Widget v1.2.1 — Reliability Overhaul");
 (function(){
   'use strict';
   var baseUrl = window.location.origin;
@@ -17,8 +12,8 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
   var gn = document.getElementById('chat-guest-name');
   var closeBtn = document.getElementById('gde-close-btn');
   var errorBar = null;
+  var sidReady = false; // ← NEW: init completion flag
 
-  // ═══ STATUS BAR ═══════════════════════════════════════════════
   function showError(msg) {
     if (!errorBar) {
       errorBar = document.createElement('div');
@@ -35,27 +30,48 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
   }
   function hideError() { if (errorBar) errorBar.style.display = 'none'; }
 
-  // ═══ SESSION INIT ═════════════════════════════════════════════
+  function enableInput() {
+    sidReady = true;
+    if (tx) tx.disabled = false;
+    if (sendBtn) sendBtn.disabled = false;
+  }
+
   function initSession() {
     var sidInput = document.getElementById('chat-session-id');
-    if (sidInput && sidInput.value) { sid = sidInput.value; return; }
+    if (sidInput && sidInput.value) { sid = sidInput.value; enableInput(); return; }
     if (!tenantId) return;
     hideError();
+    // Disable input until init completes
+    if (tx) tx.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
     var timedOut = false;
-    var initTimeout = setTimeout(function() { timedOut = true; showError('Connection timed out'); }, 5000);
+    var initTimeout = setTimeout(function() {
+      timedOut = true;
+      showError('Connection timed out');
+      // Re-enable input even on timeout — user can retry manually
+      if (tx) tx.disabled = false;
+      if (sendBtn) sendBtn.disabled = false;
+    }, 5000);
     fetch(baseUrl + '/api/v1/chat/init?tenant=' + tenantId, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
     }).then(function(r) { return r.json(); }).then(function(d) {
       clearTimeout(initTimeout);
       if (timedOut) return;
-      if (d.sessionId) { sid = d.sessionId; if (sidInput) sidInput.value = d.sessionId; }
+      if (d.sessionId) {
+        sid = d.sessionId;
+        if (sidInput) sidInput.value = d.sessionId;
+        enableInput();
+      }
     }).catch(function() {
       clearTimeout(initTimeout);
-      if (!timedOut) showError('Connection failed');
+      if (!timedOut) {
+        showError('Connection failed');
+        if (tx) tx.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
+      }
     });
   }
 
-  // Send guard
   var isStreaming = false;
   var sendBtn = document.getElementById('chat-send-btn');
 
@@ -69,9 +85,14 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
     return { left: frame.offsetLeft || 0, top: frame.offsetTop || 0 };
   }
 
-  // ═══ CHAT SEND ════════════════════════════════════════════════
   function chatSend() {
     if (isStreaming) return;
+    // Block send if session not ready yet
+    if (!sid || !sidReady) {
+      showError('Still connecting...');
+      return;
+    }
+    hideError();
     isStreaming = true;
     if (sendBtn) sendBtn.disabled = true;
     var msg = tx.value.trim();
@@ -85,9 +106,7 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
     if (body) body.scrollTop = body.scrollHeight;
     var isDebug = window.location.search.indexOf('debug=true') >= 0;
     var streamUrl = baseUrl + '/api/v1/chat/stream?tenant=' + tenantId + (isDebug ? '&debug=true' : '');
-    hideError();
 
-    // ═══ STREAM RETRY ═══════════════════════════════════════════
     function doStream(attempt) {
       var streamAborted = false;
       var streamTimeout = setTimeout(function() {
@@ -121,7 +140,6 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
             if (result.done) {
               isStreaming = false;
               if (sendBtn) sendBtn.disabled = false;
-              // If stream completed (event:complete received), don't show "unavailable"
               if (!streamCompleted) {
                 var te2 = document.getElementById(typingId);
                 if (result.value) {
@@ -175,15 +193,6 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
               if (line.startsWith('data:')) line = line.slice(5).trim();
               try {
                 var parsed = JSON.parse(line);
-                if (parsed.token !== undefined) {
-                  responseText += parsed.token;
-                  if (typingEl) { var bubble = typingEl.querySelector('.msg-bubble'); if (bubble) bubble.textContent = responseText; }
-                  if (body) body.scrollTop = body.scrollHeight;
-                }
-                if (parsed.final) {
-                  responseText = parsed.final;
-                  if (typingEl) { var bubble = typingEl.querySelector('.msg-bubble'); if (bubble) bubble.textContent = responseText; }
-                }
                 if (parsed.done) {
                   streamCompleted = true;
                   if (parsed.message && typingEl) { var bubble = typingEl.querySelector('.msg-bubble'); if (bubble) bubble.textContent = parsed.message; }
@@ -202,14 +211,12 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
                       (function(opt) {
                         var pill = document.createElement('button');
                         pill.textContent = opt;
-                        pill.className = 'option-pill';
-                        pill.style.cssText = 'background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:16px;padding:6px 14px;cursor:pointer;font-size:13px;transition:all 0.15s';
-                        pill.addEventListener('mouseenter', function() { this.style.background = '#334155'; });
-                        pill.addEventListener('mouseleave', function() { this.style.background = '#1e293b'; });
+                        pill.style.cssText = 'background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:16px;padding:6px 14px;cursor:pointer;font-size:13px';
                         pill.addEventListener('click', function() { tx.value = opt; chatSend(); });
                         pillContainer.appendChild(pill);
                       })(parsed.options[oi]);
                     }
+                    typingEl.querySelector('.msg-bubble').after(pillContainer);
                   }
                 }
               } catch(e) {}
@@ -236,15 +243,14 @@ console.log("EdgeGDE Widget v1.2.0 — Reliability Overhaul");
     doStream(0);
   }
 
-  document.getElementById('chat-send-btn').addEventListener('click', chatSend);
+  document.getElementById('chat-send-btn').addEventListener('click', function() { if (sidReady) chatSend(); else showError('Still connecting...'); });
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && document.activeElement === tx) {
       e.preventDefault();
-      chatSend();
+      if (sidReady) chatSend(); else showError('Still connecting...');
     }
   });
 
-  // ═══ INIT ═══
   initSession();
   window.chatSend = chatSend;
 })();
