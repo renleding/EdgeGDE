@@ -1,0 +1,1873 @@
+name: EdgeGDE_Native_Canvas_MCP_Apps_PWA_UI_v0_3_0
+version: "0.3.0"
+description: >
+  Edge ethos 100/100 functional specification for an EdgeGDE-native browser PWA that combines
+  an infinite canvas, EdgeGDE window shells, sandboxed MCP App UI resources, native direct-line
+  applet compatibility, agent panels, local-first workspace drafts, EdgeGDE governance, and
+  lead-capture workflows. Space Agent is used only as a functional-requirement source for agentic
+  workspace UX; EdgeGDE remains the authoritative runtime, policy engine, persistence layer,
+  MCP broker, and audit system.
+
+status:
+  system: FUNCTIONAL_SPEC_EDGE_ETHOS_100_READY
+  readiness: DISCOVERY_ALIGNMENT_PLUS_SPACE_AGENT_REQUIREMENTS
+  edge_ethos_score: 100
+  next_gate: gogo_for_phase_plan_or_implementation
+
+source_context:
+  discussion_found: true
+  session: "20260612_145704_27c5d5"
+  summary: >
+    Prior discussion established that Space Agent + EdgeGDE could be replaced by a native EdgeGDE
+    super-PWA: infinite canvas + MCP app objects + agent panels + EdgeGDE workspace persistence,
+    MCP broker, Aegis governance, snapshots, audit, and local/offline sync.
+  product_direction: >
+    Do not bridge Space Agent. Build EdgeGDE-native UI and runtime semantics from the start.
+    MCP Apps follow SEP-1865: sandboxed iframe UI resources are the default database/rendering
+    model. EdgeGDE renders those apps as movable, resizable canvas windows; native direct-line
+    EdgeGDE applets are a trusted first-party compatibility optimization, not the default.
+  space_agent_functional_requirements_extracted: true
+  space_agent_sources:
+    - id: space_agent_readme
+      capabilities: >-
+        agent reshapes interface, frontend runtime agency, SKILL.md extensibility,
+        token-efficient execution, modularity, personal-to-hierarchical work, group sharing,
+        persistent admin/time travel
+    - id: space_agent_app_agents
+      capabilities: >-
+        frontend-first runtime, module/store composition, explicit runtime namespaces,
+        browser storage non-authoritative, app-file persistence, module-owned extension seams
+    - id: space_agent_spaces_agents
+      capabilities: >-
+        Spaces canvas, space.yaml manifest, widget YAML, current-space prompt context,
+        compact transient sections, staged execution, widget lifecycle, empty-canvas onboarding,
+        camera-based pan, layout persistence, ZIP export/import, local non-authoritative UI state
+  mcp_apps_standard:
+    sep: "SEP-1865"
+    extension_identifier: "io.modelcontextprotocol/ui"
+    spec_url: "https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx"
+    default_ui: "sandboxed iframe rendering via ui:// resources and postMessage/MCP JSON-RPC"
+    edgegde_window_model: "native EdgeGDE canvas window shell owns layout, focus, resize, policy, and audit; remote UI remains sandboxed"
+    native_applet_status: "nice-to-have compatibility path for first-party/trusted apps such as Edge Calculator"
+
+edge_ethos:
+  score: 100
+  principle: >-
+    Space Agent contributes agentic workspace functional requirements only. EdgeGDE owns authority,
+    policy, persistence, MCP brokering, audit, snapshots, and tenant isolation.
+  requirements:
+    - agent_reshapes_interface: >-
+        The user experience must allow an agent to reshape the workspace while the user works, but
+        the agent may only propose mutations. EdgeGDE validates, applies, denies, and audits every
+        mutation.
+    - frontend_runtime_agency: >-
+        The browser PWA owns responsive UI, canvas camera behavior, window shells, sandboxed iframe
+        hosting, local drafts, and compact agent transients. It does not own authoritative policy or
+        MCP credentials.
+    - text_based_extensibility: >-
+        Skills and mission templates remain text-based and human-readable, but are versioned,
+        tenant-scoped, permission-aware EdgeGDE manifests rather than arbitrary user-writable runtime
+        code.
+    - modular_extensibility: >-
+        The product remains modular through EdgeGDE canvas object types, MCP App manifests, native
+        applet adapters, mission templates, and extension seams.
+    - personal_to_hierarchical: >-
+        Personal workspaces, tenant workspaces, and group-shared workspaces are explicit EdgeGDE
+        permission objects with audit trails.
+    - persistent_admin_time_travel: >-
+        Workspace snapshots, restore points, audit history, and admin controls provide governed time
+        travel without Git-backed arbitrary runtime mutation.
+    - space_persistence_translated: >-
+        Space Agent's space.yaml/widget YAML persistence model translates to EdgeGDE workspace
+        manifests, canvas object records, D1 metadata, DO active state, KV direct lookup, and R2
+        snapshots/assets.
+    - widget_lifecycle_translated: >-
+        Space Agent's widget lifecycle translates to EdgeGDE canvas object lifecycle: create,
+        configure, move, resize, minimize, inspect, reload, disable, snapshot, audit, and remove.
+    - prompt_context_translated: >-
+        Current-space and current-widget prompt sections translate to compact EdgeGDE workspace
+        transients: object catalog, selected object summary, recent tool result, policy decision, and
+        post-write envelope.
+    - staged_execution_translated: >-
+        Space Agent's staged widget discovery and mutation workflow translates to EdgeGDE action
+        proposal staging: discovery, proposal, policy check, user/system approval, apply, verify,
+        audit.
+    - empty_canvas_onboarding_translated: >-
+        Empty-canvas example cards translate to EdgeGDE-owned onboarding templates and example
+        workspace bundles.
+    - zip_share_translated: >-
+        ZIP export/import translates to governed EdgeGDE workspace bundle export/import with trust
+        review, manifest diff, permission review, and no implicit authority transfer.
+    - local_storage_rule_translated: >-
+        Browser storage and IndexedDB drafts are non-authoritative. They improve responsiveness and
+        offline continuity but never bypass EdgeGDE policy, audit, or server-side versioning.
+    - browser_surface_rule_translated: >-
+        Space Agent's browser surface concept translates to EdgeGDE's sandboxed MCP App iframe host
+        and sandbox proxy. Third-party UI remains sandboxed and cannot call MCP servers directly.
+
+space_agent_functional_requirements_extract:
+  edgegde_native_translation:
+    - space_agent_requirement: "The agent reshapes the interface"
+      edgegde_requirement: "Agent panels propose canvas, app, tool, document, workflow, and lead-capture mutations."
+      edgegde_authority: "EdgeGDE policy, expected_version, and audit apply or deny proposals."
+    - space_agent_requirement: "The agent lives in the frontend runtime"
+      edgegde_requirement: "EdgeGDE PWA provides the frontend runtime for canvas, windows, local drafts, and agent transients."
+      edgegde_authority: "External Hermes/Aegis orchestration remains outside request execution paths; no worker-side LLM calls."
+    - space_agent_requirement: "Text-based SKILL.md extensibility"
+      edgegde_requirement: "Versioned mission and skill manifests are readable, scoped, and registry-controlled."
+      edgegde_authority: "Aegis decides whether a mission/skill can run against a workspace, app, tool, or lead object."
+    - space_agent_requirement: "Plain JavaScript execution blocks"
+      edgegde_requirement: "Deterministic mutation protocol with expected_version, correlation_id, policy decision, and audit event."
+      edgegde_authority: "No arbitrary third-party code or renderer source is persisted as authoritative UI."
+    - space_agent_requirement: "Puzzle-piece modularity"
+      edgegde_requirement: "Canvas object types, MCP App manifests, native applet adapters, mission templates, and extension seams compose additively."
+      edgegde_authority: "EdgeGDE owns compatibility boundaries and upgrade paths."
+    - space_agent_requirement: "Personal to hierarchical workspaces"
+      edgegde_requirement: "Tenant, group, and user workspace permissions are explicit first-class objects."
+      edgegde_authority: "Tenant isolation is enforced on every API call and every workspace mutation."
+    - space_agent_requirement: "Per-user work and group sharing"
+      edgegde_requirement: "Workspace sharing, export, import, and app installation require permission review and audit."
+      edgegde_authority: "Shared artifacts cannot grant more authority than the receiving tenant permits."
+    - space_agent_requirement: "Persistent admin and time travel"
+      edgegde_requirement: "Snapshots, restore points, audit ledger, and admin controls support governed rollback."
+      edgegde_authority: "Restore is policy-gated and correlation-tracked."
+    - space_agent_requirement: "Spaces persist manifests and widget YAML"
+      edgegde_requirement: "EdgeGDE workspace manifests, canvas object records, MCP App bindings, and snapshots persist in D1/DO/KV/R2."
+      edgegde_authority: "EdgeGDE storage model, not Space Agent app-file storage, is authoritative."
+    - space_agent_requirement: "Widget lifecycle and rendering"
+      edgegde_requirement: "Canvas objects support create, configure, move, resize, minimize, inspect, reload, disable, snapshot, audit, and remove."
+      edgegde_authority: "Third-party UI renders in sandboxed iframes; native applets are approved EdgeGDE adapters."
+    - space_agent_requirement: "Current-space prompt context and transient sections"
+      edgegde_requirement: "Agent panels receive compact workspace summaries, selected-object summaries, recent tool results, and post-write envelopes."
+      edgegde_authority: "Prompts are summaries, not authoritative state; full state remains in EdgeGDE storage."
+    - space_agent_requirement: "Staged discovery before mutation"
+      edgegde_requirement: "Agent actions are staged into discovery, proposal, approval, apply, verify, and audit phases."
+      edgegde_authority: "Dependent mutations require refreshed EdgeGDE state and a new expected_version."
+    - space_agent_requirement: "Empty-canvas onboarding examples"
+      edgegde_requirement: "EdgeGDE-owned onboarding templates create example workspaces, app objects, agent panels, and calculator flows."
+      edgegde_authority: "Templates are curated EdgeGDE bundles, not arbitrary Space Agent widget clones."
+    - space_agent_requirement: "Camera-based canvas navigation"
+      edgegde_requirement: "Infinite canvas supports pan, zoom, occupied-span framing, background drag panning, and viewport-sized rendering."
+      edgegde_authority: "Canvas camera state is local UI state; object positions are EdgeGDE workspace state."
+    - space_agent_requirement: "Share/export/import"
+      edgegde_requirement: "Workspace bundles export/import manifests, object records, app bindings, snapshots, and audit references."
+      edgegde_authority: "Import requires trust review, permission diff, and explicit activation."
+    - space_agent_requirement: "Browser storage is non-authoritative"
+      edgegde_requirement: "IndexedDB stores local drafts, pending sync queue, cached manifests, and transient agent context."
+      edgegde_authority: "Server-side EdgeGDE state is authoritative after sync and policy validation."
+
+global:
+  design_tokens:
+    space_1: "4px"
+    space_2: "8px"
+    space_3: "12px"
+    space_4: "16px"
+    space_6: "24px"
+    space_8: "32px"
+    space_12: "48px"
+    grid_columns: "repeat(auto-fit, minmax(260px, 1fr))"
+    background_color: "#080b14"
+    surface_bg: "rgba(255,255,255,0.08)"
+    surface_elevated: "rgba(15,23,42,0.92)"
+    border_color: "rgba(148,163,184,0.22)"
+    blur: "blur(28px)"
+    border_radius: "18px"
+    text_primary: "#ffffff"
+    text_secondary: "rgba(255,255,255,0.72)"
+    accent_primary: "#60a5fa"
+    accent_success: "#22c55e"
+    accent_warning: "#f59e0b"
+    accent_danger: "#ef4444"
+  runtime:
+    stack: "Hono + TypeScript + Cloudflare Workers + D1 + KV + R2 + Durable Objects + Queues"
+    pwa_stack: "Service Worker + IndexedDB + Canvas viewport + EdgeGDE window shell + sandboxed MCP App iframe host + optional native HTMX/Web Component applet adapter"
+    agent_runtime: "External Hermes/Aegis orchestration; no worker-side LLM calls"
+    deployment_target: "apps/edge-runtime or apps/pwa-canvas depending on final placement decision"
+
+invariants:
+  - edgegde_native_not_space_bridge: true
+  - workspace_objects_are_owned_by_edgegde_canvas_state: true
+  - third_party_ui_can_request_but_cannot_mutate_workspace_directly: true
+  - mcp_calls_are_brokered_by_edgegde: true
+  - no_arbitrary_open_proxy: true
+  - no_worker_side_llm_calls_in_runtime_paths: true
+  - deterministic_workspace_mutations: true
+  - every_mutation_has_expected_version_and_correlation_id: true
+  - every_mutation_creates_audit_event: true
+  - snapshots_available_before_and_after_high_risk_mutation: true
+  - d1_is_for_listing_metadata_queries_and_materialized_projections: true
+  - durable_objects_are_for_active_workspace_session_state: true
+  - kv_is_for_direct_lookup_payloads_and_manifests_only: true
+  - kv_list_forbidden_in_runtime_hot_paths: true
+  - local_pwa_drafts_must_sync_back_to_edgegde: true
+  - offline_conflicts_must_fail_closed_or_replay_deterministically: true
+  - app_permissions_must_be_explicit_manifest_scopes: true
+  - mcp_app_ui_default_render_mode_is_sandboxed_iframe: true
+  - edgegde_canvas_windows_own_layout_focus_resize_policy_and_audit: true
+  - native_direct_line_applets_are_optional_trusted_app_optimizations: true
+  - first_party_lead_capture_requires_consent_and_audit: true
+  - app_install_update_disable_are_reversible: true
+  - tenant_isolation_is_enforced_on_every_api_call: true
+  - no_secrets_tokens_or_credentials_exposed_to_third_party_ui: true
+  - pwa_shell_must_install_and_work_offline: true
+  - canvas_rendering_must_support_pan_zoom_select_move_resize_group_delete_undo_redo: true
+  - mcp_app_objects_must_have_bounded_size_and_timeout: true
+  - audit_events_must_include_actor_tenant_workspace_object_correlation_and_policy_result: true
+  - agent_panels_may_propose_but_not_apply_without_edgegde_policy: true
+  - mission_skill_manifests_are_versioned_policy_scoped: true
+  - workspace_export_import_requires_trust_review: true
+  - third_party_ui_source_is_not_persisted_as_authoritative_renderer: true
+  - compact_agent_context_transients_are_not_full_state: true
+  - discovery_and_dependent_mutation_are_separate_turns: true
+  - empty_canvas_onboarding_templates_are_edgegde_owned: true
+  - local_indexeddb_is_non_authoritative_draft_only: true
+  - edgegde_canvas_camera_supports_occupied_span_framing: true
+  - object_shell_owns_move_resize_minimize_group_and_inspect: true
+  - group_sharing_and_tenant_boundaries_are_explicit: true
+  - restore_and_time_travel_are_policy_gated: true
+
+purpose:
+  - >
+    Build an EdgeGDE-native infinite-canvas PWA that lets users organize agent panels, MCP app
+    objects, notes, documents, workflows, and workspace objects spatially.
+  - >
+    Render MCP App UIs as flexible EdgeGDE canvas windows: draggable, resizable, minimizable,
+    policy-aware, and visually consistent with EdgeGDE chat windows.
+  - >
+    Replace the Space Agent bridge concept with a first-party EdgeGDE product surface while
+    translating Space Agent's agentic workspace requirements into EdgeGDE-owned semantics.
+  - >
+    Preserve the useful Space Agent experience: agent-proposed workspace changes, compact current
+    workspace context, staged discovery before mutation, empty-canvas onboarding, modular extension,
+    group sharing, and governed time travel.
+  - >
+    Make MCP apps first-class workspace objects with manifests, permission scopes, tool/resource
+    access, optional native UI contributions, and auditable state.
+  - >
+    Keep browser-only operation viable for MVP while preserving EdgeGDE server-side governance.
+  - >
+    Provide local-first drafts, offline queueing, and deterministic sync without letting local
+    state bypass Aegis policy.
+
+non_goals:
+  - Do not integrate Space Agent runtime files or customware layers.
+  - Do not expose the Space Agent runtime namespace or app-file persistence model.
+  - Do not make arbitrary third-party iframes authoritative workspace owners.
+  - Do not persist arbitrary third-party UI function source as an authoritative renderer.
+  - Do not expose MCP server URLs or credentials to app UIs.
+  - Do not run stdio MCP servers inside the browser in MVP.
+  - Do not import external-session data into a warm chat without consent, provenance, and audit.
+  - Do not use CRDTs in MVP unless conflict requirements demand it.
+  - Do not make the worker call an LLM directly.
+  - Do not build a generic app store marketplace in MVP.
+
+product_model:
+  mental_model: >
+    EdgeGDE is an AI-native infinite workspace, not a chat shell. MCP apps, agents, documents,
+    tools, forms, and workflows are spatial objects that users arrange, connect, inspect, and
+    govern on a canvas. The agent can reshape the workspace by proposing changes, but EdgeGDE
+    remains the only authority for applying those changes. MCP App UIs appear inside native
+    EdgeGDE windows; the window owns canvas behavior while the remote app UI remains sandboxed
+    unless it is an approved native applet.
+  primary_user_jobs:
+    - organize third-party capabilities spatially
+    - run agent-assisted workflows across apps
+    - inspect and mutate workspace objects safely
+    - install and configure MCP apps
+    - review permissions and audit history
+    - work offline and sync later
+    - import/export governed workspace bundles
+    - restore prior workspace snapshots through policy-gated time travel
+  differentiation_from_chat_app_panels: >
+    Chat products embed apps as answer surfaces. This product makes app UIs and tool results
+    persistent, movable, connectable workspace objects inside flexible EdgeGDE windows.
+
+architecture:
+  high_level:
+    browser_pwa:
+      - service_worker_shell
+      - infinite_canvas_viewport
+      - edgegde_window_shell
+      - sandboxed_mcp_app_iframe_host
+      - sandbox_proxy_for_web_hosting
+      - optional_native_mcp_applet_adapter
+      - agent_proposal_surface
+      - mission_skill_browser
+      - onboarding_template_browser
+      - compact_workspace_transients
+      - lead_capture_bridge
+      - workspace_browser
+      - workspace_bundle_export_import_review
+      - local_indexeddb_cache
+      - offline_sync_queue
+      - edgegde_api_client
+    edge_runtime:
+      - pwa_workspace_routes
+      - canvas_workspace_durable_object
+      - mcp_app_registry
+      - mission_skill_registry
+      - action_proposal_validator
+      - mcp_broker
+      - permission_policy
+      - snapshot_restore
+      - audit_ledger
+      - workspace_bundle_export_import
+      - event_stream
+    storage:
+      - durable_objects_active_workspace_state
+      - d1_metadata_materialized_queries_audit_indexes
+      - kv_manifests_customware_direct_lookup
+      - r2_assets_snapshots_large_payloads
+      - queues_background_sync_indexing_notifications
+      - workspace_bundles_and_restore_points
+
+storage:
+  control_plane:
+    type: D1
+    tables:
+      users:
+        schema:
+          id: TEXT PRIMARY KEY
+          email: TEXT UNIQUE NOT NULL
+          display_name: TEXT
+          created_at: INTEGER NOT NULL
+          updated_at: INTEGER NOT NULL
+        indexes:
+          - idx_users_email (email)
+      groups:
+        schema:
+          id: TEXT PRIMARY KEY
+          name: TEXT NOT NULL
+          tenant_id: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+        indexes:
+          - idx_groups_tenant (tenant_id)
+      user_groups:
+        schema:
+          user_id: TEXT NOT NULL
+          group_id: TEXT NOT NULL
+          role: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+        constraints:
+          - unique(user_id, group_id)
+        indexes:
+          - idx_user_groups_user (user_id)
+          - idx_user_groups_group (group_id)
+      mcp_apps:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          name: TEXT NOT NULL
+          publisher: TEXT NOT NULL
+          version: TEXT NOT NULL
+          manifest_url: TEXT
+          manifest_hash: TEXT NOT NULL
+          app_type: TEXT NOT NULL DEFAULT 'third_party'
+          lead_capture_enabled: INTEGER NOT NULL DEFAULT 0
+          lead_schema_ref: TEXT
+          status: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+          updated_at: INTEGER NOT NULL
+        indexes:
+          - idx_mcp_apps_tenant_status (tenant_id, status)
+          - idx_mcp_apps_tenant_type (tenant_id, app_type)
+          - idx_mcp_apps_hash (manifest_hash)
+      mcp_app_ui:
+        schema:
+          app_id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          render_mode: TEXT NOT NULL DEFAULT 'sandboxed-iframe'
+          ui_resource_uri: TEXT NOT NULL
+          mime_type: TEXT NOT NULL DEFAULT 'text/html;profile=mcp-app'
+          html_artifact_hash: TEXT
+          csp_connect_domains: TEXT
+          csp_resource_domains: TEXT
+          csp_frame_domains: TEXT
+          csp_base_uri_domains: TEXT
+          permissions: TEXT
+          dedicated_domain: TEXT
+          prefers_border: INTEGER DEFAULT 1
+          native_entrypoint: TEXT
+          native_mode: TEXT
+          created_at: INTEGER NOT NULL
+          updated_at: INTEGER NOT NULL
+        indexes:
+          - idx_mcp_app_ui_tenant_render_mode (tenant_id, render_mode)
+          - idx_mcp_app_ui_artifact (html_artifact_hash)
+        constraints:
+          - render_mode_default_sandboxed_iframe
+          - native_entrypoint_optional_only_for_trusted_apps
+          - csp_domains_must_match_manifest_metadata
+      lead_sessions:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          source: TEXT NOT NULL
+          external_session_id: TEXT
+          consent_state: TEXT NOT NULL
+          payload_ref: TEXT
+          status: TEXT NOT NULL
+          expires_at: INTEGER
+          created_at: INTEGER NOT NULL
+          updated_at: INTEGER NOT NULL
+        indexes:
+          - idx_lead_sessions_tenant_status (tenant_id, status)
+          - idx_lead_sessions_external (tenant_id, external_session_id)
+        constraints:
+          - external_session_data_requires_consent
+          - payload_ref_required_when_status_is_active
+      lead_applications:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          lead_session_id: TEXT
+          app_id: TEXT NOT NULL
+          workspace_id: TEXT NOT NULL
+          status: TEXT NOT NULL
+          payload_ref: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+          updated_at: INTEGER NOT NULL
+        indexes:
+          - idx_lead_applications_tenant_status (tenant_id, status)
+          - idx_lead_applications_lead_session (lead_session_id)
+          - idx_lead_applications_app (app_id)
+        constraints:
+          - lead_application_requires_consented_session_or_explicit_new_capture
+      mcp_app_permissions:
+        schema:
+          id: TEXT PRIMARY KEY
+          app_id: TEXT NOT NULL
+          tenant_id: TEXT NOT NULL
+          scope: TEXT NOT NULL
+          target: TEXT NOT NULL
+          allowed: INTEGER NOT NULL
+          reason: TEXT
+          created_at: INTEGER NOT NULL
+        constraints:
+          - unique(app_id, scope, target)
+        indexes:
+          - idx_mcp_permissions_app (app_id)
+          - idx_mcp_permissions_tenant (tenant_id)
+      mission_skills:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          name: TEXT NOT NULL
+          version: TEXT NOT NULL
+          kind: TEXT NOT NULL DEFAULT 'skill'
+          source_ref: TEXT NOT NULL
+          hash: TEXT NOT NULL
+          scopes: TEXT NOT NULL
+          status: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+          updated_at: INTEGER NOT NULL
+        indexes:
+          - idx_mission_skills_tenant_status (tenant_id, status)
+          - idx_mission_skills_hash (hash)
+        constraints:
+          - skill_source_is_read_only_text_manifest
+          - skill_scopes_must_be_aegis_evaluable
+      action_proposals:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          workspace_id: TEXT NOT NULL
+          actor_id: TEXT NOT NULL
+          correlation_id: TEXT NOT NULL
+          expected_version: INTEGER NOT NULL
+          operation: TEXT NOT NULL
+          payload_ref: TEXT NOT NULL
+          policy_result: TEXT
+          status: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+          resolved_at: INTEGER
+        indexes:
+          - idx_action_proposals_workspace_status (workspace_id, status)
+          - idx_action_proposals_correlation (correlation_id)
+        constraints:
+          - proposal_cannot_apply_without_policy_and_audit
+      workspace_bundles:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          workspace_id: TEXT NOT NULL
+          bundle_ref: TEXT NOT NULL
+          manifest_hash: TEXT NOT NULL
+          permission_diff_ref: TEXT
+          trust_review_state: TEXT NOT NULL DEFAULT 'pending'
+          imported_at: INTEGER
+          created_at: INTEGER NOT NULL
+        indexes:
+          - idx_workspace_bundles_tenant_workspace (tenant_id, workspace_id)
+          - idx_workspace_bundles_trust_state (trust_review_state)
+        constraints:
+          - bundle_import_requires_trust_review_before_activation
+      workspace_snapshots:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          workspace_id: TEXT NOT NULL
+          version: INTEGER NOT NULL
+          label: TEXT
+          payload_ref: TEXT NOT NULL
+          hash: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+          created_by: TEXT NOT NULL
+        constraints:
+          - unique(tenant_id, workspace_id, version)
+        indexes:
+          - idx_snapshots_workspace_version (workspace_id, version)
+      lead_sessions:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          source: TEXT NOT NULL
+          external_session_id: TEXT
+          consent_state: TEXT NOT NULL
+          payload_ref: TEXT
+          status: TEXT NOT NULL
+          expires_at: INTEGER
+          created_at: INTEGER NOT NULL
+          updated_at: INTEGER NOT NULL
+        indexes:
+          - idx_lead_sessions_tenant_status (tenant_id, status)
+          - idx_lead_sessions_external (tenant_id, external_session_id)
+        constraints:
+          - external_session_data_requires_consent
+          - payload_ref_required_when_status_is_active
+      workspace_audit:
+        schema:
+          id: TEXT PRIMARY KEY
+          tenant_id: TEXT NOT NULL
+          workspace_id: TEXT NOT NULL
+          object_id: TEXT
+          actor_id: TEXT NOT NULL
+          correlation_id: TEXT NOT NULL
+          operation: TEXT NOT NULL
+          policy_result: TEXT NOT NULL
+          payload_ref: TEXT
+          hash: TEXT NOT NULL
+          created_at: INTEGER NOT NULL
+        indexes:
+          - idx_audit_workspace_created (workspace_id, created_at)
+          - idx_audit_correlation (correlation_id)
+          - idx_audit_object (object_id)
+  data_plane:
+    type: KV
+    key_patterns:
+      mcp_manifest: "mcp:{tenant_id}:app:{app_id}:manifest:v{version}"
+      mission_skill: "mission:{tenant_id}:skill:{skill_id}:v{version}"
+      mcp_customware: "mcp:{tenant_id}:app:{app_id}:ui:{artifact_hash}"
+      workspace_payload: "workspace:{tenant_id}:workspace:{workspace_id}:payload:v{version}"
+      snapshot_payload: "snapshot:{tenant_id}:workspace:{workspace_id}:snapshot:{snapshot_id}"
+      workspace_bundle: "bundle:{tenant_id}:workspace:{workspace_id}:bundle:{bundle_id}"
+      lead_payload: "lead:{tenant_id}:session:{lead_session_id}:payload:v{version}"
+      loan_application_payload: "lead:{tenant_id}:application:{application_id}:payload:v{version}"
+    constraints:
+      - kv_list_forbidden
+      - direct_lookup_only
+      - payload_payloads_must_be_hash_addressed
+  active_session:
+    type: Durable Object
+    id_pattern: "workspace:{tenant_id}:{workspace_id}"
+    responsibilities:
+      - load current workspace document
+      - apply guarded mutations
+      - enforce expected_version
+      - maintain version counter
+      - expose snapshots
+      - broadcast events
+      - reject cross-tenant access
+  local_browser:
+    type: IndexedDB
+    stores:
+      canvasState:
+        key: workspace_id
+        value: "CanvasDocumentDraft"
+      workspaceDrafts:
+        key: workspace_id
+        value: "WorkspaceDraft"
+      mcpAppManifests:
+        key: app_id
+        value: "MCPAppManifest"
+      missionSkillManifests:
+        key: skill_id
+        value: "MissionSkillManifest"
+      actionProposalDrafts:
+        key: correlation_id
+        value: "ActionProposalDraft"
+      recentToolResults:
+        key: correlation_id
+        value: "ToolResultEnvelope"
+      leadDrafts:
+        key: lead_session_id
+        value: "LeadCaptureDraft"
+      workspaceBundleDrafts:
+        key: bundle_id
+        value: "WorkspaceBundleDraft"
+      pendingSyncQueue:
+        key: sync_item_id
+        value: "PendingMutation"
+      localAgentMemory:
+        key: memory_key
+        value: "MemoryRecord"
+      agentPromptTransients:
+        key: workspace_id
+        value: "CompactWorkspaceTransient"
+    constraints:
+      - local_only_until_synced
+      - never_authoritative_over_server_workspace_truth
+      - lead_drafts_require_consent_and_minimization
+  assets:
+    type: R2
+    objects:
+      - snapshots
+      - exported_workspace_bundles
+      - large_tool_results
+      - uploaded_app_assets
+
+data_models:
+  CanvasDocument:
+    fields:
+      id: string
+      tenant_id: string
+      workspace_id: string
+      version: integer
+      root: CanvasNode
+      links: CanvasLink[]
+      groups: CanvasGroup[]
+      selection: string[]
+      viewport: ViewportState
+      updated_at: integer
+    invariants:
+      - node_ids_unique
+      - parent_child_references_valid
+      - cycles_rejected
+      - deterministic_serialization
+  CanvasNode:
+    fields:
+      id: string
+      type: 'container | note | document | agent_panel | mcp_app_object | workflow | tool_result | form'
+      props:
+        role: string
+        title: string
+        x: number
+        y: number
+        width: number
+        height: number
+        z: number
+        pinned: boolean
+        collapsed: boolean
+        style: Record<string, string>
+        data: Record<string, unknown>
+      children: CanvasNode[]
+    invariants:
+      - props_role_is_authoritative
+      - node_role_top_level_forbidden
+      - coordinates_finite_numbers
+      - children_sorted_by_canvas_index
+  MCPAppManifest:
+    fields:
+      id: string
+      name: string
+      description: string
+      publisher: string
+      version: string
+      homepage: string
+      icon: string
+      manifest_hash: string
+      app_type: 'first_party | third_party'
+      lead_capture_enabled: boolean
+      lead_schema_ref: string
+      ui:
+        mode: 'sandboxed-iframe | native-htmx | web-component | none'
+        default_mode: 'sandboxed-iframe'
+        ui_resource_uri: string
+        mime_type: 'text/html;profile=mcp-app'
+        entrypoint: string
+        native_entrypoint: string
+        sandbox: boolean
+        csp:
+          connect_domains: string[]
+          resource_domains: string[]
+          frame_domains: string[]
+          base_uri_domains: string[]
+        permissions:
+          camera: boolean
+          microphone: boolean
+          geolocation: boolean
+          clipboard_write: boolean
+        domain: string
+        prefers_border: boolean
+      mcp:
+        transport: 'http | sse | streamable-http'
+        url: string
+        timeout_ms: integer
+      permissions:
+        - scope: 'mcp.tools.call | mcp.resources.read | mcp.prompts.read | workspace.object.read | workspace.object.write | audit.read'
+          target: string
+          allowed: boolean
+          reason: string
+      capabilities:
+        tools: string[]
+        resources: string[]
+        prompts: string[]
+    invariants:
+      - manifest_hash_required
+      - permission_scope_whitelist
+      - no_arbitrary_proxy_permission
+      - no_credential_access_permission
+      - ui_resource_uri_must_start_with_ui_scheme_for_sandboxed_iframe
+      - default_ui_render_mode_is_sandboxed_iframe
+      - native_entrypoint_requires_trusted_or_first_party_app
+      - lead_capture_requires_manifest_schema_ref_and_policy_scope
+  MCPAppWorkspaceObject:
+    fields:
+      id: string
+      app_id: string
+      workspace_id: string
+      type: "mcp-app-object"
+      title: string
+      x: number
+      y: number
+      width: number
+      height: number
+      z: number
+      pinned: boolean
+      render_mode: 'sandboxed-iframe | native-htmx | web-component | none'
+      ui_resource_uri: string
+      permissions: string[]
+      state: Record<string, unknown>
+      manifest_hash: string
+      created_at: integer
+      updated_at: integer
+    invariants:
+      - app_id_must_exist
+      - permissions_subset_of_manifest
+      - render_mode_subset_of_manifest
+      - sandboxed_iframe_is_default_when_render_mode_omitted
+      - state_size_bounded
+      - object_mutation_requires_expected_version
+  ExternalSessionContext:
+    fields:
+      id: string
+      tenant_id: string
+      source: 'chatgpt | website | partner | manual'
+      external_session_id: string
+      consent_state: 'none | limited | full'
+      payload_ref: string
+      expires_at: integer
+      created_at: integer
+    invariants:
+      - external_session_data_requires_consent
+      - payload_ref_required_for_non_empty_context
+      - expires_at_required_for_external_session_context
+  LeadCaptureDraft:
+    fields:
+      id: string
+      tenant_id: string
+      workspace_id: string
+      app_id: string
+      lead_session_id: string
+      payload: Record<string, unknown>
+      consent_state: 'none | limited | full'
+      status: 'draft | submitted | synced | rejected'
+      created_at: integer
+      updated_at: integer
+    invariants:
+      - draft_is_local_only_until_synced
+      - consent_state_must_be_explicit
+      - sensitive_fields_minimized
+      - rejected_drafts_never_sync_as_submitted
+  LoanApplicationPayload:
+    fields:
+      id: string
+      tenant_id: string
+      workspace_id: string
+      app_id: string
+      lead_session_id: string
+      calculator_payload_ref: string
+      application_status: 'draft | submitted | in_review | accepted | declined'
+      created_at: integer
+      updated_at: integer
+    invariants:
+      - application_requires_consented_lead_capture
+      - payload_ref_required
+      - application_status_changes_are_audited
+  EdgeCalculatorPayload:
+    fields:
+      home_price: number
+      down_payment: number
+      down_payment_percent: number
+      interest_rate: number
+      term_years: number
+      income: number
+      monthly_expenses: number
+      property_tax_monthly: number
+      insurance_monthly: number
+      monthly_payment: number
+      estimated_purchase_power: number
+      dti: number
+      slider_inputs: Record<string, number>
+      contact:
+        name: string
+        email: string
+        phone: string
+      consent:
+        lead_capture: boolean
+        external_session_import: boolean
+        loan_application_continue: boolean
+      source_session_id: string
+    invariants:
+      - numeric_inputs_finite_and_bounded
+      - monthly_payment_is_derived_not_user_authoritative
+      - consent_required_before_loan_application_create
+      - external_session_id_optional_unless_external_context_imported
+  WorkspaceMutationRequest:
+    fields:
+      tenant_id: string
+      workspace_id: string
+      expected_version: integer
+      correlation_id: string
+      actor_id: string
+      operation: string
+      object_id: string
+      patch: unknown
+      reason: string
+      client_ts: integer
+    invariants:
+      - expected_version_required
+      - correlation_id_required
+      - actor_required
+      - patch_schema_validated
+      - high_risk_requires_policy_decision
+  AuditEvent:
+    fields:
+      id: string
+      tenant_id: string
+      workspace_id: string
+      object_id: string
+      actor_id: string
+      correlation_id: string
+      operation: string
+      policy_result: 'allowed | denied | deferred'
+      payload_ref: string
+      hash: string
+      created_at: integer
+    invariants:
+      - immutable_once_written
+      - hash_chain_optional_but_supported
+      - no_secret_payloads
+
+test_cases:
+  edge_calculator_lead_gen:
+    app_id: "edge-calculator"
+    app_type: "first_party"
+    render_mode: "native-htmx"
+    compatibility_mode: "MCP App manifest-compatible; same broker/policy/audit path as sandboxed iframe"
+    canvas_window:
+      title: "Mortgage Calculator"
+      default_size: "desktop 720x520, tablet 90vw x 70vh, mobile full-width sheet"
+      interactions:
+        - drag
+        - resize
+        - minimize
+        - focus
+        - close
+    user_inputs:
+      - home_price
+      - down_payment
+      - interest_rate_slider
+      - term_years_slider
+      - income
+      - monthly_expenses
+      - property_tax_monthly
+      - insurance_monthly
+    realtime_results:
+      - monthly_payment
+      - dti
+      - estimated_purchase_power
+    lead_gen:
+      purpose: "convert calculator usage into consented loan application input"
+      required_consent:
+        - lead_capture
+        - external_session_import
+        - loan_application_continue
+      persisted_objects:
+        - LeadCaptureDraft
+        - LoanApplicationPayload
+        - AuditEvent
+    warm_chat_handoff:
+      behavior: "summarize consented mortgage context and recommended next step"
+      forbidden:
+        - raw_unrelated_external_session_context
+        - hidden_lead_submission
+    acceptance_criteria:
+      - window opens on remote infinite canvas PWA
+      - desktop, tablet, and mobile layouts are usable
+      - sliders and number inputs update results in realtime
+      - user can preview and edit captured lead data
+      - user can explicitly continue into loan application process
+      - warm chat window receives consented summary
+      - every import, calculation, capture, and handoff is audited
+  edge_calculator_standard_mcp_app:
+    app_id: "edge-calculator-mcp-app"
+    app_type: "first_party"
+    render_mode: "sandboxed-iframe"
+    compatibility_mode: "standard SEP-1865 MCP App; ui:// resource rendered in sandboxed iframe"
+    implementation_variant: "standard_mcp_app_sandboxed_iframe"
+    canvas_window:
+      title: "Mortgage Calculator MCP App"
+      default_size: "desktop 720x520, tablet 90vw x 70vh, mobile full-width sheet"
+      interactions:
+        - drag
+        - resize
+        - minimize
+        - focus
+        - close
+    iframe_contract:
+      source: "ui://edge-calculator/mortgage"
+      mime_type: "text/html;profile=mcp-app"
+      origin: "dedicated sandbox proxy origin"
+      communication: "postMessage JSON-RPC"
+      broker_routes:
+        - calculate_mortgage_metrics
+        - preview_lead_capture
+        - submit_lead_capture
+        - create_loan_application
+    user_inputs:
+      - home_price
+      - down_payment
+      - interest_rate_slider
+      - term_years_slider
+      - income
+      - monthly_expenses
+      - property_tax_monthly
+      - insurance_monthly
+    realtime_results:
+      - monthly_payment
+      - dti
+      - estimated_purchase_power
+    lead_gen:
+      purpose: "convert standard MCP App calculator usage into consented loan application input"
+      required_consent:
+        - lead_capture
+        - external_session_import
+        - loan_application_continue
+      persisted_objects:
+        - LeadCaptureDraft
+        - LoanApplicationPayload
+        - AuditEvent
+    warm_chat_handoff:
+      behavior: "summarize consented mortgage context and recommended next step"
+      forbidden:
+        - raw_unrelated_external_session_context
+        - hidden_lead_submission
+        - direct_iframe_access_to_workspace_state
+    acceptance_criteria:
+      - standard MCP App manifest includes io.modelcontextprotocol/ui
+      - ui_resource_uri uses ui:// scheme
+      - iframe is rendered inside EdgeGDE canvas window shell
+      - iframe origin is sandbox proxy or dedicated sandbox origin
+      - iframe cannot access workspace state, MCP credentials, or arbitrary network directly
+      - sliders and number inputs update results in realtime through brokered postMessage JSON-RPC
+      - user can preview and edit captured lead data
+      - user can explicitly continue into loan application process
+      - warm chat window receives consented summary
+      - every import, calculation, capture, and handoff is audited
+
+components:
+  pwa_shell:
+    responsibilities:
+      - installable PWA entrypoint
+      - auth/session bootstrap
+      - service worker registration
+      - top-level navigation
+      - command palette
+      - workspace switcher
+      - offline status
+    ui_contracts:
+      - must_render_without_network_after_first_load
+      - must_show_sync_state
+      - must_never_hide_policy_denials
+  canvas_viewport:
+    responsibilities:
+      - infinite pan
+      - zoom
+      - multi-select
+      - drag
+      - resize
+      - snap grid optional
+      - object layering
+      - minimap
+      - viewport persistence
+    invariants:
+      - deterministic_node_serialization
+      - undo_redo_stack_local_and_synced
+  edgegde_window_shell:
+    responsibilities:
+      - render draggable, resizable, minimizable canvas window
+      - own title bar, focus, z-index, resize handles, close/minimize actions
+      - host sandboxed iframe MCP App UI or approved native HTMX/Web Component applet
+      - expose window actions through EdgeGDE broker
+      - show app name/version, render mode badge, permission badge, and sync status
+      - support desktop, tablet, and mobile responsive layouts
+    constraints:
+      - no_direct_workspace_write_from_window_content
+      - all_actions_emit_mutation_request
+      - iframe_content_must_not_access_workspace_state_directly
+      - native_applet_must_use_same_brokered_policy_path_as_iframe
+      - mobile_layout_must_preserve_policy_visibility
+  object_frame:
+    responsibilities:
+      - render EdgeGDE canvas window by default
+      - render sandboxed SEP-1865 MCP App iframe by default for third-party apps
+      - route iframe postMessage JSON-RPC through EdgeGDE sandbox proxy/host bridge
+      - render native HTMX applet, web component, note, document, workflow, or agent panel only when manifest permits native mode
+      - expose object actions through EdgeGDE broker
+      - show permission badge, render mode badge, and sync status
+    constraints:
+      - no_direct_workspace_write_from_frame
+      - all_actions_emit_mutation_request
+      - iframe_must_not_access_workspace_state_directly
+      - native_applet_must_use_same_brokered_policy_path_as_iframe
+  mcp_app_browser:
+    responsibilities:
+      - list installed apps
+      - browse available app manifests
+      - show publisher/version/permissions
+      - install/update/disable/uninstall
+      - open permission review
+    constraints:
+      - install_requires_explicit_permission_acceptance
+      - update_requires_manifest_diff_review
+      - uninstall_requires_reversible_state_handling
+  sandboxed_mcp_app_iframe_host:
+    responsibilities:
+      - create EdgeGDE-owned iframe for ui:// MCP App resource
+      - apply restrictive sandbox and CSP defaults
+      - translate iframe postMessage JSON-RPC to EdgeGDE broker calls
+      - block direct MCP, credential, and workspace-state access
+      - expose responsive resize and focus events to the window shell
+    constraints:
+      - default_render_mode_is_sandboxed_iframe
+      - web_host_origin_must_be_dedicated_or_sandboxed
+      - no_direct_fetch_proxy
+      - all_tool_calls_policy_checked_and_audited
+  optional_native_mcp_applet_adapter:
+    responsibilities:
+      - render approved native HTMX/Web Component applet inside EdgeGDE window shell
+      - map native UI events to same mutation/tool-call broker as iframe apps
+      - provide lightweight EdgeGDE-native experience for first-party/trusted apps
+    constraints:
+      - native_mode_requires_manifest_permission
+      - first_party_or_trusted_app_required
+      - no_policy_or_audit_bypass
+  lead_capture_bridge:
+    responsibilities:
+      - ingest calculator payload
+      - normalize mortgage fields
+      - attach external session context only when consented
+      - create lead draft/application payload
+      - hand off summary to warm chat window
+    constraints:
+      - consent_required_before_persist
+      - payload_minimized
+      - no_secrets_or_unrelated_external_context
+      - every_lead_capture_audited
+  agent_panel:
+    responsibilities:
+      - chat-style agent surface
+      - mission/request composer
+      - tool call previews
+      - workspace action proposals
+      - policy decision display
+    constraints:
+      - agent_can_propose_not_mutate
+      - all_mcp_and_workspace_actions_route_through_broker
+  permission_drawer:
+    responsibilities:
+      - show app permissions
+      - show policy reason
+      - allow enable/disable per scope
+      - show audit trail
+    constraints:
+      - cannot_grant_permissions_not_in_manifest
+      - cannot_bypass_tenant_policy
+  inspector_panel:
+    responsibilities:
+      - inspect selected object
+      - edit bounded object props
+      - show state JSON
+      - show version/audit/timeline
+      - restore snapshot
+  timeline_panel:
+    responsibilities:
+      - show workspace events
+      - filter by object/app/agent
+      - replay/restore snapshots
+      - export audit slice
+  local_sync_status:
+    responsibilities:
+      - show pending mutations
+      - show conflicts
+      - retry failed sync
+      - export offline bundle
+    constraints:
+      - failed_policy_denials_never_retried_as_allowed
+
+api:
+  workspace:
+    GET /api/pwa/workspaces:
+      auth: tenantAuth
+      behavior: list workspace metadata from D1
+    GET /api/pwa/workspaces/:workspaceId:
+      auth: tenantAuth
+      behavior: load workspace snapshot/current state through DO
+    POST /api/pwa/workspaces/:workspaceId/mutate:
+      auth: tenantAuth
+      behavior: validate mutation request, run Aegis policy, apply through DO, audit
+    POST /api/pwa/workspaces/:workspaceId/snapshot:
+      auth: tenantAuth
+      behavior: create snapshot and store payload in R2/KV with D1 metadata
+    GET /api/pwa/workspaces/:workspaceId/history:
+      auth: tenantAuth
+      behavior: list snapshots from D1
+    POST /api/pwa/workspaces/:workspaceId/restore:
+      auth: tenantAuth
+      behavior: restore snapshot through guarded DO mutation
+    GET /api/pwa/workspaces/:workspaceId/events:
+      auth: tenantAuth
+      behavior: SSE event stream for workspace updates
+    GET /api/pwa/workspaces/:workspaceId/transient:
+      auth: tenantAuth
+      behavior: "return compact workspace summary for agent context: selected objects, recent results, policy state"
+    POST /api/pwa/workspaces/:workspaceId/action-proposals:
+      auth: tenantAuth
+      behavior: create or update agent-proposed mutation with expected_version, payload_ref, and policy/audit routing
+    GET /api/pwa/workspaces/:workspaceId/action-proposals/:proposalId:
+      auth: tenantAuth
+      behavior: inspect proposal state, policy result, and audit references
+    POST /api/pwa/workspaces/:workspaceId/action-proposals/:proposalId/apply:
+      auth: tenantAuth
+      behavior: revalidate proposal, refresh expected_version, run Aegis policy, apply through DO, audit
+  apps:
+    GET /api/pwa/apps:
+      auth: tenantAuth
+      behavior: list installed MCP app metadata
+    GET /api/pwa/apps/:appId:
+      auth: tenantAuth
+      behavior: get installed app manifest metadata
+    GET /api/pwa/apps/:appId/manifest:
+      auth: tenantAuth
+      behavior: return manifest or manifest hash only depending permission, including SEP-1865 UI metadata
+    GET /api/pwa/apps/:appId/ui-resource:
+      auth: tenantAuth
+      behavior: fetch or serve cached ui:// resource HTML, enforce manifest CSP metadata, and persist artifact hash
+    POST /api/pwa/apps/:appId/install:
+      auth: tenantAuth
+      behavior: validate manifest, store permissions, store UI rendering record with sandboxed-iframe default, create audit event
+    POST /api/pwa/apps/:appId/ui-message:
+      auth: tenantAuth
+      behavior: broker iframe/native applet JSON-RPC messages into MCP tool/resource/prompt calls or workspace mutation requests
+    POST /api/pwa/apps/:appId/update:
+      auth: tenantAuth
+      behavior: compare manifest hashes, require permission diff review
+    POST /api/pwa/apps/:appId/disable:
+      auth: tenantAuth
+      behavior: disable app without deleting workspace objects
+    DELETE /api/pwa/apps/:appId:
+      auth: tenantAuth
+      behavior: uninstall app and orphan/disable objects according to policy
+  missions:
+    GET /api/pwa/missions:
+      auth: tenantAuth
+      behavior: list tenant mission and skill manifests with version/status/scopes
+    GET /api/pwa/missions/:missionId/manifest:
+      auth: tenantAuth
+      behavior: return text manifest or hash depending permission
+    POST /api/pwa/missions:
+      auth: tenantAuth
+      behavior: register a versioned mission/skill manifest after Aegis scope review
+    POST /api/pwa/missions/:missionId/update:
+      auth: tenantAuth
+      behavior: compare manifest hashes and require permission diff review
+    DELETE /api/pwa/missions/:missionId:
+      auth: tenantAuth
+      behavior: disable mission/skill without deleting historical audit references
+  bundles:
+    GET /api/pwa/bundles/export:
+      auth: tenantAuth
+      behavior: create export bundle with manifest, object records, app bindings, snapshots, and audit references
+    POST /api/pwa/bundles/import:
+      auth: tenantAuth
+      behavior: create import review with manifest hash, permission diff, and trust state pending
+    POST /api/pwa/bundles/import/:bundleId/activate:
+      auth: tenantAuth
+      behavior: after trust review and policy approval, materialize bundle into workspace via guarded mutations
+  mcp:
+    POST /api/pwa/mcp/call:
+      auth: tenantAuth
+      behavior: broker MCP tool call with app/workspace/context, policy check, timeout
+    GET /api/pwa/mcp/resources:
+      auth: tenantAuth
+      behavior: broker MCP resource read with permission check
+    GET /api/pwa/mcp/prompts:
+      auth: tenantAuth
+      behavior: broker MCP prompt metadata with permission check
+  permissions:
+    GET /api/pwa/permissions/apps/:appId:
+      auth: tenantAuth
+      behavior: show effective permissions
+    POST /api/pwa/permissions/apps/:appId/scopes:
+      auth: tenantAuth
+      behavior: enable/disable allowed manifest scopes subject to tenant policy
+  leads:
+    GET /api/pwa/lead-sessions/:sessionId:
+      auth: tenantAuth
+      behavior: load consented external-session context summary without exposing raw unrelated context
+    POST /api/pwa/lead-sessions:
+      auth: tenantAuth
+      behavior: create or import external-session context after consent and provenance validation
+    POST /api/pwa/lead-sessions/:sessionId/calculator-result:
+      auth: tenantAuth
+      behavior: validate Edge Calculator payload, store lead draft, return derived mortgage metrics
+    POST /api/pwa/loan-applications:
+      auth: tenantAuth
+      behavior: create loan application from consented calculator payload and attach warm chat summary
+  audit:
+    GET /api/pwa/audit/workspaces/:workspaceId:
+      auth: tenantAuth
+      behavior: list audit events with filters
+    GET /api/pwa/audit/correlation/:correlationId:
+      auth: tenantAuth
+      behavior: trace full mutation/tool-call chain
+
+execution:
+  pwa_boot:
+    stages:
+      - stage: service_worker_install
+        behavior: cache shell/assets/last-known workspace metadata
+        constraints:
+          - no_secrets_cached_unencrypted
+          - cache_versioned_assets_only
+      - stage: auth_bootstrap
+        behavior: validate tenant/session token
+        constraints:
+          - fail_closed_on_missing_auth
+      - stage: workspace_load
+        behavior: load current workspace from DO with IndexedDB fallback
+        constraints:
+          - expected_version_recorded
+      - stage: app_manifest_hydration
+        behavior: load installed app manifests and UI rendering records from D1/KV/IndexedDB
+        constraints:
+          - manifest_hash_verified
+          - ui_resource_uri_verified
+          - render_mode_defaults_to_sandboxed_iframe
+  mcp_app_install:
+    stages:
+      - stage: manifest_fetch
+        behavior: fetch manifest from allowlisted URL or uploaded manifest
+        constraints:
+          - timeout_ms_5000
+          - no_arbitrary_redirect_chain
+      - stage: manifest_validate
+        behavior: validate manifest schema and permission scopes
+        constraints:
+          - unknown_scope_denied
+      - stage: ui_resource_fetch
+        behavior: read ui:// resource via resources/read, validate text/html;profile=mcp-app, extract UI metadata
+        constraints:
+          - csp_metadata_required_or_restrictive_defaults
+          - no_arbitrary_redirect_chain
+          - artifact_size_bounded
+      - stage: ui_artifact_persist
+        behavior: store sandboxed iframe HTML artifact in KV/R2 by hash and write mcp_app_ui D1 record
+        constraints:
+          - render_mode_default_sandboxed_iframe
+          - native_entrypoint_optional_only_for_trusted_apps
+          - artifact_hash_recorded
+      - stage: permission_review
+        behavior: present manifest diff, UI CSP domains, sandbox permissions, and policy effects
+        constraints:
+          - install_requires_explicit_acceptance
+      - stage: persist
+        behavior: store manifest in KV/D1 and audit install
+        constraints:
+          - every_install_audited
+  action_proposal:
+    stages:
+      - stage: discover
+        behavior: agent reads compact workspace transient, selected object summary, and recent tool results
+        constraints:
+          - compact_summary_only_not_full_authoritative_state
+      - stage: propose
+        behavior: agent creates proposal with expected_version, operation, payload_ref, and correlation_id
+        constraints:
+          - proposal_is_non_authoritative_until_applied
+      - stage: policy_check
+        behavior: Aegis evaluates tenant/app/object policy against proposal
+        constraints:
+          - denied_proposals_never_retried_as_allowed
+      - stage: approval
+        behavior: user/system approval is captured when required
+        constraints:
+          - approval_recorded_with_actor
+      - stage: revalidate
+        behavior: refresh workspace state and expected_version before apply
+        constraints:
+          - dependent_mutations_require_new_expected_version
+      - stage: apply
+        behavior: DO applies guarded mutation and creates audit event
+        constraints:
+          - optimistic_concurrency_required
+      - stage: verify
+        behavior: EdgeGDE verifies applied result and broadcasts tenant-filtered event
+        constraints:
+          - verify_before_success_response
+  mission_skill:
+    stages:
+      - stage: register
+        behavior: tenant registers a versioned text mission/skill manifest
+        constraints:
+          - manifest_hash_recorded
+      - stage: scope_review
+        behavior: Aegis maps manifest scopes to tenant policy
+        constraints:
+          - unknown_scope_denied
+      - stage: persist
+        behavior: store manifest in KV and D1 metadata
+        constraints:
+          - no_runtime_code_source_persisted
+      - stage: disable
+        behavior: disable skill without deleting historical audit references
+        constraints:
+          - historical_audit_preserved
+  workspace_bundle:
+    stages:
+      - stage: export_prepare
+        behavior: assemble manifests, object records, app bindings, snapshots, and audit references
+        constraints:
+          - tenant_scoped_only
+      - stage: export_review
+        behavior: show bundle contents and trust boundary before download
+        constraints:
+          - user_confirms_export
+      - stage: import_review
+        behavior: compute manifest hash, permission diff, and trust state
+        constraints:
+          - import_starts_pending_until_reviewed
+      - stage: activate
+        behavior: materialize bundle through guarded workspace mutations
+        constraints:
+          - activation_requires_policy_approval
+  mcp_tool_call:
+    stages:
+      - stage: request_build
+        behavior: app/UI emits tool call request with workspace context
+        constraints:
+          - no_credentials_in_request
+      - stage: permission_check
+        behavior: Aegis checks app/tool/workspace scope
+        constraints:
+          - deny_by_default
+      - stage: broker_call
+        behavior: EdgeGDE calls MCP server with timeout
+        constraints:
+          - max_timeout_ms_10000
+          - response_size_bounded
+      - stage: result_store
+        behavior: store tool result envelope with correlation ID
+        constraints:
+          - no_secret_payloads
+      - stage: notify
+        behavior: send result through SSE or object update
+        constraints:
+          - result_bound_to_workspace_object
+  workspace_mutation:
+    stages:
+      - stage: mutation_request
+        behavior: client submits expected_version, patch, correlation_id
+        constraints:
+          - schema_validated
+      - stage: policy_check
+        behavior: Aegis evaluates tenant/app/object policy
+        constraints:
+          - denied_does_not_retry
+      - stage: do_apply
+        behavior: Durable Object applies mutation with version check
+        constraints:
+          - optimistic_concurrency_required
+      - stage: audit
+        behavior: append audit event
+        constraints:
+          - audit_before_success_response
+      - stage: broadcast
+        behavior: SSE/DO event notifies clients
+        constraints:
+          - tenant_filtered_events_only
+  offline_sync:
+    stages:
+      - stage: local_draft
+        behavior: IndexedDB stores local canvas/object changes
+        constraints:
+          - draft_marked_unsynced
+      - stage: queue_mutation
+        behavior: pending mutation queued with idempotency key
+        constraints:
+          - correlation_id_required
+      - stage: reconnect
+        behavior: sync queue when network/auth available
+        constraints:
+          - policy_checked_server_side
+      - stage: conflict_resolution
+        behavior: expected_version mismatch triggers conflict UI
+        constraints:
+          - no_silent_overwrite
+      - stage: reconcile
+        behavior: apply accepted mutation or restore local draft
+        constraints:
+          - user_or_policy_decision_required
+  edge_calculator_canvas_flow:
+    stages:
+      - stage: external_session_context_import
+        behavior: user arrives from external chat/session; EdgeGDE requests consent and imports only approved mortgage context
+        constraints:
+          - consent_required
+          - provenance_recorded
+          - payload_minimized
+      - stage: canvas_window_open
+        behavior: EdgeGDE opens a native canvas window for the mortgage calculator app on the remote infinite PWA
+        constraints:
+          - responsive_desktop_tablet_mobile
+          - window_shell_owns_layout_focus_resize
+      - stage: calculator_render
+        behavior: render Edge Calculator as approved native HTMX/Web Component applet inside the EdgeGDE window, while preserving MCP App manifest compatibility
+        constraints:
+          - first_party_or_trusted_app_required
+          - same_policy_audit_path_as_iframe
+          - realtime_input_updates_required
+      - stage: realtime_calculate
+        behavior: sliders and number inputs emit bounded input events; EdgeGDE derives monthly payment, DTI, and purchase power
+        constraints:
+          - pure_math_isolated
+          - derived_metrics_not_user_authoritative
+          - input_values_finite_and_bounded
+      - stage: lead_capture_preview
+        behavior: show user what mortgage data and contact fields would be captured
+        constraints:
+          - consent_required_before_submit
+          - no_hidden_capture
+          - user_can_edit_or_cancel
+      - stage: lead_application_create
+        behavior: submit consented calculator payload into lead capture and create loan application draft
+        constraints:
+          - tenant_policy_checked
+          - payload_ref_required
+          - every_capture_audited
+      - stage: warm_chat_handoff
+        behavior: warm chat window receives a concise summary of collected mortgage context and recommended next step
+        constraints:
+          - summary_only_by_default
+          - no_unrelated_external_context
+          - handoff_audited
+
+security:
+  auth_required: tenantAuth
+  tenant_isolation:
+    - tenant_id_from_authenticated_context_not_query_param
+    - all_D1_queries_include_tenant_id
+    - all_DO_ids_include_tenant_id
+    - all_KV_keys_include_tenant_id
+    - all_SSE_events_filtered_by_tenant
+  third_party_ui:
+    - no_direct_workspace_state_access
+    - no_direct_mcp_server_access
+    - no_direct_credential_access
+    - no_arbitrary_fetch_proxy
+    - no_workspace_write_without_brokered_policy_decision
+    - default_rendering_path_is_sandboxed_iframe
+    - web_hosts_use_sandbox_proxy_with_different_origin
+    - iframe_communication_is_postmessage_json_rpc_only
+  mcp_apps:
+    - extension_identifier_io_modelcontextprotocol_ui_must_be_negotiated
+    - ui_resource_uri_must_use_ui_scheme
+    - mime_type_must_be_text_html_profile_mcp_app
+    - enforce_declared_csp_domains_and_restrictive_defaults
+    - block_connections_to_undeclared_domains
+    - log_ui_messages_tool_calls_and_policy_decisions
+    - require_user_or_policy_approval_for_write_side_effects
+    - native_direct_line_applets_must_follow_same_policy_audit_path
+  lead_capture:
+    - external_session_context_requires_consent
+    - provenance_required_for_imported_context
+    - calculator_payload_minimized
+    - no_hidden_lead_submission
+    - loan_application_requires_explicit_continue_consent
+    - warm_chat_handoff_summary_only_by_default
+  action_proposals:
+    - proposal_requires_expected_version
+    - proposal_requires_policy_review_before_apply
+    - dependent_mutations_require_refreshed_state
+    - denied_proposals_are_not_retried_as_allowed
+    - proposal_apply_is_audited
+  workspace_bundles:
+    - export_requires_tenant_scoping
+    - import_requires_trust_review
+    - permission_diff_visible_before_activation
+    - activation_uses_guarded_workspace_mutations
+  mcp_broker:
+    - allowlisted_transports_only
+    - timeout_required
+    - response_size_limit_required
+    - tool_name_whitelist_or_manifest_scope_check
+    - credentials_stored_server_side_only
+  pwa:
+    - service_worker_cache_versioned_assets_only
+    - no_secret_storage_in_localStorage
+    - IndexedDB drafts encrypted_where_possible_or_minimized
+    - offline_queue_cleared_after_confirmed_server_reconcile
+  audit:
+    - every_install_update_disable_uninstall_audited
+    - every_tool_call_audited
+    - every_workspace_mutation_audited
+    - every_policy_denial_audited
+
+error_handling:
+  auth_missing:
+    status: 401
+    message: "Authentication required"
+  tenant_forbidden:
+    status: 403
+    message: "Tenant access denied"
+  app_not_installed:
+    status: 404
+    message: "MCP app is not installed for this tenant"
+  permission_denied:
+    status: 403
+    message: "App permission denied by policy"
+  version_conflict:
+    status: 409
+    message: "Workspace version conflict; refresh and retry"
+  invalid_mutation:
+    status: 400
+    message: "Invalid mutation request"
+  invalid_action_proposal:
+    status: 400
+    message: "Invalid action proposal request"
+  action_proposal_denied:
+    status: 403
+    message: "Action proposal denied by policy"
+  bundle_import_pending:
+    status: 409
+    message: "Workspace bundle import requires trust review before activation"
+  bundle_import_denied:
+    status: 403
+    message: "Workspace bundle import denied by trust review or tenant policy"
+  mcp_timeout:
+    status: 504
+    message: "MCP tool call timed out"
+  failure_strategy:
+    behavior: fail_closed
+    rationale: "Workspace mutations, action proposals, MCP actions, mission/skill activation, and bundle imports must never proceed without validation, policy, and audit."
+
+observability:
+  events:
+    - pwa.booted
+    - workspace.loaded
+    - workspace.mutation_requested
+    - workspace.mutation_applied
+    - workspace.mutation_denied
+    - workspace.snapshot_created
+    - workspace.snapshot_restored
+    - workspace.action_proposed
+    - workspace.action_proposal_applied
+    - workspace.action_proposal_denied
+    - workspace.bundle_exported
+    - workspace.bundle_import_reviewed
+    - workspace.bundle_import_activated
+    - mission.skill_registered
+    - mission.skill_updated
+    - mission.skill_disabled
+    - mcp.app_installed
+    - mcp.app_updated
+    - mcp.app_disabled
+    - mcp.app_uninstalled
+    - mcp.ui_resource_loaded
+    - mcp.ui_resource_denied
+    - mcp.ui_tool_called
+    - mcp.ui_tool_succeeded
+    - mcp.ui_tool_failed
+    - mcp.ui_tool_denied
+    - lead.external_session_imported
+    - lead.calculator_result_submitted
+    - lead.application_created
+    - lead.warm_chat_handoff
+    - mcp.tool_called
+    - mcp.tool_succeeded
+    - mcp.tool_failed
+    - mcp.tool_denied
+    - sync.pending
+    - sync.applied
+    - sync.conflict
+  metrics:
+    - workspace_load_latency_ms
+    - mutation_apply_latency_ms
+    - mcp_tool_latency_ms
+    - policy_decision_count
+    - policy_denial_count
+    - action_proposal_count
+    - action_proposal_apply_count
+    - action_proposal_denial_count
+    - workspace_bundle_export_count
+    - workspace_bundle_import_count
+    - workspace_bundle_import_denial_count
+    - mission_skill_count
+    - mission_skill_denial_count
+    - offline_queue_depth
+    - sync_conflict_count
+    - lead_capture_count
+    - lead_application_count
+    - warm_chat_handoff_count
+    - audit_event_count
+  constraints:
+    - no_payload_scanning_for_metrics
+    - no_secrets_in_logs
+    - correlation_id_on_all_events
+
+ui_requirements:
+  responsive:
+    - desktop_canvas_window_layout
+    - tablet_touch_friendly_controls
+    - mobile_single_column_or_sheet_layout
+    - policy_and_permission_surfaces_always_visible
+    - sliders_and_number_inputs_usable_on_touch
+  canvas:
+    - infinite pan and zoom
+    - background drag panning
+    - occupied-span framing
+    - object selection and multi-select
+    - drag, resize, rotate optional
+    - snap grid optional
+    - object grouping
+    - links between objects
+    - minimap
+    - search and command palette
+    - undo/redo
+    - empty-canvas onboarding templates
+    - workspace bundle export/import review
+  objects:
+    - notes
+    - documents
+    - agent panels
+    - MCP app objects
+    - tool result cards
+    - workflows
+    - forms
+    - links
+  mcp_app_object:
+    - EdgeGDE window title bar with app name/version/render mode/permission badge
+    - draggable/resizable/minimizable window shell
+    - sandboxed iframe MCP App UI area or approved native applet area
+    - sliders, number inputs, and realtime result area for Edge Calculator
+    - action menu
+    - sync/status indicator
+    - policy denial surface
+    - inspector link
+  edge_calculator:
+    - home price input
+    - down payment input and percent toggle
+    - interest rate slider
+    - term years slider
+    - income input
+    - monthly expenses input
+    - property tax and insurance inputs
+    - realtime monthly payment result
+    - DTI and estimated purchase power result
+    - lead capture preview
+    - consent checkboxes for lead capture, external session import, and loan application continue
+    - submit to loan application process
+  agent_panel:
+    - conversation/thread
+    - mission composer
+    - mission/skill manifest browser
+    - compact workspace summary
+    - selected object summary
+    - action proposal list
+    - staged discovery/mutation guidance
+    - policy decision display
+    - tool result references
+    - post-write proposal envelope
+  app_browser:
+    - installed apps list
+    - available manifest catalog
+    - mission/skill templates
+    - onboarding templates
+    - permission review
+    - manifest diff
+    - update channel
+  sync:
+    - online/offline indicator
+    - pending queue count
+    - conflict resolution drawer
+    - export/import bundle
+
+pwa_requirements:
+  installable: true
+  service_worker:
+    cache:
+      - app shell
+      - versioned assets
+      - last-known workspace metadata
+      - installed app manifests
+      - mission/skill manifests
+      - onboarding templates
+      - last-known compact agent transients
+    forbidden:
+      - raw secrets
+      - unbounded tool results
+      - arbitrary third-party HTML outside the MCP App sandbox
+  indexeddb:
+    required_stores:
+      - canvasState
+      - workspaceDrafts
+      - mcpAppManifests
+      - missionSkillManifests
+      - actionProposalDrafts
+      - recentToolResults
+      - leadDrafts
+      - workspaceBundleDrafts
+      - pendingSyncQueue
+      - localAgentMemory
+      - agentPromptTransients
+  offline:
+    allowed:
+      - view cached workspace
+      - edit local draft
+      - queue mutations
+      - inspect cached manifests
+      - compose agent requests
+      - edit consented lead draft
+      - prepare workspace export/import draft
+      - compose action proposals for later validation
+    forbidden:
+      - bypass policy
+      - mutate server without sync
+      - direct MCP calls
+      - activate imported bundle without server trust review
+      - apply local-only agent proposals as authoritative
+
+mvp_scope:
+  included:
+    - native EdgeGDE PWA shell
+    - infinite canvas MVP
+    - installed MCP app browser
+    - EdgeGDE canvas window shell for MCP App UIs
+    - sandboxed iframe MCP App rendering default
+    - approved native HTMX/Web Component Edge Calculator applet
+    - standard sandboxed iframe Edge Calculator MCP App
+    - agent panel MVP
+    - agent proposal surfaces
+    - compact workspace transients
+    - mission/skill manifest browser
+    - empty-canvas onboarding templates
+    - governed workspace bundle export/import review
+    - policy-gated snapshot restore
+    - D1 metadata
+    - DO workspace state
+    - KV manifest/customware direct lookup
+    - lead session and loan application metadata
+    - Aegis permission checks
+    - audit events
+    - snapshots
+    - SSE workspace events
+    - IndexedDB local drafts
+    - offline sync queue
+    - responsive desktop/tablet/mobile PWA layout
+  deferred:
+    - arbitrary third-party iframe hosting
+    - stdio MCP servers
+    - CRDT collaboration
+    - marketplace publishing
+    - advanced workflow graph execution
+    - local WebGPU model runtime
+    - cross-workspace object links
+    - real-time multi-user collaboration
+
+success_definition:
+  - user can install an MCP app and see manifest permissions
+  - user can place an MCP app object on the canvas inside an EdgeGDE window
+  - third-party MCP App UI renders by default as a sandboxed iframe
+  - first-party Edge Calculator renders as a lightweight native EdgeGDE applet inside the same window shell
+  - standard sandboxed iframe Edge Calculator MCP App renders inside the same window shell
+  - user can call an MCP tool through EdgeGDE broker
+  - policy denial is visible and audited
+  - agent can propose canvas, app, tool, document, workflow, and lead-capture mutations
+  - agent proposals require refreshed EdgeGDE state before dependent mutations are applied
+  - compact workspace transients summarize selected objects, recent results, and post-write envelopes
+  - empty-canvas onboarding templates can create example workspaces without Space Agent runtime
+  - workspace mutations require expected_version and correlation_id
+  - every mutation creates an audit event
+  - snapshot/restore works for workspace state
+  - snapshot restore is policy-gated and audited
+  - workspace bundle export/import review shows manifest and permission diff
+  - PWA installs and loads after offline reload
+  - local draft syncs when online
+  - local IndexedDB drafts remain non-authoritative after sync
+  - offline conflict does not silently overwrite
+  - no third-party UI can directly mutate workspace state
+  - no worker runtime path calls an LLM directly
+  - no KV.list usage in hot paths
+  - Edge Calculator accepts number inputs and sliders and returns realtime mortgage results
+  - consented calculator payload can create a lead capture draft and loan application draft
+  - warm chat window receives only a concise, consented summary of mortgage context
+
+guardrails:
+  - NEVER bridge Space Agent runtime files into this product.
+  - NEVER expose the Space Agent runtime namespace or app-file persistence model.
+  - NEVER let agent proposals apply without EdgeGDE policy, refreshed state, expected_version, and audit.
+  - NEVER persist arbitrary third-party UI function source as authoritative renderer.
+  - NEVER let third-party UI call MCP servers directly.
+  - NEVER expose credentials, tokens, or connection strings to app UIs.
+  - NEVER allow arbitrary proxy URLs.
+  - NEVER import external-session data without consent, provenance, and audit.
+  - NEVER silently submit calculator data as a lead.
+  - NEVER apply workspace mutations without expected_version, policy check, and audit.
+  - NEVER use local IndexedDB drafts as authoritative server state.
+  - NEVER activate imported workspace bundles without trust review, permission diff, and tenant policy.
+  - NEVER silently resolve version conflicts.
+  - NEVER use KV for listing/querying in runtime paths.
+  - NEVER make the worker call an LLM in request execution paths.
+  - NEVER mark success without verifying API response, CI, and production health.
+
+open_questions:
+  - q1_mvp_ui_mode: >
+      Should MVP render MCP App UIs as sandboxed iframes by default, native EdgeGDE applets, or
+      both? Recommendation: sandboxed iframe default for MCP Apps standard compatibility; native
+      EdgeGDE window/applet adapter for first-party or trusted apps such as Edge Calculator. MVP
+      must support both implementations for the mortgage calculator test case.
+  - q2_app_placement: >
+      Should the PWA live as a new `apps/pwa-canvas` package or inside `apps/edge-runtime/public/pwa`?
+      Recommendation: new `apps/pwa-canvas` for clean separation, with edge-runtime routes serving it.
+  - q3_mcp_transport: >
+      Should MVP support HTTP/SSE/streamable-http only? Recommendation: HTTP/streamable-http only;
+      stdio is not browser-native and belongs to server-side agents.
+  - q4_conflict_strategy: >
+      Should offline conflicts use last-writer-wins for safe object transforms and fail-closed for
+      app/tool/mutation actions? Recommendation: yes.
+  - q5_agent_runtime: >
+      Should agent panels call external Hermes/Aegis orchestration only, or should local browser
+      model fallback be included? Recommendation: external orchestration only for MVP.
+  - q6_responsive_canvas_windows: >
+      What are the required responsive breakpoints for EdgeGDE canvas windows? Recommendation:
+      desktop resizable windows, tablet touch-friendly windows, mobile sheet/single-column layout
+      with policy surfaces always visible.
+  - q7_external_session_warm_chat: >
+      How should EdgeGDE import mortgage context from an external chat/session such as ChatGPT?
+      Recommendation: explicit consent, provenance metadata, minimized payload, expiry, and audit;
+      warm chat receives a summary, not raw unrelated context.
+  - q8_space_agent_runtime_boundary: >
+      Which Space Agent ideas should remain out of the runtime? Recommendation: keep only agentic
+      workspace UX/requirements; exclude Space Agent runtime files, app-file persistence, persisted
+      renderer functions, arbitrary browser-side execution blocks, and Space Agent customware layers.
