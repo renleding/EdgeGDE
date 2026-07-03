@@ -60,6 +60,10 @@ jobs:
         name: adapter.py imports
       - run: python3 tools/lsp-gate/lsp-validate.py --help > /dev/null 2>&1 || true
         name: lsp-validate.py imports
+      - run: python3 tools/aegis.py policy validate
+        name: Aegis policy integrity
+      - run: python3 tools/redteam_test.py run
+        name: Aegis red-team tests
 
   code-quality:
     needs: unit-tests
