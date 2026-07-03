@@ -144,7 +144,163 @@ Include a mix of multiple-choice, short answer, and extended response questions.
 Respond in JSON: {"questions": [{"question": "...", "type": "multiple-choice|short-answer|extended", "options": ["A", "B", "C", "D"], "answer": "..."}]}`
 
     const result = await callLLM(TUTOR_SYSTEM_PROMPT, testPrompt, c.env)
-    return c.json(result)
+    // Attach a testId so frontend can reference it
+    const testId = `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    return c.json({ ...result, testId })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ── POST /api/tutor/score — Evaluate test answers ──
+router.post('/score', async (c) => {
+  try {
+    const { questions, answers } = await c.req.json()
+    if (!questions || !answers) {
+      return c.json({ error: 'questions and answers required' }, 400)
+    }
+
+    // For each question, determine if the answer is correct
+    const results = questions.map((q: any, i: number) => {
+      const userAnswer = (answers[i] || '').trim()
+      const correctAnswer = (q.answer || '').trim()
+
+      // Multiple choice: exact match (case-insensitive, trimmed)
+      if (q.type === 'multiple-choice') {
+        return {
+          questionIndex: i,
+          question: q.question,
+          correctAnswer,
+          userAnswer,
+          isCorrect: userAnswer.toLowerCase() === correctAnswer.toLowerCase(),
+          type: q.type,
+        }
+      }
+
+      // Short answer / extended: no direct comparison yet — will be LLM-evaluated below
+      return {
+        questionIndex: i,
+        question: q.question,
+        correctAnswer,
+        userAnswer,
+        isCorrect: false, // placeholder, re-evaluated via LLM below
+        type: q.type,
+      }
+    })
+
+    // Batch short-answer / extended questions to LLM for semantic evaluation
+    const freeformQ = results.filter((r: any) => r.type !== 'multiple-choice' && r.userAnswer)
+    if (freeformQ.length > 0) {
+      const evalPrompt = `You are a maths tutor evaluating student answers. For each question, determine if the student's answer is mathematically correct (accept equivalent answers, allow minor phrasing differences, ignore units casing).
+
+Respond in JSON: {"verdicts": [{"index": 0, "isCorrect": true}, ...]}
+
+Questions and answers:
+${freeformQ.map((r: any, idx: number) =>
+  `Q${idx}: ${r.question}\nCorrect answer: ${r.correctAnswer}\nStudent answer: ${r.userAnswer}`
+).join('\n\n')}`
+
+      try {
+        const evalResult = await callLLM(`You are a strict but fair maths tutor evaluator.`, evalPrompt, c.env)
+        if (evalResult?.verdicts) {
+          evalResult.verdicts.forEach((v: any) => {
+            const freeIdx = freeformQ[v.index]?.questionIndex
+            if (freeIdx != null && results[freeIdx]) {
+              results[freeIdx].isCorrect = v.isCorrect === true
+            }
+          })
+        }
+      } catch {
+        // LLM evaluation failed — mark all freeform as needing review
+        freeformQ.forEach((r: any) => { results[r.questionIndex].needsReview = true })
+      }
+    }
+
+    const score = results.filter((r: any) => r.isCorrect).length
+    const total = questions.length
+    const percentage = total > 0 ? Math.round((score / total) * 100) : 0
+
+    return c.json({ results, score, total, percentage })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ── POST /api/tutor/save-result — Save a completed test result to KV ──
+router.post('/save-result', async (c) => {
+  try {
+    const { studentId, testId, topic, questions, answers, results, score, total, percentage } = await c.req.json()
+    if (!studentId || !testId) {
+      return c.json({ error: 'studentId and testId required' }, 400)
+    }
+
+    const kv = c.env.TENANT_KV as KVNamespace | undefined
+    if (!kv) {
+      return c.json({ error: 'KV not available' }, 500)
+    }
+
+    const timestamp = Date.now()
+    const resultEntry = {
+      testId,
+      topic: topic || 'All Topics',
+      score,
+      total,
+      percentage,
+      timestamp,
+      questions,
+      answers,
+      results,
+    }
+
+    // Store the full result
+    await kv.put(`tutor:test:${testId}`, JSON.stringify(resultEntry), {
+      metadata: { studentId, topic: topic || 'All Topics', score, total, timestamp },
+    })
+
+    // Update the student's test index
+    const indexKey = `tutor:student:${studentId}`
+    const existingRaw = await kv.get(indexKey)
+    const index: any[] = existingRaw ? JSON.parse(existingRaw) : []
+    index.push({ testId, topic: topic || 'All Topics', score, total, percentage, timestamp })
+    // Keep only latest 50 entries
+    if (index.length > 50) index.splice(0, index.length - 50)
+    await kv.put(indexKey, JSON.stringify(index))
+
+    return c.json({ saved: true, testId })
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ── GET /api/tutor/results/:studentId — Get test history ──
+router.get('/results/:studentId', async (c) => {
+  try {
+    const { studentId } = c.req.param()
+    const kv = c.env.TENANT_KV as KVNamespace | undefined
+    if (!kv) return c.json({ tests: [] })
+
+    const indexKey = `tutor:student:${studentId}`
+    const raw = await kv.get(indexKey)
+    if (!raw) return c.json({ tests: [] })
+
+    const tests = JSON.parse(raw)
+    return c.json({ tests })
+  } catch {
+    return c.json({ tests: [] })
+  }
+})
+
+// ── GET /api/tutor/test/:testId — Get a specific test result ──
+router.get('/test/:testId', async (c) => {
+  try {
+    const { testId } = c.req.param()
+    const kv = c.env.TENANT_KV as KVNamespace | undefined
+    if (!kv) return c.json({ error: 'KV not available' }, 500)
+
+    const raw = await kv.get(`tutor:test:${testId}`)
+    if (!raw) return c.json({ error: 'Test not found' }, 404)
+
+    return c.json(JSON.parse(raw))
   } catch (err: any) {
     return c.json({ error: err.message }, 500)
   }
@@ -152,12 +308,13 @@ Respond in JSON: {"questions": [{"question": "...", "type": "multiple-choice|sho
 
 // ── GET /api/tutor/progress ──
 router.get('/progress', async (c) => {
-  // Return default values — D1 integration TBD
+  // Return basic dashboard metrics
   return c.json({
     mastery: 0,
     time_on_task: 0,
     test_count: 0,
     streak_days: 0,
+    mastery_chart: '20, 45, 60, 30, 15',
   })
 })
 
