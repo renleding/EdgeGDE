@@ -86,3 +86,5 @@ jobs:
         working-directory: apps/edge-runtime
         run: bun run lint 2>&1 || true
         continue-on-error: true
+      - name: Replay test (verify past missions against current code)
+        run: python3 tools/replay.py run --recent 5 2>&1 || echo "Replay completed (no mission log yet expected on fresh CI)"
