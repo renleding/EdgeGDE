@@ -5,12 +5,56 @@
   const API = '/api/tutor/math/ask';
   const UPLOAD_API = '/api/tutor/math/upload';
   const TEST_API = '/api/tutor/math/test';
+  const SCORE_API = '/api/tutor/math/score';
+  const SAVE_RESULT_API = '/api/tutor/math/save-result';
+  const RESULTS_API = '/api/tutor/math/results';
   const PROGRESS_API = '/api/tutor/math/progress';
   const CSV_API = '/api/tutor/math/progress/csv';
   const VIEWS = ['chat', 'practice', 'dashboard'];
 
-  // ── Document context for AI ──
+  const MATH_TOPICS = [
+    'All Topics',
+    'Area',
+    'Perimeter',
+    'Volume',
+    'Surface Area',
+    'Algebra',
+    'Equations',
+    'Linear Equations',
+    'Quadratic Equations',
+    'Simultaneous Equations',
+    'Inequalities',
+    'Ratios & Rates',
+    'Proportions',
+    'Percentages',
+    'Fractions & Decimals',
+    'Angles & Geometry',
+    'Triangles & Pythagoras',
+    'Trigonometry',
+    'Circles',
+    'Coordinate Geometry',
+    'Graphing',
+    'Measurement',
+    'Statistics',
+    'Probability',
+    'Networks',
+    'Financial Maths',
+    'Number Theory',
+    'Indices & Exponents',
+    'Time & Rates',
+    'Scale Drawings',
+  ];
+
+  // ── Document context for AI & test state ──
   let docContext = '';
+  let currentTest = null; // { questions, testId, topic } for tracking active test
+
+  // ── Student ID for cross-device history ──
+  let studentId = localStorage.getItem('tutor_student_id');
+  if (!studentId) {
+    studentId = 's-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('tutor_student_id', studentId);
+  }
 
   // ── Navigation ──
   function showView(name) {
@@ -34,6 +78,17 @@
   const hash = location.hash.slice(1) || 'chat';
   if (VIEWS.includes(hash)) showView(hash);
 
+  // ── Populate topic dropdown ──
+  function populateTopics() {
+    const select = document.getElementById('practice-topic');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = MATH_TOPICS.map(t =>
+      `<option value="${t === 'All Topics' ? '' : t}"${(!currentVal && t === 'All Topics') || currentVal === t ? ' selected' : ''}>${t}</option>`
+    ).join('');
+  }
+  populateTopics();
+
   // ── Chat ──
   const chatInput = document.getElementById('chat-input');
   const sendBtn = document.getElementById('btn-send');
@@ -50,7 +105,6 @@
     if (tip) html += `<div class="tip">💡 ${escapeHtml(tip)}</div>`;
     div.innerHTML = html;
     chatThread.appendChild(div);
-    // Render any Mermaid diagrams in this message
     if (diagram && typeof mermaid !== 'undefined') {
       mermaid.run({ nodes: [div.querySelector('.mermaid')] }).catch(() => {});
     }
@@ -104,7 +158,6 @@
       const form = new FormData();
       form.append('file', file);
       try {
-        // Extract text from PDF using pdf.js, or plain text for txt/md
         let extractedText = '';
         if (file.name.endsWith('.pdf') && typeof pdfjsLib !== 'undefined') {
           const arrayBuf = await file.arrayBuffer();
@@ -122,7 +175,6 @@
 
         await fetch(UPLOAD_API, { method: 'POST', body: form });
 
-        // Auto-summarise to confirm understanding
         sendMessage(`I've uploaded "${file.name}" for study. Please read it and confirm what topics it covers so I know you understand it. Be specific — list the key topics, formulas, or concepts found in the document.`);
       } catch (e) {
         addMsg('tutor', `Could not process "${file.name}". Try a text file or PDF. (${e.message || e})`);
@@ -148,27 +200,150 @@
       });
       const data = await resp.json();
       if (data.questions) {
-        practiceArea.innerHTML = data.questions.map((q, i) =>
-          `<div class="card" style="margin-bottom:0.75rem">
-            <p><strong>Q${i+1}.</strong> ${escapeHtml(q.question)}</p>
-            ${q.type === 'multiple-choice' ? q.options.map(o =>
-              `<label style="display:block;margin:0.25rem 0"><input type="radio" name="q${i}"> ${escapeHtml(o)}</label>`
-            ).join('') : '<textarea rows="2" style="width:100%"></textarea>'}
-          </div>`
-        ).join('') + '<button class="btn-primary" id="btn-submit-test">Submit</button>';
+        currentTest = { questions: data.questions, testId: data.testId, topic: topic || 'All Topics' };
+        renderTestForm(data.questions);
       }
     } catch {
       practiceArea.innerHTML = '<p>Could not generate test. Try again.</p>';
     }
   });
 
+  function renderTestForm(questions) {
+    practiceArea.innerHTML = `<div class="test-form">
+      ${questions.map((q, i) =>
+        `<div class="card test-question" data-q="${i}">
+          <p><strong>Q${i+1}.</strong> ${escapeHtml(q.question)} <span class="q-type">${q.type}</span></p>
+          ${q.type === 'multiple-choice'
+            ? q.options.map(o =>
+                `<label class="mcq-option"><input type="radio" name="q${i}" value="${escapeHtml(o)}"> ${escapeHtml(o)}</label>`
+              ).join('')
+            : `<textarea class="sa-input" rows="3" data-q="${i}" placeholder="Type your answer..."></textarea>`}
+        </div>`
+      ).join('')}
+      <button class="btn-primary" id="btn-submit-test">Submit Test</button>
+      <button class="btn-secondary" id="btn-reset-test" style="margin-left:0.5rem">Cancel</button>
+    </div>`;
+    document.getElementById('btn-submit-test').addEventListener('click', submitTest);
+    document.getElementById('btn-reset-test').addEventListener('click', () => {
+      practiceArea.hidden = true;
+      practiceArea.innerHTML = '';
+      currentTest = null;
+    });
+  }
+
+  async function submitTest() {
+    const questions = currentTest.questions;
+    const answers = questions.map((q, i) => {
+      if (q.type === 'multiple-choice') {
+        const selected = document.querySelector(`input[name="q${i}"]:checked`);
+        return selected ? selected.value : '';
+      }
+      const ta = document.querySelector(`textarea[data-q="${i}"]`);
+      return ta ? ta.value : '';
+    });
+
+    // Disable button and show progress
+    const btn = document.getElementById('btn-submit-test');
+    if (btn) { btn.disabled = true; btn.textContent = 'Scoring...'; }
+
+    try {
+      // Send to score endpoint
+      const resp = await fetch(SCORE_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questions, answers })
+      });
+      const result = await resp.json();
+
+      // Re-render as review
+      renderTestReview(questions, answers, result);
+
+      // Save to KV for cross-device history
+      try {
+        await fetch(SAVE_RESULT_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentId,
+            testId: currentTest.testId,
+            topic: currentTest.topic,
+            questions,
+            answers,
+            results: result.results,
+            score: result.score,
+            total: result.total,
+            percentage: result.percentage,
+          })
+        });
+      } catch {
+        // Silent fail — review still shows
+      }
+    } catch {
+      practiceArea.innerHTML = '<p>Could not score test. Try again.</p>';
+    }
+  }
+
+  function renderTestReview(questions, answers, result) {
+    const { results, score, total, percentage } = result;
+    const gradeColor = percentage >= 80 ? '#4caf50' : percentage >= 50 ? '#ff9800' : '#e94560';
+
+    practiceArea.innerHTML = `
+      <div class="test-review">
+        <div class="score-summary" style="border-color: ${gradeColor}">
+          <div class="score-circle" style="background: ${gradeColor}">${percentage}%</div>
+          <div class="score-details">
+            <span class="score-fraction">${score} / ${total} correct</span>
+            <span class="score-label">${percentage >= 80 ? 'Great work!' : percentage >= 50 ? 'Good effort — keep practising' : 'Keep studying — you\'ll improve!'}</span>
+          </div>
+        </div>
+        <div class="review-questions">
+          ${questions.map((q, i) => {
+            const r = results[i];
+            const icon = r.isCorrect ? '✅' : '❌';
+            const optClass = r.isCorrect ? 'correct' : 'wrong';
+            return `<div class="card review-question ${optClass}">
+              <p><strong>Q${i+1}.</strong> ${escapeHtml(q.question)} <span class="review-icon">${icon}</span></p>
+              ${q.type === 'multiple-choice'
+                ? q.options.map(o => {
+                    const isUser = answers[i] === o;
+                    const isCorrect = o === r.correctAnswer;
+                    let cls = 'mcq-option review-option';
+                    if (isUser && isCorrect) cls += ' selected-correct';
+                    else if (isUser && !isCorrect) cls += ' selected-wrong';
+                    else if (!isUser && isCorrect) cls += ' missed-correct';
+                    const marker = isUser ? (isCorrect ? ' ✓' : ' ✗') : (isCorrect ? ' ✓' : '');
+                    return `<div class="${cls}">${escapeHtml(o)}${marker}</div>`;
+                  }).join('')
+                : `<div class="sa-review">
+                     <div class="sa-user${r.isCorrect ? ' sa-correct' : ' sa-wrong'}">Your answer: ${escapeHtml(answers[i] || '(no answer)')}</div>
+                     <div class="sa-correct-answer">Correct answer: ${escapeHtml(r.correctAnswer)}</div>
+                   </div>`}
+            </div>`;
+          }).join('')}
+        </div>
+        <button class="btn-primary" id="btn-new-test">New Test</button>
+        <button class="btn-secondary" id="btn-close-review" style="margin-left:0.5rem">Back to Start</button>
+      </div>`;
+
+    document.getElementById('btn-new-test').addEventListener('click', () => {
+      currentTest = null;
+      practiceArea.innerHTML = '';
+      practiceArea.hidden = true;
+    });
+    document.getElementById('btn-close-review').addEventListener('click', () => {
+      currentTest = null;
+      practiceArea.innerHTML = '';
+      practiceArea.hidden = true;
+    });
+  }
+
   // ── Dashboard ──
   async function loadDashboard() {
     try {
+      // Load progress
       const resp = await fetch(PROGRESS_API);
       const data = await resp.json();
 
-      // Update metric cards
       if (data.mastery != null) document.querySelector('#card-mastery .card-body').textContent = data.mastery + '%';
       if (data.time_on_task != null) document.querySelector('#card-time .card-body').textContent = data.time_on_task + ' min';
       if (data.test_count != null) document.querySelector('#card-tests .card-body').textContent = data.test_count + ' tests';
@@ -176,20 +351,91 @@
 
       // Mermaid charts
       const chartContainer = document.getElementById('chart-container');
-      if (!chartContainer) return;
-
-      // Mastery bar chart
-      const masteryMermaid = `xychart-beta
+      if (chartContainer) {
+        const masteryMermaid = `xychart-beta
   title "Mastery by Strand"
   x-axis "Strand" ["Algebra", "Measurement", "Financial", "Statistics", "Networks"]
   y-axis "Mastery (%)" 0 --> 100
   bar [${data.mastery_chart ? data.mastery_chart : '20, 45, 60, 30, 15'}]`;
-
-      chartContainer.innerHTML = `<div class="mermaid">${masteryMermaid.replace(/</g, '&lt;')}</div>`;
-      if (typeof mermaid !== 'undefined') {
-        mermaid.run({ nodes: [chartContainer.querySelector('.mermaid')] }).catch(() => {});
+        chartContainer.innerHTML = `<div class="mermaid">${masteryMermaid.replace(/</g, '&lt;')}</div>`;
+        if (typeof mermaid !== 'undefined') {
+          mermaid.run({ nodes: [chartContainer.querySelector('.mermaid')] }).catch(() => {});
+        }
       }
+
+      // Load test history
+      loadTestHistory();
     } catch { /* dashboard defaults */ }
+  }
+
+  async function loadTestHistory() {
+    const container = document.querySelector('#card-tests .card-body');
+    if (!container) return;
+
+    try {
+      const resp = await fetch(`${RESULTS_API}/${studentId}`);
+      const data = await resp.json();
+      const tests = data.tests || [];
+
+      if (tests.length === 0) {
+        container.innerHTML = 'No tests yet';
+        return;
+      }
+
+      container.innerHTML = tests.length + ' tests';
+
+      // Build history list after the dashboard cards
+      const chartContainer = document.getElementById('chart-container');
+      if (chartContainer) {
+        const historyHtml = `
+          <div class="test-history">
+            <h3 style="color:var(--muted);font-size:0.9rem;margin:1rem 0 0.5rem 0">Test History (${tests.length})</h3>
+            ${tests.slice().reverse().map(t => {
+              const date = new Date(t.timestamp);
+              const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const pctColor = t.percentage >= 80 ? '#4caf50' : t.percentage >= 50 ? '#ff9800' : '#e94560';
+              return `<div class="history-entry" data-testid="${t.testId}">
+                <div class="history-meta">
+                  <span class="history-topic">${escapeHtml(t.topic)}</span>
+                  <span class="history-date">${dateStr}</span>
+                </div>
+                <div class="history-score" style="color:${pctColor}">${t.score}/${t.total} (${t.percentage}%)</div>
+              </div>`;
+            }).join('')}
+          </div>`;
+        chartContainer.insertAdjacentHTML('afterend', historyHtml);
+
+        // Add click handlers for history entries
+        document.querySelectorAll('.history-entry').forEach(el => {
+          el.addEventListener('click', () => {
+            const testId = el.dataset.testid;
+            if (testId) showTestResult(testId);
+          });
+        });
+      }
+    } catch {
+      // History unavailable
+    }
+  }
+
+  async function showTestResult(testId) {
+    try {
+      const resp = await fetch(`/api/tutor/math/test/${testId}`);
+      const data = await resp.json();
+      if (!data.questions || !data.results) return;
+
+      // Switch to practice view and render review
+      showView('practice');
+      document.getElementById('practice-area').hidden = false;
+      renderTestReview(data.questions, data.answers || [], {
+        results: data.results,
+        score: data.score,
+        total: data.total,
+        percentage: data.percentage,
+      });
+    } catch {
+      // Could not load
+    }
   }
 
   document.getElementById('btn-export').addEventListener('click', () => {
