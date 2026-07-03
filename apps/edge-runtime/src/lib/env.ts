@@ -38,6 +38,7 @@ export interface Env {
   RESEND_API_KEY?: string
   HMAC_KEY?: string
   ADMIN_API_TOKEN?: string
+  ADMIN_TOKEN?: string  // Legacy name; fallback if ADMIN_API_TOKEN unset
   OPENROUTER_API_KEY?: string
   TURNSTILE_SECRET_KEY?: string
 
