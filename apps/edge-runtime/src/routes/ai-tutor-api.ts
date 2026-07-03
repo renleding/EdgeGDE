@@ -12,6 +12,7 @@
  */
 import { Hono } from 'hono'
 import type { Env } from '../lib/env'
+import { instrumentLifecycleEvent } from '../lib/otel-worker'
 
 const router = new Hono<{ Bindings: Env }>()
 
@@ -49,6 +50,7 @@ async function callLLM(systemPrompt: string, userMessage: string, env: any): Pro
     return { answer: 'Tutor API key not configured.', working: '', tip: 'Ask your administrator to set OPENROUTER_API_KEY.' }
   }
 
+  const llmStart = performance.now()
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -68,6 +70,15 @@ async function callLLM(systemPrompt: string, userMessage: string, env: any): Pro
       max_tokens: 4000,
     }),
   })
+
+  // Fire-and-forget OTel span for LLM call timing
+  if (env && env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+    instrumentLifecycleEvent('tutor.llm.call', {
+      'tutor.llm.model': 'deepseek/deepseek-v4-flash',
+      'tutor.llm.status': response.ok ? response.status : 'error',
+      'tutor.llm.duration_ms': performance.now() - llmStart,
+    }, env).catch(() => {})
+  }
 
   if (!response.ok) {
     const errText = await response.text().catch(() => 'unknown')
