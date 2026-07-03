@@ -15,10 +15,13 @@ import type { Context, MiddlewareHandler, Next } from 'hono'
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-/** Read ADMIN_API_TOKEN from env, return null if unset (caller handles 401). */
+/**
+ * Read ADMIN_API_TOKEN from env (preferred), fall back to ADMIN_TOKEN (legacy).
+ * Returns null if neither is set (caller handles 401).
+ */
 function resolveAdminToken(c: Context): string | null {
   const env = (c.env as Record<string, unknown> | undefined)
-  const token = env?.ADMIN_API_TOKEN
+  const token = env?.ADMIN_API_TOKEN ?? env?.ADMIN_TOKEN
   if (typeof token === 'string' && token.length > 0) {
     return token
   }
