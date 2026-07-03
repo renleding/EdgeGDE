@@ -60,17 +60,24 @@ jobs:
       - name: Gate 5 — Security audit
         run: bun audit 2>&1 | tail -10 || echo "bun audit not available — skipping"
 
-      # ═══ GATE 6: Staging health check ═══
-      - name: Gate 6 — Staging health check
+      # ═══ GATE 6: Staging health check + E2E ═══
+      - name: Gate 6a — Staging health check
         run: |
           echo "Checking staging worker: https://${{ env.STAGING_WORKER }}.renleding.workers.dev/"
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${{ env.STAGING_WORKER }}.renleding.workers.dev/healthz" || echo "000")
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "401" ]; then
             echo "✅ Staging healthy (HTTP $HTTP_CODE)"
           else
-            echo "❌ Staging unhealthy (HTTP $HTTP_CODE) — promoting without staging is risky"
-            # Non-blocking — warn but don't fail, since staging may not exist yet
+            echo "❌ Staging unhealthy (HTTP $HTTP_CODE) — aborting deployment"
+            exit 1
           fi
+
+      - name: Gate 6b — E2E tests against staging
+        run: |
+          echo "Running E2E test suite against staging..."
+          EDGE_RUNTIME_BASE_URL=https://${{ env.STAGING_WORKER }}.renleding.workers.dev \
+            bun run test:e2e 2>&1
+          echo "✅ E2E tests passed against staging"
 
       # ═══ GATE 7: Commit log review ═══
       - name: Gate 7 — Commit log review
