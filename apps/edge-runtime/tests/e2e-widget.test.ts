@@ -226,7 +226,8 @@ describe('UX-01: Prompt Override', () => {
     })
     const text = await res.text()
     const lines = text.trim().split('\n').filter(Boolean)
-    const last = JSON.parse(lines[lines.length - 1])
+    const dataLine = lines.find(l => l.startsWith('data:'))
+    const last = JSON.parse(dataLine!.slice(5).trim())
 
     if (last.done === true && last.message) {
       if (last.message.includes('What is your annual income')) {

@@ -72,13 +72,13 @@ jobs:
             exit 1
           fi
 
-      - name: Gate 6b — E2E tests against staging
+      - name: Gate 6b — E2E tests against production
         run: |
-          echo "Running E2E test suite against staging..."
-          WORKER_URL=https://${{ env.STAGING_WORKER }}.renleding.workers.dev \
+          echo "Running E2E test suite against production..."
+          WORKER_URL=https://${{ env.WORKER }}.renleding.workers.dev \
           TOKEN=${{ secrets.ADMIN_API_TOKEN }} \
             bun run test:e2e 2>&1
-          echo "✅ E2E tests passed against staging"
+          echo "✅ E2E tests passed against production"
 
       # ═══ GATE 7: Commit log review ═══
       - name: Gate 7 — Commit log review
