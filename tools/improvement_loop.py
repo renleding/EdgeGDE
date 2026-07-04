@@ -1,328 +1,171 @@
 #!/usr/bin/env python3
-"""
-Continuous Improvement Loop — Phase 1 (FRS v1.0)
+"""Continuous Improvement Loop — Phase 1 (EG-FEAT-0030).
 
-Scans → detects recurring patterns → opens auto-fix PRs.
-
-Usage:
-  python3 tools/improvement_loop.py scan          # Gather data
-  python3 tools/improvement_loop.py detect        # Find recurring patterns
-  python3 tools/improvement_loop.py fix           # Open fix PRs
-  python3 tools/improvement_loop.py run           # All three in sequence
+Provides four subcommands: scan, detect, fix, run.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
+import sqlite3
 import subprocess
 import sys
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, datetime, timezone
 from pathlib import Path
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MISSION_DIR = REPO_ROOT / ".hermes" / "logs" / "missions"
 MEMORY_DB = REPO_ROOT / ".hermes" / "memory" / "missions.db"
+SCAN_REPORT = REPO_ROOT / ".hermes" / "improvement-scan.json"
+PATTERNS_FILE = REPO_ROOT / ".hermes" / "improvement-patterns.json"
+POLICY_FILE = REPO_ROOT / ".hermes" / "policies" / "policy.md"
 
-# ── Helpers ──
 
-def run(cmd, **kw):
-    """Run a shell command and return (stdout, stderr, exit_code)."""
+def _run(cmd: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=kw.get("timeout", 30), cwd=kw.get("cwd", REPO_ROOT))
-        return r.stdout.strip(), r.stderr.strip(), r.returncode
-    except subprocess.TimeoutExpired:
-        return "", "TIMEOUT", -1
+        return subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=timeout)
     except FileNotFoundError:
-        return "", "COMMAND_NOT_FOUND", -1
+        print(f"[error] executable not found: {cmd[0]}", file=sys.stderr)
+        return subprocess.CompletedProcess(args=cmd, returncode=-1, stdout="", stderr="")
+    except subprocess.TimeoutExpired as exc:
+        print(f"[warn] command timed out: {' '.join(cmd)}", file=sys.stderr)
+        return subprocess.CompletedProcess(args=cmd, returncode=-1, stdout=exc.stdout or "", stderr=exc.stderr or "")
 
 
-def recent_missions(days=7):
-    """Yield mission report dicts from the last N days."""
-    if not MISSION_DIR.exists():
-        return
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    for f in sorted(MISSION_DIR.glob("*.report.json"), reverse=True):
-        try:
-            data = json.loads(f.read_text())
-            # If no timestamp, include it anyway (file date is proxy)
-            ts = data.get("end_time") or data.get("start_time")
-            if ts is None:
-                yield data
-                continue
-            if isinstance(ts, str):
-                try:
-                    dt = datetime.fromisoformat(ts)
-                except ValueError:
-                    try:
-                        dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
-                    except (ValueError, OSError):
-                        yield data
-                        continue
-            else:
-                dt = datetime.fromtimestamp(ts / 1000 if ts > 1e12 else ts, tz=timezone.utc)
-            if dt >= cutoff:
-                yield data
-        except (json.JSONDecodeError, OSError):
-            continue
-
-
-def recent_prs(days=7):
-    """Return recently merged PRs."""
-    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    out, _, code = run(["gh", "pr", "list", "--state", "merged", "--json", "number,title,headRefName,mergedAt,body", f"--search=merged:>={since}", "--limit", "20"])
-    if code != 0 or not out:
+def _gh_pr_list(days: int) -> list[dict]:
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    result = _run(["gh", "pr", "list", "--state", "merged", "--json", "number,title,headRefName,mergedAt,body", f"--search=merged:>={since}", "--limit", "20"])
+    if result.returncode != 0:
         return []
     try:
-        return json.loads(out)
+        data = json.loads(result.stdout)
+        return data if isinstance(data, list) else []
     except json.JSONDecodeError:
         return []
 
 
-# ── Scan ──
-
-def cmd_scan(args):
-    """Gather data from missions, replay, and git."""
-    report = {
-        "scanned_at": datetime.now(timezone.utc).isoformat(),
-        "mission_logs": [],
-        "replay_results": [],
-        "recent_prs": [],
-        "errors": [],
-    }
-
-    # Mission logs
-    for m in recent_missions(args.days):
-        tasks = m.get("tasks", {})
-        completed = tasks.get("completed", 0)
-        failed = tasks.get("failed", 0)
-        entry = {
-            "mission_id": m.get("mission_id", "?"),
-            "status": m.get("status", "?"),
-            "completed": completed,
-            "failed": failed,
-            "end_time": m.get("end_time", ""),
-            "errors": [],
-        }
-        # Extract error messages from task results
-        for t in m.get("tasks", {}).get("results", []):
-            if not t.get("success", True):
-                entry["errors"].append(t.get("error", "") or t.get("output", ""))
-        if failed > 0:
-            report["errors"].append(f"Mission {entry['mission_id']}: {failed} failed task(s)")
-        report["mission_logs"].append(entry)
-
-    # Replay results
-    out, _, _ = run(["python3", "tools/replay.py", "run", "--all", "--days", str(args.days)])
-    if out:
-        report["replay_results"] = out.split("\n")
-
-    # Recent PRs
-    report["recent_prs"] = recent_prs(args.days)
-
-    # Save scan report
-    scan_file = REPO_ROOT / ".hermes" / "improvement-scan.json"
-    scan_file.parent.mkdir(parents=True, exist_ok=True)
-    scan_file.write_text(json.dumps(report, indent=2))
-    print(f"Scan complete: {len(report['mission_logs'])} missions, {len(report['recent_prs'])} PRs")
-    if report["errors"]:
-        print(f"  {len(report['errors'])} issue(s) found")
-
-    return report
-
-
-# ── Detect ──
-
-def cmd_detect(args):
-    """Find recurring patterns in scan data."""
-    scan_file = REPO_ROOT / ".hermes" / "improvement-scan.json"
-    if not scan_file.exists():
-        print("No scan data found. Run 'improvement_loop.py scan' first.")
-        return
-
-    scan = json.loads(scan_file.read_text())
-    patterns = []
-
-    # Pattern 1: Same error across multiple missions
-    error_counter = Counter()
-    for m in scan.get("mission_logs", []):
-        for err in m.get("errors", []):
-            # Normalize: strip timestamps, paths, memory addresses
-            normalized = re.sub(r"0x[0-9a-fA-F]+", "0x...", err)
-            normalized = re.sub(r"/\w+/[A-Z][A-Za-z0-9/._-]+", "/.../", normalized)
-            normalized = re.sub(r"\d{10,}", "...", normalized)
-            error_counter[normalized[:150]] += 1
-
-    for err_text, count in error_counter.most_common(10):
-        if count >= 3:
-            patterns.append({
-                "type": "recurring_error",
-                "count": count,
-                "sample": err_text[:200],
-                "severity": "high" if count >= 5 else "medium",
-            })
-
-    # Pattern 2: Replay failures on same assertion
-    replay_results = scan.get("replay_results", [])
-    replay_fails = [l for l in replay_results if "FAIL" in l.upper() or "ERROR" in l.upper()]
-    fail_counter = Counter()
-    for f in replay_fails:
-        fail_counter[f[:100]] += 1
-    for fail_text, count in fail_counter.most_common(5):
-        if count >= 2:
-            patterns.append({
-                "type": "replay_failure",
-                "count": count,
-                "sample": fail_text[:200],
-                "severity": "high",
-            })
-
-    # Pattern 3: Missions with no compensate on shell/high-risk ops
-    for m in scan.get("mission_logs", []):
-        if m.get("status") == "failure":
-            patterns.append({
-                "type": "possible_compensation_gap",
-                "count": 1,
-                "mission_id": m.get("mission_id", "?"),
-                "severity": "low",
-            })
-
-    # Save detected patterns
-    detect_file = REPO_ROOT / ".hermes" / "improvement-patterns.json"
-    detect_file.write_text(json.dumps(patterns, indent=2))
-    print(f"Detected {len(patterns)} pattern(s):")
-    for p in patterns:
-        print(f"  [{p['severity']:6s}] {p['type']:30s} (count={p['count']})")
-        if "sample" in p:
-            print(f"          {p['sample'][:80]}")
-    return patterns
-
-
-# ── Fix ──
-
-def cmd_fix(args):
-    """Open auto-fix PRs for detected patterns."""
-    detect_file = REPO_ROOT / ".hermes" / "improvement-patterns.json"
-    if not detect_file.exists():
-        print("No pattern data found. Run 'improvement_loop.py detect' first.")
-        return
-
-    patterns = json.loads(detect_file.read_text())
-    if not patterns:
-        print("No patterns to fix.")
-        return
-
-    # Deduplicate: skip patterns we've already filed
-    memory_patterns = set()
-    if MEMORY_DB.exists():
+def _load_reports(days: int) -> list[dict]:
+    reports = []
+    if not MISSION_DIR.exists():
+        return reports
+    cutoff = datetime.now() - timedelta(days=days)
+    for path in sorted(MISSION_DIR.glob("*.report.json")):
         try:
-            import sqlite3
-            conn = sqlite3.connect(str(MEMORY_DB))
-            for row in conn.execute("SELECT content FROM lessons"):
-                memory_patterns.add(row[0][:100])
-            conn.close()
-        except Exception:
-            pass
-
-    fixes_opened = 0
-    for p in patterns:
-        sig = p.get("sample", "") or p.get("mission_id", "")
-        if sig[:100] in memory_patterns:
-            print(f"  Skipping (already filed): {p['type']}")
+            with path.open() as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError):
             continue
-
-        if p["type"] == "recurring_error" and p["count"] >= 3:
-            branch = f"fix/auto-{p['type']}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-            out, err, code = run(["git", "checkout", "-b", branch])
-            if code != 0:
-                print(f"  Branch failed: {err}")
+        ts_raw = data.get("end_time") or data.get("start_time")
+        if ts_raw is None:
+            reports.append({"path": str(path), "data": data})
+            continue
+        try:
+            dt = datetime.fromisoformat(str(ts_raw)[:19]) if isinstance(ts_raw, str) else datetime.fromtimestamp(ts_raw / 1000 if ts_raw > 1e12 else ts_raw, tz=timezone.utc)
+            if dt.replace(tzinfo=None) < cutoff:
                 continue
-
-            # Write a context fix as an instructions patch
-            fix_msg = (
-                f"auto: address recurring error pattern\n\n"
-                f"Detected {p['count']} occurrences of:\n"
-                f"  {p['sample'][:200]}\n\n"
-                f"Root cause: recurring agent error in auto-generated code. "
-                f"Adding pattern to .hermes/policies/policy.md to catch in review."
-            )
-
-            # Append the pattern to policy.md as a known issue
-            policy_path = REPO_ROOT / ".hermes" / "policies" / "policy.md"
-            if policy_path.exists():
-                with open(policy_path) as f:
-                    existing = f.read()
-                with open(policy_path, "w") as f:
-                    f.write(existing)
-                    f.write(f"\n\n## Auto-detected Pattern ({datetime.now().strftime('%Y-%m-%d')})\n\n")
-                    f.write(f"- **Error:** {p['sample'][:200]}\n")
-                    f.write(f"- **Frequency:** {p['count']} occurrences in 7 days\n")
-                    f.write("- **Status:** Flagged for review\n")
-
-            try:
-                run(["git", "add", str(policy_path)])
-                run(["git", "commit", "-m", fix_msg])
-                run(["git", "push", "-u", "origin", "HEAD"])
-
-                pr_body = (
-                    f"## Auto-detected Pattern\n\n"
-                    f"This PR was automatically generated by the Continuous Improvement Loop.\n\n"
-                    f"**Pattern:** {p['type']}\n"
-                    f"**Severity:** {p['severity']}\n"
-                    f"**Frequency:** {p['count']} occurrences\n\n"
-                    f"**Sample:**\n```\n{p.get('sample', 'N/A')[:300]}\n```\n\n"
-                    f"**Action taken:** Pattern recorded in `.hermes/policies/policy.md`. "
-                    f"A human should review and determine the root cause fix.\n\n"
-                    f"_This is an automated PR. Review before merging._"
-                )
-                out, err, code = run(["gh", "pr", "create", "--base", "main",
-                                       "--title", fix_msg.split("\n")[0],
-                                       "--body", pr_body])
-                if code == 0:
-                    fixes_opened += 1
-                    print(f"  PR opened: {out}")
-                else:
-                    print(f"  PR failed: {err}")
-
-                run(["git", "checkout", "main"])
-            except Exception as e:
-                print(f"  Fix failed for pattern: {e}")
-                run(["git", "checkout", "main"])
-
-    # Store filed patterns in memory to avoid duplicates next cycle
-    try:
-        import sqlite3
-        conn = sqlite3.connect(str(MEMORY_DB))
-        conn.execute("CREATE TABLE IF NOT EXISTS lessons (content TEXT, filed_at TEXT)")
-        for p in patterns:
-            sig = p.get("sample", "") or p.get("mission_id", "")
-            conn.execute("INSERT INTO lessons (content, filed_at) VALUES (?, ?)",
-                         (sig[:100], datetime.now(timezone.utc).isoformat()))
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
-
-    print(f"\nOpened {fixes_opened} fix PR(s)")
+        except (ValueError, OSError):
+            pass
+        reports.append({"path": str(path), "data": data})
+    return reports
 
 
-# ── Run (scan + detect + fix) ──
+def cmd_scan(args: argparse.Namespace) -> None:
+    days = args.days
+    print(f"[scan] loading mission reports (last {days} days)...")
+    reports = _load_reports(days)
+    print(f"[scan] fetching recent merged PRs...")
+    prs = _gh_pr_list(days)
+    scan_report = {"mission_reports": reports, "pr_count": len(prs), "scanned_at": datetime.now(timezone.utc).isoformat()}
+    SCAN_REPORT.parent.mkdir(parents=True, exist_ok=True)
+    SCAN_REPORT.write_text(json.dumps(scan_report, indent=2))
+    print(f"[scan] {len(reports)} missions, {len(prs)} PRs")
 
-def cmd_run(args):
-    print("=== Phase 1: Scan ===")
+
+def cmd_detect(args: argparse.Namespace) -> None:
+    if not SCAN_REPORT.exists():
+        print("[error] run scan first", file=sys.stderr)
+        sys.exit(1)
+    data = json.loads(SCAN_REPORT.read_text())
+    error_counter: Counter[str] = Counter()
+    no_comp_failures = []
+    for report in data.get("mission_reports", []):
+        body = (report.get("data") or {}).get("body", "")
+        if isinstance(body, str):
+            for line in re.sub(r"\x1b\[[0-9;]*m", "", body).splitlines():
+                lower = line.strip().lower()
+                if any(kw in lower for kw in ["error", "assert", "failed", "exception"]):
+                    key = re.sub(r"\W+", "_", lower[:200])
+                    if key:
+                        error_counter[key] += 1
+        if isinstance(report, dict) and report.get("data", {}).get("status") == "failure":
+            no_comp_failures.append(report.get("path", ""))
+    patterns = {"recurring_errors": [{"error": k, "count": v} for k, v in error_counter.items() if v >= 3], "no_compensation_failures": no_comp_failures, "detected_at": datetime.now(timezone.utc).isoformat()}
+    PATTERNS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PATTERNS_FILE.write_text(json.dumps(patterns, indent=2))
+    print(f"[detect] {len(patterns['recurring_errors'])} recurring, {len(no_comp_failures)} no-comp")
+
+
+def cmd_fix(args: argparse.Namespace) -> None:
+    if not PATTERNS_FILE.exists():
+        print("[error] run detect first", file=sys.stderr)
+        sys.exit(1)
+    data = json.loads(PATTERNS_FILE.read_text())
+    patterns = [{"type": "recurring_error", **p} for p in data.get("recurring_errors", [])]
+    if not patterns:
+        print("[fix] no patterns to fix")
+        return
+    conn = sqlite3.connect(str(MEMORY_DB))
+    conn.execute("CREATE TABLE IF NOT EXISTS lessons (signature TEXT PRIMARY KEY, created_at TEXT)")
+    existing = {row[0] for row in conn.execute("SELECT signature FROM lessons")}
+    pr_count = 0
+    for p in patterns:
+        sig = f"{p['type']}:{p.get('error', '')[:100]}"
+        if sig in existing:
+            print(f"[fix] skipping (already filed): {p.get('error', '')[:60]}")
+            continue
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        branch = f"fix/auto-{p['type']}-{ts}"
+        _run(["git", "checkout", "-b", branch])
+        entry = f"\n- **{p['type']}** ({ts}): {p.get('error', '')[:200]}"
+        POLICY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        existing_policy = POLICY_FILE.read_text() if POLICY_FILE.exists() else ""
+        POLICY_FILE.write_text(existing_policy + entry)
+        _run(["git", "add", str(POLICY_FILE)])
+        _run(["git", "commit", "-m", f"auto: {p['type']} - {p.get('error', '')[:60]}"])
+        _run(["git", "push", "-u", "origin", branch])
+        result = _run(["gh", "pr", "create", "--base", "main", "--title", f"auto: {p['type']} - {p.get('error', '')[:60]}", "--body", f"Recurring pattern detected. Count: {p.get('count', 0)}"])
+        if result.returncode == 0:
+            pr_count += 1
+        conn.execute("INSERT OR IGNORE INTO lessons (signature, created_at) VALUES (?, ?)", (sig, datetime.now(timezone.utc).isoformat()))
+        _run(["git", "checkout", "main"])
+    conn.commit()
+    conn.close()
+    print(f"[fix] opened {pr_count} PR(s)")
+
+
+def cmd_run(args: argparse.Namespace) -> None:
     cmd_scan(args)
-    print("\n=== Phase 2: Detect ===")
     cmd_detect(args)
-    print("\n=== Phase 3: Fix ===")
     cmd_fix(args)
-    print("\n=== Done ===")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Continuous Improvement Loop")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name, help_text in [("scan", "Scan mission reports and recent PRs"), ("detect", "Detect recurring patterns"), ("fix", "Open auto-fix PRs"), ("run", "Run all three")]:
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("--days", type=int, default=7, help="Look back N days")
+        p.set_defaults(func={"scan": cmd_scan, "detect": cmd_detect, "fix": cmd_fix, "run": cmd_run}[name])
+    args = parser.parse_args()
+    args.func(args)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Continuous Improvement Loop")
-    parser.add_argument("command", choices=["scan", "detect", "fix", "run"])
-    parser.add_argument("--days", type=int, default=7, help="Lookback window in days")
-    args = parser.parse_args()
-
-    {"scan": cmd_scan, "detect": cmd_detect, "fix": cmd_fix, "run": cmd_run}[args.command](args)
+    main()
