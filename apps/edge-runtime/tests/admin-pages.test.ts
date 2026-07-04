@@ -93,7 +93,7 @@ async function fetchText(router: Hono, path: string, env: any): Promise<string> 
 
   // Add tenant + token query params to the request
   app.use('*', async (c, next) => {
-    c.env = { ...env, ADMIN_API_TOKEN: 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4' } as any
+    c.env = { ...env, ADMIN_API_TOKEN: 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4' } as unknown as Record<string, unknown>
     await next()
   })
   app.route('/admin/kb', router)
@@ -107,7 +107,7 @@ async function fetchText(router: Hono, path: string, env: any): Promise<string> 
 async function fetchPost(router: Hono, path: string, env: any, formData?: Record<string, string>): Promise<string> {
   const app = new Hono()
   app.use('*', async (c, next) => {
-    c.env = { ...env, ADMIN_API_TOKEN: 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4' } as any
+    c.env = { ...env, ADMIN_API_TOKEN: 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4' } as unknown as Record<string, unknown>
     await next()
   })
   app.route('/admin/kb', router)
