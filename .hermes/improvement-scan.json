@@ -1,0 +1,197 @@
+{
+  "scanned_at": "2026-07-04T11:22:45.049075+00:00",
+  "mission_logs": [
+    {
+      "mission_id": "qwen35-001-droid-coding-test",
+      "status": "failure",
+      "completed": 0,
+      "failed": 0,
+      "end_time": "",
+      "errors": []
+    },
+    {
+      "mission_id": "ornith-001-droid-coding-test",
+      "status": "success",
+      "completed": 0,
+      "failed": 0,
+      "end_time": "",
+      "errors": []
+    },
+    {
+      "mission_id": "code-review-001-architecture-scan",
+      "status": "success",
+      "completed": 0,
+      "failed": 0,
+      "end_time": "",
+      "errors": []
+    },
+    {
+      "mission_id": "aegis-003-mutation-loop-dry-run",
+      "status": "success",
+      "completed": 0,
+      "failed": 0,
+      "end_time": "",
+      "errors": []
+    },
+    {
+      "mission_id": "aegis-002-non-aegis-change-audit",
+      "status": "success",
+      "completed": 0,
+      "failed": 0,
+      "end_time": "",
+      "errors": []
+    },
+    {
+      "mission_id": "aegis-001-read-only-architecture-summary",
+      "status": "success",
+      "completed": 0,
+      "failed": 0,
+      "end_time": "",
+      "errors": []
+    }
+  ],
+  "replay_results": [],
+  "recent_prs": [
+    {
+      "body": "## Problem\n\nProduction deploy has been failing consistently (3 consecutive failures). All 34/42 admin integration E2E tests fail with `ADMIN_API_TOKEN is not configured on this Worker.`\n\n## Root Cause\n\nThe auth middleware checks for `ADMIN_API_TOKEN` from `c.env`, but the production Cloudflare Worker has the admin token configured under the **legacy name** `ADMIN_TOKEN` (confirmed via `wrangler secret list`). The env var was renamed in code but the production secret was never updated.\n\n## Fix\n\n- Check `ADMIN_API_TOKEN` first (preferred/new name)\n- Fall back to `ADMIN_TOKEN` (legacy name for backward compatibility)\n- Updated `Env` interface to include `ADMIN_TOKEN` as optional\n\nThis is a backward-compatible change \u2014 existing production secret continues to work without requiring any new `wrangler secret put` commands.\n\n## Verification\n\nCI will run and the Deploy \u2014 Production workflow should pass its admin integration E2E tests after this is merged.",
+      "headRefName": "work/fix-admin-api-token-fallback",
+      "mergedAt": "2026-07-03T14:09:53Z",
+      "number": 39,
+      "title": "fix: fall back to legacy ADMIN_TOKEN env var when ADMIN_API_TOKEN is not set"
+    },
+    {
+      "body": "Adds a fire-and-forget OTel span for LLM call timing inside the AI Tutor's callLLM() function. This allows SigNoz to track LLM latency separately from HTTP request latency.\n\nSpan attributes:\n- `tutor.llm.model` \u2014 model name\n- `tutor.llm.status` \u2014 HTTP status or 'error'\n- `tutor.llm.duration_ms` \u2014 LLM round-trip time\n\nThe existing global `instrumentRequest` (in the fetch handler) already captures HTTP-level spans for all routes including the AI Tutor. This adds sub-span visibility into the LLM call itself.",
+      "headRefName": "work/tenant-self-service-onboarding",
+      "mergedAt": "2026-07-03T01:02:34Z",
+      "number": 38,
+      "title": "feat: add OTel LLM timing span to AI Tutor API"
+    },
+    {
+      "body": "## What\n\nSwitches the Canvas PWA from a monolithic 971-line `pwa.js` to a modular ES module architecture (10 files, 1,235 lines total). Brings three new features from the FRS:\n\n### New Features\n\n| Feature | FRS Req | Implementation |\n|---------|---------|---------------|\n| **Inline property editor** | R1 | Double-click any object title \u2192 inline edit field \u2192 auto-save to IndexedDB |\n| **Undo/Redo** | R2 | Ctrl+Z / Ctrl+Y, 50-level history stack, captures full object+proposal state |\n| **Keyboard shortcuts** | R3 | Delete removes selected, Escape deselects all |\n\n### Architecture\n\n```\njs/\n\u251c\u2500\u2500 main.js                 \u2014 entry point (imports + init)\n\u251c\u2500\u2500 canvas-state.js         \u2014 shared state, constants, DOM refs\n\u251c\u2500\u2500 canvas-interactions.js  \u2014 drag, resize, snap, pan, select (491 lines)\n\u251c\u2500\u2500 canvas-render.js        \u2014 render/paint objects\n\u251c\u2500\u2500 canvas-selection.js     \u2014 selection logic\n\u251c\u2500\u2500 canvas-proposals.js     \u2014 proposal system\n\u251c\u2500\u2500 canvas-persistence.js   \u2014 IndexedDB save/load\n\u251c\u2500\u2500 canvas-keyboard.js      \u2014 keyboard shortcuts\n\u251c\u2500\u2500 canvas-properties.js    \u2014 double-click inline editing\n\u2514\u2500\u2500 canvas-history.js       \u2014 undo/redo stack\n```\n\n### Files changed\n- `apps/pwa-canvas/public/index.html` \u2014 switch from pwa.js to js/main.js module\n- `apps/pwa-canvas/public/js/` \u2014 10 new modular files\n- `apps/edge-runtime/public/pwa-canvas/` \u2014 synced copies",
+      "headRefName": "work/canvas-pwa-modular",
+      "mergedAt": "2026-07-03T00:27:47Z",
+      "number": 37,
+      "title": "feat(canvas-pwa): modular architecture with undo/redo, property editor, keyboard shortcuts"
+    },
+    {
+      "body": "## What\n\nAdds two features to the Math Tutor PWA:\n\n### 1. Math Topics Dropdown\n- 30 hardcoded math topics populate the Practice Test dropdown: Area, Perimeter, Volume, Algebra, Equations, Trigonometry, Statistics, Probability, etc.\n- Zero backend changes needed for the dropdown itself\n\n### 2. Test Review (right/wrong)\n- Submit handler collects all answers and POSTs to new `/score` endpoint\n- MCQ: exact match evaluation\n- Short-answer/extended: LLM-based semantic evaluation\n- Review UI shows \u2705/\u274c per question, colour-coded score circle, correct answer for misses\n- Results saved to `TENANT_KV` with auto-generated student ID for cross-device history\n- Dashboard shows clickable test history list \u2014 tap any past result to re-open its full review\n\n### New API Endpoints\n| Endpoint | Method | Purpose |\n|----------|--------|---------|\n| `/api/tutor/math/score` | POST | Evaluate answers against correct |\n| `/api/tutor/math/save-result` | POST | Persist to KV |\n| `/api/tutor/results/:studentId` | GET | List test history |\n| `/api/tutor/math/test/:testId` | GET | Load a past test for review |\n\n## Typecheck\n\u2705 Clean \u2014 `npx tsc --noEmit` passes\n\n## Files changed\n- `apps/ai-tutor/public/math/pwa.js` \u2014 Topics, submit handler, review UI, dashboard history, student ID\n- `apps/ai-tutor/public/math/pwa.css` \u2014 Review/history styles\n- `apps/edge-runtime/src/routes/ai-tutor-api.ts` \u2014 Score, save-result, results, test-by-id endpoints\n- `apps/edge-runtime/public/ai-tutor/math/pwa.js` \u2014 Synced copy\n- `apps/edge-runtime/public/ai-tutor/math/pwa.css` \u2014 Synced copy",
+      "headRefName": "work/ai-tutor-test-review",
+      "mergedAt": "2026-07-03T00:08:28Z",
+      "number": 36,
+      "title": "feat(ai-tutor): test review with right/wrong display, math topics dropdown, cross-device history"
+    },
+    {
+      "body": "## What changed\n\n| Fix | Before | After |\n|-----|--------|-------|\n| **KaTeX rendering** | Equations shown as raw `$$...$$` text | KaTeX CDN auto-renders all math ($$display$$ + $inline$) |\n| **PWA icons** | Manifest refs \u2192 404 (`icon-192.png` / `icon-512.png`) | Solid-color placeholder PNGs generated (737B + 2.2KB) |\n| **Hub manifest** | `<link rel=\\manifest\\>` on hub page \u2014 404 | Removed (hub is a landing page, not the PWA) |\n| **Service worker** | `sw.js` registration \u2192 404 console error every load | Removed until a real SW is written |\n| **CI deploy pipeline** | Static files went stale (source ahead of deployed) | `copy-static.mjs` runs before every deploy (prod + staging) |\n| **Static drift** | Deployed `pwa.js` lacked PDF.js + auto-summarise | Source `pwa.js` copied over \u2014 now deployed matches source |\n\n## Verification\n\n- `bun run typecheck` \u2014 \u2705\n- copy-static.mjs tested locally: 7 assets synced\n- All files are in-sync between `apps/ai-tutor/public/` and `apps/edge-runtime/public/ai-tutor/`\n\n## Remaining Advisory Items (not scope of this PR)\n\n- Progress dashboard shows all zeros (no D1 integration)\n- Practice test submit button does nothing\n- Duplicate document detection (FRS v3.4) not implemented\n- No rate limiting on tutor API",
+      "headRefName": "work/ai-tutor-fixes",
+      "mergedAt": "2026-07-02T21:07:56Z",
+      "number": 35,
+      "title": "fix: ai-tutor polish \u2014 KaTeX, icons, remove SW, wire CI copy"
+    },
+    {
+      "body": "## Summary\n\nSecurity hardening pass addressing all findings from the July 2 audit. Code-level fixes only.\n\n## Fixes\n\n- **P0** Stored XSS via KV page content \u2014 esc() applied to all pageContent values (HTML + HTMX paths)\n- **P0** HTMX attribute injection \u2014 hxAttr() escapes quotes in v.id for hx-vals\n- **P1** Missing security headers \u2014 new security-headers.ts middleware (CSP, HSTS, nosniff, XFO)\n- **P1** Widget summary card XSS \u2014 server values via textContent + DOM nodes, not innerHTML\n- **P2** CSRF \u2014 SameSite=Lax \u2192 Strict on both set/clear cookies\n- **P2** Rate limiter fail-open \u2192 fail-closed on KV error\n\n## Verification\n\n- bun run typecheck \u2014 passes\n- All 6 fixes are single-responsibility, no scope creep\n",
+      "headRefName": "work/security-hardening-v1",
+      "mergedAt": "2026-07-02T20:50:14Z",
+      "number": 34,
+      "title": "fix: security hardening \u2014 XSS, missing headers, SameSite, rate-limiter"
+    },
+    {
+      "body": "## Task\nEG-FEAT-0025: Math Tutor PWA \u2014 FRS v2.0 approved.\n\n## Changes\n- `apps/ai-tutor/public/` \u2014 PWA shell (index.html, pwa.css, pwa.js, manifest.webmanifest)\n- `apps/ai-tutor/scripts/copy-static.mjs` \u2014 copies assets to edge-runtime/public/ai-tutor/\n- `apps/ai-tutor/scripts/validate-manifest.mjs` \u2014 validates web manifest before copy\n- `apps/edge-runtime/src/routes/ai-tutor.ts` \u2014 Hono route helper\n- `apps/edge-runtime/src/middleware/tenant-resolver.ts` \u2014 bypass for /ai-tutor\n- `apps/edge-runtime/src/index.ts` \u2014 route registration\n\n## Architecture\nEdgeGDE PWA scaffold pattern. Served at:\n`https://edgegde-calculator.renleding.workers.dev/ai-tutor/`\n\nThree views: Chat, Practice, Dashboard. API endpoints use existing EdgeGDE\nstack (KV for curriculum/docs, D1 for progress, Workers for AI proxy).\n\n## Verification\n- [x] Static assets copied to edge-runtime/public/ai-tutor/ (4 files)\n- [x] Manifest validated\n- [x] Typecheck passes (pre-existing workers-types error unrelated)\n\n## Next\n- Tutor API endpoints (chat/stream integration, doc upload, test gen)\n- KaTeX + SVG geometry rendering\n- D1 schema for progress tracking",
+      "headRefName": "work/math-tutor-pwa",
+      "mergedAt": "2026-07-02T05:13:16Z",
+      "number": 33,
+      "title": "feat: Math Tutor PWA scaffold \u2014 NSW Maths tutoring on EdgeGDE"
+    },
+    {
+      "body": "## Problem\nWrangler v3 does NOT inherit `vars`, `durable_objects`, `r2_buckets`, or `d1_databases` from the top-level config into named environments. The production worker has been deploying without:\n\n| Binding | Missing? | Symptom |\n|---------|----------|---------|\n| `DB` (D1) | \u2705 Now | `D1 binding required` |\n| `TENANT_KV` | \u2705 Now | `KV not available` (500) |\n| `ARTIFACT_KV` | \u2705 Now | Broken artifact storage |\n| `TELEMETRY_KV` | \u2705 Now | Broken telemetry |\n| `RATE_LIMITER` (DO) | \u2705 Now | Broken rate limiting |\n| `AUDIT_LEDGER` (DO) | \u2705 Now | Broken audit |\n| `CHAT_SESSION` (DO) | \u2705 Now | Broken chat |\n| `CANVAS_SESSION` (DO) | \u2705 Now | Broken canvas |\n| `VAULT_BUCKET` (R2) | \u2705 Now | Broken document vault |\n| OTEL vars | \u2705 Now | Missing observability |\n\n## Fix\nAdded all missing bindings to both `env.staging` and `env.production` using the correct environment-specific resource IDs.\n\nAlso ran D1 migrations against `edgegde-prod` (production database was empty, now has full schema).\n\n## Files Changed\n- `apps/edge-runtime/wrangler.json` (+33 lines for staging+production env sections)\n\n## Verification\n- [ ] CI passes\n- [ ] Deploy production completes\n- [ ] `/healthz` \u2192 `ok`\n- [ ] `/api/v1/chat/init` \u2192 returns session ID (not `D1 binding required`)\n- [ ] `/dashboard` \u2192 `200`\n- [ ] Chat health check passes",
+      "headRefName": "fix/production-all-bindings",
+      "mergedAt": "2026-07-01T13:57:30Z",
+      "number": 32,
+      "title": "fix: add all missing production/staging env bindings to wrangler.json"
+    },
+    {
+      "body": "## Problem\nThe production environment section in `wrangler.json` was missing `kv_namespaces` bindings. Since the production worker uses different KV namespace IDs than the default/preview environment, the production worker deployed without any KV bindings.\n\nThis caused `KV not available` errors on:\n- Site loads (`/sites/:slug` \u2192 `500`)\n- Chat init and full flow\n- Dashboard, tenant admin, and all KV-dependent endpoints\n\n## Fix\nAdded `kv_namespaces` to the `env.production` section with the correct production KV IDs:\n| Binding | Dev ID | Production ID |\n|---------|--------|--------------|\n| `ARTIFACT_KV` | `95a35fb5...` | `381fcc88...` |\n| `TENANT_KV` | `04893a14...` | `5a909668...` |\n| `TELEMETRY_KV` | `588cdc55...` | `78c1f43b...` |\n\nAlso added `env.staging` section with staging KV IDs (same issue would hit the staging branch).\n\n## Verification\n- [ ] CI passes\n- [ ] Deploy production completes without errors\n- [ ] `/healthz` returns `ok`\n- [ ] `/sites/alpha-broker-01` returns `200`\n- [ ] Chat health check passes all 7 checks",
+      "headRefName": "fix/production-kv-bindings",
+      "mergedAt": "2026-07-01T13:49:45Z",
+      "number": 31,
+      "title": "fix: add production KV namespace bindings to wrangler.json"
+    },
+    {
+      "body": "## Fixes for 3 active CI failure sources (last 24h)\n\n### Fix 1: `as any` violations in `canvas-session.do.ts` (was blocking CI \\& Deploy)\nReplaced 4 `as any` casts with proper TypeScript types:\n- `request.json() as any` \u2192 typed interfaces\n- `this as any` \u2192 `this as CanvasSession_DO`  \n- `(this.doc as any).designTokens` \u2192 `(this.doc as CanvasDocument \\& { designTokens: unknown })`\n\n### Fix 2: EnvironmentTeardownError in Post-Merge Analysis\nReplaced dynamic `import('../src/registry/calculators')` inside a `describe` block with a static `import` at the top of `calculator-engine.test.ts`. Dynamic imports during test execution could resolve after Vitest environment teardown.\n\n### Fix 3: Duplicate calculator registration\nRegistry module (imported by `uat-calculators.test.ts`) and `calculator-engine.test.ts` both registered `loan-repayment`. Added `if (!getCalculator('loan-repayment'))` guard in `beforeAll`.",
+      "headRefName": "work/fix-governance-ci-errors",
+      "mergedAt": "2026-07-01T07:04:40Z",
+      "number": 30,
+      "title": "fix: resolve 3 CI governance failures \u2014 proper types, static imports, duplicate registration"
+    },
+    {
+      "body": "## What\n\nDelivers the remaining governance toolchain from the research sprint:\nSaga coordinator, DAG scheduler, reconciliation loop, replay testing,\ncross-mission memory, unified Aegis CLI, red-team testing, tamper-proof\naudit, CI integration, and dogfood verification.\n\n## Changes\n\n### Governance Engine\n- **Saga coordinator** (tools/saga.py): multi-step mission execution with\n  auto-compensation on failure, checkpoint-based rollback, reconciliation\n  loop after each task\n- **DAG scheduler** (tools/scheduler.py): parallel task execution with\n  cycle detection, dependency-gated fan-in, failure cascading\n- **Replay testing** (tools/replay.py): replay past missions from audit\n  history against current codebase\n- **Cross-mission memory** (tools/mission_memory.py): SQLite-backed\n  persistence of mission outcomes with recall by file path or mission ID\n\n### Aegis CLI (tools/aegis.py)\nUnified 5-phase state machine:\n  DISCOVERY \u2192 validate manifest, score risks\n  ALIGNMENT \u2192 build DAG, check dependencies\n  GATE \u2192 authorization level check\n  EXECUTION \u2192 Saga coordinator with reconcile\n  VERIFICATION \u2192 store memory, produce audit report\n\nSubcommands: run, replay, memory, risk-score, policy validate\n\n### Security & Integrity\n- **Tamper-proof audit** \u2014 each report includes previous_mission_hash\n  + mission_hash (SHA-256), forming verifiable chain\n- **Red-team tests** (tools/redteam_test.py) \u2014 6 tests, all passing:\n  forbidden path, missing compensate, missing saga, cycle detection,\n  policy integrity, saga compensation\n- **CI integration** \u2014 Aegis policy validate + red-team tests run on\n  every push/PR\n- **Risk taxonomy** \u2014 per-operation scoring (1-10), authorization level\n  mapping (gogo vs deploy gogo)\n\n### Fixes\n- calculators.ts no longer imports deprecated compile-layout-compat\n  (caused Vitest teardown race in CI)\n- compile-layout-compat.ts doc cleaned up\n\n## Verification\n- [x] Full Aegis 5-phase pipeline run against real manifest (exit 0)\n- [x] Red-team tests: 6/6 pass\n- [x] Policy validation: 8/8 checks pass\n- [x] Hash chain: reports link via previous_mission_hash\n- [x] Memory: 9 mission records stored",
+      "headRefName": "work/governance-foundation",
+      "mergedAt": "2026-07-03T00:23:46Z",
+      "number": 29,
+      "title": "feat: Aegis governance engine \u2014 CLI, hash chain audit, CI integration, dogfood"
+    },
+    {
+      "body": "## Task\n\nStrategic deep research \u2192 identified 6 classes of gaps vs global best practices. This PR closes the first 3 (Phases 1-2 of the remediation plan).\n\n## Changes\n\n### Phase 1: Foundation (EG-POL-0001, EG-POL-0002)\n- Created `.hermes/policies/policy.md` \u2014 agent behavioral policy (5-phase state machine, audit rules, scope containment)\n- Created `.hermes/instructions/instructions.md` \u2014 execution instructions (kanban triage, gogo auth, breach record, Aider rule)\n- Fixed `.gitignore` to track these while keeping local-only .hermes/ subdirs ignored\n- Fixed Aegis governance prompt scope mismatch \u2014 now covers both SDLC governance (manifest validation, constraint enforcement) and Canvas state governance (tree mutations, Zod schemas)\n\n### Phase 2: Critical Gaps (EG-ARCH-0001, EG-ARCH-0002)\n- **Circuit breaker** for LLM provider calls in `adapter.py`: MAX_FAILURES=3, 30s cooldown, per-provider state, integrated with Ollama\u2192OpenRouter fallback\n- **Dry-run mode**: `--dry-run` flag on `run`/\\`run-all` subcommands \u2014 preview instance context and circuit state without execution\n\n### Phase 3: Compensating Transactions (EG-ARCH-0003)\n- Saga compensation pattern documented in `AGENTS.md` Mission Manifest schema\n- Per-task `compensate` block with reverse operation, args, and trigger condition\n- `saga` block with `compensation_strategy` (reverse_order/parallel/manual) and `partial_failure_policy`\n- Updated verification and rollback rules to reference Saga flow + reconciliation check\n- Leverages existing `.hermes/checkpoints/` system for file-level compensation\n\n## Remaining (specs in docs/PHASE3-4-IMPLEMENTATION-SPECS.md)\n- EG-ARCH-0004: Replay testing from audit history (3-5d)\n- EG-ARCH-0005: Reconciliation loop (1d)\n- EG-ARCH-0006: DAG task scheduler + parallel execution (2-3d)\n- EG-FEAT-0001: Cross-mission memory (1d)\n\n## Verification\n- [ ] Python lint: `adapter.py` compiles clean\n- [ ] Policy files tracked: .gitignore updated for .hermes/policies/ and .hermes/instructions/\n- [ ] Aegis prompt covers both governance domains\n- [ ] AGENTS.md Schema updated with Saga fields\n\n## Risk\nLow \u2014 policy files, documentation, and a limited-scope code change in the SWE-bench adapter",
+      "headRefName": "work/governance-foundation",
+      "mergedAt": "2026-07-01T03:35:10Z",
+      "number": 28,
+      "title": "feat: governance foundation \u2014 policy files, Aegis scope, circuit breaker, Saga, dry-run"
+    },
+    {
+      "body": "The worker has no route at /` so post-deploy health check fails with HTTP 404. \n  \nFix: Use `/healthz` (which returns 200) instead of `/` for all health checks in the Deploy \u2014 Production workflow:\n- Gate 6 (staging health check)\n- Post-deploy health check  \n- Record deployment step",
+      "headRefName": "work/fix-deploy-health-checks",
+      "mergedAt": "2026-07-01T03:31:20Z",
+      "number": 27,
+      "title": "fix: use /healthz endpoint for deploy health checks (root returns 404)"
+    },
+    {
+      "body": "## Problem\n\nThe Deploy \u2014 Production workflow runs `wrangler deploy --env production` but `wrangler.json` had no `env.production` section. Wrangler would:\n- Deploy as `edgegde-calculator-production` (not the intended `edgegde-calculator`)\n- Try to register top-level queue consumers on the new worker name, which failed because the queues already have `edgegde-calculator` as a consumer\n\n## Fix\n\nAdded `env.production` section to `wrangler.json` with:\n- `name: edgegde-calculator` \u2014 deploys as the correct worker name\n- `queues.producers` only \u2014 keeps queue producer bindings available but does NOT register queue consumers (avoids conflict with the base worker's existing consumer registration)\n\nAlso deleted the stale `edgegde-calculator-production` worker from the failed deploy attempt.",
+      "headRefName": "work/fix-deploy-queue-consumers",
+      "mergedAt": "2026-07-01T03:26:31Z",
+      "number": 26,
+      "title": "fix: add production env to wrangler.json for queue consumer deployment"
+    },
+    {
+      "body": "## Summary\n\nFixes the automated SDLC pipeline CI failures affecting all 3 workflows (CI, Deploy \u2014 Production, Post-Merge Analysis).\n\n### Changes\n\n1. **bun.lock sync** \u2014 Regenerated lockfile to match `package.json` (`bun install --no-frozen-lockfile`)\n2. **Test fixture fix** \u2014 Added required fields (`isPrincipalPlaceOfResidence`, `isForeignBuyer`, `isFirstHomeBuyer`) to calculator test objects\n3. **CI workflow fix** \u2014 Added `working-directory: apps/edge-runtime` to Governance compliance check step so `tsx` is found from its installed location\n\n### CI Results\n\n| Check | Status |\n|---|---|\n| \u2705 typecheck | PASS |\n| \u2705 unit-tests | PASS |\n| \u2705 swe-bench-lint | PASS |\n| \u2705 code-quality | PASS |\n\nReady to merge.",
+      "headRefName": "work/fix-bun-lockfile",
+      "mergedAt": "2026-07-01T03:18:01Z",
+      "number": 25,
+      "title": "fix: sync bun.lock with package.json to unblock CI"
+    },
+    {
+      "body": "## Changes (18 commits)\n\n### New Features\n- **Multi-tenant self-service onboarding**: POST /register (Turnstile, PBKDF2, API key generation, KV/D1 provisioning), POST /login (JWT session), 3-step onboarding wizard, tenant dashboard\n- **Email verification**: POST /verify + /verify/resend via Resend API (6-digit code, 15min expiry, 60s cooldown, 5 attempt limit)\n- **Rate limiting**: KV-based, 3/hr register, 10/15min login per IP\n- **API key management**: Regenerate with confirmation, shown once\n- **AuditLedger write-path**: runMission() now writes action_executed, mission_executed, compensation_executed events to the AuditLedger DO during execution\n\n### Fixes\n- Calculator POST route falls back to engine registry for all 28 calculators\n- Rate limiting middleware self-reads TENANT_KV from context\n\n### Documentation\n- FRS: Canvas editor PWA v2\n- FRS: Multi-tenant self-service onboarding\n- Execution plan: 8 tasks, 6 days\n\n## Verification\n- tsc --noEmit: 0 errors\n- 347/347 tests passing\n- Deployed to staging (verified end-to-end: register \u2192 login \u2192 dashboard \u2192 calculator API)",
+      "headRefName": "hermes/hermes-ef56f142",
+      "mergedAt": "2026-06-28T04:40:04Z",
+      "number": 23,
+      "title": "Phase 2: Multi-tenant onboarding, rate limiting, audit ledger, email verification"
+    },
+    {
+      "body": "## Summary\n\nImplements the Aegis governance layer (FRS-002) and SWE-bench score optimization (FRS-003).\n\n### FRS-002: Aegis Governance Layer\n- **FRS-1**: SWE-bench Lite adapter at `tools/swe-bench/adapter.py`\n- **FRS-2**: Headless LSP validation gate at `tools/lsp-gate/lsp-validate.py`\n- **FRS-3**: Droid orchestrated execution lifecycle\n- **FRS-4**: 6-gate verification suite at `tools/verification-suite.ts` + tests\n- **FRS-5**: CI syntax validation gate + committed baseline (8.7%)\n\n### FRS-003: Score Optimization\n- **FRS-6**: Chain-of-thought prompting (analyze then generate)\n- **FRS-7**: Self-correction loop (git error feedback + LSP diagnostics)\n- **FRS-8**: Best-of-3 multi-attempt (`--attempts N`)\n- **FRS-9**: Droid execution lifecycle + Aider subprocess fallback\n\n### Architecture\n- No IDE features, no native editor, no interactive LSP\n- All tools are headless, deterministic, run inside the SDLC state machine\n- Podman-based container runtime via docker-py socket bridge\n\n### Baseline\nSWE-bench Lite dev split: **2/23 (8.7%)** with DeepSeek V4 Flash.\nRegression baseline committed to `.hermes/logs/swe-bench/BASELINE_COMMITTED.json`.",
+      "headRefName": "hermes/hermes-a760990a",
+      "mergedAt": "2026-06-27T11:15:19Z",
+      "number": 22,
+      "title": "feat: FRS-002 + FRS-003 \u2014 Aegis governance layer & SWE-bench optimization"
+    },
+    {
+      "body": "## Changes (30 commits)\n\n### Calculator Catalog \u2014 28/28 calculators complete\nAll calculators from the spec: loan-repayment, budget-planner, stamp-duty, savings-goal, repayment-comparison, lvr-calculator, rent-vs-buy, borrowing-power, property-buying-cost, property-selling-cost, comparison-rate, extra-repayment, interest-only-mortgage, how-long-to-repay, lump-sum-repayment, income-tax, compound-interest, credit-card, income-annualisation, income-gross-up, split-loan, home-loan-offset, introductory-rate-loan, loan-comparison, mortgage-switching, leasing, reverse-mortgage\n\n### Agentic UX Pipeline\n- Manifest generator (goal \u2192 validated AgenticMissionManifest)\n- POST /api/v1/missions/execute endpoint\n- Calculator POST already wired through runMission()\n\n### Admin Dashboard\n- Unified landing at /admin/ with nav bar + tenant switcher\n- Worktree status card (HTMX-fetched)\n- All existing admin pages unified under shared navigation\n\n### Lifecycle & Observability\n- OTel lifecycle spans for reconcile/compensate events\n- Calculator replay fixture + test\n- Dead letter queue admin UI with replay\n\n### Quality & Infrastructure\n- 347 tests (was 202), 16 test files, tsc exit 0\n- KV key patterns centralized in src/lib/kv-keys.ts\n- MemoryKvStore singletons unified\n- Circuit breaker for LLM providers\n- Cleanup worktrees CLI script\n- Staging deploy with admin auth\n\n## Verification\n- `tsc --noEmit`: 0 errors\n- 347/347 tests passing\n- Deployed to: https://edgegde-calculator-staging.renleding.workers.dev",
+      "headRefName": "hermes/hermes-ef56f142",
+      "mergedAt": "2026-06-28T01:01:16Z",
+      "number": 21,
+      "title": "Phase 0-4 + F: Full catalog, agentic UX, admin dashboard, polish"
+    },
+    {
+      "body": "## What\n\nAdds coverage thresholds, workerd pool config, and 4/5 ClickHouse drift panels in SigNoz.\n\n## Changes\n\n- **vitest.coverage.config.ts** \u2014 @vitest/coverage-v8 with 5% threshold (baseline, bump as coverage grows)\n- **vitest.integration.config.ts** \u2014 workerd pool config for future E2E tests via Miniflare\n- **test:coverage** script in package.json\n- **coverage/** added to .gitignore\n- **SigNoz EdgeGDE Mission Drift** \u2014 4 ClickHouse panels with SQL queries:\n  1. Drift Events Over Time (Time Series)\n  2. Actions by Drift Category (Table)\n  3. Compensations by Status (Pie)\n  4. Top Drifted Actions (Table)\n  5. Mission Health Summary \u2014 needs one browser click (open panel, paste SQL)\n\n## Running\n\n```bash\ncd apps/edge-runtime && bun run test:unit   # 193 tests\ncd apps/edge-runtime && bun run test:coverage # coverage report\n```",
+      "headRefName": "work/pool-coverage-drift",
+      "mergedAt": "2026-06-24T13:03:52Z",
+      "number": 20,
+      "title": "feat: coverage config, integration pool, drift dashboards"
+    },
+    {
+      "body": "## What\n\nConverts the last 6 test files to vitest and adds a dedicated E2E config for tests that require a deployed worker.\n\n## Changes\n\n- **Convert** 6 test files to vitest (all HTTP API tests hitting deployed worker)\n- **Create** `vitest.e2e.config.ts` \u2014 separate config with 30s timeouts\n- **Add** `test:e2e` script to package.json\n\n## E2E Tests (require deployed worker)\n\n```bash\ncd apps/edge-runtime\nWORKER_URL=https://edgegde-calculator.renleding.workers.dev bun run test:e2e\n```\n\n| File | Description |\n|------|-------------|\n| `domain-workspace.test.ts` | Origination intake, pipeline, ingestion |\n| `e2e-widget.test.ts` | Widget rendering, chat interaction, stream |\n| `admin-integration.test.ts` | Admin pages, file upload, auth |\n| `compliance-e2e.test.ts` | Compliance scenarios |\n| `audit-events.test.ts` | Audit event recording |\n| `calculator-engine.test.ts` | Calculator engine |",
+      "headRefName": "work/test-pool-e2e",
+      "mergedAt": "2026-06-24T12:18:33Z",
+      "number": 19,
+      "title": "E2E pool: remaining test conversions + vitest.e2e config"
+    }
+  ],
+  "errors": []
+}

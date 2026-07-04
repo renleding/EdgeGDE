@@ -1,0 +1,8 @@
+[
+  {
+    "type": "possible_compensation_gap",
+    "count": 1,
+    "mission_id": "qwen35-001-droid-coding-test",
+    "severity": "low"
+  }
+]
