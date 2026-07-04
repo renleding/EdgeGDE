@@ -128,7 +128,6 @@
   },
   "vars": {
     "ENVIRONMENT": "staging",
-    "ADMIN_API_TOKEN": "",
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
     "OTEL_SERVICE_NAME": "edgegde-worker"
   }

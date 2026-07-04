@@ -47,7 +47,7 @@ export const dashboardHtml = `<!DOCTYPE html>
 
 <div class="token-box">
   <div class="label">🔑 Admin Token (append ?token=... to any admin URL)</div>
-  <div class="val">858ea106ba9379472dfa634b1c630c2e46b525f6</div>
+  <div class="val">edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4</div>
 </div>
 
 <!-- ═══════════════════════════════════════════════ -->
@@ -61,7 +61,7 @@ export const dashboardHtml = `<!DOCTYPE html>
       <div class="url">https://edgegde-calculator.renleding.workers.dev/admin/kb?tenant=au-mortgage-broker-afirmico</div>
     </div>
     <div class="links">
-      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/admin/kb?tenant=au-mortgage-broker-afirmico&token=858ea106ba9379472dfa634b1c630c2e46b525f6" target="_blank">Open</a>
+      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/admin/kb?tenant=au-mortgage-broker-afirmico&token=edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4" target="_blank">Open</a>
     </div>
   </div>
 
@@ -72,7 +72,7 @@ export const dashboardHtml = `<!DOCTYPE html>
       <div class="url">https://edgegde-calculator.renleding.workers.dev/admin/rules?tenant=au-mortgage-broker-afirmico</div>
     </div>
     <div class="links">
-      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/admin/rules?tenant=au-mortgage-broker-afirmico&token=858ea106ba9379472dfa634b1c630c2e46b525f6" target="_blank">Open</a>
+      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/admin/rules?tenant=au-mortgage-broker-afirmico&token=edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4" target="_blank">Open</a>
     </div>
   </div>
 
@@ -83,7 +83,7 @@ export const dashboardHtml = `<!DOCTYPE html>
       <div class="url">https://edgegde-calculator.renleding.workers.dev/api/v1/admin/audit/export?tenant=au-mortgage-broker-afirmico</div>
     </div>
     <div class="links">
-      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/api/v1/admin/audit/export?tenant=au-mortgage-broker-afirmico&token=858ea106ba9379472dfa634b1c630c2e46b525f6" target="_blank">Open</a>
+      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/api/v1/admin/audit/export?tenant=au-mortgage-broker-afirmico&token=edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4" target="_blank">Open</a>
     </div>
   </div>
 
@@ -94,7 +94,7 @@ export const dashboardHtml = `<!DOCTYPE html>
       <div class="url">https://edgegde-calculator.renleding.workers.dev/admin/tenants</div>
     </div>
     <div class="links">
-      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/admin/tenants?token=858ea106ba9379472dfa634b1c630c2e46b525f6" target="_blank">Open</a>
+      <a class="btn btn-open" href="https://edgegde-calculator.renleding.workers.dev/admin/tenants?token=edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4" target="_blank">Open</a>
     </div>
   </div>
 </div>

@@ -14,14 +14,14 @@
  *
  * Environment variables:
  *   WORKER_URL  (default: https://edgegde-calculator.renleding.workers.dev)
- *   TOKEN       (default: 858ea106ba9379472dfa634b1c630c2e46b525f6)
+ *   TOKEN       (default: edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4)
  *   TENANT      (default: au_test_mortgage_broker_v2)
  */
 
 import { describe, it, expect } from 'vitest'
 
 const WORKER = process.env.WORKER_URL || 'https://edgegde-calculator.renleding.workers.dev'
-const TOKEN = process.env.TOKEN || '858ea106ba9379472dfa634b1c630c2e46b525f6'
+const TOKEN = process.env.TOKEN || 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4'
 const TENANT = process.env.TENANT || 'au_test_mortgage_broker_v2'
 
 async function get(path: string) {
