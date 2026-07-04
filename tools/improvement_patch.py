@@ -17,6 +17,7 @@ POLICY_FILE = str(REPO_ROOT / ".hermes" / "policies" / "policy.md")
 
 def _get_db():
     """Return a connection to the MEMORY_DB (with WAL mode for concurrent writes)."""
+    Path(MEMORY_DB).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(MEMORY_DB)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
