@@ -75,7 +75,8 @@ jobs:
       - name: Gate 6b — E2E tests against staging
         run: |
           echo "Running E2E test suite against staging..."
-          EDGE_RUNTIME_BASE_URL=https://${{ env.STAGING_WORKER }}.renleding.workers.dev \
+          WORKER_URL=https://${{ env.STAGING_WORKER }}.renleding.workers.dev \
+          TOKEN=${{ secrets.ADMIN_API_TOKEN }} \
             bun run test:e2e 2>&1
           echo "✅ E2E tests passed against staging"
 
@@ -110,6 +111,13 @@ jobs:
 
       - name: Copy AI Tutor PWA assets
         run: node ../../apps/ai-tutor/scripts/copy-static.mjs
+
+      - name: Set production secrets
+        run: |
+          echo "${{ secrets.ADMIN_API_TOKEN }}" | npx wrangler secret put ADMIN_API_TOKEN --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to production
         run: npx wrangler deploy --env production

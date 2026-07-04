@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 
 const WORKER = process.env.WORKER_URL || 'https://edgegde-calculator.renleding.workers.dev'
 const TENANT = process.env.TENANT || 'au_test_mortgage_broker_v2'
-const TOKEN = process.env.TOKEN || '858ea106ba9379472dfa634b1c630c2e46b525f6'
+const TOKEN = process.env.TOKEN || 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4'
 
 async function get(path: string) {
   return fetch(WORKER + path)
@@ -130,7 +130,8 @@ describe('E2E-02: Chat Interaction', () => {
     })
     const text = await res.text()
     const lines = text.trim().split('\n').filter(Boolean)
-    const lastLine = JSON.parse(lines[lines.length - 1])
+    const dataLine = lines.find(l => l.startsWith('data:'))
+    const lastLine = JSON.parse(dataLine!.slice(5).trim())
 
     expect(lastLine.done).toBe(true)
     expect(lastLine.message).toBeTruthy()
@@ -140,7 +141,7 @@ describe('E2E-02: Chat Interaction', () => {
 
 describe('E2E-03: Disclosure Render', () => {
   it('E2E-03a: Compliance page renders for test tenant', async () => {
-    const TOKEN = process.env.TOKEN || '858ea106ba9379472dfa634b1c630c2e46b525f6'
+    const TOKEN = process.env.TOKEN || 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4'
     const res = await fetch(`${WORKER}/admin/rules?tenant=${TENANT}&token=${TOKEN}`)
     const body = await res.text()
     expect(res.ok).toBeTruthy()
@@ -149,7 +150,7 @@ describe('E2E-03: Disclosure Render', () => {
   })
 
   it('E2E-03b: Site page shows widget embed and version info', async () => {
-    const TOKEN = process.env.TOKEN || '858ea106ba9379472dfa634b1c630c2e46b525f6'
+    const TOKEN = process.env.TOKEN || 'edgegde-at-bef5575b2fa2ff5da548f9e90159a643632848c4'
     const res = await fetch(`${WORKER}/admin/site?tenant=${TENANT}&token=${TOKEN}`)
     const body = await res.text()
     expect(res.ok).toBeTruthy()
@@ -208,7 +209,8 @@ describe('UX-01: Prompt Override', () => {
       })
       const text = await res.text()
       const lines = text.trim().split('\n').filter(Boolean)
-      const last = JSON.parse(lines[lines.length - 1])
+      const dataLine = lines.find(l => l.startsWith('data:'))
+      const last = JSON.parse(dataLine!.slice(5).trim())
       if (last.done !== true) {
         const reinit = await fetch(`${WORKER}/api/v1/chat/init?tenant=${TENANT}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
