@@ -48,10 +48,20 @@ git worktree list --porcelain | while IFS= read -r line; do
     HEAD_HASH="${BASH_REMATCH[1]}"
   elif [[ "$line" =~ ^branch\ (.*) ]]; then
     BRANCH="${BASH_REMATCH[1]#refs/heads/}"
+  elif [[ "$line" =~ ^locked\ (.*) ]]; then
+    LOCK_REASON="${BASH_REMATCH[1]}"
   elif [[ "$line" == "" ]]; then
     # Empty line = end of one worktree entry
     if [ -z "${WT_PATH:-}" ] || [ -z "${BRANCH:-}" ]; then continue; fi
     if [ "$WT_PATH" = "$BASE_DIR" ]; then continue; fi  # skip primary tree
+    
+    # ── Detect locked ─────────────────────────────────────────────────────
+    LOCKED=false
+    LOCK_STR=""
+    if [ -n "${LOCK_REASON:-}" ]; then
+      LOCKED=true
+      LOCK_STR=" 🔒 locked"
+    fi
     
     # ── Check age ─────────────────────────────────────────────────────────
     LAST_COMMIT=$(cd "$WT_PATH" && git log -1 --format=%ct 2>/dev/null || echo "0")
@@ -68,17 +78,28 @@ git worktree list --porcelain | while IFS= read -r line; do
     
     echo "  📂 $BRANCH"
     echo "     path: $WT_PATH"
-    echo "     age:  ${AGE_STR}${DIRTY_STR}"
+    echo "     age:  ${AGE_STR}${DIRTY_STR}${LOCK_STR}"
     
-    # ── Prune stale ───────────────────────────────────────────────────────
-    if [ -n "${PRUNE:-}" ] && [ "$AGE_DAYS" -gt "$MAX_AGE" ] && [ "$DIRTY" -eq 0 ]; then
+    # ── Prune stale or locked ─────────────────────────────────────────────
+    SHOULD_PRUNE=false
+    if [ -n "${PRUNE:-}" ]; then
+      # Prune if locked (any age = orphan) OR if old + clean
+      if [ "$LOCKED" = true ] || { [ "$AGE_DAYS" -gt "$MAX_AGE" ] && [ "$DIRTY" -eq 0 ]; }; then
+        SHOULD_PRUNE=true
+      fi
+    fi
+    
+    if [ "$SHOULD_PRUNE" = true ]; then
       if [ -z "${DRY_RUN:-}" ]; then
         echo "     → pruning..."
-        git worktree remove "$WT_PATH" 2>/dev/null || {
-          echo "     → fallback: force-remove"
-          git worktree remove --force "$WT_PATH" 2>/dev/null || true
+        git worktree remove "$WT_PATH" 2>/dev/null || \
+        git worktree remove --force "$WT_PATH" 2>/dev/null || \
+        git worktree remove -f -f "$WT_PATH" 2>/dev/null || {
+          echo "     → git remove failed entirely; removing directory + pruning"
           rm -rf "$WT_PATH" 2>/dev/null || true
+          git worktree prune 2>/dev/null || true
         }
+        # Clean branch ref (works even if worktree was already pruned)
         git branch -D "$BRANCH" 2>/dev/null || true
         echo "     ✅ pruned"
         STALE_COUNT=$((STALE_COUNT + 1))
@@ -89,7 +110,7 @@ git worktree list --porcelain | while IFS= read -r line; do
     fi
     echo ""
     
-    unset WT_PATH HEAD_HASH BRANCH
+    unset WT_PATH HEAD_HASH BRANCH LOCK_REASON
   fi
 done
 
