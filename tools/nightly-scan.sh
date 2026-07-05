@@ -3,7 +3,8 @@
 # Runs from EdgeGDE repo root. Detects regressions, creates kanban tasks on finding.
 # Designed to complete in <3 minutes.
 
-set -euo pipefail
+set -uo pipefail
+# Intentionally NOT using -e: individual checks handle their own failures with || true
 
 REPO="/Users/warren/Documents/_HQ_AI/EdgeGDE"
 cd "$REPO"
@@ -90,21 +91,26 @@ if [ "$STALE_WT" -gt 0 ]; then
   log_finding "P3" "worktrees" "$STALE_WT locked/stale worktree(s) found"
 fi
 
-# ── 7. Migration drift ──
+# ── 7. Migration drift — check for gaps in D1 SQL file numbering ──
+# NOTE: Do NOT compare .sql count against wrangler.jsonc 'migrations' array.
+# wrangler.jsonc migrations are Durable Object class migrations (v1-v4 tags),
+# NOT D1 schema migrations. D1 migrations are tracked server-side via
+# 'wrangler d1 migrations list'. The check below only flags if a numbered
+# migration file was deleted (gap in sequence) — no remote calls.
 echo "--- 7. Migration drift ---"
-SQL_FILES=$(ls apps/edge-runtime/migrations/*.sql 2>/dev/null | wc -l | tr -d ' ')
-REGISTERED=$(python3 -c "
-import json
-with open('apps/edge-runtime/wrangler.jsonc') as f:
-    lines = [l for l in f if not l.strip().startswith('//')]
-    cfg = json.loads(''.join(lines))
-print(len(cfg.get('migrations', [])))
-" 2>/dev/null || echo "0")
-echo "SQL migrations: $SQL_FILES, Registered: $REGISTERED"
-if [ "$SQL_FILES" -ne "$REGISTERED" ] 2>/dev/null; then
-  UNREGISTERED=$((SQL_FILES - REGISTERED))
-  log_finding "P2" "migrations" "$UNREGISTERED migration(s) unregistered (${SQL_FILES} files vs ${REGISTERED} registered)"
-fi
+MIGRATION_FILES=$(ls apps/edge-runtime/migrations/????_*.sql 2>/dev/null | sort)
+GAP="false"
+LAST_NUM=0
+for f in $MIGRATION_FILES; do
+  NUM=$(basename "$f" | grep -oE '^[0-9]+' || echo "0")
+  NUM=$((10#$NUM))
+  if [ "$NUM" -gt $((LAST_NUM + 1)) ] 2>/dev/null; then
+    log_finding "P2" "migrations" "Migration gap: $((LAST_NUM+1))-$((NUM-1)) missing in sequence"
+    GAP="true"
+  fi
+  LAST_NUM=$NUM
+done
+[ "$GAP" = "false" ] && echo "SQL migrations: no gaps found (files up to $LAST_NUM)" || echo "SQL migrations: gaps detected (check findings)"
 
 # ── 8. Dependency audit ──
 echo "--- 8. Dependency audit ---"
