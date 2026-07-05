@@ -36,6 +36,9 @@ def run_check():
     return {"services": services, "summary": f"{ok}/{total} ok", "all_ok": ok == total}
 
 class HealthHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass  # Suppress noisy per-request logging to stderr
+
     def do_GET(self):
         if self.path == "/health":
             self.send_response(200)

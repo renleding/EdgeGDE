@@ -449,7 +449,14 @@ infrastructure:
     hermes_integration:
       cli_flag: "hermes --worktree (or -w) starts a session in an isolated worktree"
       config_option: "worktree: true in config.yaml auto-enables worktree mode"
-      kanban_workspace_kind: "workspace_kind=worktree for Kanban tasks"
+      kanban_workspace_kind: "workspace_kind=worktree for Kanban tasks — creates tasks with isolated git worktrees"
+      subagent_isolation: >
+        Kanban tasks can be created with --workspace worktree:<path> --branch <name>
+        to assign each subagent its own isolated git worktree. The worktree is
+        created by the worker at claim-time. Hermes delegate_task does not
+        currently create worktrees for subagents; use the Kanban swarm/dispatch
+        path for worktree-isolated subagent execution.
+      remove_command: "hermes worktree remove <name> removes a worktree with safety checks"
       default_path: >
         Hermes default: .worktrees/<task.id>/ ;
         EdgeGDE convention: ../EdgeGDE-worktrees/work-<name>/
