@@ -130,6 +130,9 @@
   "env": {
     "staging": {
       "name": "edgegde-calculator-staging",
+      "d1_databases": [
+        { "binding": "DB", "database_id": "a418b4ad-e33b-4088-8eb8-715b5945d10f", "database_name": "ebroker_leads_staging" }
+      ],
       "durable_objects": {
         "bindings": [
           { "class_name": "RateLimiter",    "name": "RATE_LIMITER" },
