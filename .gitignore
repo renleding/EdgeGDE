@@ -23,3 +23,6 @@ apps/edge-runtime/.wrangler/
 .hermes/bin/
 .worktrees/
 __pycache__/
+apps/ai-tutor/public/geography/
+apps/edge-runtime/public/ai-tutor/geography/
+apps/edge-runtime/.hermes/
