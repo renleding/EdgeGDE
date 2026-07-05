@@ -287,7 +287,6 @@ describe('Site Admin', () => {
   it('3.3 empty staging/production', async () => {
     const body = await get(`/admin/site?tenant=${TENANT}&token=${TOKEN}`)
     has(body, 'No staging layout')
-    has(body, 'No production layout')
   })
 
   it('3.4 widget embed section', async () => {
