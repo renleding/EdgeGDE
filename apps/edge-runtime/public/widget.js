@@ -99,9 +99,9 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
     tx.value = '';
     var label = getDisplayName();
     ml.insertAdjacentHTML('beforeend',
-      '<div class=msg msg-user><span class=msg-label style=color:#FFBF00>' + label.replace(/</g,'&lt;') + '</span><div class=msg-bubble>' + msg.replace(/</g,'&lt;') + '</div></div>');
+      '<div class="msg msg-user"><span class="msg-label" style=color:#FFBF00>' + label.replace(/</g,'&lt;') + '</span><div class=msg-bubble>' + msg.replace(/</g,'&lt;') + '</div></div>');
     var typingId = 'typing-' + Date.now();
-    ml.insertAdjacentHTML('beforeend', '<div class=msg msg-bot id=' + typingId + '><span class=msg-label style=color:#58a6ff>AFIRMICO</span><div class=msg-bubble><span class=typing-indicator><span></span><span></span><span></span></span></div></div>');
+    ml.insertAdjacentHTML('beforeend', '<div class="msg msg-bot" id=' + typingId + '><span class="msg-label" style=color:#58a6ff>AFIRMICO</span><div class=msg-bubble><span class=typing-indicator><span></span><span></span><span></span></span></div></div>');
     if (body) body.scrollTop = body.scrollHeight;
     var isDebug = window.location.search.indexOf('debug=true') >= 0;
     var streamUrl = baseUrl + '/api/v1/chat/stream?tenant=' + tenantId + (isDebug ? '&debug=true' : '');
