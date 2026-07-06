@@ -13,6 +13,7 @@
 |-------|------|-----------|-----------|
 | EdgeGDE source repo (latest) | ~7 MB | Weekly | Latest + 1 dated |
 | EdgeGDE source repo (dated) | ~7 MB | Weekly | 1 copy |
+| D1 databases (SQL exports) | ~1.2 MB total | Daily (2am) | 30 days |
 | Hermes session DB + config (latest) | ~240 MB | Weekly | Latest + 1 dated |
 | Hermes session DB + config (dated) | ~240 MB | Weekly | 1 copy |
 
@@ -24,7 +25,18 @@ cubbit://cubbit-bucket1/Backups/EdgeGDE/
 ├── edgegde-latest.tar.gz
 ├── edgegde-YYYY-MM-DD.tar.gz
 ├── hermes-latest.tar.gz
-└── hermes-YYYY-MM-DD.tar.gz
+├── hermes-YYYY-MM-DD.tar.gz
+```
+
+### Local D1 SQL Exports
+```
+/tmp/d1-backups/
+├── ebroker_leads-YYYY-MM-DD.sql
+├── ebroker_leads-latest.sql
+├── ebroker_leads_staging-YYYY-MM-DD.sql
+├── ebroker_leads_staging-latest.sql
+├── edgegde-prod-YYYY-MM-DD.sql
+└── edgegde-prod-latest.sql
 ```
 
 ### Local (Secondary — ad-hoc)
@@ -44,6 +56,23 @@ tar xzf /tmp/edgegde-2026-07-05.tar.gz -C ~/Documents/_HQ_AI/
 
 # 3. Verify git integrity
 cd ~/Documents/_HQ_AI/EdgeGDE && git fsck --full
+```
+
+### Restore a D1 Database from SQL Export
+
+```bash
+# 1. Run the backup script to get a fresh export (or use latest)
+bash ~/.hermes/scripts/d1-backup.sh
+
+# 2. Restore a database via wrangler
+cd ~/Documents/_HQ_AI/EdgeGDE/apps/edge-runtime
+
+# Replace <db_name> with ebroker_leads, ebroker_leads_staging, or edgegde-prod
+npx wrangler d1 execute <db_name> --remote --file=/tmp/d1-backups/<db_name>-latest.sql
+
+# Alternative: Use Time Travel to restore to a specific point in time
+npx wrangler d1 time-travel info <db_name>
+npx wrangler d1 time-travel restore <db_name> --timestamp=2026-07-06T00:00:00Z
 ```
 
 ### Restore Hermes from Cubbit
