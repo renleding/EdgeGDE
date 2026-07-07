@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { D1Database, KVNamespace } from '@cloudflare/workers-types'
 import { kv } from '../index'
 import { getEdgeMetrics } from '../lib/metrics'
 import {
@@ -9,6 +10,7 @@ import {
   validationErrorResponse,
 } from '../lib/schemas'
 import { getCounter } from '../lib/utils/counters'
+import { envFromContext } from '../lib/env'
 
 const CACHE_TTL_MS = 30_000
 const CACHE_KEY = 'dashboard:metrics:cache'
@@ -28,11 +30,12 @@ dashboardRouter.get('/dashboard/metrics', async (c) => {
     } catch { }
   }
 
+  const env = envFromContext(c)
   const metrics = await getEdgeMetrics(
-    (c.env as any)?.DB,
-    (c.env as any)?.TELEMETRY_KV,
-    (c.env as any)?.ARTIFACT_KV,
-    (c.env as any)?.TENANT_KV,
+    env.DB as D1Database | undefined,
+    env.TELEMETRY_KV as KVNamespace | undefined,
+    env.ARTIFACT_KV as KVNamespace | undefined,
+    env.TENANT_KV as KVNamespace | undefined,
   )
 
   await kv.put(CACHE_KEY, JSON.stringify({ timestamp: now, data: metrics }))
@@ -59,9 +62,10 @@ dashboardRouter.get('/dashboard/kv', async (c) => {
     return c.json(resp.body, resp.status)
   }
 
-  const artifactsKv = (c.env as any)?.ARTIFACT_KV
-  const tenantKv = (c.env as any)?.TENANT_KV
-  const telemetryKv = (c.env as any)?.TELEMETRY_KV
+  const kvEnv = envFromContext(c)
+  const artifactsKv = kvEnv.ARTIFACT_KV as KVNamespace | undefined
+  const tenantKv = kvEnv.TENANT_KV as KVNamespace | undefined
+  const telemetryKv = kvEnv.TELEMETRY_KV as KVNamespace | undefined
 
   const [artifactCount, tenantCount, telemetryCount] = await Promise.all([
     getCounter(artifactsKv, '_counts:artifacts'),
@@ -127,9 +131,10 @@ dashboardRouter.get('/dashboard/kv', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 dashboardRouter.get('/dashboard/runtime', async (c) => {
-  const db = (c.env as any)?.DB
-  const telemetryKv = (c.env as any)?.TELEMETRY_KV
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const runEnv = envFromContext(c)
+  const db = runEnv.DB as D1Database | undefined
+  const telemetryKv = runEnv.TELEMETRY_KV as KVNamespace | undefined
+  const TENANT_KV = runEnv.TENANT_KV as KVNamespace | undefined
 
   const logCount = telemetryKv ? await getCounter(telemetryKv, '_counts:telemetry') : 0
 
@@ -139,11 +144,11 @@ dashboardRouter.get('/dashboard/runtime', async (c) => {
   if (db && typeof db.prepare === 'function') {
     try {
       const t = await db.prepare('SELECT COUNT(*) as c FROM tenants').first()
-      tenantCount = (t as any)?.c || 0
+      tenantCount = (t?.c as number) || 0
     } catch {}
     try {
       const s = await db.prepare('SELECT COUNT(*) as c FROM form_submissions').first()
-      submissionCount = (s as any)?.c || 0
+      submissionCount = (s?.c as number) || 0
     } catch {}
   }
 
