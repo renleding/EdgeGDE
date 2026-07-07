@@ -1,7 +1,9 @@
 {
   "recurring_errors": [],
-  "no_compensation_failures": [],
-  "cleared_at": "2026-07-06T14:00:00Z",
-  "cleared_reason": "Historical reports reviewed — all processed, no action needed. EG-FEAT-0032-phase3 and phase3-saga had compensation applied on failure. qwen35 coding test was a dry-run mission.",
-  "detected_at": "2026-07-06T14:00:00Z"
+  "no_compensation_failures": [
+    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/EG-FEAT-0032-phase3-saga.report.json",
+    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/EG-FEAT-0032-phase3.report.json",
+    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/qwen35-001-droid-coding-test.report.json"
+  ],
+  "detected_at": "2026-07-07T12:04:52.612639+00:00"
 }

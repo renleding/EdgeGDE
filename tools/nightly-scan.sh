@@ -124,14 +124,16 @@ fi
 # ── Compile report ──
 REPORT="{\"date\":\"$DATE\",\"pass\":$PASS,\"findings\":["
 FIRST=true
-for f in "${FINDINGS[@]}"; do
-  if [ "$FIRST" = true ]; then
-    REPORT+="$f"
-    FIRST=false
-  else
-    REPORT+=",$f"
-  fi
-done
+if [ ${#FINDINGS[@]} -gt 0 ]; then
+  for f in "${FINDINGS[@]}"; do
+    if [ "$FIRST" = true ]; then
+      REPORT+="$f"
+      FIRST=false
+    else
+      REPORT+=",$f"
+    fi
+  done
+fi
 REPORT+="]}"
 echo "$REPORT" > "$LOG"
 
