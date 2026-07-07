@@ -4,11 +4,13 @@
  */
 
 import { Hono } from 'hono'
+import type { D1Database, DurableObjectNamespace, KVNamespace, Queue } from '@cloudflare/workers-types'
 import { scoreLead, type Ruleset, type RulesetRule, type ScoreResult } from '../lib/scoring-engine'
 import { addSubscriber, removeSubscriber } from '../lib/sse'
 import { validateUiConfig, validateUiConfigSafe } from '../lib/ui-primitives'
 import { renderUiConfigToHtml } from '../lib/renderer'
 import { hotLeadIndexKey, hotLeadKey, deadLetterIndexKey, deadLetterKey } from '../lib/kv-keys'
+import { envFromContext } from '../lib/env'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -48,7 +50,7 @@ export const scoringTenantRouter = new Hono()
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.post('/scoring/rubrics', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   let body: Record<string, unknown>
@@ -86,7 +88,7 @@ scoringAdminRouter.post('/scoring/rubrics', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/scoring/rubrics', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenantId')
@@ -106,7 +108,7 @@ scoringAdminRouter.get('/scoring/rubrics', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.post('/scoring/rubrics/:id/activate', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const rubricId = c.req.param('id')
@@ -142,7 +144,7 @@ scoringAdminRouter.post('/scoring/rubrics/:id/activate', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.post('/scoring/execute', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   let body: Record<string, unknown>
@@ -193,7 +195,7 @@ scoringAdminRouter.post('/scoring/execute', async (c) => {
   ).bind(scoreId, tenantId, leadId, rubric.id, result.score).run()
 
   // Store trace in D1 (replaces TENANT_KV score_trace:{tenant}:{lead}:{rubric})
-  const db2 = (c.env as any)?.DB
+  const db2 = envFromContext(c).DB as D1Database | undefined
   if (db2 && typeof db2.prepare === 'function') {
     try {
       await db2.prepare(
@@ -238,7 +240,7 @@ scoringAdminRouter.post('/scoring/execute', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.post('/scoring/override', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   let body: Record<string, unknown>
@@ -278,7 +280,7 @@ scoringAdminRouter.post('/scoring/override', async (c) => {
 
 scoringTenantRouter.get('/scoring/scores', async (c) => {
   const tenantId = (c as any).get('authenticatedTenantId') as string
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const leadId = c.req.query('leadId')
@@ -302,7 +304,7 @@ scoringTenantRouter.get('/scoring/scores', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/hot-alerts', async (c) => {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV as KVNamespace | undefined
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
   const tenantId = c.req.query('tenant') // optional: filter by tenant
@@ -368,7 +370,7 @@ async function fetchAlertsForTenant(kv: any, tenantId: string): Promise<any[]> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.delete('/hot-alerts/:submissionId', async (c) => {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV as KVNamespace | undefined
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
   const submissionId = c.req.param('submissionId')
@@ -401,7 +403,7 @@ scoringAdminRouter.delete('/hot-alerts/:submissionId', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/leads', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const band = c.req.query('band') // optional: hot, warm, cold
@@ -464,7 +466,7 @@ scoringAdminRouter.get('/leads', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/leads/stream', async (c) => {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV as KVNamespace | undefined
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -510,9 +512,10 @@ scoringAdminRouter.get('/leads/stream', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.post('/replay-deadletters', async (c) => {
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
-  const LEAD_SCORING_QUEUE = (c.env as any)?.LEAD_SCORING_QUEUE
+  const env = envFromContext(c)
+  const db = env.DB as D1Database | undefined
+  const TENANT_KV = env.TENANT_KV as KVNamespace | undefined
+  const LEAD_SCORING_QUEUE = env.LEAD_SCORING_QUEUE as Queue | undefined
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
@@ -616,7 +619,7 @@ scoringAdminRouter.post('/replay-deadletters', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/insights', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -667,7 +670,7 @@ scoringAdminRouter.get('/insights', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/telemetry', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantIdQuery = c.req.query('tenant')
@@ -711,7 +714,7 @@ scoringAdminRouter.get('/telemetry', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/contacts', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -741,7 +744,7 @@ scoringAdminRouter.get('/contacts', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/stages', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -764,7 +767,7 @@ scoringAdminRouter.get('/stages', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.patch('/leads/:id/stage', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const submissionId = c.req.param('id')
@@ -794,7 +797,7 @@ scoringAdminRouter.patch('/leads/:id/stage', async (c) => {
     ).bind(toStage, submissionId, tenantId).run()
 
     // 3. Audit event
-    const auditDo = (c.env as any)?.AUDIT_LEDGER
+    const auditDo = envFromContext(c).AUDIT_LEDGER as DurableObjectNamespace | undefined
     if (auditDo && typeof auditDo.idFromName === 'function') {
       c.executionCtx.waitUntil((async () => {
         try {
@@ -827,7 +830,7 @@ scoringAdminRouter.patch('/leads/:id/stage', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/ui-config', async (c) => {
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV as KVNamespace | undefined
   if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -842,7 +845,7 @@ scoringAdminRouter.get('/ui-config', async (c) => {
 })
 
 scoringAdminRouter.put('/ui-config', async (c) => {
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV as KVNamespace | undefined
   if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -872,7 +875,7 @@ scoringAdminRouter.put('/ui-config', async (c) => {
 })
 
 scoringAdminRouter.delete('/ui-config', async (c) => {
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV as KVNamespace | undefined
   if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -891,8 +894,9 @@ scoringAdminRouter.delete('/ui-config', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/ui-config/render', async (c) => {
-  const kv = (c.env as any)?.TENANT_KV
-  const db = (c.env as any)?.DB
+  const env = envFromContext(c)
+  const kv = env.TENANT_KV as KVNamespace | undefined
+  const db = env.DB as D1Database | undefined
   if (!kv) return c.json({ error: 'TENANT_KV required' }, 500)
   if (!db) return c.json({ error: 'D1 required' }, 500)
 
@@ -929,8 +933,9 @@ scoringAdminRouter.get('/ui-config/render', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/health', async (c) => {
-  const db = (c.env as any)?.DB
-  const kv = (c.env as any)?.TENANT_KV
+  const env = envFromContext(c)
+  const db = env.DB as D1Database | undefined
+  const kv = env.TENANT_KV as KVNamespace | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -974,7 +979,7 @@ scoringAdminRouter.get('/health', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.get('/deploy-log', async (c) => {
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV as KVNamespace | undefined
   if (!kv) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
   try {
@@ -994,7 +999,7 @@ scoringAdminRouter.get('/applications/:id/events', async (c) => {
   const appId = c.req.param('id')
   const limit = Math.min(parseInt(c.req.query('limit') || '5', 10), 50)
 
-  const doBinding = (c.env as any)?.AUDIT_LEDGER
+  const doBinding = envFromContext(c).AUDIT_LEDGER as DurableObjectNamespace | undefined
   if (!doBinding || typeof doBinding.idFromName !== 'function') {
     return c.json({ error: 'AUDIT_LEDGER binding required' }, 500)
   }
@@ -1031,9 +1036,9 @@ scoringAdminRouter.get('/applications/:id/events', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringAdminRouter.post('/kb/ingest', async (c) => {
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV as KVNamespace | undefined
   const tenantId = c.req.query('tenant')
-  if (!tenantId) return c.json({ error: 'tenant query required' }, 400)
+  if (!tenantId) return c.json({ error: 'tenant query parameter required' }, 400)
 
   let body: { url?: string; topic?: string }
   try { body = await c.req.json() } catch {
@@ -1043,7 +1048,7 @@ scoringAdminRouter.post('/kb/ingest', async (c) => {
   if (!body.url) return c.json({ error: 'url required' }, 400)
 
   // Enqueue the job
-  const queue = (c.env as any)?.LEAD_SCORING_QUEUE
+  const queue = envFromContext(c).LEAD_SCORING_QUEUE as Queue | undefined
   if (queue?.send) {
     await queue.send({
       type: 'kb_ingest',
