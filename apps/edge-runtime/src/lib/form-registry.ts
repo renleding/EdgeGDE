@@ -12,6 +12,13 @@ import type { FormDefinition } from './schemas'
 import { buildFormSchema } from './schemas'
 import { deadLetterKey, deadLetterIndexKey } from './kv-keys'
 import { envFromContext } from './env'
+import { getTenantId } from '../middleware/tenant-resolver'
+
+/** Safely extract a string field from unknown data */
+function extractStr(data: unknown, field: string): string | undefined {
+  const v = (data as Record<string, unknown>)?.[field]
+  return typeof v === 'string' ? v : undefined
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -124,9 +131,8 @@ export function mountFormRoutes(app: Hono): void {
         // D1 Persistence (Phase 31) — fire-and-forget, never blocks response
         // ══════════════════════════════════════════════════════════════════
         const submissionId =
-          (crypto as any).randomUUID?.() || `${Date.now()}-${Math.random()}`
-        const tenantId =
-          ((c as any).get('tenant')?.tenantId) || 'default'
+          crypto.randomUUID() || `${Date.now()}-${Math.random()}`
+        const tenantId = getTenantId(c) || 'default'
 
         c.executionCtx.waitUntil((async () => {
           let payloadStr = ''
@@ -159,9 +165,9 @@ export function mountFormRoutes(app: Hono): void {
                   formId: def.id,
                   payload: result.data,
                   contactInfo: {
-                    name: (result.data as any)?.fullName || (result.data as any)?.name || '',
-                    email: (result.data as any)?.email || '',
-                    phone: (result.data as any)?.phone || '',
+                    name: extractStr(result.data, 'fullName') || extractStr(result.data, 'name') || '',
+                    email: extractStr(result.data, 'email') || '',
+                    phone: extractStr(result.data, 'phone') || '',
                   },
                 })
               }
