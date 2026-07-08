@@ -11,6 +11,7 @@ import { z } from 'zod'
 import type { FormDefinition } from './schemas'
 import { buildFormSchema } from './schemas'
 import { deadLetterKey, deadLetterIndexKey } from './kv-keys'
+import { envFromContext } from './env'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -137,7 +138,7 @@ export function mountFormRoutes(app: Hono): void {
               throw new Error('Payload too large')
             }
 
-            const db = (c.env as any)?.DB
+            const db = envFromContext(c).DB
             if (!db || typeof db.prepare !== 'function') return
 
             await db.prepare(
@@ -150,7 +151,7 @@ export function mountFormRoutes(app: Hono): void {
             // Lead Scoring (Track 4 Phase 5) — enqueue for async processing
             // ══════════════════════════════════════════════════════════════
             try {
-              const queue = (c.env as any)?.LEAD_SCORING_QUEUE
+              const queue = envFromContext(c).LEAD_SCORING_QUEUE
               if (queue && typeof queue.send === 'function') {
                 await queue.send({
                   submissionId,
@@ -171,7 +172,7 @@ export function mountFormRoutes(app: Hono): void {
             // Webhook Dispatch (Track 4 Phase 1) — fire after scoring + D1
             // ══════════════════════════════════════════════════════════════
             try {
-              const TENANT_KV = (c.env as any)?.TENANT_KV
+              const TENANT_KV = envFromContext(c).TENANT_KV
               if (TENANT_KV && typeof TENANT_KV.get === 'function') {
                 const { dispatchWebhook } = await import('../lib/webhook')
                 // Extract correlationId from submission fields if present
@@ -207,7 +208,7 @@ export function mountFormRoutes(app: Hono): void {
               error: dbErr instanceof Error ? dbErr.message : String(dbErr),
             }))
             try {
-              const TENANT_KV = (c.env as any)?.TENANT_KV
+              const TENANT_KV = envFromContext(c).TENANT_KV
               if (TENANT_KV && typeof TENANT_KV.put === 'function') {
                 const dlKey = deadLetterKey(tenantId, submissionId)
                 await TENANT_KV.put(dlKey, payloadStr, { expirationTtl: 604800 })

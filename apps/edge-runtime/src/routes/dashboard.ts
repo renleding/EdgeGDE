@@ -220,8 +220,9 @@ dashboardRouter.get('/telemetry', async (c) => {
 
   const key = parsed.key
 
-  const artifactsKv = (c.env as any)?.ARTIFACT_KV
-  const tenantKv = (c.env as any)?.TENANT_KV
+  const env = envFromContext(c)
+  const artifactsKv = env.ARTIFACT_KV
+  const tenantKv = env.TENANT_KV
 
   const resolver = TELEMETRY_RESOLVERS[key]
   const value = resolver ? await resolver(artifactsKv, tenantKv) : 'N/A'
