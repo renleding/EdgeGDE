@@ -6,6 +6,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 
 export const workspaceRouter = new Hono()
 
@@ -40,7 +41,7 @@ async function appendEvent(env: any, tenantId: string, type: string, data: Recor
 // ═════════════════════════════════════════════════════════════════════════════
 
 workspaceRouter.post('/workspace/init', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -92,7 +93,7 @@ workspaceRouter.post('/workspace/init', async (c) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 workspaceRouter.patch('/workspace/advance', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -130,7 +131,7 @@ workspaceRouter.patch('/workspace/advance', async (c) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 workspaceRouter.post('/workspace/financials', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -167,8 +168,8 @@ workspaceRouter.post('/workspace/financials', async (c) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 workspaceRouter.post('/workspace/upload', async (c) => {
-  const r2 = (c.env as any)?.VAULT_BUCKET
-  const db = (c.env as any)?.DB
+  const r2 = envFromContext(c).VAULT_BUCKET
+  const db = envFromContext(c).DB
   if (!r2) return c.json({ error: 'VAULT_BUCKET binding required' }, 500)
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
@@ -246,8 +247,8 @@ workspaceRouter.post('/workspace/upload', async (c) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 workspaceRouter.get('/workspace/pipeline', async (c) => {
-  const db = (c.env as any)?.DB
-  const kv = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const kv = envFromContext(c).TENANT_KV
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
