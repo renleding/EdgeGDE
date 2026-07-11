@@ -12,6 +12,16 @@
       "binding": "DB",
       "database_id": "a418b4ad-e33b-4088-8eb8-715b5945d10f",
       "database_name": "ebroker_leads_staging"
+    },
+    {
+      "binding": "D1_PERSONAL",
+      "database_id": "c142912a-8651-4d66-82a6-0eb2f49edd68",
+      "database_name": "doc-intel-personal-staging"
+    },
+    {
+      "binding": "D1_AFIRMICO",
+      "database_id": "2cd3a835-d6bc-4e93-97c9-83d35a6209bf",
+      "database_name": "doc-intel-afirmico-staging"
     }
   ],
   "durable_objects": {
@@ -93,6 +103,14 @@
     {
       "binding": "VAULT_BUCKET",
       "bucket_name": "edgegde-vault-staging"
+    },
+    {
+      "binding": "R2_PERSONAL",
+      "bucket_name": "doc-intel-personal-staging"
+    },
+    {
+      "binding": "R2_AFIRMICO",
+      "bucket_name": "doc-intel-afirmico-staging"
     }
   ],
   "queues": {
