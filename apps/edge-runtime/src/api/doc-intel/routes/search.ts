@@ -9,7 +9,7 @@
 
 import { Hono } from 'hono'
 import { resolveTenant, resolveBindings, errorBody } from '../lib/errors'
-import { queryAll, queryFirst } from '../lib/db'
+import { queryAll, queryFirst, queryRun } from '../lib/db'
 import { decryptFields } from '../../../lib/encryption'
 
 export const searchRouter = new Hono()
@@ -67,7 +67,7 @@ searchRouter.get('/documents', async (c) => {
     }>(
       db,
       `SELECT d.document_id, d.document_type, d.filename_display,
-              d.ocr_status, d.confidence, d.created_at
+              d.ocr_status, d.confidence, d.fields_r2_key, d.created_at
        FROM documents d
        ${whereClause}
        ORDER BY d.created_at DESC
@@ -233,5 +233,85 @@ searchRouter.get('/audit', async (c) => {
     console.error('[doc-intel:audit] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
     return c.json(errResp.body, errResp.status as any)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /documents/custom-fields — list custom fields for a document
+// ═══════════════════════════════════════════════════════════════════════════
+
+searchRouter.get('/documents/custom-fields', async (c) => {
+  try {
+    const tenant = resolveTenant(c)
+    if (tenant instanceof Response) return tenant
+
+    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
+    if (bindings instanceof Response) return bindings
+    const { db } = bindings
+
+    const documentId = c.req.query('document_id')
+    if (!documentId) {
+      return c.json({ error: 'document_id query parameter is required' }, 400)
+    }
+
+    const fields = await queryAll<{
+      field_name: string
+      field_value: string
+      created_at: number
+    }>(
+      db,
+      `SELECT field_name, field_value, created_at
+       FROM custom_fields
+       WHERE document_id = ?
+       ORDER BY created_at ASC`,
+      documentId,
+    )
+
+    return c.json({ fields })
+  } catch (err: any) {
+    console.error('[doc-intel:custom-fields] GET error:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /documents/custom-fields — add a custom field to a document
+// ═══════════════════════════════════════════════════════════════════════════
+
+searchRouter.post('/documents/custom-fields', async (c) => {
+  try {
+    const tenant = resolveTenant(c)
+    if (tenant instanceof Response) return tenant
+
+    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
+    if (bindings instanceof Response) return bindings
+    const { db } = bindings
+
+    const body = await c.req.json<{
+      document_id: string
+      field_name: string
+      field_value: string
+    }>()
+
+    if (!body.document_id || !body.field_name) {
+      return c.json({ error: 'document_id and field_name are required' }, 400)
+    }
+
+    const id = crypto.randomUUID()
+
+    await queryRun(
+      db,
+      `INSERT INTO custom_fields (custom_field_id, document_id, field_name, field_value, created_at)
+       VALUES (?, ?, ?, ?, unixepoch())`,
+      id,
+      body.document_id,
+      body.field_name,
+      body.field_value ?? '',
+    )
+
+    return c.json({ success: true, custom_field_id: id }, 201)
+  } catch (err: any) {
+    console.error('[doc-intel:custom-fields] POST error:', err)
+    return c.json({ error: err.message }, 500)
   }
 })
