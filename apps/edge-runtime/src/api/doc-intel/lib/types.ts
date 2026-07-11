@@ -24,6 +24,9 @@ export type OcrStatus =
   | 'completed'
   | 'completed_with_warnings'
   | 'failed'
+  | 'approved'
+  | 'rejected'
+  | 'pending_review'
 
 /** Error classification for job failures */
 export type ErrorClassification =
