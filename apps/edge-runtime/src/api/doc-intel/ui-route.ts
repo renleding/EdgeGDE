@@ -371,9 +371,9 @@ docIntelUiRouter.get('/', (c) => {
             documents = data.documents || data.data || data || [];
             if (!Array.isArray(documents)) documents = [];
           } catch (e) {
-            showToast('Failed to load documents: ' + e.message, 'error');
+            try { showToast('Failed to load documents: ' + (e instanceof Error ? e.message : String(e)), 'error'); } catch(_) {}
           }
-          renderTable();
+          try { renderTable(); } catch(_) {}
         }
 
         // ── Render table ───────────────────────────────────────────────
@@ -393,7 +393,11 @@ docIntelUiRouter.get('/', (c) => {
           document.getElementById('docCount').textContent = filtered.length + ' / ' + documents.length + ' documents';
 
           if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">📋</div><p>No documents found</p><div class="sub">Upload a document to get started</div></div></td></tr>';
+            if (documents.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">📄</div><p>No documents yet</p><div class="sub">Click +Upload to add your first document to the OCR pipeline</div></div></td></tr>';
+            } else {
+              tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">🔍</div><p>No documents match your search</p><div class="sub">Try a different search term or clear the filter</div></div></td></tr>';
+            }
             return;
           }
 
