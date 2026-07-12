@@ -794,7 +794,8 @@ searchRouter.delete('/documents/:id', async (c) => {
     const deletePromises = keysToDelete.map(key => r2.delete(key).catch(() => {}))
     await Promise.all(deletePromises)
 
-    // Delete custom fields and document
+    // Delete child records and document
+    await queryRun(db, 'DELETE FROM processing_jobs WHERE document_id = ?', documentId)
     await queryRun(db, 'DELETE FROM custom_fields WHERE document_id = ?', documentId)
     await queryRun(db, 'DELETE FROM extracted_fields WHERE document_id = ?', documentId)
     await queryRun(db, 'DELETE FROM documents WHERE document_id = ?', documentId)
