@@ -136,7 +136,7 @@ function fieldsPage(allFields: any[], docs: any[]): string {
 '<script>' +
 'var E=null;' +
 'function addF(){var d=document.getElementById("ad").value;var n=document.getElementById("afn").value;var v=document.getElementById("afv").value;if(!n||!v)return;fetch("/api/v1/doc-intel/documents/custom-fields",{method:"POST",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({document_id:d,field_name:n,field_value:v})}).then(function(r){if(r.ok)location.reload()})}' +
-'window.addEventListener("click",function(e){var x=e.target.closest("[data-del]");if(x&&x.getAttribute("data-del")){fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(x.getAttribute("data-del"))+"/"+encodeURIComponent(x.getAttribute("data-fname")),{method:"DELETE",headers:{"x-tenant":"personal"}}).then(function(r){if(r.ok)location.reload();else alert("Delete failed: "+r.status)})["catch"](function(){alert("Network error")});return}var ed=e.target.closest(".ed");if(ed&&!x){E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var nc=document.getElementById("fn-"+E.d+"-"+E.f);var vc=document.getElementById("v-"+E.d+"-"+E.f);E.o=E.f;nc.innerHTML="<input class=ei id=inpN value=\\""+E.f+"\\" style=width:140px>";vc.innerHTML="<input class=ei id=inpV value=\\""+vc.textContent+"\\"><span class=es id=svb>save</span><span class=ec id=clb>x</span>";document.getElementById("inpN").focus()};var svb=e.target.closest("#svb");if(svb&&E){var inpN=document.getElementById("inpN");var inpV=document.getElementById("inpV");var nn=(inpN&&inpN.value)||E.f;var nv=(inpV&&inpV.value)||"";if(!nv&&nv!=="")return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(E.d)+"/"+encodeURIComponent(E.o||E.f),{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:nv,field_name:nn})}).then(function(r){if(r.ok)location.reload()})}var clb=e.target.closest("#clb");if(clb&&E){var nc2=document.getElementById("fn-"+E.d+"-"+E.f);var vc2=document.getElementById("v-"+E.d+"-"+E.f);nc2.textContent=E.o||E.f;vc2.textContent=""}})' +
+'window.addEventListener("click",function(e){var x=e.target.closest("[data-del]");if(x&&x.getAttribute("data-del")){if(!confirm("Delete this field?"))return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(x.getAttribute("data-del"))+"/"+encodeURIComponent(x.getAttribute("data-fname")),{method:"DELETE",headers:{"x-tenant":"personal"}}).then(function(r){if(r.ok)location.reload();else alert("Delete failed: "+r.status)})["catch"](function(){alert("Network error")});return}var ed=e.target.closest(".ed");if(ed&&!x){E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var nc=document.getElementById("fn-"+E.d+"-"+E.f);var vc=document.getElementById("v-"+E.d+"-"+E.f);E.o=E.f;nc.innerHTML="<input class=ei id=inpN value=\\""+E.f+"\\" style=width:140px>";vc.innerHTML="<input class=ei id=inpV value=\\""+vc.textContent+"\\"><span class=es id=svb>save</span><span class=ec id=clb>x</span>";document.getElementById("inpN").focus()};var svb=e.target.closest("#svb");if(svb&&E){var inpN=document.getElementById("inpN");var inpV=document.getElementById("inpV");var nn=(inpN&&inpN.value)||E.f;var nv=(inpV&&inpV.value)||"";if(!nv&&nv!=="")return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(E.d)+"/"+encodeURIComponent(E.o||E.f),{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:nv,field_name:nn})}).then(function(r){if(r.ok)location.reload()})}var clb=e.target.closest("#clb");if(clb&&E){var nc2=document.getElementById("fn-"+E.d+"-"+E.f);var vc2=document.getElementById("v-"+E.d+"-"+E.f);nc2.textContent=E.o||E.f;vc2.textContent=""}})' +
 '</script></body></html>'
 }
 
@@ -196,11 +196,14 @@ docIntelUiRouter.get('/fields', async (c) => {
         `SELECT field_name, field_value FROM custom_fields WHERE document_id = ?`,
         doc.document_id,
       )
-
+      // Build override map and tombstone set
       const overrideMap: Record<string, string> = {}
+      const tombstone = new Set<string>()
       for (const ov of overrides) {
         if (ov.field_value && ov.field_value.startsWith('MANUAL_OVERRIDE:')) {
           overrideMap[ov.field_name] = ov.field_value.substring(16)
+        } else if (ov.field_value === '_DELETED_') {
+          tombstone.add(ov.field_name)
         }
       }
 
@@ -208,6 +211,7 @@ docIntelUiRouter.get('/fields', async (c) => {
       for (const f of docFields) {
         const fname = f.field_name || f.name || ''
         if (seen.has(fname)) continue
+        if (tombstone.has(fname)) { seen.add(fname); continue }
         seen.add(fname)
         const overridden = overrideMap[fname] !== undefined
         allFields.push({
@@ -222,7 +226,7 @@ docIntelUiRouter.get('/fields', async (c) => {
       }
 
       for (const [key, val] of Object.entries(overrideMap)) {
-        if (seen.has(key)) continue
+        if (seen.has(key) || tombstone.has(key)) continue
         if (!docFields.some((f: any) => (f.field_name || f.name) === key)) {
           seen.add(key)
           allFields.push({

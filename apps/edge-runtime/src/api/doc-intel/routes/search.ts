@@ -853,7 +853,7 @@ searchRouter.put('/fields/:id/:name', async (c) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DELETE /fields/:id/:name — remove a field override
+// DELETE /fields/:id/:name — hide a field (creates tombstone for OCR fields, removes override for custom)
 // ═══════════════════════════════════════════════════════════════════════════
 
 searchRouter.delete('/fields/:id/:name', async (c) => {
@@ -868,9 +868,15 @@ searchRouter.delete('/fields/:id/:name', async (c) => {
     const documentId = c.req.param('id')
     const fieldName = c.req.param('name')
 
+    // Remove any existing override
+    await queryRun(db, "DELETE FROM custom_fields WHERE document_id = ? AND field_name = ?", documentId, fieldName)
+
+    // Insert tombstone to hide OCR-extracted field from view
     await queryRun(
       db,
-      "DELETE FROM custom_fields WHERE document_id = ? AND field_name = ?",
+      `INSERT INTO custom_fields (custom_field_id, document_id, field_name, field_value, created_at)
+       VALUES (?, ?, ?, '_DELETED_', unixepoch())`,
+      crypto.randomUUID(),
       documentId,
       fieldName,
     )
