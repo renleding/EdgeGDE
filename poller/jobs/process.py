@@ -55,8 +55,28 @@ def process_job(base_url: str, tenant: str, worker_id: str,
     logger.info("download_ok", job_id=job_id, local_path=local_path)
 
     try:
+        # 1b. Fetch original filename for filename-based classification fallback
+        import requests as _req
+        try:
+            doc_resp = _req.get(
+                f"{base_url}/api/v1/doc-intel/documents?document_id={document_id}",
+                headers={"x-tenant": tenant},
+                timeout=10,
+            )
+            if doc_resp.status_code == 200:
+                doc_data = doc_resp.json()
+                docs_list = doc_data.get("documents", [])
+                if docs_list:
+                    original_filename = docs_list[0].get("filename_display", "")
+                else:
+                    original_filename = ""
+            else:
+                original_filename = ""
+        except Exception:
+            original_filename = ""
+
         # 2. Classify document type
-        doc_type = classify(local_path, tenant)
+        doc_type = classify(local_path, tenant, original_filename)
         if not doc_type:
             doc_type = "unknown"
             logger.warn("classification_failed", job_id=job_id)
