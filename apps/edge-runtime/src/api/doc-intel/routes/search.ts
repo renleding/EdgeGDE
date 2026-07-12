@@ -168,7 +168,7 @@ searchRouter.get('/documents', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:search] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -233,7 +233,7 @@ searchRouter.get('/audit', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:audit] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -341,12 +341,12 @@ searchRouter.post('/documents/:id/approve', async (c) => {
 
     if (!doc) {
       const errResp = errorBody('DOCUMENT_NOT_FOUND', `Document ${documentId} not found.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     if (doc.ocr_status !== 'completed_with_warnings' && doc.ocr_status !== 'completed') {
       const errResp = errorBody('INVALID_INPUT', `Document ${documentId} is in status "${doc.ocr_status}" and cannot be approved. Only documents with status "completed" or "completed_with_warnings" can be approved.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -391,7 +391,7 @@ searchRouter.post('/documents/:id/approve', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:approve] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -419,12 +419,12 @@ searchRouter.post('/documents/:id/reject', async (c) => {
 
     if (!doc) {
       const errResp = errorBody('DOCUMENT_NOT_FOUND', `Document ${documentId} not found.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     if (doc.ocr_status !== 'completed_with_warnings' && doc.ocr_status !== 'completed') {
       const errResp = errorBody('INVALID_INPUT', `Document ${documentId} is in status "${doc.ocr_status}" and cannot be rejected. Only documents with status "completed" or "completed_with_warnings" can be rejected.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -460,7 +460,7 @@ searchRouter.post('/documents/:id/reject', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:reject] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -503,7 +503,7 @@ searchRouter.get('/documents/pending-review', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:pending-review] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -752,7 +752,7 @@ searchRouter.post('/documents/check-duplicates', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:check-duplicates] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -805,7 +805,7 @@ searchRouter.delete('/documents/:id', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:delete] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -848,7 +848,7 @@ searchRouter.put('/fields/:id/:name', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:field-override] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -885,6 +885,6 @@ searchRouter.delete('/fields/:id/:name', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:field-delete] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })

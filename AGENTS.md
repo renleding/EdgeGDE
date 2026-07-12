@@ -15,6 +15,17 @@ Aegis  = Governance
 Droid  = Constrained execution runtime
 ```
 
+### Token Efficiency Policy
+
+All agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):
+- Relevant context only — localized snippets, not full-file dumps
+- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000
+- No filler — no polite closings, no restating the question
+- History window: default 4 turns, max 8
+- Hermes is orchestrator in code tasks — keep output under 800 tokens, delegate >20 line generations
+- Before full reads, check if a grep/snippet suffices
+- Before verbose responses, check if concise answer suffices
+
 ### Hermes owns
 
 - requirements interpretation

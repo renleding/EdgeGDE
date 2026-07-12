@@ -169,15 +169,15 @@ docIntelUiRouter.get('/fields', async (c) => {
         try {
           const obj = await r2.get(doc.fields_r2_key)
           if (obj) {
-            const blob = await obj.json() as any
-            const ef = blob.encrypted_fields || blob.fields || []
+            const raw = await obj.json() as Record<string, unknown>
+            const ef = (raw.encrypted_fields || raw.fields || []) as Record<string, unknown>[]
             if (ef.length > 0 && ef[0].field_value_encrypted) {
               const decrypted = await decryptFields(
-                ef.map((f: any) => ({
-                  field_name: f.field_name,
-                  field_value_encrypted: f.field_value_encrypted,
-                  key_version: f.key_version || 1,
-                  data_classification: f.classification || 'CONFIDENTIAL',
+                ef.map((f: Record<string, unknown>) => ({
+                  field_name: f.field_name as string,
+                  field_value_encrypted: f.field_value_encrypted as string,
+                  key_version: (f.key_version ?? 1) as number,
+                  data_classification: (f.classification ?? 'CONFIDENTIAL') as string,
                 })),
                 db,
                 tenant,

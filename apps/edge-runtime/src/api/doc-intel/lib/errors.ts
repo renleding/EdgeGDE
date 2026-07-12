@@ -24,8 +24,8 @@ export const ErrorCode = {
   INVALID_INPUT: 'INVALID_INPUT',
 } as const
 
-/** Map error code to HTTP status */
-const STATUS_MAP: Record<string, number> = {
+/** Map error code to HTTP status (as const for literal status types) */
+const STATUS_MAP = {
   [ErrorCode.MISSING_TENANT]: 400,
   [ErrorCode.INVALID_TENANT]: 400,
   [ErrorCode.FILE_TOO_LARGE]: 413,
@@ -38,7 +38,7 @@ const STATUS_MAP: Record<string, number> = {
   [ErrorCode.KEY_NOT_FOUND]: 500,
   [ErrorCode.INTERNAL_ERROR]: 500,
   [ErrorCode.INVALID_INPUT]: 400,
-}
+} as const
 
 /** Valid tenant values */
 export const VALID_TENANTS = ['personal', 'afirmico'] as const
@@ -51,14 +51,17 @@ function json(body: ApiError, status: number): Response {
   })
 }
 
+/** Valid HTTP status codes returned by error responses */
+type ErrorStatus = 400 | 404 | 409 | 413 | 500
+
 /**
  * Create a structured error response as a Hono-compatible Response.
  * Use: return c.json(err.body, err.status)
  * Where err is from errorResponse().
  */
-export function errorBody(code: string, detail?: string): { body: ApiError; status: number } {
+export function errorBody(code: string, detail?: string): { body: ApiError; status: ErrorStatus } {
   return {
-    status: STATUS_MAP[code] ?? 500,
+    status: (STATUS_MAP as Record<string, ErrorStatus>)[code] ?? 500,
     body: { error: code, code, detail },
   }
 }
@@ -107,5 +110,5 @@ export function resolveBindings(
   if (!db) return errorResponse(ErrorCode.INTERNAL_ERROR, `${dbKey} D1 binding not configured`)
   if (!r2) return errorResponse(ErrorCode.INTERNAL_ERROR, `${r2Key} R2 bucket not configured`)
 
-  return { db: db as any, r2: r2 as any }
+  return { db: db as import('@cloudflare/workers-types').D1Database, r2: r2 as import('@cloudflare/workers-types').R2Bucket }
 }

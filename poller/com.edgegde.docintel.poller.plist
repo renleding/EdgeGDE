@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.edgegde.docintel.poller</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/warren/Documents/_HQ_AI/EdgeGDE/poller/main.py</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>WORKER_BASE_URL</key>
+        <string>https://edgegde-calculator.warren.workers.dev</string>
+        <key>TENANT</key>
+        <string>personal</string>
+        <key>WORKER_ID</key>
+        <string>M1-DOCINTEL-01</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/warren/Documents/_HQ_AI/EdgeGDE/poller</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/warren/.hermes/logs/doc-intel-poller.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/warren/.hermes/logs/doc-intel-poller.log</string>
+
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
