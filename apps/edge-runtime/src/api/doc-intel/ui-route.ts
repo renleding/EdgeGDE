@@ -51,15 +51,26 @@ function loginPage(): string {
 
 // ── Fields sister page ────────────────────────────────────────────────────
 
+function fmtDate(v: string): string {
+  // Convert YYYY-MM-DD to DD-MM-YYYY
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    const parts = v.split('-')
+    return parts[2] + '-' + parts[1] + '-' + parts[0]
+  }
+  return v
+}
+
 function fieldsPage(allFields: any[]): string {
   let rows = ''
   for (const f of allFields) {
     const isOverride = f.overridden
-    const val = isOverride ? f.overrideValue : f.field_value
+    const raw = isOverride ? f.overrideValue : f.field_value
+    const fname = f.field_name
+    // Format dates if field name suggests it
+    const val = /date|dob|expiry/i.test(fname) ? fmtDate(raw) : raw
     const docType = f.document_type || '?'
     const conf = f.confidence != null ? (f.confidence * 100).toFixed(0) + '%' : '—'
     const docId = f.document_id
-    const fname = f.field_name
     const overrideClass = isOverride ? ' ov' : ''
     const badge = isOverride ? '<span class="ob">edited</span>' : ''
     rows += '<tr>' +
@@ -255,9 +266,15 @@ docIntelUiRouter.get('/fields', async (c) => {
         }
       }
 
+      // Track unique (document_id, field_name) pairs to avoid duplicates
+      const seen = new Set<string>()
+
       // Add each field to the flat list
       for (const f of docFields) {
         const fname = f.field_name || f.name || ''
+        const key = doc.document_id + ':' + fname
+        if (seen.has(key)) continue
+        seen.add(key)
         const fval = f.field_value || f.value || ''
         const overridden = overrideMap[fname] !== undefined
         allFields.push({
