@@ -353,8 +353,7 @@ docIntelUiRouter.get('/', (c) => {
         let customFields = {};
 
         // ── Init ───────────────────────────────────────────────────────
-        document.addEventListener('DOMContentLoaded', () => refresh());
-        setupDragDrop();
+        window.onload = function() { refresh(); try { setupDragDrop(); } catch(e) {} };
 
         // ── Refresh ────────────────────────────────────────────────────
         async function refresh() {
