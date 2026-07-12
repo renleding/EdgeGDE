@@ -51,33 +51,25 @@ function loginPage(): string {
 
 // ── Fields sister page ────────────────────────────────────────────────────
 
-function fieldsPage(docs: any[], fields: any[]): string {
+function fieldsPage(allFields: any[]): string {
   let rows = ''
-  for (let i = 0; i < docs.length; i++) {
-    const d = docs[i]
-    const fs = fields[i] || []
-    const status = d.ocr_status || 'pending'
-    const badge = status === 'completed' ? 'ok' :
-                  status === 'completed_with_warnings' ? 'w' :
-                  status === 'failed' ? 'f' : ''
-    const conf = d.confidence != null ? (d.confidence * 100).toFixed(0) + '%' : '—'
-    const dt = d.created_at ? new Date(d.created_at * 1000).toLocaleDateString('en-AU') : '—'
-    rows += '<tr class="doc" onclick="t(this)">' +
-      '<td>' + (d.document_type || '?') + '</td>' +
-      '<td><span class="b b-' + badge + '">' + status + '</span></td>' +
-      '<td>' + conf + '</td>' +
-      '<td>' + (d.filename_display || '—') + '</td>' +
-      '<td>' + dt + '</td>' +
-    '</tr>' +
-    '<tr class="f" style="display:none"><td colspan="5"><div class="fv">'
-    if (fs.length === 0) {
-      rows += '<span style="color:#71717a">No extracted fields</span>'
-    } else {
-      for (const f of fs) {
-        rows += '<div class="fr"><span class="fn">' + (f.field_name || f.name || '') + '</span><span class="vl">' + (f.field_value || f.value || '') + '</span></div>'
-      }
-    }
-    rows += '</div></td></tr>'
+  for (const f of allFields) {
+    const isOverride = f.overridden
+    const val = isOverride ? f.overrideValue : f.field_value
+    const docType = f.document_type || '?'
+    const conf = f.confidence != null ? (f.confidence * 100).toFixed(0) + '%' : '—'
+    const docId = f.document_id
+    const fname = f.field_name
+    const overrideClass = isOverride ? ' ov' : ''
+    const badge = isOverride ? '<span class="ob">edited</span>' : ''
+    rows += '<tr>' +
+      '<td class="fn">' + fname + '</td>' +
+      '<td class="vl' + overrideClass + '" id="v-' + docId + '-' + fname + '">' + val + '</td>' +
+      '<td class="vc">' + conf + '</td>' +
+      '<td>' + docType + '</td>' +
+      '<td>' + badge + '</td>' +
+      '<td class="ac"><span class="ed" data-docid="' + docId + '" data-fname="' + fname + '">edit</span></td>' +
+    '</tr>'
   }
 
   return '<!DOCTYPE html>' +
@@ -96,25 +88,28 @@ function fieldsPage(docs: any[], fields: any[]): string {
 'table{width:100%;border-collapse:collapse;font-size:13px}' +
 'th{text-align:left;padding:8px 10px;color:#71717a;border-bottom:1px solid #2a2a2e;font-weight:600}' +
 'td{padding:8px 10px;border-bottom:1px solid #2a2a2e}' +
-'tr.doc{cursor:pointer}' +
-'tr.doc:hover{background:#141416}' +
-'tr.f td{padding:0 10px 12px 10px}' +
-'.fv{padding:12px;background:#141416;border-radius:8px}' +
-'.fr{display:flex;padding:4px 0}' +
+'tr:hover{background:#141416}' +
 '.fn{width:160px;color:#71717a;font-size:12px;font-weight:500}' +
 '.vl{flex:1;font-size:13px}' +
-'.b{padding:2px 6px;border-radius:4px;font-size:11px}' +
-'.b-ok{background:#22c55e20;color:#22c55e}' +
-'.b-w{background:#eab30820;color:#eab308}' +
-'.b-f{background:#ef444420;color:#ef4444}' +
+'.vl.ov{color:#22c55e}' +
+'.vc{width:60px;font-size:12px;color:#71717a}' +
+'.ac{width:60px}' +
+'.ac:hover{color:#3b82f6}' +
+'.ob{padding:2px 6px;border-radius:4px;font-size:10px;background:#22c55e20;color:#22c55e}' +
+'.ed{cursor:pointer;font-size:12px;color:#71717a}' +
+'.ed:hover{color:#3b82f6}' +
+'.ei{border:1px solid #3b82f6;background:#141416;color:#e4e4e7;padding:4px 8px;border-radius:4px;font-size:13px;width:100%}' +
+'.es{cursor:pointer;font-size:12px;color:#22c55e;margin-left:8px}' +
+'.ec{cursor:pointer;font-size:12px;color:#ef4444;margin-left:4px}' +
 '</style></head><body>' +
 '<div class="h"><h1>EdgeGDE Document Fields</h1><a href="/api/v1/doc-intel/ui?pw=' + PAGE_PASSWORD + '">&#8592; Back to Documents</a></div>' +
 '<div class="m">' +
-'<div class="s">' + docs.length + ' documents &mdash; click a row to expand fields</div>' +
-'<table><thead><tr><th>Type</th><th>Status</th><th>Conf</th><th>Filename</th><th>Date</th></tr></thead>' +
+'<div class="s">' + allFields.length + ' fields across all documents</div>' +
+'<table><thead><tr><th>Field</th><th>Value</th><th>Conf</th><th>Document</th><th></th><th></th></tr></thead>' +
 '<tbody>' + rows + '</tbody></table></div>' +
 '<script>' +
-'function t(r){var n=r.nextElementSibling;if(n&&n.classList.contains("f")){var d=n.style.display;n.style.display=d==="none"?"":"none"}}' +
+'document.querySelector("table tbody").onclick=function(e){var ed=e.target.closest(".ed");if(!ed)return;var docId=ed.getAttribute("data-docid");var fname=ed.getAttribute("data-fname");var cell=document.getElementById("v-"+docId+"-"+fname);var cur=cell.textContent;cell.innerHTML=\'<input class=ei id=inp value="\'+cur+\'"><span class=es id=svb>save</span><span class=ec id=clb>x</span>\';document.getElementById("inp").focus()};' +
+'document.querySelector("table").onclick=function(e){var svb=e.target.closest("#svb");if(svb){var inp=document.getElementById("inp");var val=inp&&inp.value;if(!val)return;var cell=inp.parentElement;var id=cell.id.slice(2);var parts=id.split("-");var docId=parts[0];var fname=parts.slice(1).join("-");fetch("/api/v1/doc-intel/fields/"+docId+"/"+fname,{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:val})}).then(function(r){if(r.ok)location.reload()})};var clb=e.target.closest("#clb");if(clb){document.getElementById("inp").parentElement.textContent=clb.parentElement.previousSibling||""}}' +
 '</script></body></html>'
 }
 
@@ -212,8 +207,12 @@ docIntelUiRouter.get('/fields', async (c) => {
        FROM documents ORDER BY created_at DESC LIMIT 200`,
     )
 
-    const fieldsData: any[][] = []
+    // Build flat list of all fields across all documents
+    const allFields: any[] = []
     for (const doc of docs) {
+      let docFields: any[] = []
+
+      // Get decrypted OCR fields
       if (doc.fields_r2_key) {
         try {
           const obj = await r2.get(doc.fields_r2_key)
@@ -232,18 +231,62 @@ docIntelUiRouter.get('/fields', async (c) => {
                 tenant,
                 c.env as Record<string, unknown>,
               )
-              fieldsData.push(decrypted || [])
+              docFields = decrypted || []
             } else {
-              fieldsData.push(ef)
+              docFields = ef
             }
-            continue
           }
         } catch {}
       }
-      fieldsData.push([])
+
+      // Get manual overrides from custom_fields
+      const overrides = await queryAll<any>(
+        db,
+        `SELECT field_name, field_value FROM custom_fields WHERE document_id = ?`,
+        doc.document_id,
+      )
+
+      // Build override map
+      const overrideMap: Record<string, string> = {}
+      for (const ov of overrides) {
+        if (ov.field_value && ov.field_value.startsWith('MANUAL_OVERRIDE:')) {
+          overrideMap[ov.field_name] = ov.field_value.substring(16)
+        }
+      }
+
+      // Add each field to the flat list
+      for (const f of docFields) {
+        const fname = f.field_name || f.name || ''
+        const fval = f.field_value || f.value || ''
+        const overridden = overrideMap[fname] !== undefined
+        allFields.push({
+          field_name: fname,
+          field_value: fval,
+          confidence: doc.confidence,
+          document_id: doc.document_id,
+          document_type: doc.document_type,
+          overridden,
+          overrideValue: overrideMap[fname] || '',
+        })
+      }
+
+      // Also add any overrides that don't match an OCR field
+      for (const [key, val] of Object.entries(overrideMap)) {
+        if (!docFields.some((f: any) => (f.field_name || f.name) === key)) {
+          allFields.push({
+            field_name: key,
+            field_value: '',
+            confidence: doc.confidence,
+            document_id: doc.document_id,
+            document_type: doc.document_type,
+            overridden: true,
+            overrideValue: val,
+          })
+        }
+      }
     }
 
-    return c.html(fieldsPage(docs, fieldsData))
+    return c.html(fieldsPage(allFields))
   } catch (err: any) {
     return c.html('<h1>Error: ' + err.message + '</h1>')
   }

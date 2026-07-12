@@ -808,3 +808,44 @@ searchRouter.delete('/documents/:id', async (c) => {
     return c.json(errResp.body, errResp.status as any)
   }
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUT /fields/:id/:name — override a field value (manual edit)
+// ═══════════════════════════════════════════════════════════════════════════
+
+searchRouter.put('/fields/:id/:name', async (c) => {
+  try {
+    const tenant = resolveTenant(c)
+    if (tenant instanceof Response) return tenant
+
+    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
+    if (bindings instanceof Response) return bindings
+    const { db } = bindings
+
+    const documentId = c.req.param('id')
+    const fieldName = c.req.param('name')
+    const body = await c.req.json<{ value: string }>()
+
+    if (!body.value && body.value !== '') {
+      return c.json({ error: 'value is required' }, 400)
+    }
+
+    // Upsert: delete existing and insert new
+    await queryRun(db, "DELETE FROM custom_fields WHERE document_id = ? AND field_name = ?", documentId, fieldName)
+    await queryRun(
+      db,
+      `INSERT INTO custom_fields (custom_field_id, document_id, field_name, field_value, created_at)
+       VALUES (?, ?, ?, 'MANUAL_OVERRIDE:' || ?, unixepoch())`,
+      crypto.randomUUID(),
+      documentId,
+      fieldName,
+      body.value,
+    )
+
+    return c.json({ success: true, field_name: fieldName, overridden_value: body.value })
+  } catch (err: any) {
+    console.error('[doc-intel:field-override] error:', err)
+    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    return c.json(errResp.body, errResp.status as any)
+  }
+})
