@@ -1,16 +1,130 @@
 /**
- * EdgeGDE — Personal Intelligence DB Web UI
+ * EdgeGDE — Personal Document DB Web UI
  *
- * Uses data-id attributes and event delegation — no inline onclick escaping issues.
+ * Password-protected UI with sister page showing extracted fields.
+ * Password via ?pw= query parameter.
  *
  * @packageDocumentation
  */
 
 import { Hono } from 'hono'
+import { resolveTenant, resolveBindings } from './lib/errors'
+import { queryAll } from './lib/db'
+import { decryptFields } from '../../lib/encryption'
+
+const PAGE_PASSWORD = 'EdgeGDE2024'
 
 export const docIntelUiRouter = new Hono()
 
+// ── Password gate helper ──────────────────────────────────────────────────
+
+function checkPw(c: any): boolean {
+  const pw = c.req.query('pw') || ''
+  return pw === PAGE_PASSWORD
+}
+
+function loginPage(): string {
+  return '<!DOCTYPE html>' +
+'<html lang="en">' +
+'<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">' +
+'<title>EdgeGDE Personal Document DB</title>' +
+'<style>' +
+'*{margin:0;padding:0;box-sizing:border-box}' +
+'body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0b;color:#e4e4e7;display:flex;align-items:center;justify-content:center;min-height:100vh}' +
+'.c{text-align:center}' +
+'.c h1{font-size:18px;color:#3b82f6;margin-bottom:24px}' +
+'.c input{padding:10px 14px;border-radius:8px;border:1px solid #2a2a2e;background:#141416;color:#e4e4e7;font-size:14px;width:240px;outline:none}' +
+'.c input:focus{border-color:#3b82f6}' +
+'.c button{margin-top:12px;padding:10px 24px;border-radius:8px;border:none;font-size:14px;cursor:pointer;background:#3b82f6;color:#fff}' +
+'.c .e{color:#ef4444;font-size:12px;margin-top:8px;display:none}' +
+'</style></head><body>' +
+'<div class="c">' +
+'<h1>EdgeGDE Personal Document DB</h1>' +
+'<input id="p" type="password" placeholder="Enter password" onkeydown="if(event.key===\'Enter\')go()">' +
+'<br><button onclick="go()">Access</button>' +
+'<div class="e" id="e">Incorrect password</div>' +
+'</div>' +
+'<script>' +
+'function go(){var p=document.getElementById("p").value;if(!p)return;window.location.href="?pw="+encodeURIComponent(p)}' +
+'</script></body></html>'
+}
+
+// ── Fields sister page ────────────────────────────────────────────────────
+
+function fieldsPage(docs: any[], fields: any[]): string {
+  let rows = ''
+  for (let i = 0; i < docs.length; i++) {
+    const d = docs[i]
+    const fs = fields[i] || []
+    const status = d.ocr_status || 'pending'
+    const badge = status === 'completed' ? 'ok' :
+                  status === 'completed_with_warnings' ? 'w' :
+                  status === 'failed' ? 'f' : ''
+    const conf = d.confidence != null ? (d.confidence * 100).toFixed(0) + '%' : '—'
+    const dt = d.created_at ? new Date(d.created_at * 1000).toLocaleDateString('en-AU') : '—'
+    rows += '<tr class="doc" onclick="t(this)">' +
+      '<td>' + (d.document_type || '?') + '</td>' +
+      '<td><span class="b b-' + badge + '">' + status + '</span></td>' +
+      '<td>' + conf + '</td>' +
+      '<td>' + (d.filename_display || '—') + '</td>' +
+      '<td>' + dt + '</td>' +
+    '</tr>' +
+    '<tr class="f" style="display:none"><td colspan="5"><div class="fv">'
+    if (fs.length === 0) {
+      rows += '<span style="color:#71717a">No extracted fields</span>'
+    } else {
+      for (const f of fs) {
+        rows += '<div class="fr"><span class="fn">' + (f.field_name || f.name || '') + '</span><span class="vl">' + (f.field_value || f.value || '') + '</span></div>'
+      }
+    }
+    rows += '</div></td></tr>'
+  }
+
+  return '<!DOCTYPE html>' +
+'<html lang="en">' +
+'<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">' +
+'<title>EdgeGDE Document Fields</title>' +
+'<style>' +
+'*{margin:0;padding:0;box-sizing:border-box}' +
+'body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0b;color:#e4e4e7}' +
+'.h{padding:16px 20px;border-bottom:1px solid #2a2a2e;display:flex;align-items:center;justify-content:space-between}' +
+'.h h1{font-size:16px;color:#3b82f6}' +
+'.h a{font-size:12px;color:#71717a;text-decoration:none}' +
+'.h a:hover{color:#3b82f6}' +
+'.m{max-width:1200px;margin:0 auto;padding:16px}' +
+'.s{font-size:12px;color:#71717a;margin-bottom:12px}' +
+'table{width:100%;border-collapse:collapse;font-size:13px}' +
+'th{text-align:left;padding:8px 10px;color:#71717a;border-bottom:1px solid #2a2a2e;font-weight:600}' +
+'td{padding:8px 10px;border-bottom:1px solid #2a2a2e}' +
+'tr.doc{cursor:pointer}' +
+'tr.doc:hover{background:#141416}' +
+'tr.f td{padding:0 10px 12px 10px}' +
+'.fv{padding:12px;background:#141416;border-radius:8px}' +
+'.fr{display:flex;padding:4px 0}' +
+'.fn{width:160px;color:#71717a;font-size:12px;font-weight:500}' +
+'.vl{flex:1;font-size:13px}' +
+'.b{padding:2px 6px;border-radius:4px;font-size:11px}' +
+'.b-ok{background:#22c55e20;color:#22c55e}' +
+'.b-w{background:#eab30820;color:#eab308}' +
+'.b-f{background:#ef444420;color:#ef4444}' +
+'</style></head><body>' +
+'<div class="h"><h1>EdgeGDE Document Fields</h1><a href="/api/v1/doc-intel/ui?pw=' + PAGE_PASSWORD + '">&#8592; Back to Documents</a></div>' +
+'<div class="m">' +
+'<div class="s">' + docs.length + ' documents &mdash; click a row to expand fields</div>' +
+'<table><thead><tr><th>Type</th><th>Status</th><th>Conf</th><th>Filename</th><th>Date</th></tr></thead>' +
+'<tbody>' + rows + '</tbody></table></div>' +
+'<script>' +
+'function t(r){var n=r.nextElementSibling;if(n&&n.classList.contains("f")){var d=n.style.display;n.style.display=d==="none"?"":"none"}}' +
+'</script></body></html>'
+}
+
+// ── Route: main UI ────────────────────────────────────────────────────────
+
 docIntelUiRouter.get('/', (c) => {
+  if (!checkPw(c)) {
+    return c.html(loginPage())
+  }
+
   const p = '<!DOCTYPE html>' +
 '<html lang="en">' +
 '<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">' +
@@ -20,6 +134,8 @@ docIntelUiRouter.get('/', (c) => {
 'body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0b;color:#e4e4e7;min-height:100vh}' +
 '.h{padding:16px 20px;border-bottom:1px solid #2a2a2e;display:flex;align-items:center;justify-content:space-between}' +
 '.h h1{font-size:16px;color:#3b82f6}' +
+'.h a{font-size:12px;color:#71717a;text-decoration:none}' +
+'.h a:hover{color:#3b82f6}' +
 '.i{display:flex;gap:12px;align-items:center;font-size:12px;color:#71717a;padding:8px 20px;border-bottom:1px solid #2a2a2e}' +
 '.m{max-width:1000px;margin:0 auto;padding:16px}' +
 '.tb{display:flex;gap:8px;margin-bottom:12px;align-items:center}' +
@@ -40,7 +156,7 @@ docIntelUiRouter.get('/', (c) => {
 '#dz{position:fixed;top:0;left:0;width:100%;height:100%;background:#3b82f620;border:3px dashed #3b82f6;display:none;align-items:center;justify-content:center;z-index:999;font-size:24px;color:#3b82f6;font-weight:600}' +
 '</style></head><body>' +
 '<div id="dz">Drop file to upload</div>' +
-'<div class="h"><h1>EdgeGDE Personal Document DB</h1></div>' +
+'<div class="h"><h1>EdgeGDE Personal Document DB</h1><a href="/api/v1/doc-intel/ui/fields?pw=' + PAGE_PASSWORD + '">View Fields &#8594;</a></div>' +
 '<div class="i"><span id="info-files">0 files</span><span id="info-size">0 KB</span></div>' +
 '<div class="m">' +
 '<div class="tb"><input id="q" placeholder="Search..." onkeyup="R()">' +
@@ -74,4 +190,62 @@ docIntelUiRouter.get('/', (c) => {
 'L()' +
 '</script></body></html>'
   return c.html(p)
+})
+
+// ── Route: fields sister page ─────────────────────────────────────────────
+
+docIntelUiRouter.get('/fields', async (c) => {
+  if (!checkPw(c)) {
+    return c.html(loginPage())
+  }
+
+  try {
+    const tenant = resolveTenant(c)
+    if (tenant instanceof Response) return tenant
+
+    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
+    if (bindings instanceof Response) return bindings
+    const { db, r2 } = bindings
+
+    const docs = await queryAll<any>(
+      db,
+      `SELECT document_id, document_type, filename_display, ocr_status, confidence, fields_r2_key, created_at
+       FROM documents ORDER BY created_at DESC LIMIT 200`,
+    )
+
+    const fieldsData: any[][] = []
+    for (const doc of docs) {
+      if (doc.fields_r2_key) {
+        try {
+          const obj = await r2.get(doc.fields_r2_key)
+          if (obj) {
+            const blob = await obj.json() as any
+            const ef = blob.encrypted_fields || blob.fields || []
+            if (ef.length > 0 && ef[0].field_value_encrypted) {
+              const decrypted = await decryptFields(
+                ef.map((f: any) => ({
+                  field_name: f.field_name,
+                  field_value_encrypted: f.field_value_encrypted,
+                  key_version: f.key_version || 1,
+                  data_classification: f.classification || 'CONFIDENTIAL',
+                })),
+                db,
+                tenant,
+                c.env as Record<string, unknown>,
+              )
+              fieldsData.push(decrypted || [])
+            } else {
+              fieldsData.push(ef)
+            }
+            continue
+          }
+        } catch {}
+      }
+      fieldsData.push([])
+    }
+
+    return c.html(fieldsPage(docs, fieldsData))
+  } catch (err: any) {
+    return c.html('<h1>Error: ' + err.message + '</h1>')
+  }
 })
