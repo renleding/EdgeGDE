@@ -108,8 +108,9 @@ function fieldsPage(allFields: any[]): string {
 '<table><thead><tr><th>Field</th><th>Value</th><th>Conf</th><th>Document</th><th></th><th></th></tr></thead>' +
 '<tbody>' + rows + '</tbody></table></div>' +
 '<script>' +
-'document.querySelector("table tbody").onclick=function(e){var ed=e.target.closest(".ed");if(!ed)return;var docId=ed.getAttribute("data-docid");var fname=ed.getAttribute("data-fname");var cell=document.getElementById("v-"+docId+"-"+fname);var cur=cell.textContent;cell.innerHTML=\'<input class=ei id=inp value="\'+cur+\'"><span class=es id=svb>save</span><span class=ec id=clb>x</span>\';document.getElementById("inp").focus()};' +
-'document.querySelector("table").onclick=function(e){var svb=e.target.closest("#svb");if(svb){var inp=document.getElementById("inp");var val=inp&&inp.value;if(!val)return;var cell=inp.parentElement;var id=cell.id.slice(2);var parts=id.split("-");var docId=parts[0];var fname=parts.slice(1).join("-");fetch("/api/v1/doc-intel/fields/"+docId+"/"+fname,{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:val})}).then(function(r){if(r.ok)location.reload()})};var clb=e.target.closest("#clb");if(clb){document.getElementById("inp").parentElement.textContent=clb.parentElement.previousSibling||""}}' +
+'var E=null;' +
+'document.querySelector("table tbody").onclick=function(e){var ed=e.target.closest(".ed");if(!ed)return;E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var cell=document.getElementById("v-"+E.d+"-"+E.f);var cur=cell.textContent;cell.innerHTML=\'<input class=ei id=inp value="\'+cur+\'"><span class=es id=svb>save</span><span class=ec id=clb>x</span>\';document.getElementById("inp").focus()};' +
+'document.querySelector("table").onclick=function(e){var svb=e.target.closest("#svb");if(svb&&E){var inp=document.getElementById("inp");var val=inp&&inp.value;if(!val)return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(E.d)+"/"+encodeURIComponent(E.f),{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:val})}).then(function(r){if(r.ok)location.reload()})}var clb=e.target.closest("#clb");if(clb&&E){document.getElementById("inp").parentElement.textContent=E&&document.getElementById("v-"+E.d+"-"+E.f).getAttribute("data-orig")||""}}' +
 '</script></body></html>'
 }
 
