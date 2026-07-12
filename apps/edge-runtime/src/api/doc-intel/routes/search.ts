@@ -849,3 +849,34 @@ searchRouter.put('/fields/:id/:name', async (c) => {
     return c.json(errResp.body, errResp.status as any)
   }
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DELETE /fields/:id/:name — remove a field override
+// ═══════════════════════════════════════════════════════════════════════════
+
+searchRouter.delete('/fields/:id/:name', async (c) => {
+  try {
+    const tenant = resolveTenant(c)
+    if (tenant instanceof Response) return tenant
+
+    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
+    if (bindings instanceof Response) return bindings
+    const { db } = bindings
+
+    const documentId = c.req.param('id')
+    const fieldName = c.req.param('name')
+
+    await queryRun(
+      db,
+      "DELETE FROM custom_fields WHERE document_id = ? AND field_name = ?",
+      documentId,
+      fieldName,
+    )
+
+    return c.json({ success: true, deleted_field: fieldName })
+  } catch (err: any) {
+    console.error('[doc-intel:field-delete] error:', err)
+    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    return c.json(errResp.body, errResp.status as any)
+  }
+})

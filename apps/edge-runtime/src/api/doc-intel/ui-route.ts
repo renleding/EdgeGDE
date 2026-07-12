@@ -52,7 +52,6 @@ function loginPage(): string {
 // ── Fields sister page ────────────────────────────────────────────────────
 
 function fmtDate(v: string): string {
-  // Convert YYYY-MM-DD to DD-MM-YYYY
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
     const parts = v.split('-')
     return parts[2] + '-' + parts[1] + '-' + parts[0]
@@ -60,16 +59,15 @@ function fmtDate(v: string): string {
   return v
 }
 
-function fieldsPage(allFields: any[]): string {
+function fieldsPage(allFields: any[], docs: any[]): string {
   let rows = ''
   for (const f of allFields) {
     const isOverride = f.overridden
     const raw = isOverride ? f.overrideValue : f.field_value
     const fname = f.field_name
-    // Format dates if field name suggests it
     const val = /date|dob|expiry/i.test(fname) ? fmtDate(raw) : raw
     const docType = f.document_type || '?'
-    const conf = f.confidence != null ? (f.confidence * 100).toFixed(0) + '%' : '—'
+    const conf = f.confidence != null ? (f.confidence * 100).toFixed(0) + '%' : '\u2014'
     const docId = f.document_id
     const overrideClass = isOverride ? ' ov' : ''
     const badge = isOverride ? '<span class="ob">edited</span>' : ''
@@ -79,8 +77,15 @@ function fieldsPage(allFields: any[]): string {
       '<td class="vc">' + conf + '</td>' +
       '<td>' + docType + '</td>' +
       '<td>' + badge + '</td>' +
-      '<td class="ac"><span class="ed" data-docid="' + docId + '" data-fname="' + fname + '">edit</span></td>' +
+      '<td class="ac"><span class="ed" data-docid="' + docId + '" data-fname="' + fname + '">edit</span>' +
+      '<span class="dl" data-docid="' + docId + '" data-fname="' + fname + '">\u2716</span></td>' +
     '</tr>'
+  }
+
+  let docOpts = ''
+  for (const d of docs) {
+    const label = (d.filename_display || d.document_id).slice(0, 24)
+    docOpts += '<option value="' + d.document_id + '">' + label + '</option>'
   }
 
   return '<!DOCTYPE html>' +
@@ -104,26 +109,137 @@ function fieldsPage(allFields: any[]): string {
 '.vl{flex:1;font-size:13px}' +
 '.vl.ov{color:#22c55e}' +
 '.vc{width:60px;font-size:12px;color:#71717a}' +
-'.ac{width:60px}' +
-'.ac:hover{color:#3b82f6}' +
+'.ac{width:70px}' +
 '.ob{padding:2px 6px;border-radius:4px;font-size:10px;background:#22c55e20;color:#22c55e}' +
 '.ed{cursor:pointer;font-size:12px;color:#71717a}' +
 '.ed:hover{color:#3b82f6}' +
+'.dl{cursor:pointer;font-size:12px;color:#ef4444;margin-left:8px}' +
+'.dl:hover{color:#ff6b6b}' +
 '.ei{border:1px solid #3b82f6;background:#141416;color:#e4e4e7;padding:4px 8px;border-radius:4px;font-size:13px;width:100%}' +
 '.es{cursor:pointer;font-size:12px;color:#22c55e;margin-left:8px}' +
 '.ec{cursor:pointer;font-size:12px;color:#ef4444;margin-left:4px}' +
+'.af{margin-top:16px;padding:12px;background:#141416;border-radius:8px;border:1px solid #2a2a2e;display:flex;gap:8px;align-items:center;flex-wrap:wrap}' +
+'.af select,.af input{padding:6px 10px;border-radius:6px;border:1px solid #2a2a2e;background:#0a0a0b;color:#e4e4e7;font-size:12px}' +
+'.af button{padding:6px 14px;border-radius:6px;border:none;font-size:12px;cursor:pointer;background:#3b82f6;color:#fff}' +
 '</style></head><body>' +
-'<div class="h"><h1>EdgeGDE Document Fields</h1><a href="/api/v1/doc-intel/ui?pw=' + PAGE_PASSWORD + '">&#8592; Back to Documents</a></div>' +
+'<div class="h"><h1>EdgeGDE Document Fields</h1><a href="/api/v1/doc-intel/ui?pw=' + PAGE_PASSWORD + '">\u2190 Back to Documents</a></div>' +
 '<div class="m">' +
 '<div class="s">' + allFields.length + ' fields across all documents</div>' +
 '<table><thead><tr><th>Field</th><th>Value</th><th>Conf</th><th>Document</th><th></th><th></th></tr></thead>' +
-'<tbody>' + rows + '</tbody></table></div>' +
+'<tbody>' + rows + '</tbody></table>' +
+'<div class="af"><select id="ad">' + docOpts + '</select>' +
+'<input id="afn" placeholder="Field name">' +
+'<input id="afv" placeholder="Value">' +
+'<button onclick="addF()">+ Add Field</button></div></div>' +
 '<script>' +
 'var E=null;' +
-'document.querySelector("table tbody").onclick=function(e){var ed=e.target.closest(".ed");if(!ed)return;E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var cell=document.getElementById("v-"+E.d+"-"+E.f);var cur=cell.textContent;cell.innerHTML=\'<input class=ei id=inp value="\'+cur+\'"><span class=es id=svb>save</span><span class=ec id=clb>x</span>\';document.getElementById("inp").focus()};' +
+'function addF(){var d=document.getElementById("ad").value;var n=document.getElementById("afn").value;var v=document.getElementById("afv").value;if(!n||!v)return;fetch("/api/v1/doc-intel/documents/custom-fields",{method:"POST",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({document_id:d,field_name:n,field_value:v})}).then(function(r){if(r.ok)location.reload()})}' +
+'document.querySelector("table tbody").onclick=function(e){var del=e.target.closest(".dl");if(del){var di=del.getAttribute("data-docid");var fn=del.getAttribute("data-fname");fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(di)+"/"+encodeURIComponent(fn),{method:"DELETE",headers:{"x-tenant":"personal"}}).then(function(r){if(r.ok)location.reload()});return}var ed=e.target.closest(".ed");if(!ed)return;E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var cell=document.getElementById("v-"+E.d+"-"+E.f);var cur=cell.textContent;cell.innerHTML="<input class=ei id=inp value=\\\""+cur+"\\\"><span class=es id=svb>save</span><span class=ec id=clb>x</span>";document.getElementById("inp").focus()};' +
 'document.querySelector("table").onclick=function(e){var svb=e.target.closest("#svb");if(svb&&E){var inp=document.getElementById("inp");var val=inp&&inp.value;if(!val)return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(E.d)+"/"+encodeURIComponent(E.f),{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:val})}).then(function(r){if(r.ok)location.reload()})}var clb=e.target.closest("#clb");if(clb&&E){document.getElementById("inp").parentElement.textContent=E&&document.getElementById("v-"+E.d+"-"+E.f).getAttribute("data-orig")||""}}' +
 '</script></body></html>'
 }
+
+// ── Route: fields sister page ─────────────────────────────────────────────
+
+docIntelUiRouter.get('/fields', async (c) => {
+  if (!checkPw(c)) {
+    return c.html(loginPage())
+  }
+
+  try {
+    const tenant = (c.req.header('x-tenant') || 'personal') as 'personal' | 'afirmico'
+    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
+    if (bindings instanceof Response) return bindings
+    const { db, r2 } = bindings
+
+    const docs = await queryAll<any>(
+      db,
+      `SELECT document_id, document_type, filename_display, ocr_status, confidence, fields_r2_key, created_at
+       FROM documents ORDER BY created_at DESC LIMIT 200`,
+    )
+
+    // Build flat list of all fields across all documents
+    const allFields: any[] = []
+    for (const doc of docs) {
+      let docFields: any[] = []
+
+      if (doc.fields_r2_key) {
+        try {
+          const obj = await r2.get(doc.fields_r2_key)
+          if (obj) {
+            const blob = await obj.json() as any
+            const ef = blob.encrypted_fields || blob.fields || []
+            if (ef.length > 0 && ef[0].field_value_encrypted) {
+              const decrypted = await decryptFields(
+                ef.map((f: any) => ({
+                  field_name: f.field_name,
+                  field_value_encrypted: f.field_value_encrypted,
+                  key_version: f.key_version || 1,
+                  data_classification: f.classification || 'CONFIDENTIAL',
+                })),
+                db,
+                tenant,
+                c.env as Record<string, unknown>,
+              )
+              docFields = decrypted || []
+            } else {
+              docFields = ef
+            }
+          }
+        } catch {}
+      }
+
+      const overrides = await queryAll<any>(
+        db,
+        `SELECT field_name, field_value FROM custom_fields WHERE document_id = ?`,
+        doc.document_id,
+      )
+
+      const overrideMap: Record<string, string> = {}
+      for (const ov of overrides) {
+        if (ov.field_value && ov.field_value.startsWith('MANUAL_OVERRIDE:')) {
+          overrideMap[ov.field_name] = ov.field_value.substring(16)
+        }
+      }
+
+      const seen = new Set<string>()
+      for (const f of docFields) {
+        const fname = f.field_name || f.name || ''
+        const key = doc.document_id + ':' + fname
+        if (seen.has(key)) continue
+        seen.add(key)
+        const overridden = overrideMap[fname] !== undefined
+        allFields.push({
+          field_name: fname,
+          field_value: f.field_value || f.value || '',
+          confidence: doc.confidence,
+          document_id: doc.document_id,
+          document_type: doc.document_type,
+          overridden,
+          overrideValue: overrideMap[fname] || '',
+        })
+      }
+
+      for (const [key, val] of Object.entries(overrideMap)) {
+        if (!docFields.some((f: any) => (f.field_name || f.name) === key)) {
+          allFields.push({
+            field_name: key,
+            field_value: '',
+            confidence: doc.confidence,
+            document_id: doc.document_id,
+            document_type: doc.document_type,
+            overridden: true,
+            overrideValue: val,
+          })
+        }
+      }
+    }
+
+    return c.html(fieldsPage(allFields, docs))
+  } catch (err: any) {
+    return c.html('<h1>Error: ' + err.message + '</h1>')
+  }
+})
 
 // ── Route: main UI ────────────────────────────────────────────────────────
 
@@ -197,115 +313,4 @@ docIntelUiRouter.get('/', (c) => {
 'L()' +
 '</script></body></html>'
   return c.html(p)
-})
-
-// ── Route: fields sister page ─────────────────────────────────────────────
-
-docIntelUiRouter.get('/fields', async (c) => {
-  if (!checkPw(c)) {
-    return c.html(loginPage())
-  }
-
-  try {
-    // Default to 'personal' tenant for browser access (no custom headers)
-    const tenant = (c.req.header('x-tenant') || 'personal') as 'personal' | 'afirmico'
-    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
-    if (bindings instanceof Response) return bindings
-    const { db, r2 } = bindings
-
-    const docs = await queryAll<any>(
-      db,
-      `SELECT document_id, document_type, filename_display, ocr_status, confidence, fields_r2_key, created_at
-       FROM documents ORDER BY created_at DESC LIMIT 200`,
-    )
-
-    // Build flat list of all fields across all documents
-    const allFields: any[] = []
-    for (const doc of docs) {
-      let docFields: any[] = []
-
-      // Get decrypted OCR fields
-      if (doc.fields_r2_key) {
-        try {
-          const obj = await r2.get(doc.fields_r2_key)
-          if (obj) {
-            const blob = await obj.json() as any
-            const ef = blob.encrypted_fields || blob.fields || []
-            if (ef.length > 0 && ef[0].field_value_encrypted) {
-              const decrypted = await decryptFields(
-                ef.map((f: any) => ({
-                  field_name: f.field_name,
-                  field_value_encrypted: f.field_value_encrypted,
-                  key_version: f.key_version || 1,
-                  data_classification: f.classification || 'CONFIDENTIAL',
-                })),
-                db,
-                tenant,
-                c.env as Record<string, unknown>,
-              )
-              docFields = decrypted || []
-            } else {
-              docFields = ef
-            }
-          }
-        } catch {}
-      }
-
-      // Get manual overrides from custom_fields
-      const overrides = await queryAll<any>(
-        db,
-        `SELECT field_name, field_value FROM custom_fields WHERE document_id = ?`,
-        doc.document_id,
-      )
-
-      // Build override map
-      const overrideMap: Record<string, string> = {}
-      for (const ov of overrides) {
-        if (ov.field_value && ov.field_value.startsWith('MANUAL_OVERRIDE:')) {
-          overrideMap[ov.field_name] = ov.field_value.substring(16)
-        }
-      }
-
-      // Track unique (document_id, field_name) pairs to avoid duplicates
-      const seen = new Set<string>()
-
-      // Add each field to the flat list
-      for (const f of docFields) {
-        const fname = f.field_name || f.name || ''
-        const key = doc.document_id + ':' + fname
-        if (seen.has(key)) continue
-        seen.add(key)
-        const fval = f.field_value || f.value || ''
-        const overridden = overrideMap[fname] !== undefined
-        allFields.push({
-          field_name: fname,
-          field_value: fval,
-          confidence: doc.confidence,
-          document_id: doc.document_id,
-          document_type: doc.document_type,
-          overridden,
-          overrideValue: overrideMap[fname] || '',
-        })
-      }
-
-      // Also add any overrides that don't match an OCR field
-      for (const [key, val] of Object.entries(overrideMap)) {
-        if (!docFields.some((f: any) => (f.field_name || f.name) === key)) {
-          allFields.push({
-            field_name: key,
-            field_value: '',
-            confidence: doc.confidence,
-            document_id: doc.document_id,
-            document_type: doc.document_type,
-            overridden: true,
-            overrideValue: val,
-          })
-        }
-      }
-    }
-
-    return c.html(fieldsPage(allFields))
-  } catch (err: any) {
-    return c.html('<h1>Error: ' + err.message + '</h1>')
-  }
 })
