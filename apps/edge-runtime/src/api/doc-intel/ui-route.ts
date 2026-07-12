@@ -109,10 +109,12 @@ function fieldsPage(allFields: any[], docs: any[]): string {
 '.vl{flex:1;font-size:13px}' +
 '.vl.ov{color:#22c55e}' +
 '.vc{width:60px;font-size:12px;color:#71717a}' +
-'.ac{width:70px}' +
+'.ac{width:90px}' +
 '.ob{padding:2px 6px;border-radius:4px;font-size:10px;background:#22c55e20;color:#22c55e}' +
 '.ed{cursor:pointer;font-size:12px;color:#71717a}' +
 '.ed:hover{color:#3b82f6}' +
+'.dx{cursor:pointer;font-size:12px;color:#ef4444;margin-left:10px;padding:2px 6px;border-radius:4px}' +
+'.dx:hover{background:#ef444420}' +
 '.dl{cursor:pointer;font-size:12px;color:#ef4444;margin-left:8px}' +
 '.dl:hover{color:#ff6b6b}' +
 '.ei{border:1px solid #3b82f6;background:#141416;color:#e4e4e7;padding:4px 8px;border-radius:4px;font-size:13px;width:100%}' +
