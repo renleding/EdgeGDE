@@ -9,6 +9,7 @@
 
 import { Hono } from 'hono'
 import { adminAuth } from '../middleware/auth'
+import { envFromContext, type Env } from '../lib/env'
 
 export const vaultRouter = new Hono()
 
@@ -20,7 +21,7 @@ vaultRouter.use('*', adminAuth)
 // ═══════════════════════════════════════════════════════════════════════════
 
 vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
-  const vault = (c.env as any)?.VAULT_BUCKET
+  const vault = envFromContext(c).VAULT_BUCKET
   if (!vault) {
     return c.json({
       error: 'VAULT_BUCKET not configured',
@@ -28,7 +29,7 @@ vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
     }, 501)
   }
 
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const submissionId = c.req.param('submissionId')
@@ -74,7 +75,7 @@ vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
     ).bind(docId, tenantId, submissionId, filename, objectKey, contentType, sizeBytes).run()
 
     // 3. Fire-and-forget audit event
-    c.executionCtx.waitUntil(logAudit(c.env, {
+    c.executionCtx.waitUntil(logAudit(envFromContext(c), {
       type: 'upload',
       actor: 'system',
       tenantId,
@@ -114,10 +115,10 @@ vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 vaultRouter.delete('/download/:submissionId/:filename', async (c) => {
-  const vault = (c.env as any)?.VAULT_BUCKET
+  const vault = envFromContext(c).VAULT_BUCKET
   if (!vault) return c.json({ error: 'VAULT_BUCKET not configured' }, 501)
 
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const submissionId = c.req.param('submissionId')
@@ -142,7 +143,7 @@ vaultRouter.delete('/download/:submissionId/:filename', async (c) => {
     await db.prepare('DELETE FROM document_vault WHERE id = ?').bind(doc.id).run()
 
     // 4. Fire-and-forget audit event
-    c.executionCtx.waitUntil(logAudit(c.env, {
+    c.executionCtx.waitUntil(logAudit(envFromContext(c), {
       type: 'delete',
       actor: 'system',
       tenantId,
@@ -163,7 +164,7 @@ vaultRouter.delete('/download/:submissionId/:filename', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 vaultRouter.get('/audit', async (c) => {
-  const doBinding = (c.env as any)?.AUDIT_LEDGER
+  const doBinding = envFromContext(c).AUDIT_LEDGER
   if (!doBinding || typeof doBinding.idFromName !== 'function') {
     return c.json({ error: 'AUDIT_LEDGER not configured' }, 501)
   }
@@ -188,7 +189,7 @@ vaultRouter.get('/audit', async (c) => {
 // NOTE: This route must be registered AFTER /audit to avoid conflicts
 
 vaultRouter.get('/:submissionId', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const submissionId = c.req.param('submissionId')
@@ -216,10 +217,10 @@ vaultRouter.get('/:submissionId', async (c) => {
 // Never constructs R2 keys from URL parameters directly.
 
 vaultRouter.get('/download/:submissionId/:filename', async (c) => {
-  const vault = (c.env as any)?.VAULT_BUCKET
+  const vault = envFromContext(c).VAULT_BUCKET
   if (!vault) return c.json({ error: 'VAULT_BUCKET not configured' }, 501)
 
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const submissionId = c.req.param('submissionId')
@@ -248,7 +249,7 @@ vaultRouter.get('/download/:submissionId/:filename', async (c) => {
     headers.set('Cache-Control', 'private, max-age=3600')
 
     // 3. Fire-and-forget audit event
-    c.executionCtx.waitUntil(logAudit(c.env, {
+    c.executionCtx.waitUntil(logAudit(envFromContext(c), {
       type: 'download',
       actor: 'system',
       tenantId,
@@ -278,9 +279,9 @@ interface AuditEvent {
   data: Record<string, unknown>
 }
 
-async function logAudit(env: any, event: AuditEvent): Promise<void> {
+async function logAudit(env: Env, event: AuditEvent): Promise<void> {
   try {
-    const doBinding = (env as any)?.AUDIT_LEDGER
+    const doBinding = env.AUDIT_LEDGER
     if (!doBinding || typeof doBinding.idFromName !== 'function') return
 
     const doId = doBinding.idFromName(`tenant:${event.tenantId}`)
