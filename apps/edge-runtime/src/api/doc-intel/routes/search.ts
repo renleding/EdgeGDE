@@ -824,11 +824,13 @@ searchRouter.put('/fields/:id/:name', async (c) => {
 
     const documentId = c.req.param('id')
     const fieldName = c.req.param('name')
-    const body = await c.req.json<{ value: string }>()
+    const body = await c.req.json<{ value: string; field_name?: string }>()
 
     if (!body.value && body.value !== '') {
       return c.json({ error: 'value is required' }, 400)
     }
+
+    const newFieldName = body.field_name || fieldName
 
     // Upsert: delete existing and insert new
     await queryRun(db, "DELETE FROM custom_fields WHERE document_id = ? AND field_name = ?", documentId, fieldName)
@@ -838,11 +840,11 @@ searchRouter.put('/fields/:id/:name', async (c) => {
        VALUES (?, ?, ?, 'MANUAL_OVERRIDE:' || ?, unixepoch())`,
       crypto.randomUUID(),
       documentId,
-      fieldName,
+      newFieldName,
       body.value,
     )
 
-    return c.json({ success: true, field_name: fieldName, overridden_value: body.value })
+    return c.json({ success: true, field_name: newFieldName, old_field_name: fieldName, overridden_value: body.value })
   } catch (err: any) {
     console.error('[doc-intel:field-override] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)

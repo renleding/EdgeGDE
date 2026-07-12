@@ -72,7 +72,7 @@ function fieldsPage(allFields: any[], docs: any[]): string {
     const overrideClass = isOverride ? ' ov' : ''
     const badge = isOverride ? '<span class="ob">edited</span>' : ''
     rows += '<tr>' +
-      '<td class="fn">' + fname + '</td>' +
+      '<td class="fn" id="fn-' + docId + '-' + fname + '">' + fname + '</td>' +
       '<td class="vl' + overrideClass + '" id="v-' + docId + '-' + fname + '">' + val + '</td>' +
       '<td class="vc">' + conf + '</td>' +
       '<td>' + docType + '</td>' +
@@ -134,8 +134,8 @@ function fieldsPage(allFields: any[], docs: any[]): string {
 '<script>' +
 'var E=null;' +
 'function addF(){var d=document.getElementById("ad").value;var n=document.getElementById("afn").value;var v=document.getElementById("afv").value;if(!n||!v)return;fetch("/api/v1/doc-intel/documents/custom-fields",{method:"POST",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({document_id:d,field_name:n,field_value:v})}).then(function(r){if(r.ok)location.reload()})}' +
-'document.querySelector("table tbody").onclick=function(e){var del=e.target.closest(".dl");if(del){var di=del.getAttribute("data-docid");var fn=del.getAttribute("data-fname");fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(di)+"/"+encodeURIComponent(fn),{method:"DELETE",headers:{"x-tenant":"personal"}}).then(function(r){if(r.ok)location.reload()});return}var ed=e.target.closest(".ed");if(!ed)return;E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var cell=document.getElementById("v-"+E.d+"-"+E.f);var cur=cell.textContent;cell.innerHTML="<input class=ei id=inp value=\\\""+cur+"\\\"><span class=es id=svb>save</span><span class=ec id=clb>x</span>";document.getElementById("inp").focus()};' +
-'document.querySelector("table").onclick=function(e){var svb=e.target.closest("#svb");if(svb&&E){var inp=document.getElementById("inp");var val=inp&&inp.value;if(!val)return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(E.d)+"/"+encodeURIComponent(E.f),{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:val})}).then(function(r){if(r.ok)location.reload()})}var clb=e.target.closest("#clb");if(clb&&E){document.getElementById("inp").parentElement.textContent=E&&document.getElementById("v-"+E.d+"-"+E.f).getAttribute("data-orig")||""}}' +
+'document.querySelector("table tbody").onclick=function(e){var del=e.target.closest(".dl");if(del){var di=del.getAttribute("data-docid");var fn=del.getAttribute("data-fname");fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(di)+"/"+encodeURIComponent(fn),{method:"DELETE",headers:{"x-tenant":"personal"}}).then(function(r){if(r.ok)location.reload()});return}var ed=e.target.closest(".ed");if(!ed)return;E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var nc=document.getElementById("fn-"+E.d+"-"+E.f);var vc=document.getElementById("v-"+E.d+"-"+E.f);E.o=E.f;nc.innerHTML="<input class=ei id=inpN value=\\\""+E.f+"\\\" style=width:140px>";vc.innerHTML="<input class=ei id=inpV value=\\\""+vc.textContent+"\\\"><span class=es id=svb>save</span><span class=ec id=clb>x</span>";document.getElementById("inpN").focus()};' +
+'document.querySelector("table").onclick=function(e){var svb=e.target.closest("#svb");if(svb&&E){var inpN=document.getElementById("inpN");var inpV=document.getElementById("inpV");var nn=(inpN&&inpN.value)||E.f;var nv=(inpV&&inpV.value)||"";if(!nv&&nv!=="")return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(E.d)+"/"+encodeURIComponent(E.o||E.f),{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:nv,field_name:nn})}).then(function(r){if(r.ok)location.reload()})}var clb=e.target.closest("#clb");if(clb&&E){var nc2=document.getElementById("fn-"+E.d+"-"+E.f);var vc2=document.getElementById("v-"+E.d+"-"+E.f);nc2.textContent=E.o||E.f;vc2.textContent=""}}' +
 '</script></body></html>'
 }
 
@@ -158,8 +158,9 @@ docIntelUiRouter.get('/fields', async (c) => {
        FROM documents ORDER BY created_at DESC LIMIT 200`,
     )
 
-    // Build flat list of all fields across all documents
+    // Build flat list of all fields across all documents (unique by field name)
     const allFields: any[] = []
+    const seen = new Set<string>()
     for (const doc of docs) {
       let docFields: any[] = []
 
@@ -202,12 +203,11 @@ docIntelUiRouter.get('/fields', async (c) => {
         }
       }
 
-      const seen = new Set<string>()
+      // Track unique field names globally
       for (const f of docFields) {
         const fname = f.field_name || f.name || ''
-        const key = doc.document_id + ':' + fname
-        if (seen.has(key)) continue
-        seen.add(key)
+        if (seen.has(fname)) continue
+        seen.add(fname)
         const overridden = overrideMap[fname] !== undefined
         allFields.push({
           field_name: fname,
@@ -221,7 +221,9 @@ docIntelUiRouter.get('/fields', async (c) => {
       }
 
       for (const [key, val] of Object.entries(overrideMap)) {
+        if (seen.has(key)) continue
         if (!docFields.some((f: any) => (f.field_name || f.name) === key)) {
+          seen.add(key)
           allFields.push({
             field_name: key,
             field_value: '',
