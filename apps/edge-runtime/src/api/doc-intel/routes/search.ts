@@ -63,11 +63,12 @@ searchRouter.get('/documents', async (c) => {
       ocr_status: string
       confidence: number | null
       fields_r2_key: string | null
+      original_size_bytes: number | null
       created_at: number
     }>(
       db,
       `SELECT d.document_id, d.document_type, d.filename_display,
-              d.ocr_status, d.confidence, d.fields_r2_key, d.created_at
+              d.ocr_status, d.confidence, d.fields_r2_key, d.original_size_bytes, d.created_at
        FROM documents d
        ${whereClause}
        ORDER BY d.created_at DESC
