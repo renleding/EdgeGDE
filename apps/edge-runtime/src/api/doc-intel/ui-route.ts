@@ -78,7 +78,7 @@ function fieldsPage(allFields: any[], docs: any[]): string {
       '<td>' + docType + '</td>' +
       '<td>' + badge + '</td>' +
       '<td class="ac"><span class="ed" data-docid="' + docId + '" data-fname="' + fname + '">edit</span>' +
-      '<span class="dl" data-docid="' + docId + '" data-fname="' + fname + '">\u2716</span></td>' +
+      '<span class="dx" data-del="' + docId + '" data-fname="' + fname + '">X</span></td>' +
     '</tr>'
   }
 
@@ -134,7 +134,7 @@ function fieldsPage(allFields: any[], docs: any[]): string {
 '<script>' +
 'var E=null;' +
 'function addF(){var d=document.getElementById("ad").value;var n=document.getElementById("afn").value;var v=document.getElementById("afv").value;if(!n||!v)return;fetch("/api/v1/doc-intel/documents/custom-fields",{method:"POST",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({document_id:d,field_name:n,field_value:v})}).then(function(r){if(r.ok)location.reload()})}' +
-'document.querySelector("table tbody").onclick=function(e){var del=e.target.closest(".dl");if(del){var di=del.getAttribute("data-docid");var fn=del.getAttribute("data-fname");fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(di)+"/"+encodeURIComponent(fn),{method:"DELETE",headers:{"x-tenant":"personal"}}).then(function(r){if(r.ok)location.reload()});return}var ed=e.target.closest(".ed");if(!ed)return;E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var nc=document.getElementById("fn-"+E.d+"-"+E.f);var vc=document.getElementById("v-"+E.d+"-"+E.f);E.o=E.f;nc.innerHTML="<input class=ei id=inpN value=\\\""+E.f+"\\\" style=width:140px>";vc.innerHTML="<input class=ei id=inpV value=\\\""+vc.textContent+"\\\"><span class=es id=svb>save</span><span class=ec id=clb>x</span>";document.getElementById("inpN").focus()};' +
+'document.querySelector("table tbody").onclick=function(e){var del=e.target.closest("[data-del]");if(del){var fname=del.getAttribute("data-fname");fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(del.getAttribute("data-del"))+"/"+encodeURIComponent(fname),{method:"DELETE",headers:{"x-tenant":"personal"}}).then(function(r){if(r.ok)location.reload()});return}var ed=e.target.closest(".ed");if(!ed)return;E={d:ed.getAttribute("data-docid"),f:ed.getAttribute("data-fname")};var nc=document.getElementById("fn-"+E.d+"-"+E.f);var vc=document.getElementById("v-"+E.d+"-"+E.f);E.o=E.f;nc.innerHTML="<input class=ei id=inpN value=\\\""+E.f+"\\\" style=width:140px>";vc.innerHTML="<input class=ei id=inpV value=\\\""+vc.textContent+"\\\"><span class=es id=svb>save</span><span class=ec id=clb>x</span>";document.getElementById("inpN").focus()};' +
 'document.querySelector("table").onclick=function(e){var svb=e.target.closest("#svb");if(svb&&E){var inpN=document.getElementById("inpN");var inpV=document.getElementById("inpV");var nn=(inpN&&inpN.value)||E.f;var nv=(inpV&&inpV.value)||"";if(!nv&&nv!=="")return;fetch("/api/v1/doc-intel/fields/"+encodeURIComponent(E.d)+"/"+encodeURIComponent(E.o||E.f),{method:"PUT",headers:{"Content-Type":"application/json","x-tenant":"personal"},body:JSON.stringify({value:nv,field_name:nn})}).then(function(r){if(r.ok)location.reload()})}var clb=e.target.closest("#clb");if(clb&&E){var nc2=document.getElementById("fn-"+E.d+"-"+E.f);var vc2=document.getElementById("v-"+E.d+"-"+E.f);nc2.textContent=E.o||E.f;vc2.textContent=""}}' +
 '</script></body></html>'
 }
