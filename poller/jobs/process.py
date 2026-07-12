@@ -92,6 +92,12 @@ def process_job(base_url: str, tenant: str, worker_id: str,
             extracted = extract_payslip(ocr_text, local_path)
         elif doc_type == "bank_statement":
             extracted = extract_bank_statement(ocr_text, local_path)
+        else:
+            # Fallback: try identity extraction on any unknown document
+            # since regex extraction works from OCR text alone
+            extracted = extract_identity("licence", ocr_text, local_path)
+            if not extracted or not extracted.get("fields"):
+                extracted = extract_identity("passport", ocr_text, local_path)
 
         # 9. Save extraction results to JSON artifact
         fields_json_path = None
