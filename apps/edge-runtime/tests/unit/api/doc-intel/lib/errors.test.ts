@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { ErrorCode, VALID_TENANTS, errorBody, errorResponse } from '../../../../src/api/doc-intel/lib/errors'
+import { ErrorCode, VALID_TENANTS, errorBody, errorResponse } from '../../../../../src/api/doc-intel/lib/errors'
 
 describe('doc-intel error codes', () => {
   it('exports well-known error codes', () => {
