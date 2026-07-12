@@ -8,7 +8,7 @@
  */
 
 import { Hono } from 'hono'
-import { resolveTenant, resolveBindings } from './lib/errors'
+import { resolveBindings } from './lib/errors'
 import { queryAll } from './lib/db'
 import { decryptFields } from '../../lib/encryption'
 
@@ -200,9 +200,8 @@ docIntelUiRouter.get('/fields', async (c) => {
   }
 
   try {
-    const tenant = resolveTenant(c)
-    if (tenant instanceof Response) return tenant
-
+    // Default to 'personal' tenant for browser access (no custom headers)
+    const tenant = (c.req.header('x-tenant') || 'personal') as 'personal' | 'afirmico'
     const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
     if (bindings instanceof Response) return bindings
     const { db, r2 } = bindings
