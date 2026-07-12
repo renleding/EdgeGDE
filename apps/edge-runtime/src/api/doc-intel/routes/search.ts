@@ -754,3 +754,55 @@ searchRouter.post('/documents/check-duplicates', async (c) => {
     return c.json(errResp.body, errResp.status as any)
   }
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DELETE /documents/:id — delete a document and its R2 artifacts
+// ═══════════════════════════════════════════════════════════════════════════
+
+searchRouter.delete('/documents/:id', async (c) => {
+  try {
+    const tenant = resolveTenant(c)
+    if (tenant instanceof Response) return tenant
+
+    const bindings = resolveBindings(c.env as Record<string, unknown>, tenant)
+    if (bindings instanceof Response) return bindings
+    const { db, r2 } = bindings
+
+    const documentId = c.req.param('id')
+
+    // Fetch the document to get R2 keys
+    const doc = await queryFirst<{
+      original_r2_key: string
+      fields_r2_key: string | null
+      ocr_r2_key: string | null
+    }>(
+      db,
+      `SELECT original_r2_key, fields_r2_key, ocr_r2_key
+       FROM documents WHERE document_id = ?`,
+      documentId,
+    )
+
+    if (!doc) {
+      return c.json({ error: 'Document not found' }, 404)
+    }
+
+    // Delete R2 artifacts
+    const keysToDelete = [doc.original_r2_key]
+    if (doc.fields_r2_key) keysToDelete.push(doc.fields_r2_key)
+    if (doc.ocr_r2_key) keysToDelete.push(doc.ocr_r2_key)
+
+    const deletePromises = keysToDelete.map(key => r2.delete(key).catch(() => {}))
+    await Promise.all(deletePromises)
+
+    // Delete custom fields and document
+    await queryRun(db, 'DELETE FROM custom_fields WHERE document_id = ?', documentId)
+    await queryRun(db, 'DELETE FROM extracted_fields WHERE document_id = ?', documentId)
+    await queryRun(db, 'DELETE FROM documents WHERE document_id = ?', documentId)
+
+    return c.json({ success: true, deleted_keys: keysToDelete })
+  } catch (err: any) {
+    console.error('[doc-intel:delete] error:', err)
+    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    return c.json(errResp.body, errResp.status as any)
+  }
+})
