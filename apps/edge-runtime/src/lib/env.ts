@@ -17,11 +17,19 @@ export interface Env {
   ARTIFACT_KV: KVNamespace
   TELEMETRY_KV: KVNamespace
 
-  // D1 Database
+  // D1 Database (legacy)
   DB: D1Database
 
-  // R2 Bucket
+  // Document Intelligence D1 Databases (tenant-separated)
+  D1_PERSONAL?: D1Database
+  D1_AFIRMICO?: D1Database
+
+  // R2 Buckets
   VAULT_BUCKET: R2Bucket
+
+  // Document Intelligence R2 Buckets (tenant-separated)
+  R2_PERSONAL?: R2Bucket
+  R2_AFIRMICO?: R2Bucket
 
   // Durable Objects
   RATE_LIMITER: DurableObjectNamespace
@@ -41,6 +49,7 @@ export interface Env {
   ADMIN_TOKEN?: string  // Legacy name; fallback if ADMIN_API_TOKEN unset
   OPENROUTER_API_KEY?: string
   TURNSTILE_SECRET_KEY?: string
+  MASTER_WRAP_KEY?: string  // Document Intelligence key-wrapping master key
 
   // Text vars
   OTEL_EXPORTER_OTLP_ENDPOINT?: string

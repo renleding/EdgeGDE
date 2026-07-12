@@ -48,6 +48,7 @@ import { adminTenantRouter } from './api/admin-tenant-admin'
 import { embedRouter } from './api/embed'
 import { ocrRouter } from './api/ocr'
 import { dashboardHtml } from './lib/dashboard-html'
+import { docIntelRouter, docIntelUiRouter } from './api/doc-intel-router'
 import { auditRouter } from './api/audit-export'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { vaultRouter } from './api/vault'
@@ -224,6 +225,8 @@ app.use('*', async (c, next) => {
     c.req.path.startsWith('/pwa-canvas') ||
     c.req.path.startsWith('/api/canvas/') ||
     c.req.path.startsWith('/api/pwa/') ||
+    c.req.path.startsWith('/api/v1/doc-intel/') ||
+    c.req.path.startsWith('/doc-intel') ||
     c.req.path === '/healthz'
   ) {
     return next()
@@ -496,6 +499,8 @@ app.get('/.well-known/mcp.json', (c) => {
 app.route('/api', apiRouter)
 app.route('/api', dashboardRouter)
 app.route('/api', fragmentRouter)
+app.route('/api/v1/doc-intel', docIntelRouter)
+app.route('/doc-intel', docIntelUiRouter)
 app.route('/api/v1', agentRouter)
 app.route('/api/v1', mcpDeployRouter)
 app.route('/api/v1', submissionRouter)
