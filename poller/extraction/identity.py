@@ -351,13 +351,13 @@ def _extract_address(text: str) -> Optional[str]:
     # Join: unit/apt, street, suburb postcode
     parts = []
     if unit_line:
-        parts.append(unit_line)
+        parts.append(unit_line.rstrip(',').strip())
     if street:
-        parts.append(street)
+        parts.append(street.rstrip(',').strip())
     if suburb:
-        parts.append(suburb)
+        parts.append(suburb.rstrip(',').strip())
     if postcode_line:
-        parts.append(postcode_line)
+        parts.append(postcode_line.rstrip(',').strip())
 
     return ', '.join(parts) if parts else None
 
