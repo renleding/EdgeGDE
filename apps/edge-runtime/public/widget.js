@@ -14,6 +14,10 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
   var errorBar = null;
   var sidReady = false;
   var pendingMsg = null;
+  var hasConversation = false;
+  var lossFrame = document.getElementById('lf-o');
+  var lossDismiss = document.getElementById('lf-d');
+  var lossKeep = document.getElementById('lf-k');
 
   function showError(msg) {
     if (!errorBar) {
@@ -100,6 +104,7 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
     var label = getDisplayName();
     ml.insertAdjacentHTML('beforeend',
       '<div class="msg msg-user"><span class="msg-label" style=color:#FFBF00>' + label.replace(/</g,'&lt;') + '</span><div class=msg-bubble>' + msg.replace(/</g,'&lt;') + '</div></div>');
+    hasConversation = true;
     var typingId = 'typing-' + Date.now();
     ml.insertAdjacentHTML('beforeend', '<div class="msg msg-bot" id=' + typingId + '><span class="msg-label" style=color:#58a6ff>AFIRMICO</span><div class=msg-bubble><span class=typing-indicator><span></span><span></span><span></span></span></div></div>');
     if (body) body.scrollTop = body.scrollHeight;
@@ -272,6 +277,27 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
       chatSend();
     }
   });
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function() {
+      if (!hasConversation) { chat.style.display = 'none'; return; }
+      if (lossFrame) {
+        document.getElementById('lf-i').innerHTML = 'Unanswered questions<br>Your inputted data';
+        lossFrame.style.display = 'flex';
+      }
+    });
+  }
+  if (lossDismiss) {
+    lossDismiss.addEventListener('click', function() {
+      if (lossFrame) lossFrame.style.display = 'none';
+      chat.style.display = 'none';
+    });
+  }
+  if (lossKeep) {
+    lossKeep.addEventListener('click', function() {
+      if (lossFrame) lossFrame.style.display = 'none';
+    });
+  }
 
   initSession();
   window.chatSend = chatSend;
