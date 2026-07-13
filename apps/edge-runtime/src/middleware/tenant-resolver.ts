@@ -135,6 +135,8 @@ export async function tenantResolver(
     path.startsWith('/api/mcp') ||
     path.startsWith('/mcp') ||
     path.startsWith('/api/v1/doc-intel/') ||
+    path.startsWith('/api/v1/kb/') ||
+    path.startsWith('/test-chat') ||
     path.startsWith('/doc-intel') ||
     path.match(/\.(js|css|png|jpg|svg|ico|woff2?)$/)
   ) {

@@ -18,6 +18,7 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
   var lossFrame = document.getElementById('lf-o');
   var lossDismiss = document.getElementById('lf-d');
   var lossKeep = document.getElementById('lf-k');
+  var gdeIcon = document.getElementById('gde-icon');
 
   function showError(msg) {
     if (!errorBar) {
@@ -280,7 +281,7 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
 
   if (closeBtn) {
     closeBtn.addEventListener('click', function() {
-      if (!hasConversation) { chat.style.display = 'none'; return; }
+      if (!hasConversation) { chat.style.display = 'none'; if (gdeIcon) gdeIcon.style.display = 'flex'; return; }
       if (lossFrame) {
         document.getElementById('lf-i').innerHTML = 'Unanswered questions<br>Your inputted data';
         lossFrame.style.display = 'flex';
@@ -291,11 +292,19 @@ console.log("EdgeGDE Widget v1.2.2 — Reliability Overhaul");
     lossDismiss.addEventListener('click', function() {
       if (lossFrame) lossFrame.style.display = 'none';
       chat.style.display = 'none';
+      if (gdeIcon) gdeIcon.style.display = 'flex';
     });
   }
   if (lossKeep) {
     lossKeep.addEventListener('click', function() {
       if (lossFrame) lossFrame.style.display = 'none';
+    });
+  }
+  if (gdeIcon) {
+    gdeIcon.addEventListener('click', function() {
+      gdeIcon.style.display = 'none';
+      chat.style.display = 'flex';
+      initSession();
     });
   }
 
