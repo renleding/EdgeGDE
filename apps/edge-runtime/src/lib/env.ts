@@ -9,7 +9,7 @@
  * All `as any` casts on env access in the codebase should route through here.
  */
 
-import type { D1Database, KVNamespace, R2Bucket, DurableObjectNamespace, Queue } from '@cloudflare/workers-types'
+import type { D1Database, KVNamespace, R2Bucket, DurableObjectNamespace, Queue, VectorizeIndex } from '@cloudflare/workers-types'
 
 export interface Env {
   // KV Namespaces
@@ -26,6 +26,9 @@ export interface Env {
 
   // R2 Buckets
   VAULT_BUCKET: R2Bucket
+
+  // Vectorize (semantic search — knowledge base embeddings)
+  VECTORIZE_INDEX?: VectorizeIndex
 
   // Document Intelligence R2 Buckets (tenant-separated)
   R2_PERSONAL?: R2Bucket

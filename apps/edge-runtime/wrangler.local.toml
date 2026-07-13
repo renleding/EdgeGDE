@@ -27,6 +27,11 @@ database_id = "local"
 binding = "VAULT_BUCKET"
 bucket_name = "edgegde-vault-local"
 
+# Local Vectorize stub (no-op — Vectorize only works against remote)
+[[vectorize]]
+binding = "VECTORIZE_INDEX"
+index_name = "edgegde-kb-embeddings-local"
+
 # Local queue stub
 [[queues.producers]]
 binding = "LEAD_SCORING_QUEUE"

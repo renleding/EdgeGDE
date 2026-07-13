@@ -49,6 +49,10 @@
     "binding": "VAULT_BUCKET",
     "bucket_name": "edgegde-vault"
   }],
+  "vectorize": [{
+    "binding": "VECTORIZE_INDEX",
+    "index_name": "edgegde-kb-embeddings"
+  }],
   "triggers": { "crons": ["0 8,20 * * *"] },
   "vars": {
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
@@ -77,6 +81,10 @@
       "r2_buckets": [{
         "binding": "VAULT_BUCKET",
         "bucket_name": "edgegde-vault-staging"
+      }],
+      "vectorize": [{
+        "binding": "VECTORIZE_INDEX",
+        "index_name": "edgegde-kb-embeddings-staging"
       }],
       "vars": {
         "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",

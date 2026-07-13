@@ -52,6 +52,8 @@ import { docIntelRouter, docIntelUiRouter } from './api/doc-intel-router'
 import { auditRouter } from './api/audit-export'
 import { reportAdminRouter, reportCronHandler } from './api/reports'
 import { vaultRouter } from './api/vault'
+import { kbRouter } from './api/knowledge-base'
+import { kbIngestRouter } from './api/kb-ingest'
 import { chatRouter } from './api/chat'
 import { workspaceRouter } from './api/workspace'
 import { ChatSession_DO } from './do/chat-session.do'
@@ -226,6 +228,7 @@ app.use('*', async (c, next) => {
     c.req.path.startsWith('/api/canvas/') ||
     c.req.path.startsWith('/api/pwa/') ||
     c.req.path.startsWith('/api/v1/doc-intel/') ||
+    c.req.path.startsWith('/api/v1/kb/') ||
     c.req.path.startsWith('/doc-intel') ||
     c.req.path === '/healthz'
   ) {
@@ -1110,6 +1113,12 @@ app.route('/api/v1', stagingRouter)
 
 // Document Vault (admin auth applied within vaultRouter)
 app.route('/api/v1/vault', vaultRouter)
+
+// Knowledge Base (FTS5 search over transcripts + lender docs)
+app.route('/api/v1/kb', kbRouter)
+
+// Knowledge Base Ingest (admin-auth required — receives data from extraction script)
+app.route('/api/v1/kb', kbIngestRouter)
 
 // Conversational Chat (tool auth applied within chatRouter)
 app.route('/api/v1', chatRouter)
