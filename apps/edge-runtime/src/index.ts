@@ -41,7 +41,7 @@ import { loginRouter } from './api/login'
 import { onboardingRouter } from './routes/onboarding'
 import { tenantDashboardRouter } from './routes/tenant-dashboard'
 import { verifyRouter } from './api/verify'
-import { sdlcRouter } from './routes/sdlc'
+// import { sdlcRouter } from './routes/sdlc' // TODO: restore when SDLC UI Phase 3 is merged
 import { clearSessionCookie } from './middleware/session'
 import { rateLimitRegistration, rateLimitLogin } from './middleware/rate-limit'
 import { adminPacksRouter } from './api/admin-packs'
@@ -538,7 +538,7 @@ app.route('/login', loginRouter)
 app.route('/onboarding', onboardingRouter)
 app.route('/tenant', tenantDashboardRouter)
 app.route('/verify', verifyRouter)
-app.route('/sdlc', sdlcRouter)
+// app.route('/sdlc', sdlcRouter) // TODO: restore when SDLC UI Phase 3 is merged
 
 // Logout — clear session
 app.post('/logout', async (c) => {
