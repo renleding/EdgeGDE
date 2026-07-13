@@ -370,7 +370,7 @@ describe('E2E-08: Full Conversation Question/Response', () => {
     const res = await fetch(`${WORKER}/embed/chat?tenant=${CONV_TENANT}`)
     const body = await res.text()
     expect(res.ok).toBeTruthy()
-    expect(body).toContain('Alpha Broker One')
+    expect(body).toContain('AFIRMICO Finance')
     expect(body).toContain('alpha-broker-01')
     expect(body).toContain('chat-tenant-id')
     expect(body).toContain('widget.js')
