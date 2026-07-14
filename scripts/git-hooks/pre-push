@@ -1,0 +1,32 @@
+#!/bin/bash
+# Pre-push hook: catch type errors before they reach remote CI
+#
+# Runs bun run typecheck in apps/edge-runtime before every push.
+# This is a safety net for anything the pre-commit hook missed
+# (e.g. staged-only checks, unstaged dependency changes).
+#
+# Install: git config core.hooksPath scripts/git-hooks
+# Bypass: git push --no-verify (only for genuine emergencies)
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+WORK_DIR="$REPO_ROOT/apps/edge-runtime"
+
+if [ ! -d "$WORK_DIR" ]; then
+  echo "⚠️  EdgeGDE pre-push hook: expected $WORK_DIR, skipping typecheck"
+  exit 0
+fi
+
+cd "$WORK_DIR"
+
+echo "🔍 Pre-push typecheck..."
+if ! bun run typecheck 2>&1; then
+  echo ""
+  echo "❌ Typecheck failed. Fix all type errors before pushing."
+  echo "   To bypass: git push --no-verify (not recommended)"
+  exit 1
+fi
+
+echo "✅ Pre-push typecheck passed"
+exit 0
