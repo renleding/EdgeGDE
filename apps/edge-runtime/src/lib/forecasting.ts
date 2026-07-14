@@ -295,7 +295,7 @@ export function parseChronos2ForecastResponse(
     for (const q of quantiles) {
       const key = String(q)
       if (quantileMap[key] === undefined) {
-        const value = toNumber((row as any)?.quantiles?.[q] ?? (row as any)?.quantiles?.[key] ?? null)
+        const value = toNumber(row.quantiles?.[q] ?? row.quantiles?.[key] ?? null)
         if (value !== null) quantileMap[key] = value
       }
     }

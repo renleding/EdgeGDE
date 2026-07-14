@@ -14,6 +14,7 @@
 import { Hono } from 'hono'
 import { requireSession } from '../middleware/session'
 import { verifySessionToken } from '../middleware/session'
+import { envFromContext } from '../lib/env'
 
 const router = new Hono()
 
@@ -26,7 +27,7 @@ async function getSessionSlug(c: any): Promise<string | null> {
   const cookie = c.req.header('Cookie') || ''
   const match = cookie.match(/edgegde_session=([^;]+)/)
   if (!match) return null
-  const jwtSecret = (c.env as any)?.JWT_SECRET as string | undefined
+  const jwtSecret = c.env?.JWT_SECRET as string | undefined
   if (!jwtSecret) return null
   const payload = await verifySessionToken(match[1], jwtSecret)
   return payload?.slug ?? null
@@ -89,7 +90,7 @@ function steps(current: number): string {
 router.get('/', async (c) => {
   const slug = c.req.query('slug') || (await getSessionSlug(c))
   const stepParam = c.req.query('step')
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = (c.env as { TENANT_KV?: { get: Function; put: Function } })?.TENANT_KV
 
   if (!slug) {
     return c.html(page('Welcome', `

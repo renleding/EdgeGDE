@@ -53,8 +53,8 @@ function designTokensToEDR(tokens: DesignTokens): EDR {
 
 function extractTokensFromDoc(doc: CanvasDocument): DesignTokens | null {
   // 1. Use explicit designTokens if present
-  const explicit = (doc as any).designTokens
-  if (explicit && explicit.colors) return explicit as DesignTokens
+  const explicit = (doc as { designTokens?: Record<string, unknown> }).designTokens
+  if (explicit && explicit.colors) return explicit as unknown as DesignTokens
 
   // 2. Auto-extract from node styles
   const styles: Array<{ tagName: string; color?: string; backgroundColor?: string }> = []

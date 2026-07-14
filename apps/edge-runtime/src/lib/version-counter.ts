@@ -25,7 +25,7 @@ export interface VersionResult {
  * Assert that a D1 binding is available. Throws with a clear message.
  */
 export function requireD1(db: unknown): asserts db is { prepare: Function } {
-  if (!db || typeof (db as any).prepare !== 'function') {
+  if (!db || typeof (db as Record<string, unknown>).prepare !== 'function') {
     throw new Error(
       "D1 binding 'DB' is required for runtime. " +
       'Ensure wrangler.json has a D1 database binding named "DB" ' +
@@ -63,7 +63,7 @@ export async function nextArtifactVersion(
   requireD1(db)
 
   try {
-    const result = await (db as any).prepare(
+    const result = await db.prepare(
       `INSERT INTO tenant_artifacts (tenant_id, artifact_id, version)
        VALUES (?, ?, 1)
        ON CONFLICT (tenant_id, artifact_id)
