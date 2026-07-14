@@ -167,7 +167,7 @@ export function compile(
   }
 
   // 2. Role validation (canonical location enforcement)
-  if ((node as any).role !== undefined) {
+  if ((node as { role?: unknown }).role !== undefined) {
     throw new Error(
       `Invalid node shape: role must be inside props` +
       ` (found top-level role on ${node.type || 'unknown'} node)`,

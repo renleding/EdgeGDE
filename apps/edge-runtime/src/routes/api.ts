@@ -67,7 +67,7 @@ router.post('/v1/:toolId', async (c) => {
   }
 
   // ── Tenant gate — resolved by middleware ───────────────────────────────
-  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+  const tenant = c.get('tenant') as TenantConfig | undefined
   if (!tenant) {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -206,7 +206,7 @@ router.get('/calculator/:toolId', async (c) => {
   }
 
   // ── Tenant gate — resolved by middleware ───────────────────────────────
-  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+  const tenant = c.get('tenant') as TenantConfig | undefined
   if (!tenant) {
     return c.json({ error: 'Forbidden' }, 403)
   }
@@ -220,7 +220,7 @@ router.get('/calculator/:toolId', async (c) => {
     if (key === 'schemaVersion' || key === 'rateType' || key === 'repaymentFrequency') continue
 
     let fieldType = 'text'
-    if (fieldSchema instanceof z.ZodNumber || (fieldSchema as any)._def?.typeName === 'ZodNumber') {
+    if (fieldSchema instanceof z.ZodNumber || (fieldSchema as { _def?: { typeName?: string } })._def?.typeName === 'ZodNumber') {
       fieldType = 'number'
     }
     fieldDefinitions.push({

@@ -32,7 +32,7 @@ interface VersionEntry {
 }
 
 async function getKv(c: any) {
-  return (c.env as any)?.TENANT_KV
+  return c.env?.TENANT_KV
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

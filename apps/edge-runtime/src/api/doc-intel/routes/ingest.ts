@@ -49,19 +49,19 @@ ingestRouter.post('/ingest', async (c) => {
 
     if (!file) {
       const err = errorBody('INVALID_INPUT', 'No file provided. Use multipart field name "file".')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     // 4. Validate file
     const ext = file.name.split('.').pop()?.toLowerCase() || 'pdf'
     if (!ALLOWED_MIME_TYPES.includes(file.type) && ext !== 'pdf') {
       const err = errorBody('INVALID_FILE_TYPE', `Unsupported file type: ${file.type}. Allowed: PDF, JPEG, PNG, HEIC, TIFF.`)
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     if (file.size > MAX_FILE_SIZE) {
       const err = errorBody('FILE_TOO_LARGE', `File exceeds 100MB maximum (${file.size} bytes).`)
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     // 5. Create R2 key (UUID-based per R2-002)
@@ -164,6 +164,6 @@ ingestRouter.post('/ingest', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:ingest] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })

@@ -39,7 +39,7 @@ export function checkGogo(
   mission: MissionDefinition,
   manifest: AgenticMissionManifest,
 ): GogoResult {
-  const gogo = mission.gogo ?? (manifest as any).gogo as GogoAuthorization | undefined
+  const gogo = mission.gogo ?? manifest.gogo as GogoAuthorization | undefined
 
   // 1. No gogo = no authorization
   if (!gogo) {

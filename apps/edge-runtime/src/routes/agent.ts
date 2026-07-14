@@ -142,7 +142,7 @@ async function handleArtifactPublish(c: any, body: any) {
             CALCULATOR_REGISTRY[artifact.id] = {
               id: artifact.id,
               description: `Published calculator: ${artifact.id} (${result.version})`,
-              schema: z.object({}) as any,
+              schema: z.object({}),
               layout,
               execute(input: any): any {
                 return { ...input, publishedVersion: result.version }
@@ -257,7 +257,7 @@ async function handleTenantDeploy(c: any, body: any) {
 // Per-request MemoryKvStore cache — use shared singleton from index.ts
 import { kv } from '../index'
 
-function getOrCreateMemoryKv(_c: any): KvStore {
+function getOrCreateMemoryKv(_c: unknown): KvStore {
   return kv
 }
 
