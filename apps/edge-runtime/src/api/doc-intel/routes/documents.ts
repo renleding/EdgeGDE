@@ -36,13 +36,13 @@ documentsRouter.get('/documents/download', async (c) => {
     const r2Key = c.req.query('r2_key')
     if (!r2Key) {
       const err = errorBody('INVALID_INPUT', 'r2_key query parameter is required')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     const object = await r2.get(r2Key)
     if (!object) {
       const err = errorBody('DOCUMENT_NOT_FOUND', `Object not found: ${r2Key}`)
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     const headers = new Headers()
@@ -54,7 +54,7 @@ documentsRouter.get('/documents/download', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:download] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -75,7 +75,7 @@ documentsRouter.post('/documents/upload', async (c) => {
     const r2Key = c.req.query('r2_key')
     if (!r2Key) {
       const err = errorBody('INVALID_INPUT', 'r2_key query parameter is required')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     const body = await c.req.parseBody()
@@ -83,7 +83,7 @@ documentsRouter.post('/documents/upload', async (c) => {
 
     if (!file) {
       const err = errorBody('INVALID_INPUT', 'No file provided. Use multipart field name "file".')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     const buffer = await file.arrayBuffer()
@@ -104,7 +104,7 @@ documentsRouter.post('/documents/upload', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:upload] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -153,7 +153,7 @@ documentsRouter.get('/documents/:id', async (c) => {
 
     if (!doc) {
       const errResp = errorBody('DOCUMENT_NOT_FOUND', `Document ${documentId} not found.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     // Fetch extracted fields
@@ -245,7 +245,7 @@ documentsRouter.get('/documents/:id', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:document:detail] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -275,7 +275,7 @@ documentsRouter.put('/documents/:id/fields', async (c) => {
 
     if (!doc) {
       const errResp = errorBody('DOCUMENT_NOT_FOUND', `Document ${documentId} not found.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     interface CustomFieldInput {
@@ -286,7 +286,7 @@ documentsRouter.put('/documents/:id/fields', async (c) => {
     const body = await c.req.json() as { fields: CustomFieldInput[] }
     if (!body.fields || !Array.isArray(body.fields) || body.fields.length === 0) {
       const err = errorBody('INVALID_INPUT', 'Request body must contain a non-empty "fields" array with field_name and field_value.')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     const inserted: Array<{
@@ -298,7 +298,7 @@ documentsRouter.put('/documents/:id/fields', async (c) => {
     for (const field of body.fields) {
       if (!field.field_name || typeof field.field_value !== 'string') {
         const err = errorBody('INVALID_INPUT', 'Each field must have field_name (string) and field_value (string).')
-        return c.json(err.body, err.status as any)
+        return c.json(err.body, err.status)
       }
 
       const customFieldId = crypto.randomUUID()
@@ -328,6 +328,6 @@ documentsRouter.put('/documents/:id/fields', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:document:fields] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })

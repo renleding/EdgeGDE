@@ -52,7 +52,7 @@ jobsRouter.get('/jobs/pending', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:jobs:pending] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -74,7 +74,7 @@ jobsRouter.post('/jobs/claim', async (c) => {
     const body: { worker_id?: string } = await c.req.json()
     if (!body.worker_id) {
       const err = errorBody('INVALID_INPUT', 'worker_id is required')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     // Atomic claim: update the first pending job
@@ -107,7 +107,7 @@ jobsRouter.post('/jobs/claim', async (c) => {
 
     if (result.meta.changes === 0) {
       const errResp = errorBody('JOB_ALREADY_CLAIMED', `Job ${job.job_id} was already claimed by another worker.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     const workflowId = crypto.randomUUID()
@@ -127,7 +127,7 @@ jobsRouter.post('/jobs/claim', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:jobs:claim] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -171,7 +171,7 @@ jobsRouter.post('/jobs/result', async (c) => {
 
     if (!body.job_id || !body.status) {
       const err = errorBody('INVALID_INPUT', 'job_id and status are required')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     // Verify job exists and is claimed/processing
@@ -185,7 +185,7 @@ jobsRouter.post('/jobs/result', async (c) => {
 
     if (!job) {
       const errResp = errorBody('JOB_NOT_FOUND', `Job ${body.job_id} not found or not in a claimable state.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -332,7 +332,7 @@ jobsRouter.post('/jobs/result', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:jobs:result] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -352,7 +352,7 @@ jobsRouter.post('/jobs/heartbeat', async (c) => {
     const body: { job_id?: string } = await c.req.json()
     if (!body.job_id) {
       const err = errorBody('INVALID_INPUT', 'job_id is required')
-      return c.json(err.body, err.status as any)
+      return c.json(err.body, err.status)
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -368,7 +368,7 @@ jobsRouter.post('/jobs/heartbeat', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:jobs:heartbeat] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -396,7 +396,7 @@ jobsRouter.post('/jobs/:id/retry', async (c) => {
 
     if (!job) {
       const errResp = errorBody('JOB_NOT_FOUND', `Job ${jobId} not found or not in failed state.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -415,7 +415,7 @@ jobsRouter.post('/jobs/:id/retry', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:jobs:retry] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
 
@@ -443,7 +443,7 @@ jobsRouter.post('/jobs/:id/reset', async (c) => {
 
     if (!job) {
       const errResp = errorBody('JOB_NOT_FOUND', `Job ${jobId} not found.`)
-      return c.json(errResp.body, errResp.status as any)
+      return c.json(errResp.body, errResp.status)
     }
 
     const now = Math.floor(Date.now() / 1000)
@@ -462,6 +462,6 @@ jobsRouter.post('/jobs/:id/reset', async (c) => {
   } catch (err: any) {
     console.error('[doc-intel:jobs:reset] error:', err)
     const errResp = errorBody('INTERNAL_ERROR', err.message)
-    return c.json(errResp.body, errResp.status as any)
+    return c.json(errResp.body, errResp.status)
   }
 })
