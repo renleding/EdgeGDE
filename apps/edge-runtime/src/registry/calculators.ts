@@ -276,7 +276,7 @@ export const CALCULATOR_REGISTRY: Record<string, CalculatorTool> = {
       'Calculate mortgage repayments based on Australian lending standards — ' +
       'given principal, interest rate, and loan term, returns monthly, ' +
       'fortnightly, and weekly repayment amounts plus total interest and cost.',
-    schema: mortgageCalculatorInputSchema as any,
+    schema: mortgageCalculatorInputSchema,
     layout: {
       schemaVersion: SCHEMA_VERSION,
       rootNode: {
