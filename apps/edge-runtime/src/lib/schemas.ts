@@ -124,7 +124,7 @@ export function buildFormSchema(fields: FormFieldDef[]): z.ZodObject<any> {
 
     if (field.validation.required) {
       if (field.fieldType !== 'number' && field.fieldType !== 'range') {
-        zod = (zod as any).min(1, `${field.label} is required`)
+        zod = (zod as z.ZodString).min(1, `${field.label} is required`)
       }
     } else {
       zod = zod.optional().default(field.fieldType === 'number' || field.fieldType === 'range' ? 0 : '')
@@ -141,6 +141,7 @@ export type FormSchema = z.infer<ReturnType<typeof buildFormSchema>>
 // Validation Error
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Error thrown when form data fails Zod validation */
 export class ValidationError extends Error {
   constructor(public zodError: z.ZodError) {
     super('Validation failed')

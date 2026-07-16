@@ -315,7 +315,7 @@ export function parseChronos2ForecastResponse(
 
 function extractForecastRows(response: unknown): Array<Record<string, any>> {
   if (!response || typeof response !== 'object') return []
-  const body = response as any
+  const body = response as Record<string, unknown>
 
   if (Array.isArray(body)) return body.map(row => (typeof row === 'object' ? row : { point_forecast: row }))
 
@@ -687,9 +687,15 @@ export function evaluateForecastPromotion(
     }
   }
 
+function extractMetricValue(metrics: unknown, key: string): number {
+  const m = metrics as Record<string, unknown>
+  const v = m[key]
+  return typeof v === 'number' ? v : NaN
+}
+
   if (gate.requireBacktest || gate.maxMae !== undefined || gate.maxSmape !== undefined) {
-    const mae = Number((evaluationMetrics as any).mae ?? (evaluationMetrics as any).MAE)
-    const smape = Number((evaluationMetrics as any).smape ?? (evaluationMetrics as any).SMAPE)
+    const mae = extractMetricValue(evaluationMetrics, 'mae') || extractMetricValue(evaluationMetrics, 'MAE')
+    const smape = extractMetricValue(evaluationMetrics, 'smape') || extractMetricValue(evaluationMetrics, 'SMAPE')
     if (gate.requireBacktest && !Number.isFinite(mae) && !Number.isFinite(smape)) {
       return {
         publishable: false,

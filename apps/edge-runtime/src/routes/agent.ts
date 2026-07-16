@@ -117,7 +117,7 @@ async function handleArtifactPublish(c: any, body: any) {
 
   // Resolve KV store
   let kv: KvStore
-  const bindings = (c.env as any)?.ARTIFACT_KV
+  const bindings = (c.env as Record<string, unknown>)?.ARTIFACT_KV as KvStore | undefined
   if (bindings && typeof bindings.get === 'function') {
     kv = bindings as KvStore
   } else {
@@ -125,7 +125,7 @@ async function handleArtifactPublish(c: any, body: any) {
   }
 
   // D1 binding for atomic versioning
-  const db = (c.env as any)?.DB
+  const db = (c.env as Record<string, unknown>)?.DB as D1Database | undefined
 
   // Publish with optional D1 versioning
   const result = await publishArtifact(kv, artifact, db)
@@ -177,7 +177,7 @@ async function handleArtifactPublish(c: any, body: any) {
     })(),
   )
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'publish',
     kind: 'artifact',
     type: artifact.type,
@@ -220,8 +220,8 @@ async function handleTenantDeploy(c: any, body: any) {
   }
 
   // 3. Resolve bindings
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = (c.env as Record<string, unknown>)?.DB as D1Database | undefined
+  const TENANT_KV = (c.env as Record<string, unknown>)?.TENANT_KV as { put: (key: string, value: string) => Promise<void> } | undefined
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
@@ -276,7 +276,7 @@ agentRouter.post('/agent/generate-layout', async (c) => {
   try {
     body = await c.req.json()
   } catch {
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       type: 'metric', event: 'validation_failure',
       timestamp: startTime, details: 'Invalid JSON body',
     }))
@@ -293,7 +293,7 @@ agentRouter.post('/agent/generate-layout', async (c) => {
   // ── 2. Validate design ─────────────────────────────────────────────────
   const designResult = validateDesign(design)
   if (!designResult.valid) {
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       type: 'metric', event: 'validation_failure',
       timestamp: Date.now(), details: designResult.errors.join('; '),
     }))
@@ -312,7 +312,7 @@ agentRouter.post('/agent/generate-layout', async (c) => {
       code: i.code,
     }))
 
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       type: 'metric', event: 'validation_failure',
       timestamp: Date.now(), details: JSON.stringify(issues),
     }))
@@ -326,7 +326,7 @@ agentRouter.post('/agent/generate-layout', async (c) => {
   // ── 4. Success ──────────────────────────────────────────────────────────
   const elapsed = Date.now() - startTime
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     type: 'metric', event: 'validation_success',
     timestamp: Date.now(), durationMs: elapsed,
     promptLength: typeof prompt === 'string' ? prompt.length : 0,
