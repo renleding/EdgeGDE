@@ -144,7 +144,7 @@ export interface CalculatorTool {
 // Calculation Result Type
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface CalcResult {
+export interface CalcResult {
   monthlyRepayment: number
   fortnightlyRepayment: number
   weeklyRepayment: number

@@ -9,6 +9,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { CALCULATOR_REGISTRY, compileToHtml } from '../registry/calculators'
+import type { CalcResult } from '../registry/calculators'
 import { getCalculator } from '../lib/calculator-engine'
 import type { TenantConfig } from '../lib/tenant'
 import { runMission } from '../actions/lifecycle'
@@ -57,7 +58,7 @@ router.post('/v1/:toolId', async (c) => {
     if (!engineCalc) return undefined
     return {
       id: engineCalc.id, description: engineCalc.description,
-      schema: engineCalc.inputSchema as any,
+      schema: engineCalc.inputSchema,
       layout: { schemaVersion: '0.1.0', rootNode: { id: 'r', type: 'FRAME' as const, name: 'Results', x: 0, y: 0, width: 600, height: 300 }, formFields: [] },
       execute(input: any) { return engineCalc.execute(input) },
     }
@@ -185,7 +186,7 @@ router.post('/v1/:toolId', async (c) => {
       totalCost: calcOutput.summary.totalCost,
       monthlyFees: 0,
       totalInterestOnly: calcOutput.summary.totalInterest,
-    } as any,
+    } as CalcResult & { monthlyFees: number; totalInterestOnly: number },
     parsed.data,
   )
   c.header('Content-Type', 'text/html; charset=utf-8')
