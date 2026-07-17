@@ -2,6 +2,16 @@
 
 **Version:** v0.9.7  |  **Runtime:** Cloudflare Workers  |  **Stack:** Hono + TypeScript + D1 + KV + R2
 
+## Afirmico Broker Knowledge Base
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Wiki site | **http://localhost:8000** | MkDocs Material site — 79 lender pages, searchable |
+| File server | **http://localhost:8081** | Direct file access — click docs to open in browser |
+| Data | `.../Mortgage Lenders/` | Raw PDF/XLSM/DOCX files by lender folder |
+
+- Run `mkdocs serve` from `~/wiki/afirmico-kb/`
+
 ---
 
 ## Architecture Overview

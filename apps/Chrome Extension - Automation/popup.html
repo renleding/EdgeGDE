@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 360px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 16px;
+    }
+    h1 { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: #fff; }
+    .status-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px; background: #16213e; border-radius: 8px; margin-bottom: 12px;
+    }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #666; flex-shrink: 0;
+    }
+    .dot.recording { background: #4CAF50; box-shadow: 0 0 6px #4CAF50; }
+    .session-info { font-size: 13px; }
+    .session-info .origin { color: #aaa; font-size: 11px; }
+    .btn {
+      display: block; width: 100%;
+      padding: 8px 16px; border: none; border-radius: 6px;
+      font-size: 13px; cursor: pointer; margin-bottom: 6px;
+    }
+    .btn.start { background: #0f3460; color: #fff; }
+    .btn.start.active { background: #5c1a1a; color: #e0a0a0; }
+    .btn.primary { background: #0f3460; color: #fff; }
+    .btn.danger { background: #5c1a1a; color: #e0a0a0; }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    h2 { font-size: 14px; margin: 16px 0 8px; color: #ccc; }
+    .session-list { max-height: 200px; overflow-y: auto; }
+    .session-item {
+      padding: 8px 10px; background: #16213e; border-radius: 6px;
+      margin-bottom: 4px; font-size: 12px; cursor: pointer;
+    }
+    .session-item:hover { background: #1a2744; }
+    .session-item .si-origin { color: #4CAF50; }
+    .session-item .si-meta { color: #888; font-size: 11px; }
+    .empty { color: #666; font-size: 12px; text-align: center; padding: 20px; }
+    .badge-count { background: #4CAF50; color: #fff; border-radius: 10px; padding: 1px 6px; font-size: 11px; margin-left: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Hermes Workflow Recorder</h1>
+
+  <div class="status-row">
+    <div class="dot" id="statusDot"></div>
+    <div class="session-info">
+      <div id="statusText">Initializing...</div>
+      <div class="origin" id="originText"></div>
+    </div>
+  </div>
+
+  <button class="btn start" id="startBtn">▶ Start Recording</button>
+
+  <h2>Recorded Sessions</h2>
+  <div class="session-list" id="sessionList">
+    <div class="empty">No sessions recorded yet</div>
+  </div>
+
+  <h2>Actions</h2>
+  <button class="btn primary" id="exportBtn" disabled>Export Selected as Playwright</button>
+  <button class="btn danger" id="clearBtn">Clear All Data</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>
