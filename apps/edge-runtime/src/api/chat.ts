@@ -18,6 +18,7 @@ import { buildParsePrompt, parseLlmResponse } from '../lib/chat-llm'
 import { loadChatConfig, type ChatConfig } from '../lib/chat-config'
 import { guardDB } from '../lib/db'
 import { guardKV } from '../lib/kv'
+import { envFromContext } from '../lib/env'
 import { computeFieldState, applyRules, type FieldDef } from '../lib/field-engine'
 import { loadKnowledgeBase, formatKbContext } from '../lib/knowledge-base'
 import { initRouter } from './chat-init'
@@ -39,7 +40,7 @@ chatRouter.route('/', chatViewsRouter)
 // ═════════════════════════════════════════════════════════════════════════════
 
 chatRouter.post('/chat/tool', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')
@@ -76,7 +77,7 @@ chatRouter.post('/chat/tool', async (c) => {
 
       const storedState = JSON.parse(sessionRow.state_json || '{}')
       const collected = JSON.parse(sessionRow.collected_fields_json || '{}')
-      const env = c.env as any
+      const env = envFromContext(c)
       const tenantKv = env['TENANT_KV']
       const config: ChatConfig = await loadChatConfig(tenantKv, tenantId)
       const fields: ChatFieldDef[] = normalizeChatFields(config.fields || [])
@@ -300,11 +301,11 @@ chatRouter.post('/chat/tool', async (c) => {
         let ruleOutputs: import('../lib/rule-engine').RuleOutput = { flags: [], required_disclosures: [], required_fields: [] }
         try {
 
-        const { results: ruleRows } = await (c.env as any).DB.prepare('SELECT * FROM rules WHERE tenant_id = ? AND active = 1 ORDER BY priority DESC, created_at DESC').bind(tenantId).all()
+        const { results: ruleRows } = await envFromContext(c).DB.prepare('SELECT * FROM rules WHERE tenant_id = ? AND active = 1 ORDER BY priority DESC, created_at DESC').bind(tenantId).all()
         const { evaluateRules } = await import('../lib/rule-engine')
-        ruleOutputs = evaluateRules(ruleRows || [], collected)
+        ruleOutputs = evaluateRules((ruleRows || []) as unknown as import('../lib/rule-engine').Rule[], collected)
         if (ruleOutputs.stage || ruleOutputs.flags.length || ruleOutputs.required_disclosures.length) {
-          c.executionCtx.waitUntil(logAuditEvent((c.env as any)?.DB, tenantId, 'rule_evaluated', '', sessionId, { stage: ruleOutputs.stage, flags: ruleOutputs.flags, required_disclosures: ruleOutputs.required_disclosures }))
+          c.executionCtx.waitUntil(logAuditEvent(envFromContext(c).DB, tenantId, 'rule_evaluated', '', sessionId, { stage: ruleOutputs.stage, flags: ruleOutputs.flags, required_disclosures: ruleOutputs.required_disclosures }))
         }
         } catch {}
 
@@ -322,7 +323,7 @@ chatRouter.post('/chat/tool', async (c) => {
         )
         const remainingFieldNames = feForPrompt.missingFields.map((f: any) => f.fieldName)
         // Build LLM prompt with KB context + remaining fields constraint
-        const kbEntries = await loadKnowledgeBase((c.env as any)?.TENANT_KV, tenantId, config.knowledgeBase?.topics || [])
+        const kbEntries = await loadKnowledgeBase(envFromContext(c).TENANT_KV, tenantId, config.knowledgeBase?.topics || [])
         const kbContext = formatKbContext(kbEntries)
         const prompt = buildParsePrompt({
           sessionId,
@@ -336,8 +337,8 @@ chatRouter.post('/chat/tool', async (c) => {
         let disclosureTexts: string[] = []
         if (ruleOutputs.required_disclosures.length > 0) {
           try {
-            const kv = (c.env as any)?.TENANT_KV
-            const raw = await kv.get(`tenant:${tenantId}:kb:compliance`, 'json')
+            const kv = envFromContext(c).TENANT_KV
+            const raw: { entries?: Array<{ id: string; value?: string }> } | null = await kv.get(`tenant:${tenantId}:kb:compliance`, 'json')
             if (raw && Array.isArray(raw.entries)) {
               const idSet = new Set(ruleOutputs.required_disclosures)
               disclosureTexts = raw.entries
@@ -413,10 +414,10 @@ chatRouter.post('/chat/tool', async (c) => {
             const shown = stateJson.shown_disclosures || []
             for (const id of ruleOutputs.required_disclosures) {
               if (!shown.includes(id)) shown.push(id)
-            c.executionCtx.waitUntil(logAuditEvent((c.env as any)?.DB, tenantId, 'disclosure_shown', '', sessionId, { disclosure_id: id }))
+            c.executionCtx.waitUntil(logAuditEvent(envFromContext(c).DB, tenantId, 'disclosure_shown', '', sessionId, { disclosure_id: id }))
             }
             stateJson.shown_disclosures = shown
-            await (c.env as any).DB.prepare(
+            await envFromContext(c).DB.prepare(
               'UPDATE chat_sessions SET state_json = ?, updated_at = ? WHERE id = ?'
             ).bind(JSON.stringify(stateJson), now, sessionId).run()
           } catch {}
@@ -565,7 +566,7 @@ chatRouter.post('/chat/tool', async (c) => {
 
 chatRouter.get('/chat/stream/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId')
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   const tenantId = c.req.query('tenant')
 
@@ -620,7 +621,7 @@ chatRouter.get('/chat/stream/:sessionId', async (c) => {
 
 chatRouter.get('/timeline/stream/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId')
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   const tenantId = c.req.query('tenant')
 
@@ -671,7 +672,7 @@ chatRouter.post('/chat/stream', async (c) => {
   const userText = (body.text || '').trim()
   if (!userText || !sessionId) return c.json({ error: 'Missing text or session_id' }, 400)
 
-  const env = c.env as any
+  const env = envFromContext(c)
   const tenantKv = guardKV(env?.['TENANT_KV'])
   const config: ChatConfig = await loadChatConfig(tenantKv, tenantId)
   const fields: ChatFieldDef[] = normalizeChatFields(config.fields || [])
@@ -689,7 +690,7 @@ chatRouter.post('/chat/stream', async (c) => {
       // Read from DO
       const stateRes = await stub.fetch('http://internal/state')
       if (stateRes.ok) {
-        const doState = await stateRes.json()
+        const doState: { collected?: Record<string, unknown>; currentField?: string } = await stateRes.json()
         collected = doState.collected || {}
         state = { currentField: doState.currentField || '' }
         sessionFound = true
