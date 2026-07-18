@@ -11,6 +11,7 @@ import { applyPatches, type PatchOperation } from '../lib/patch-engine'
 import { layoutDefinitionSchema } from '@edgegde/schema'
 import { validateDesign } from '../lib/design-validator'
 import { LocalRateLimiter } from '../lib/rate-limiter'
+import { envFromContext } from '../lib/env'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Dedicated per-tenant rate limiter for builder mutations (5 req/s)
@@ -60,8 +61,8 @@ export const builderRouter = new Hono()
 
 builderRouter.post('/tenant/builder/drafts', async (c) => {
   const tenantId = (c as any).get('authenticatedTenantId') as string
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
@@ -89,10 +90,10 @@ builderRouter.post('/tenant/builder/drafts', async (c) => {
   }
 
   if (baseTemplateId) {
-    const ARTIFACT_KV = (c.env as any)?.ARTIFACT_KV
+    const ARTIFACT_KV = envFromContext(c).ARTIFACT_KV
     if (ARTIFACT_KV) {
       try {
-        const payload = await ARTIFACT_KV.get(`template:${baseTemplateId}`, 'json')
+        const payload: Record<string, unknown> | null = await ARTIFACT_KV.get(`template:${baseTemplateId}`, 'json')
         if (payload?.layout) layout = JSON.parse(JSON.stringify(payload.layout))
       } catch { /* fall through — use default layout */ }
     }
@@ -124,8 +125,8 @@ builderRouter.post('/tenant/builder/drafts', async (c) => {
 builderRouter.get('/tenant/builder/drafts/:id', async (c) => {
   const tenantId = (c as any).get('authenticatedTenantId') as string
   const draftId = c.req.param('id')
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
@@ -152,8 +153,8 @@ builderRouter.get('/tenant/builder/drafts/:id', async (c) => {
 builderRouter.patch('/tenant/builder/drafts/:id', async (c) => {
   const tenantId = (c as any).get('authenticatedTenantId') as string
   const draftId = c.req.param('id')
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
@@ -226,7 +227,7 @@ builderRouter.patch('/tenant/builder/drafts/:id', async (c) => {
      WHERE id = ? AND tenant_id = ? AND status = 'drafting' AND version = ?`
   ).bind(newVersion, newChecksum, draftId, tenantId, meta.version).run()
 
-  if (!updateResult || updateResult.changes === 0) {
+  if (!updateResult || (updateResult.meta?.changes ?? 0) === 0) {
     // Optimistic lock failure — roll back KV
     await TENANT_KV.put(`draft:${tenantId}:${draftId}`, JSON.stringify(payload))
     return c.json({ error: 'Version conflict — draft was modified elsewhere', version: meta.version }, 409)
@@ -248,8 +249,8 @@ builderRouter.patch('/tenant/builder/drafts/:id', async (c) => {
 builderRouter.post('/tenant/builder/drafts/:id/publish', async (c) => {
   const tenantId = (c as any).get('authenticatedTenantId') as string
   const draftId = c.req.param('id')
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
@@ -329,8 +330,8 @@ builderRouter.post('/tenant/builder/drafts/:id/publish', async (c) => {
 builderRouter.get('/tenant/builder/drafts/:id/preview', async (c) => {
   const tenantId = (c as any).get('authenticatedTenantId') as string
   const draftId = c.req.param('id')
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
