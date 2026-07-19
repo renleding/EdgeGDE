@@ -356,7 +356,7 @@ chatRouter.post('/chat/tool', async (c) => {
         }
 
         // ═══ LLM CALL WITH RETRY + VALIDATION ═══
-        const llmApiKey = (c.env as any)?.LLM_API_KEY as string | undefined
+        const llmApiKey = envFromContext(c).LLM_API_KEY
         let parsed: import('../lib/chat-llm').ParsedIntent = { intent: 'unknown', raw: userText }
 
         if (llmApiKey) {
@@ -756,7 +756,7 @@ chatRouter.post('/chat/stream', async (c) => {
 
         // Compute firstName from collected fields for widget label update
         const computedFirstName = (() => {
-          const raw = (inference.updatedCollected as any)
+          const raw = inference.updatedCollected
           if (raw?.firstName && typeof raw.firstName === 'string') return raw.firstName
           if (raw?.fullName && typeof raw.fullName === 'string') {
             const parts = raw.fullName.trim().split(/\s+/)
@@ -774,7 +774,7 @@ chatRouter.post('/chat/stream', async (c) => {
           complete: finalState.state.phase === 'complete',
           llmFallback: config.llmFallback !== false,
           firstName: computedFirstName,
-          fullName: (inference.updatedCollected as any)?.fullName || null,
+          fullName: inference.updatedCollected?.fullName || null,
           ...(finalState.state.phase === 'complete' ? {
             summary: {
               sessionRef: 'APP-' + Date.now().toString(36).toUpperCase().slice(-6),
@@ -918,10 +918,10 @@ function buildChatDoneMessage(inference: {
   }
   if (inference.validFields.length && !inference.state.currentField) {
     // Completion message with next steps
-    const collected = inference.collected || {}
-    const firstName = (collected as any)?.firstName || (collected as any)?.fullName?.split(' ')[0] || ''
-    const email = (collected as any)?.email || ''
-    const phone = (collected as any)?.phone || ''
+    const collected = (inference.collected || {}) as Record<string, string | undefined>
+    const firstName = collected.firstName || collected.fullName?.split(' ')[0] || ''
+    const email = collected.email || ''
+    const phone = collected.phone || ''
     const ref = 'APP-' + Date.now().toString(36).toUpperCase().slice(-6)
     let msg = 'Thank you'
     if (firstName) msg += `, ${firstName}`

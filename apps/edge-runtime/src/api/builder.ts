@@ -13,7 +13,15 @@ import { validateDesign } from '../lib/design-validator'
 import { LocalRateLimiter } from '../lib/rate-limiter'
 import { envFromContext } from '../lib/env'
 
-// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Typed helper to read authenticatedTenantId from Hono context.
+ * The context variable is set by tenant-auth middleware.
+ */
+function getTenantId(c: unknown): string {
+  return (c as { get: (key: string) => unknown }).get('authenticatedTenantId') as string
+}
+
+// Rate limiter: 5 patch/s per tenant
 // Dedicated per-tenant rate limiter for builder mutations (5 req/s)
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -52,6 +60,11 @@ function validatePartial(layout: any): { valid: boolean; error?: string } {
 // Router
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Dynamic Form Builder router — draft state machine
+ * Supports create, patch (RFC 6902), publish, and preview operations
+ * for tenant-specific form drafts.
+ */
 export const builderRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -60,7 +73,7 @@ export const builderRouter = new Hono()
 // ═══════════════════════════════════════════════════════════════════════════
 
 builderRouter.post('/tenant/builder/drafts', async (c) => {
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = getTenantId(c)
   const db = envFromContext(c).DB
   const TENANT_KV = envFromContext(c).TENANT_KV
 
@@ -112,7 +125,7 @@ builderRouter.post('/tenant/builder/drafts', async (c) => {
      VALUES (?, ?, ?, ?, 'drafting', 1, ?)`
   ).bind(draftId, tenantId, name, baseTemplateId, checksum).run()
 
-  console.log(JSON.stringify({ event: 'draft_created', tenantId, draftId, name, timestamp: Date.now() }))
+  console.warn(JSON.stringify({ event: 'draft_created', tenantId, draftId, name, timestamp: Date.now() }))
 
   return c.json({ success: true, draftId, version: 1, status: 'drafting' })
 })
@@ -123,7 +136,7 @@ builderRouter.post('/tenant/builder/drafts', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 builderRouter.get('/tenant/builder/drafts/:id', async (c) => {
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = getTenantId(c)
   const draftId = c.req.param('id')
   const db = envFromContext(c).DB
   const TENANT_KV = envFromContext(c).TENANT_KV
@@ -151,7 +164,7 @@ builderRouter.get('/tenant/builder/drafts/:id', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 builderRouter.patch('/tenant/builder/drafts/:id', async (c) => {
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = getTenantId(c)
   const draftId = c.req.param('id')
   const db = envFromContext(c).DB
   const TENANT_KV = envFromContext(c).TENANT_KV
@@ -233,7 +246,7 @@ builderRouter.patch('/tenant/builder/drafts/:id', async (c) => {
     return c.json({ error: 'Version conflict — draft was modified elsewhere', version: meta.version }, 409)
   }
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'patch_applied', tenantId, draftId, version: newVersion,
     ops: operations.length, timestamp: Date.now(),
   }))
@@ -247,7 +260,7 @@ builderRouter.patch('/tenant/builder/drafts/:id', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 builderRouter.post('/tenant/builder/drafts/:id/publish', async (c) => {
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = getTenantId(c)
   const draftId = c.req.param('id')
   const db = envFromContext(c).DB
   const TENANT_KV = envFromContext(c).TENANT_KV
@@ -308,7 +321,7 @@ builderRouter.post('/tenant/builder/drafts/:id/publish', async (c) => {
      WHERE id = ? AND tenant_id = ? AND status = 'drafting'`
   ).bind(draftId, tenantId).run()
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'draft_published', tenantId, draftId, submissionId,
     version: meta.version, timestamp: Date.now(),
   }))
@@ -328,7 +341,7 @@ builderRouter.post('/tenant/builder/drafts/:id/publish', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 builderRouter.get('/tenant/builder/drafts/:id/preview', async (c) => {
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = getTenantId(c)
   const draftId = c.req.param('id')
   const db = envFromContext(c).DB
   const TENANT_KV = envFromContext(c).TENANT_KV
