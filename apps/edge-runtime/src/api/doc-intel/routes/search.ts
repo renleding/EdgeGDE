@@ -360,11 +360,12 @@ searchRouter.post('/documents/:id/approve', async (c) => {
 
     // TODO: CRM provisioning placeholder — integrate with Edge CRM (CRM-001, CRM-002)
     // This is where CRM create/update logic would be triggered after human approval.
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       event: 'doc_intel_document_approved',
       document_id: documentId,
       tenant,
       timestamp: now,
+      message: 'CRM provisioning placeholder — integrate with Edge CRM',
     }))
 
     // Write activity
