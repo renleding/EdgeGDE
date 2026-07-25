@@ -302,7 +302,7 @@ export function applyMutation(doc: CanvasDocument, mutation: Mutation): CanvasDo
     }
 
     default:
-      throw new Error(`applyMutation: unknown mutation type "${(mutation as any).type}"`)
+      throw new Error(`applyMutation: unknown mutation type "${(mutation as Record<string, unknown>).type}"`)
   }
 
   next.version++

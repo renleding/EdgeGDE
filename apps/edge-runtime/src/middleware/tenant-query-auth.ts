@@ -3,9 +3,10 @@
  * Validates tenant exists via ?tenant= query parameter (for chat/workspace routes).
  */
 import type { Context, Next } from 'hono'
+import type { KVNamespace } from '@cloudflare/workers-types'
 
 export async function tenantQueryAuth(c: Context, next: Next): Promise<Response | void> {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = (c.env as Record<string, unknown>)?.TENANT_KV as KVNamespace | undefined
   const host = c.req.header('host') || ''
   const env = c.env as Record<string, unknown> | undefined
   const isLocalDev =
@@ -32,7 +33,7 @@ export async function tenantQueryAuth(c: Context, next: Next): Promise<Response 
 
   // Verify tenant config exists
   try {
-    const config = await TENANT_KV.get('tenant:' + tenantId, 'json')
+    const config = await TENANT_KV!.get('tenant:' + tenantId, 'json')
     if (!config) {
       c.status(404)
       return c.json({ error: 'Tenant not found' }, 404)

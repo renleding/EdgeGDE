@@ -6,6 +6,8 @@
  */
 
 import type { Context, Next } from 'hono'
+import type { KVNamespace } from '@cloudflare/workers-types'
+import { envFromContext } from '../lib/env'
 
 /**
  * Middleware that verifies the tenantId in the request body exists.
@@ -14,7 +16,7 @@ import type { Context, Next } from 'hono'
  * Future: extend with per-tenant bearer tokens stored in TenantConfig.
  */
 export async function tenantAuth(c: Context, next: Next): Promise<Response | void> {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = (c.env as Record<string, unknown>)?.TENANT_KV as KVNamespace | undefined
   if (!TENANT_KV) {
     c.status(500)
     return c.json({ error: 'TENANT_KV not available' }, 500)
