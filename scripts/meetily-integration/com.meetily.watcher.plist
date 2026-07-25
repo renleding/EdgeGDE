@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.meetily.watcher</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/warren/Documents/_HQ_AI/EdgeGDE/scripts/meetily-integration/start_watcher.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/warren/Documents/_HQ_AI/EdgeGDE/scripts/meetily-integration</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/warren/.hermes/logs/meetily-watcher.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/warren/.hermes/logs/meetily-watcher.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>MEETILY_DB_PATH</key>
+        <string>/Users/warren/Library/Application Support/com.meetily.ai/meeting_minutes.sqlite</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+    </dict>
+</dict>
+</plist>

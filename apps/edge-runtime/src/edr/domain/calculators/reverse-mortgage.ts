@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** ReverseMortgageInputSchema. */
 export const ReverseMortgageInputSchema = z.object({
   propertyValue: z.number().positive('Property value must be positive'),
   borrowerAge: z.number().int('Age must be whole').min(18, 'Borrower must be at least 18').max(120, 'Age must be <= 120'),

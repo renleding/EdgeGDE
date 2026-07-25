@@ -834,7 +834,7 @@ searchRouter.put('/fields/:id/:name', async (c) => {
 
     // Upsert: delete existing and insert new
     await queryRun(db, "DELETE FROM custom_fields WHERE document_id = ? AND field_name = ?", documentId, fieldName)
-    
+
     // If renaming, tombstone the old field name so OCR copy doesn't reappear
     if (newFieldName !== fieldName) {
       await queryRun(

@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** IncomeAnnualisationInputSchema. */
 export const IncomeAnnualisationInputSchema = z.object({
   incomeAmount: z.number().min(0, 'Income amount must be >= 0'),
   incomePeriod: z.enum(['weekly', 'fortnightly', 'monthly', 'yearly']).default('monthly'),

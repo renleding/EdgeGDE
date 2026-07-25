@@ -10,7 +10,7 @@ export function renderVerificationCard(fields: OcrExtraction, sessionId: string)
   return `<!-- OCR Verification -->
 <div id="ocr-verification" style="padding:12px;border-top:1px solid #2d3140;background:#1c2128">
   <div style="font-size:13px;color:#60a5fa;font-weight:500;margin-bottom:10px">✅ ID Scanned — Please verify your details</div>
-  
+
   <form hx-post="/api/v1/ocr/confirm"
         hx-target="#ocr-verification"
         hx-swap="outerHTML"

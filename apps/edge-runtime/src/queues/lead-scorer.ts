@@ -137,7 +137,7 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
         try {
           const row: any = await db.first(
             ctx,
-            `SELECT target_loan_amount, collected_financials_json, 
+            `SELECT target_loan_amount, collected_financials_json,
                     (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status
              FROM applications WHERE id = ?`,
             [appId, appId],

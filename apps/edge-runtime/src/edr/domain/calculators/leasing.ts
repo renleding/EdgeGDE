@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** LeasingInputSchema. */
 export const LeasingInputSchema = z.object({
   assetPrice: z.number().positive('Asset price must be positive'),
   residualValue: z.number().min(0, 'Residual value must be >= 0'),

@@ -5,7 +5,7 @@
  *   POST /api/v1/ocr/upload    — upload image, run OCR, return verification card
  *   POST /api/v1/ocr/confirm   — confirm or reject OCR fields
  *
- * Privacy: 
+ * Privacy:
  *   - Images go to R2, NOT to any external API
  *   - OCR runs on local qwen3-vl:4b via Tailscale mesh
  *   - No raw PII logged in telemetry

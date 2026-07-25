@@ -25,6 +25,7 @@ export const RulePackEntrySchema = z.object({
   priority: z.number().int().positive().default(50),
 })
 
+/** CompliancePackEntrySchema. */
 export const CompliancePackEntrySchema = z.object({
   value: z.string().min(1),
   trigger: z.string().default('always'),

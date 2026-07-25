@@ -45,6 +45,7 @@ const AlignItemsSchema = z.enum(['flex-start', 'flex-end', 'center', 'stretch', 
 
 const FlexWrapSchema = z.enum(['nowrap', 'wrap', 'wrap-reverse'])
 
+/** StyleSchema. */
 export const StyleSchema = z.object({
   color: ColorSchema.optional(),
   backgroundColor: ColorSchema.optional(),
@@ -139,18 +140,21 @@ export const ContainerSchema = BaseComponentSchema.extend({
   children: z.lazy(() => ComponentSchema.array().optional()),
 })
 
+/** HeadingSchema. */
 export const HeadingSchema = BaseComponentSchema.extend({
   type: z.literal('heading'),
   level: z.enum(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']).optional().default('h2'),
   text: z.string(),
 })
 
+/** TextSchema. */
 export const TextSchema = BaseComponentSchema.extend({
   type: z.literal('text'),
   text: z.string(),
   variant: z.enum(['body', 'caption', 'label', 'help']).optional().default('body'),
 })
 
+/** ButtonSchema. */
 export const ButtonSchema = BaseComponentSchema.extend({
   type: z.literal('button'),
   label: z.string(),
@@ -160,6 +164,7 @@ export const ButtonSchema = BaseComponentSchema.extend({
   loading: z.boolean().optional(),
 })
 
+/** LinkSchema. */
 export const LinkSchema = BaseComponentSchema.extend({
   type: z.literal('link'),
   label: z.string(),
@@ -167,6 +172,7 @@ export const LinkSchema = BaseComponentSchema.extend({
   target: z.enum(['_self', '_blank', '_parent', '_top']).optional().default('_self'),
 })
 
+/** TextInputSchema. */
 export const TextInputSchema = BaseComponentSchema.extend({
   type: z.literal('text_input'),
   label: z.string().optional(),
@@ -181,6 +187,7 @@ export const TextInputSchema = BaseComponentSchema.extend({
   pattern: z.string().optional(),
 })
 
+/** NumberInputSchema. */
 export const NumberInputSchema = BaseComponentSchema.extend({
   type: z.literal('number_input'),
   label: z.string().optional(),
@@ -196,6 +203,7 @@ export const NumberInputSchema = BaseComponentSchema.extend({
   suffix: z.string().optional(),
 })
 
+/** SelectSchema. */
 export const SelectSchema = BaseComponentSchema.extend({
   type: z.literal('select'),
   label: z.string().optional(),
@@ -210,6 +218,7 @@ export const SelectSchema = BaseComponentSchema.extend({
   disabled: z.boolean().optional(),
 })
 
+/** CheckboxSchema. */
 export const CheckboxSchema = BaseComponentSchema.extend({
   type: z.literal('checkbox'),
   label: z.string(),
@@ -219,6 +228,7 @@ export const CheckboxSchema = BaseComponentSchema.extend({
   disabled: z.boolean().optional(),
 })
 
+/** RadioSchema. */
 export const RadioSchema = BaseComponentSchema.extend({
   type: z.literal('radio'),
   label: z.string().optional(),
@@ -231,6 +241,7 @@ export const RadioSchema = BaseComponentSchema.extend({
   disabled: z.boolean().optional(),
 })
 
+/** SliderSchema. */
 export const SliderSchema = BaseComponentSchema.extend({
   type: z.literal('slider'),
   label: z.string().optional(),
@@ -243,6 +254,7 @@ export const SliderSchema = BaseComponentSchema.extend({
   disabled: z.boolean().optional(),
 })
 
+/** CardSchema. */
 export const CardSchema = BaseComponentSchema.extend({
   type: z.literal('card'),
   title: z.string().optional(),
@@ -251,6 +263,7 @@ export const CardSchema = BaseComponentSchema.extend({
   children: z.lazy(() => ComponentSchema.array().optional()),
 })
 
+/** SectionSchema. */
 export const SectionSchema = BaseComponentSchema.extend({
   type: z.literal('section'),
   title: z.string().optional(),
@@ -259,6 +272,7 @@ export const SectionSchema = BaseComponentSchema.extend({
   children: z.lazy(() => ComponentSchema.array().optional()),
 })
 
+/** ImageSchema. */
 export const ImageSchema = BaseComponentSchema.extend({
   type: z.literal('image'),
   src: z.string().url(),
@@ -267,6 +281,7 @@ export const ImageSchema = BaseComponentSchema.extend({
   objectFit: z.enum(['cover', 'contain', 'fill', 'none', 'scale-down']).optional().default('cover'),
 })
 
+/** BadgeSchema. */
 export const BadgeSchema = BaseComponentSchema.extend({
   type: z.literal('badge'),
   text: z.string(),
@@ -275,6 +290,7 @@ export const BadgeSchema = BaseComponentSchema.extend({
   dot: z.boolean().optional(),
 })
 
+/** TableSchema. */
 export const TableSchema = BaseComponentSchema.extend({
   type: z.literal('table'),
   columns: z.array(z.object({
@@ -290,6 +306,7 @@ export const TableSchema = BaseComponentSchema.extend({
   hoverable: z.boolean().optional().default(true),
 })
 
+/** FormSchema. */
 export const FormSchema = BaseComponentSchema.extend({
   type: z.literal('form'),
   action: z.string(),

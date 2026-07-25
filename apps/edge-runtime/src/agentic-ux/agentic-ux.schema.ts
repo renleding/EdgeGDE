@@ -23,9 +23,11 @@ export type RiskLevel = z.output<typeof RiskLevelSchema>
 export const ApprovalModeSchema = z.enum(['none', 'user', 'tenant_policy', 'admin', 'external'])
 export type ApprovalMode = z.output<typeof ApprovalModeSchema>
 
+/** ExecutionModeSchema. */
 export const ExecutionModeSchema = z.enum(['preview', 'execute'])
 export type ExecutionMode = z.output<typeof ExecutionModeSchema>
 
+/** MissionStatusSchema. */
 export const MissionStatusSchema = z.enum([
   'proposed',
   'validated',
@@ -39,6 +41,7 @@ export const MissionStatusSchema = z.enum([
 ])
 export type MissionStatus = z.output<typeof MissionStatusSchema>
 
+/** ActionStatusSchema. */
 export const ActionStatusSchema = z.enum([
   'proposed',
   'validated',
@@ -53,12 +56,15 @@ export const ActionStatusSchema = z.enum([
 ])
 export type ActionStatus = z.output<typeof ActionStatusSchema>
 
+/** ActionResultStatusSchema. */
 export const ActionResultStatusSchema = z.enum(['success', 'partial', 'failed'])
 export type ActionResultStatus = z.output<typeof ActionResultStatusSchema>
 
+/** CompensationModeSchema. */
 export const CompensationModeSchema = z.enum(['none', 'reverse', 'soft_reverse', 'manual'])
 export type CompensationMode = z.output<typeof CompensationModeSchema>
 
+/** CompensationStatusSchema. */
 export const CompensationStatusSchema = z.enum([
   'not_required',
   'pending',
@@ -70,6 +76,7 @@ export const CompensationStatusSchema = z.enum([
 ])
 export type CompensationStatus = z.output<typeof CompensationStatusSchema>
 
+/** VerificationCheckTypeSchema. */
 export const VerificationCheckTypeSchema = z.enum([
   'schema_validation',
   'state_projection',
@@ -84,6 +91,7 @@ export const VerificationCheckTypeSchema = z.enum([
 ])
 export type VerificationCheckType = z.output<typeof VerificationCheckTypeSchema>
 
+/** EdgeGDEActionTypeSchema. */
 export const EdgeGDEActionTypeSchema = z.enum([
   'canvas.add_node',
   'canvas.update_node',
@@ -125,19 +133,30 @@ export const IdempotencyKeySchema = z
 
 export type IdempotencyKey = z.output<typeof IdempotencyKeySchema>
 
+/** CorrelationIdSchema. */
 export const CorrelationIdSchema = z.string().min(1)
+/** TenantIdSchema. */
 export const TenantIdSchema = z.string().min(1)
+/** SessionIdSchema. */
 export const SessionIdSchema = z.string().min(1)
+/** SiteIdSchema. */
 export const SiteIdSchema = z.string().min(1)
+/** MissionIdSchema. */
 export const MissionIdSchema = z.string().min(1)
+/** ActionIdSchema. */
 export const ActionIdSchema = z.string().min(1)
+/** StepIdSchema. */
 export const StepIdSchema = z.string().min(1)
+/** TransactionIdSchema. */
 export const TransactionIdSchema = z.string().min(1)
 
+/** DateTimeSchema. */
 export const DateTimeSchema = z.string().datetime()
 
+/** MetadataSchema. */
 export const MetadataSchema = z.record(z.unknown()).default({})
 
+/** ConfidenceMetadataSchema. */
 export const ConfidenceMetadataSchema = z
   .object({
     value: z.number().min(0).max(1),
@@ -148,6 +167,7 @@ export const ConfidenceMetadataSchema = z
 
 export type ConfidenceMetadata = z.output<typeof ConfidenceMetadataSchema>
 
+/** CostMetadataSchema. */
 export const CostMetadataSchema = z
   .object({
     estimatedTokens: z.number().int().nonnegative().optional(),
@@ -161,6 +181,7 @@ export const CostMetadataSchema = z
 
 export type CostMetadata = z.output<typeof CostMetadataSchema>
 
+/** ActionMetadataSchema. */
 export const ActionMetadataSchema = z
   .object({
     confidence: ConfidenceMetadataSchema.optional(),
@@ -171,6 +192,7 @@ export const ActionMetadataSchema = z
 
 export type ActionMetadata = z.output<typeof ActionMetadataSchema>
 
+/** VerificationPlanSchema. */
 export const VerificationPlanSchema = z
   .object({
     checkId: z.string().min(1),
@@ -182,6 +204,7 @@ export const VerificationPlanSchema = z
 
 export type VerificationPlan = z.output<typeof VerificationPlanSchema>
 
+/** CompensationPlanSchema. */
 export const CompensationPlanSchema = z
   .object({
     stepId: StepIdSchema,
@@ -194,6 +217,7 @@ export const CompensationPlanSchema = z
 
 export type CompensationPlan = z.output<typeof CompensationPlanSchema>
 
+/** MissionStepSchema. */
 export const MissionStepSchema = z
   .object({
     stepId: StepIdSchema,
@@ -451,6 +475,7 @@ export const PolicySummarySchema = z
 
 export type PolicySummary = z.output<typeof PolicySummarySchema>
 
+/** ToolManifestSchema. */
 export const ToolManifestSchema = z
   .object({
     id: z.string().min(1),
@@ -468,6 +493,7 @@ export const ToolManifestSchema = z
 
 export type ToolManifest = z.output<typeof ToolManifestSchema>
 
+/** CalculatorManifestSchema. */
 export const CalculatorManifestSchema = z
   .object({
     id: z.string().min(1),
@@ -485,6 +511,7 @@ export const CalculatorManifestSchema = z
 
 export type CalculatorManifest = z.output<typeof CalculatorManifestSchema>
 
+/** EdgeGDEAgentManifestSchema. */
 export const EdgeGDEAgentManifestSchema = z
   .object({
     schemaVersion: z.string().min(1),
@@ -512,6 +539,7 @@ export const EdgeGDEAgentManifestSchema = z
 
 export type EdgeGDEAgentManifest = z.output<typeof EdgeGDEAgentManifestSchema>
 
+/** StateProjectionSchema. */
 export const StateProjectionSchema = z
   .object({
     tenantId: TenantIdSchema,
@@ -632,6 +660,7 @@ export const VerificationResultSchema = z
 
 export type VerificationResult = z.output<typeof VerificationResultSchema>
 
+/** CompensationActionResultSchema. */
 export const CompensationActionResultSchema = z
   .object({
     required: z.boolean(),
@@ -643,6 +672,7 @@ export const CompensationActionResultSchema = z
 
 export type CompensationActionResult = z.output<typeof CompensationActionResultSchema>
 
+/** EdgeGDEActionResultSchema. */
 export const EdgeGDEActionResultSchema = z
   .object({
     actionId: ActionIdSchema,
@@ -674,6 +704,7 @@ export const EdgeGDEActionResultSchema = z
 export type EdgeGDEActionResult = z.output<typeof EdgeGDEActionResultSchema>
 export type RawEdgeGDEActionResult = z.input<typeof EdgeGDEActionResultSchema>
 
+/** DryRunResultSchema. */
 export const DryRunResultSchema = EdgeGDEActionResultSchema.extend({
   executionMode: z.literal('preview'),
   wouldExecute: z.boolean(),
@@ -779,6 +810,7 @@ export const UXEventTypeSchema = z.enum([
   'ux.error',
 ])
 
+/** UXEventSchema. */
 export const UXEventSchema = z
   .object({
     id: z.string().min(1),
@@ -803,6 +835,7 @@ export const UXEventSchema = z
 export type UXEvent = z.output<typeof UXEventSchema>
 export type RawUXEvent = z.input<typeof UXEventSchema>
 
+/** ExecutionTransitionNameSchema. */
 export const ExecutionTransitionNameSchema = z.enum([
   'validate',
   'idempotency_check',
@@ -827,6 +860,7 @@ export const AGENTIC_UX_EXECUTION_ORDER = [
 
 export type ExecutionTransitionName = z.output<typeof ExecutionTransitionNameSchema>
 
+/** ExecutionTransitionSchema. */
 export const ExecutionTransitionSchema = z
   .object({
     transition: ExecutionTransitionNameSchema,

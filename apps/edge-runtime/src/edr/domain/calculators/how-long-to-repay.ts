@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** HowLongToRepayInputSchema. */
 export const HowLongToRepayInputSchema = z.object({
   principal: z.number().positive('Principal must be positive'),
   interestRate: z.number().min(0, 'Rate must be >= 0').max(25, 'Rate must be <= 25'),

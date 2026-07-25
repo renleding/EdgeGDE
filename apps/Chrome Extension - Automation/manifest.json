@@ -4,12 +4,19 @@
   "version": "1.0.0",
   "description": "Records browser interactions and detects repeatable workflows for Playwright script generation.",
   "permissions": [
-    "debugger",
     "storage",
     "downloads",
     "tabs"
   ],
   "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

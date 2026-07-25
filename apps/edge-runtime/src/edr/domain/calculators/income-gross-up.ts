@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** IncomeGrossUpInputSchema. */
 export const IncomeGrossUpInputSchema = z.object({
   netIncome: z.number().min(0, 'Net income must be >= 0'),
   grossUpRate: z.number().min(0, 'Gross-up rate must be >= 0').max(100, 'Gross-up rate must be <= 100').optional(),

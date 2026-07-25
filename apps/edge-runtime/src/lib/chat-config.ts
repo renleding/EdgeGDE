@@ -32,6 +32,7 @@ const KnowledgeBaseSchema = z.object({
   topics: z.array(z.string()).default([]),
 })
 
+/** ChatConfigSchema. */
 export const ChatConfigSchema = z.object({
   objective: z.string().min(1),
   fields: z.array(ChatFieldDefSchema).min(1),

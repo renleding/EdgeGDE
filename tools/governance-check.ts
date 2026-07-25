@@ -217,9 +217,8 @@ function checkTestCoverage(sourceFile: string): CheckResult {
 function runAllChecks(): GovernanceReport {
   const changedFiles = getChangedFiles()
   const sourceFiles = findSourceFiles(EDGE_RUNTIME)
-  const filesToCheck = changedFiles.length > 0
-    ? changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
-    : sourceFiles
+  const tsChangedFiles = changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
+  const filesToCheck = tsChangedFiles.length > 0 ? tsChangedFiles : sourceFiles
 
   const results: CheckResult[] = []
 

@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** IncomeTaxInputSchema. */
 export const IncomeTaxInputSchema = z.object({
   taxableIncome: z.number().min(0, 'Taxable income must be >= 0'),
   residentStatus: z.enum(['resident', 'foreign', 'working-holiday']).default('resident'),

@@ -19,6 +19,7 @@ export const NodeIdSchema = z.string().min(1, 'Node ID must be non-empty')
 export const ParentIdSchema = z.string().min(1, 'Parent ID must be non-empty').nullable()
 export const TimestampSchema = z.number().int().positive()
 export const ColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be hex color')
+/** HexHashSchema. */
 export const HexHashSchema = z.string().regex(/^[0-9a-f]{8}$/, 'Must be 8-char hex hash')
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -30,8 +31,10 @@ export const NodeTypeSchema = z.enum([
   'AgentNode', 'ProposalNode', 'WorkspacePane',
 ])
 
+/** AgentStateSchema. */
 export const AgentStateSchema = z.enum(['Idle', 'Running', 'Paused', 'Failed', 'Completed'])
 
+/** ProposalStatusSchema. */
 export const ProposalStatusSchema = z.enum(['Draft', 'Review', 'Approved', 'Rejected'])
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -125,6 +128,7 @@ export const AddNodeMutationSchema = z.object({
   parentId: ParentIdSchema,
 })
 
+/** UpdateNodeMutationSchema. */
 export const UpdateNodeMutationSchema = z.object({
   type: z.literal('update_node'),
   nodeId: NodeIdSchema,
@@ -132,12 +136,14 @@ export const UpdateNodeMutationSchema = z.object({
   style: z.record(z.any()).optional(),
 })
 
+/** DeleteNodeMutationSchema. */
 export const DeleteNodeMutationSchema = z.object({
   type: z.literal('delete_node'),
   nodeId: NodeIdSchema,
   strategy: z.enum(['remove_all', 'reparent_children']).optional(),
 })
 
+/** MoveNodeMutationSchema. */
 export const MoveNodeMutationSchema = z.object({
   type: z.literal('move_node'),
   nodeId: NodeIdSchema,
@@ -159,11 +165,13 @@ export const CreateProposalMutationSchema = z.object({
   proposalData: ProposalNodeDataSchema,
 })
 
+/** ApproveProposalMutationSchema. */
 export const ApproveProposalMutationSchema = z.object({
   type: z.literal('approve_proposal'),
   nodeId: NodeIdSchema,
 })
 
+/** RejectProposalMutationSchema. */
 export const RejectProposalMutationSchema = z.object({
   type: z.literal('reject_proposal'),
   nodeId: NodeIdSchema,

@@ -99,9 +99,9 @@ export function renderProgressRing(props: ProgressRingProps): string {
 
   // Generate SVG
   const svg = `
-    <svg 
-      width="${size}" 
-      height="${size}" 
+    <svg
+      width="${size}"
+      height="${size}"
       style="transform: rotate(-90deg);"
       aria-hidden="true"
       class="progress-ring-svg"
@@ -117,7 +117,7 @@ export function renderProgressRing(props: ProgressRingProps): string {
         class="progress-track"
         style="transition: stroke 0.2s ease;"
       />
-      
+
       <!-- Progress -->
       <circle
         cx="${size / 2}"
@@ -132,7 +132,7 @@ export function renderProgressRing(props: ProgressRingProps): string {
         class="progress-ring-progress"
         style="transition: stroke-dashoffset 0.5s ease, stroke 0.3s ease;"
       />
-      
+
       ${completionMark}
     </svg>
   `;
@@ -146,7 +146,7 @@ export function renderProgressRing(props: ProgressRingProps): string {
     : '';
 
   return `
-<div 
+<div
   class="progress-ring ${className}"
   style="width: ${size}px; height: ${size}px; position: relative; display: inline-flex; align-items: center; justify-content: center;"
   role="progressbar"

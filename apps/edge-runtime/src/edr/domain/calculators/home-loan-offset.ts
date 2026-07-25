@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** HomeLoanOffsetInputSchema. */
 export const HomeLoanOffsetInputSchema = z.object({
   loanBalance: z.number().positive('Loan balance must be positive'),
   offsetBalance: z.number().min(0, 'Offset balance must be >= 0'),

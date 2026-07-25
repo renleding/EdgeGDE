@@ -61,31 +61,12 @@ document.getElementById('startBtn').addEventListener('click', async () => {
   if (status.isRecording) {
     await chrome.runtime.sendMessage({ action: 'stop' });
   } else {
-    btn.textContent = 'Checking tab...';
-    btn.disabled = true;
-
-    // Get current tab first
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tabs[0]) {
-      alert('No active tab found. Open a website first.');
-      btn.disabled = false;
-      refresh();
-      return;
-    }
-
-    const url = tabs[0].url || '';
-    if (url.startsWith('chrome://') || url.startsWith('chrome-extension://')) {
-      alert(`Cannot record on Chrome internal pages. Navigate to a regular website like duckduckgo.com or google.com first, then reopen this popup. Current tab: ${url.substring(0, 50)}`);
-      btn.disabled = false;
-      refresh();
-      return;
-    }
-
     btn.textContent = 'Starting...';
-    const result = await chrome.runtime.sendMessage({ action: 'start', tabId: tabs[0].id });
+    btn.disabled = true;
+    const result = await chrome.runtime.sendMessage({ action: 'start' });
     btn.disabled = false;
     if (!result.ok) {
-      alert(result.reason || 'Failed to start recording.');
+      alert(result.reason || 'Failed to start recording. Reload the extension and try again.');
     }
   }
   refresh();
@@ -94,12 +75,39 @@ document.getElementById('startBtn').addEventListener('click', async () => {
 // Export button
 document.getElementById('exportBtn').addEventListener('click', async () => {
   if (!selectedSessionId) return;
-  document.getElementById('exportBtn').textContent = 'Exporting...';
-  await chrome.runtime.sendMessage({ action: 'exportSession', sessionId: selectedSessionId });
-  document.getElementById('exportBtn').textContent = 'Exported!';
-  setTimeout(() => {
-    document.getElementById('exportBtn').textContent = 'Export Selected as Playwright';
-  }, 2000);
+
+  const btn = document.getElementById('exportBtn');
+  btn.textContent = 'Exporting...';
+  btn.disabled = true;
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: 'exportSession',
+      sessionId: selectedSessionId,
+    });
+
+    if (result && result.exported) {
+      btn.textContent = 'Exported!';
+      setTimeout(() => {
+        btn.textContent = 'Export Selected as Playwright';
+        btn.disabled = false;
+      }, 2000);
+    } else {
+      console.error('Export failed:', result?.error || 'unknown');
+      btn.textContent = 'Export Failed';
+      setTimeout(() => {
+        btn.textContent = 'Export Selected as Playwright';
+        btn.disabled = false;
+      }, 3000);
+    }
+  } catch (e) {
+    console.error('Export error:', e);
+    btn.textContent = 'Export Error';
+    setTimeout(() => {
+      btn.textContent = 'Export Selected as Playwright';
+      btn.disabled = false;
+    }, 3000);
+  }
 });
 
 // Clear button

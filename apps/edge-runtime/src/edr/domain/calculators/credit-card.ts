@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** CreditCardInputSchema. */
 export const CreditCardInputSchema = z.object({
   balance: z.number().min(0, 'Balance must be >= 0'),
   interestRate: z.number().min(0, 'Rate must be >= 0').max(100, 'Rate must be <= 100'),

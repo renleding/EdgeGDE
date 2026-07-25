@@ -90,9 +90,9 @@ function renderField(field: SmartDefaultField, showDefaultsIndicator: boolean): 
   switch (type) {
     case 'textarea':
       inputHtml = `
-        <textarea 
-          name="${escapeHtml(name)}" 
-          class="sdlc-textarea" 
+        <textarea
+          name="${escapeHtml(name)}"
+          class="sdlc-textarea"
           ${defaultAttr}
           ${required ? 'required' : ''}
           ${placeholder ? `placeholder="${escapeHtml(placeholder)}"` : ''}
@@ -103,9 +103,9 @@ function renderField(field: SmartDefaultField, showDefaultsIndicator: boolean): 
       break;
     case 'select':
       inputHtml = `
-        <select 
-          name="${escapeHtml(name)}" 
-          class="sdlc-select" 
+        <select
+          name="${escapeHtml(name)}"
+          class="sdlc-select"
           ${defaultAttr}
           ${required ? 'required' : ''}
         >
@@ -117,10 +117,10 @@ function renderField(field: SmartDefaultField, showDefaultsIndicator: boolean): 
     case 'checkbox':
       inputHtml = `
         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input 
-            type="checkbox" 
-            name="${escapeHtml(name)}" 
-            class="sdlc-checkbox" 
+          <input
+            type="checkbox"
+            name="${escapeHtml(name)}"
+            class="sdlc-checkbox"
             ${defaultAttr}
             ${required ? 'required' : ''}
             ${hasDefault && defaultValueStr === 'true' ? 'checked' : ''}
@@ -134,11 +134,11 @@ function renderField(field: SmartDefaultField, showDefaultsIndicator: boolean): 
         <fieldset style="display: flex; flex-direction: column; gap: 8px;">
           ${options?.map(opt => `
             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input 
-                type="radio" 
-                name="${escapeHtml(name)}" 
-                value="${escapeHtml(opt.value)}" 
-                class="sdlc-radio" 
+              <input
+                type="radio"
+                name="${escapeHtml(name)}"
+                value="${escapeHtml(opt.value)}"
+                class="sdlc-radio"
                 ${defaultAttr}
                 ${required ? 'required' : ''}
                 ${defaultValueStr === opt.value ? 'checked' : ''}
@@ -151,10 +151,10 @@ function renderField(field: SmartDefaultField, showDefaultsIndicator: boolean): 
       break;
     default:
       inputHtml = `
-        <input 
-          type="${type}" 
-          name="${escapeHtml(name)}" 
-          class="sdlc-input" 
+        <input
+          type="${type}"
+          name="${escapeHtml(name)}"
+          class="sdlc-input"
           ${defaultAttr}
           ${required ? 'required' : ''}
           ${placeholder ? `placeholder="${escapeHtml(placeholder)}"` : ''}
@@ -170,8 +170,8 @@ function renderField(field: SmartDefaultField, showDefaultsIndicator: boolean): 
   // const defaultBadgeHtml = showDefaultsIndicator && hasDefault && showDefaultIndicator
 
   const fieldHtml = `
-      <div 
-        class="${modifiedClass}" 
+      <div
+        class="${modifiedClass}"
         data-field-name="${escapeHtml(name)}"
         data-field-type="${type}"
       >
@@ -207,8 +207,8 @@ export async function renderSmartDefaultForm(props: SmartDefaultFormProps): Prom
   const hasDefaults = fields.some(f => f.default);
   const defaultsIndicator = showDefaultsIndicator && hasDefaults ? `
       <div class="sdlc-defaults-indicator" style="
-        display: flex; align-items: center; gap: 8px; 
-        padding: 10px 14px; background: var(--default-bg, #161b22); 
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 14px; background: var(--default-bg, #161b22);
         border: 1px solid var(--default-border, #2d3140); border-radius: 8px;
         margin-bottom: 20px; font-size: 13px; color: var(--default-text, #e1e4e8);
       ">
@@ -222,8 +222,8 @@ export async function renderSmartDefaultForm(props: SmartDefaultFormProps): Prom
   const fieldsHtml = fields.map(field => renderField(field, showDefaultsIndicator)).join('\n');
 
   const submitButton = `
-    <button 
-      type="submit" 
+    <button
+      type="submit"
       class="btn btn-primary sdlc-submit-btn"
       ${loading ? 'disabled' : ''}
       ${loading ? 'aria-busy="true"' : ''}
@@ -243,8 +243,8 @@ export async function renderSmartDefaultForm(props: SmartDefaultFormProps): Prom
 
   const successHtml = success ? `
     <div class="form-success" role="alert" style="
-      display: flex; align-items: center; gap: 8px; padding: 12px 16px; 
-      background: var(--inline-success-bg, #162a16); border: 1px solid var(--inline-success-border, #3fb950); 
+      display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+      background: var(--inline-success-bg, #162a16); border: 1px solid var(--inline-success-border, #3fb950);
       border-radius: 8px; color: var(--inline-success-text, #56d364); font-size: 13px;
     ">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink: 0;">
@@ -255,7 +255,7 @@ export async function renderSmartDefaultForm(props: SmartDefaultFormProps): Prom
   ` : '';
 
   return `
-<form id="smart-default-form" class="sdlc-smart-form ${className}" 
+<form id="smart-default-form" class="sdlc-smart-form ${className}"
       data-form-id="${escapeHtml(formId)}"
       novalidate
       style="display: flex; flex-direction: column; gap: 16px; max-width: 640px;">
@@ -267,8 +267,8 @@ export async function renderSmartDefaultForm(props: SmartDefaultFormProps): Prom
   </div>
   <div class="form-actions" style="display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap;">
     ${submitButton}
-    <button 
-      type="button" 
+    <button
+      type="button"
       class="btn btn-secondary"
       onclick="this.form.reset(); this.form.querySelectorAll('[data-default]').forEach(el => el.classList.remove('modified')); document.dispatchEvent(new CustomEvent('form-reset'));"
       ${loading ? 'disabled' : ''}

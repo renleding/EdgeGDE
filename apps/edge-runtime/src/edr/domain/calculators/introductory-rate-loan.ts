@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** IntroductoryRateLoanInputSchema. */
 export const IntroductoryRateLoanInputSchema = z.object({
   principal: z.number().positive('Principal must be positive'),
   introductoryRate: z.number().min(0, 'Intro rate must be >= 0').max(25, 'Intro rate must be <= 25'),

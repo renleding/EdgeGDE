@@ -42,7 +42,7 @@ interface LLMResponse {
 // System Prompt
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SYSTEM_PROMPT = `You are a website layout generator for the EdgeGDE Canvas platform. 
+const SYSTEM_PROMPT = `You are a website layout generator for the EdgeGDE Canvas platform.
 Output a STRICT JSON object — NO markdown, NO code fences, NO explanation.
 
 The output must match this TypeScript interface:

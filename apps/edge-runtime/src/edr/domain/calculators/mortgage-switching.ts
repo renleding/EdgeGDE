@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** MortgageSwitchingInputSchema. */
 export const MortgageSwitchingInputSchema = z.object({
   currentBalance: z.number().positive('Current balance must be positive'),
   currentRate: z.number().min(0, 'Current rate must be >= 0').max(25, 'Current rate must be <= 25'),

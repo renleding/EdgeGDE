@@ -1,0 +1,25 @@
+{
+  "mission_id": "EG-OPS-0003",
+  "status": "delivered",
+  "deal_title": "Test 2 - Purple Circle Onboarding",
+  "board": "B. Home Loans",
+  "deals_on_board": [
+    "Test 2 - Purple Circle Onboarding",
+    "TEST - Smith, S & A, Purch, OO $800K"
+  ],
+  "applicants": [
+    {"name": "Sam Smith", "role": "Primary"},
+    {"name": "Amy Smith", "role": "Secondary"}
+  ],
+  "property_value": 800000,
+  "finance_due": "+14 days (08/08/2026)",
+  "settlement": "+90 days (23/10/2026)",
+  "automation_stack": {
+    "browser": "Chrome for Testing v151 (CDP port 9222)",
+    "framework": "Playwright connect_over_cdp()",
+    "popover_fix": "page.evaluate('.click()') on div[aria-haspopup] trigger",
+    "save_fix": "Call React onClick prop directly via page.evaluate()",
+    "totp_handling": "pyotp + keyboard.type(delay=50ms)",
+    "session_method": "Persistent CDP connection - no profile killing"
+  }
+}

@@ -20,6 +20,7 @@ const LoanOptionSchema = z.object({
   repaymentFrequency: z.enum(['monthly', 'fortnightly', 'weekly']).default('monthly'),
 })
 
+/** LoanComparisonInputSchema. */
 export const LoanComparisonInputSchema = z.object({
   loans: z.array(LoanOptionSchema).min(2, 'At least 2 loans required for comparison'),
 }).strict()

@@ -33,6 +33,7 @@ export const PackRefSchema = z.object({
   version: z.string().min(1),
 })
 
+/** BlueprintPackRefSchema. */
 export const BlueprintPackRefSchema = z.object({
   rule_pack: PackRefSchema.optional(),
   compliance_pack: PackRefSchema.optional(),
@@ -62,17 +63,20 @@ export const RuleRecordSchema = z.object({
   priority: z.number().int().positive().default(50),
 })
 
+/** ComplianceEntrySchema. */
 export const ComplianceEntrySchema = z.object({
   value: z.string().min(1),
   type: z.literal('compliance').default('compliance'),
   trigger: z.string().default('always'),
 })
 
+/** RulePackSchema. */
 export const RulePackSchema = z.object({
   name: z.string().min(1),
   rules: z.array(RuleRecordSchema),
 })
 
+/** CompliancePackSchema. */
 export const CompliancePackSchema = z.object({
   name: z.string().min(1),
   entries: z.array(ComplianceEntrySchema),

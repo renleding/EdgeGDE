@@ -11,7 +11,7 @@
 export const progressTokens = {
   // Minimum progress value (never start at 0%)
   minProgress: 20,
-  
+
   // Progress ring colors
   ring: {
     background: 'var(--progress-ring-bg, #1c212e)',
@@ -21,7 +21,7 @@ export const progressTokens = {
     warning: 'var(--progress-warning-fg, #d29922)',
     danger: 'var(--progress-danger-fg, #f85149)',
   },
-  
+
   // Progress bar sizes
   size: {
     sm: '2px',
@@ -29,7 +29,7 @@ export const progressTokens = {
     lg: '8px',
     ring: '32px',
   },
-  
+
   // Progress states
   state: {
     pending: 'pending',
@@ -49,14 +49,14 @@ export const lossFrameTokens = {
   bg: 'var(--loss-frame-bg, #2d1b1b)',
   border: 'var(--loss-frame-border, #f85149)',
   borderWidth: '2px',
-  
+
   // Countdown/timer
   countdown: {
     bg: 'var(--countdown-bg, #3d1d1d)',
     text: 'var(--countdown-text, #ff7b72)',
     critical: 'var(--countdown-critical, #f85149)',
   },
-  
+
   // Dismiss button
   dismiss: {
     bg: 'var(--dismiss-bg, #1c212e)',
@@ -65,14 +65,14 @@ export const lossFrameTokens = {
     hoverText: 'var(--dismiss-hover-text, #e1e4e8)',
     border: 'var(--dismiss-border, #2d3140)',
   },
-  
+
   // Items at risk
   itemsAtRisk: {
     bg: 'var(--items-risk-bg, #2d1b1b)',
     text: 'var(--items-risk-text, #ff7b72)',
     border: 'var(--items-risk-border, #f85149)',
   },
-  
+
   // Dismiss label
   dismissLabel: 'I\'ll risk it',
 } as const;
@@ -92,7 +92,7 @@ export const smartDefaultsTokens = {
     borderError: 'var(--default-error-border, #f85149)',
     label: 'var(--default-label, #8b949e)',
   },
-  
+
   // Default button
   button: {
     primary: {
@@ -114,7 +114,7 @@ export const smartDefaultsTokens = {
       border: 'var(--btn-danger-border, transparent)',
     },
   },
-  
+
   // CTA "Continue" framing
   cta: {
     continueText: 'Continue',
@@ -149,7 +149,7 @@ export const headStartTokens = {
     onboarding: ['accountCreated', 'firstLogin'],
     configManagement: ['configLoaded'],
   },
-  
+
   // Base progress values
   baseProgress: {
     onboarding: 20,      // Account created + first login
@@ -158,7 +158,7 @@ export const headStartTokens = {
     issueCreation: 20,   // Title focused
     configManagement: 25, // Config loaded
   },
-  
+
   // Step labels
   stepLabels: {
     issueCreation: ['Title', 'Description', 'Labels', 'Submit'],
@@ -178,17 +178,17 @@ export const builderTokens = {
   stepCompleted: 'var(--builder-step-completed, #2ea043)',
   stepPending: 'var(--builder-step-pending, #2d3140)',
   stepConnector: 'var(--builder-step-connector, #2d3140)',
-  
+
   preview: {
     bg: 'var(--builder-preview-bg, #0d1117)',
     border: 'var(--builder-preview-border, #2d3140)',
   },
-  
+
   continueButton: {
     text: 'Continue',
     variant: 'primary',
   },
-  
+
   authGateLabel: 'Continue to save your configuration',
 } as const;
 
@@ -207,7 +207,7 @@ export const hierarchyTokens = {
     xxxl: '48px',
     xxxxl: '64px',
   },
-  
+
   typography: {
     heading: {
       h1: { size: '28px', weight: 700, lineHeight: 1.2, tracking: '-0.02em' },
@@ -226,12 +226,12 @@ export const hierarchyTokens = {
       md: { size: '13px', family: 'ui-monospace, SFMono-Regular, monospace' },
     },
   },
-  
+
   contrast: {
     min: 4.5,  // WCAG AA
     enhanced: 7, // WCAG AAA
   },
-  
+
   focus: {
     ringWidth: '2px',
     ringColor: 'var(--focus-ring-color, #3fb950)',
@@ -255,7 +255,7 @@ export const errorPreventionTokens = {
     successBorder: 'var(--inline-success-border, #3fb950)',
     successText: 'var(--inline-success-text, #56d364)',
   },
-  
+
   confirmation: {
     destructive: {
       bg: 'var(--confirm-destructive-bg, #2d1b1b)',
@@ -272,7 +272,7 @@ export const errorPreventionTokens = {
       cancelBtn: 'var(--confirm-cancel-btn, #1c2128)',
     },
   },
-  
+
   validation: {
     inlineDelay: 300,  // ms debounce
     onBlur: true,
@@ -295,7 +295,7 @@ export const framingTokens = {
     saveAndContinue: 'Save and continue',
     // Never use: "Start", "Sign up", "Sign in", "Begin", "Get started"
   },
-  
+
   // Loss framing for critical actions
   lossFrame: {
     deploy: 'This deploy will lose: {items}',
@@ -303,7 +303,7 @@ export const framingTokens = {
     dataDelete: 'You will lose: {items}',
     featureDisable: 'Disabling will lose: {items}',
   },
-  
+
   // Value-first framing
   valueFirst: {
     preview: 'See your {value} before you commit',
@@ -322,13 +322,13 @@ export const contrastTokens = {
     target: 'var(--anchor-target, $50)',
     badge: 'var(--anchor-badge, Just 2.6%)',
   },
-  
+
   planAnchor: {
     enterprise: 'Enterprise — $500/mo',
     team: 'Team — $50/mo',
     individual: 'Individual — $15/mo',
   },
-  
+
   effortAnchor: {
     fullRebuild: '45 min',
     incrementalBuild: '2 min',
@@ -347,12 +347,12 @@ export const ownershipTokens = {
     progressSteps: ['Stack ✓', 'CI ✓', 'Preview ✓', 'Auth'],
     preAuthSteps: 3,
   },
-  
+
   endowment: {
     progressGiven: '20%',
     message: 'You\'ve already completed the first step',
   },
-  
+
   ownershipLanguage: {
     yourConfig: 'Your configuration',
     yourProject: 'Your project',
@@ -374,14 +374,14 @@ export const zeroProgressTokens = {
     eighty: 'Almost there',
     hundred: 'Complete',
   },
-  
+
   progressRing: {
     minValue: 20,
     maxValue: 100,
     strokeWidth: 4,
     size: 48,
   },
-  
+
   checkmark: {
     completed: '✓',
     pending: '○',

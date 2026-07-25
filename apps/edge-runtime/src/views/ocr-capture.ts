@@ -18,7 +18,7 @@ export function renderCaptureView(sessionId: string): string {
       📸 Tap to capture or choose a photo
       <input type="file" name="image" accept="image/jpeg,image/png,image/heic" style="display:none">
     </label>
-    <button type="submit" 
+    <button type="submit"
             style="padding:8px 12px;border-radius:8px;border:1px solid #334155;background:transparent;color:#8b949e;cursor:pointer;font-size:13px">
       ⌨️ Type Manually
     </button>

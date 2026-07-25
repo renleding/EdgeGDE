@@ -18,6 +18,7 @@ function calcMonthlyRepayment(principal: number, annualRate: number, termMonths:
   return principal * (r * powR) / (powR - 1)
 }
 
+/** SplitLoanInputSchema. */
 export const SplitLoanInputSchema = z.object({
   totalPrincipal: z.number().positive('Total principal must be positive'),
   fixedPortion: z.number().positive('Fixed portion must be positive'),

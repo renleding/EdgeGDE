@@ -18,6 +18,7 @@ export const StampDutyStateSchema = z.enum([
   'nsw', 'vic', 'qld', 'wa', 'sa', 'tas', 'act', 'nt',
 ])
 
+/** StampDutyInputSchema. */
 export const StampDutyInputSchema = z
   .object({
     propertyValue: z.number().positive('Property value must be positive'),

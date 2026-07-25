@@ -10,6 +10,7 @@
 import { z } from 'zod'
 import { roundMoney } from '../../../lib/calculator-engine'
 
+/** CompoundInterestInputSchema. */
 export const CompoundInterestInputSchema = z.object({
   principal: z.number().min(0, 'Principal must be >= 0'),
   regularContribution: z.number().min(0, 'Contribution must be >= 0').default(0),
