@@ -83,7 +83,7 @@ export function validateMutation(raw: unknown): ValidationResult {
   const steps: string[] = []
 
   // Step 1: Determine mutation type
-  const rawType = (raw as any)?.type
+  const rawType = (raw as Record<string, unknown>)?.type as string | undefined
   steps.push(`Step 1: Detected mutation type "${rawType || 'unknown'}"`)
 
   if (!rawType || typeof rawType !== 'string') {
@@ -137,8 +137,8 @@ export function validateMutation(raw: unknown): ValidationResult {
         path: issue.path.join('.'),
         code: issue.code,
         message: issue.message,
-        expected: 'expected' in issue ? String((issue as any).expected) : undefined,
-        received: 'received' in issue ? String((issue as any).received) : undefined,
+        expected: 'expected' in issue ? String((issue as unknown as Record<string, unknown>).expected) : undefined,
+        received: 'received' in issue ? String((issue as unknown as Record<string, unknown>).received) : undefined,
       }))
       steps.push(`Step 3: REJECTED — ${errors.length} structural error(s) found`)
       return {

@@ -18,12 +18,27 @@ export interface EDRNode {
   type?: string
   props?: {
     role?: string | string[]
-    fields?: Array<{ id: string; label: string; type?: string }>
+    fields?: Array<FormField>
     [key: string]: any
   }
   geometry?: Record<string, number | string>
   legacyStyles?: Record<string, number | string>
   children?: EDRNode[] | string | number | null
+}
+
+/** Extended field type with all optional data-driven properties used in synthesis */
+interface FormField {
+  id: string
+  label: string
+  type?: string
+  options?: Array<{ value: string; label?: string }>
+  min?: string
+  max?: string
+  step?: string
+  default?: string
+  suffix?: string
+  placeholder?: string
+  [key: string]: any
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -35,7 +50,7 @@ function synthesize(node: EDRNode): EDRNode {
 
   // ── Root → Page Shell Wrapper ──────────────────────────────────────────
   if (role === 'root') {
-    const formAction = (node.props as any)?.formAction || '/api/fragment/calculate'
+    const formAction = node.props?.formAction || '/api/fragment/calculate'
     return {
       type: 'div',
       props: { role: ['page'] },
@@ -77,7 +92,7 @@ function synthesize(node: EDRNode): EDRNode {
       props: { role: ['grid_container'] },
       children: node.props.fields.map((f) => {
         if (f.type === 'select') {
-          const options = (f as any).options || []
+          const options = f.options || []
           const optionNodes = [
             { type: 'option', props: { value: '', disabled: true, selected: true }, children: 'Select...' },
             ...options.map((o: { value: string; label?: string }) => ({
@@ -97,10 +112,10 @@ function synthesize(node: EDRNode): EDRNode {
 
         // Range slider fields — slider + number input synced
         if (f.type === 'range') {
-          const min = (f as any).min ?? '0'
-          const max = (f as any).max ?? '100'
-          const step = (f as any).step ?? '1'
-          const def = (f as any).default ?? min
+          const min = f.min ?? '0'
+          const max = f.max ?? '100'
+          const step = f.step ?? '1'
+          const def = f.default ?? min
           return {
             type: 'div', props: { role: ['field_wrapper'] },
             children: [
@@ -132,10 +147,10 @@ function synthesize(node: EDRNode): EDRNode {
                       oninput: `var s=this.previousElementSibling;if(s&&s.type==='range'){s.value=this.value}`,
                     },
                   },
-                  ...((f as any).suffix ? [{
+                  ...(f.suffix ? [{
                     type: 'span' as const,
                     props: { style: 'color:var(--text-secondary);font-size:14px;min-width:20px' },
-                    children: (f as any).suffix as string,
+                    children: f.suffix as string,
                   }] : []),
                 ],
               },
@@ -147,7 +162,7 @@ function synthesize(node: EDRNode): EDRNode {
           type: 'div', props: { role: ['field_wrapper'] },
           children: [
             { type: 'label', props: { role: 'label' }, children: f.label },
-            { type: 'input', props: { role: 'input_field', id: f.id, name: f.id, type: f.type || 'text', placeholder: (f as any).placeholder || '', step: (f as any).step } },
+            { type: 'input', props: { role: 'input_field', id: f.id, name: f.id, type: f.type || 'text', placeholder: f.placeholder || '', step: f.step } },
           ],
         }
       }),
@@ -177,7 +192,7 @@ function synthesize(node: EDRNode): EDRNode {
 export function transform(node: EDRNode): EDRNode {
   const next = synthesize(node)
 
-  if ((next as any).role !== undefined) {
+  if ((next as Record<string, unknown>).role !== undefined) {
     throw new Error(
       'Role must exist only in props.role' +
       ` (found top-level role on ${next.type || 'unknown'} node)`,
