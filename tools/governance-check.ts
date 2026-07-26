@@ -18,7 +18,7 @@
 
 import { execSync } from 'child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
-import { join, resolve, relative } from 'path'
+import { join, resolve, relative, isAbsolute } from 'path'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const EDGE_RUNTIME = join(ROOT, 'apps/edge-runtime/src')
@@ -223,20 +223,24 @@ function runAllChecks(): GovernanceReport {
   const results: CheckResult[] = []
 
   for (const filePath of filesToCheck) {
-    const fullPath = join(ROOT, filePath)
+    // filePath may be absolute (from findSourceFiles) or relative (from git diff)
+    const fullPath = isAbsolute(filePath) ? filePath : join(ROOT, filePath)
     if (!existsSync(fullPath) || statSync(fullPath).size > 500_000) continue
+
+    // For line-range checking and display, use the path relative to ROOT
+    const relPath = fullPath.startsWith(ROOT + '/') ? fullPath.slice(ROOT.length + 1) : fullPath
 
     try {
       const content = readFileSync(fullPath, 'utf-8')
       const lineRanges = getChangedLineRanges(fullPath)
-      results.push(checkNoAsAny(content, filePath, lineRanges))
-      results.push(checkNoConsoleLog(content, filePath, lineRanges))
+      results.push(checkNoAsAny(content, relPath, lineRanges))
+      results.push(checkNoConsoleLog(content, relPath, lineRanges))
       results.push(checkFileSize(fullPath))
       if (!filePath.endsWith('.test.ts')) {
-        results.push(checkJSDoc(content, filePath))
+        results.push(checkJSDoc(content, relPath))
         results.push(checkTestCoverage(fullPath))
       }
-    } catch {
+    } catch (e) {
       // Binary or unreadable — skip
     }
   }
