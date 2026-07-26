@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import { deadLetterIndexKey, deadLetterKey } from '../lib/kv-keys'
 
@@ -22,7 +23,7 @@ function escapeHtml(s: string): string {
  */
 router.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV || typeof TENANT_KV.get !== 'function') {
     return c.html('<div class="card"><p style="color:#da3633">TENANT_KV not available</p></div>')
   }
@@ -111,8 +112,8 @@ router.get('/', async (c) => {
 router.post('/replay/:id', async (c) => {
   const id = c.req.param('id')
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const TENANT_KV = (c.env as any)?.TENANT_KV
-  const DB = (c.env as any)?.DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
+  const DB = envFromContext(c).DB
 
   if (!TENANT_KV || !DB || typeof DB.prepare !== 'function') {
     return c.html('<span style="color:#da3633">DB not available</span>')

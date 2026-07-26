@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import {
   cloneTenantConfig,
   ensureAgentProfile,
@@ -12,7 +13,6 @@ import {
   getEffectiveConfig,
   listActiveParents,
   propagateParent,
-  rebuildTenantConfig,
   renderConfigPage,
   setChildInheritance,
   setParentInheritance,
@@ -87,7 +87,7 @@ function redirectUrl(c: any, tenantId: string): string {
 configRouter.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'alpha-broker-01'
   const token = c.req.query('token')
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
   if (!kv) return c.html(errorHtml('KV binding not available'), 500)
   try {
     const profile = await ensureAgentProfile(kv, tenantId)
@@ -106,7 +106,7 @@ configRouter.post('/parent-toggle', async (c) => {
   const fd = await c.req.formData()
   const enabled = (fd.get('enabled') as string | null) === 'on' || c.req.query('enabled') === 'true'
   try {
-    await setParentInheritance((c.env as any).TENANT_KV, tenantId, enabled)
+    await setParentInheritance(envFromContext(c).TENANT_KV, tenantId, enabled)
     return c.redirect(redirectUrl(c, tenantId))
   } catch (err: any) {
     return c.html(errorHtml(err.message), 500)
@@ -120,7 +120,7 @@ configRouter.post('/child-toggle', async (c) => {
   const enabled = (fd.get('enabled') as string | null) === 'on' || c.req.query('enabled') === 'true'
   const parentTenantId = (fd.get('parent') as string | null) || c.req.query('parent') || undefined
   try {
-    await setChildInheritance((c.env as any).TENANT_KV, tenantId, enabled, parentTenantId)
+    await setChildInheritance(envFromContext(c).TENANT_KV, tenantId, enabled, parentTenantId)
     return c.redirect(redirectUrl(c, tenantId))
   } catch (err: any) {
     return c.html(errorHtml(err.message), 500)
@@ -135,7 +135,7 @@ configRouter.post('/clone', async (c) => {
   const parentLink = ['on', 'true', '1', 'yes'].includes(((fd.get('parentLink') as string | null) || '').toLowerCase())
   if (!sourceTenantId || !targetTenantId) return c.html(errorHtml('sourceTenant and tenant are required'), 400)
   try {
-    const result = await cloneTenantConfig((c.env as any).TENANT_KV, c.env as any, {
+    const result = await cloneTenantConfig(envFromContext(c).TENANT_KV, envFromContext(c), {
       sourceTenantId,
       targetTenantId,
       targetName,
@@ -162,7 +162,7 @@ configRouter.post('/rebuild', async (c) => {
   const tenantId = c.req.query('tenant')
   if (!tenantId) return c.html(errorHtml('tenant query param required'), 400)
   try {
-    const result = await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+    const result = await rebuildTenantConfig(envFromContext(c).TENANT_KV, envFromContext(c), tenantId)
     return c.html(pageLayout('Agent Config', `
       <div class="card" style="border-color:#238636"><h3>Rebuilt config</h3>
       <div class="entry"><div class="key">tenant</div><div class="val">${tenantId}</div></div>
@@ -178,7 +178,7 @@ configRouter.post('/propagate', async (c) => {
   const tenantId = c.req.query('tenant')
   if (!tenantId) return c.html(errorHtml('tenant query param required'), 400)
   try {
-    const result = await propagateParent((c.env as any).TENANT_KV, c.env as any, tenantId)
+    const result = await propagateParent(envFromContext(c).TENANT_KV, envFromContext(c), tenantId)
     return c.html(pageLayout('Agent Config', `
       <div class="card" style="border-color:#238636"><h3>Propagated parent</h3>
       <div class="entry"><div class="key">parent</div><div class="val">${tenantId}</div></div>
@@ -192,7 +192,7 @@ configRouter.post('/propagate', async (c) => {
 configRouter.get('/json', async (c) => {
   const tenantId = c.req.query('tenant')
   if (!tenantId) return c.json({ error: 'tenant query param required' }, 400)
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
   const profile = await getAgentProfile(kv, tenantId)
   const effective = await getEffectiveConfig(kv, tenantId)
   const children = await getChildren(kv, tenantId)

@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import { listAllPacks } from '../factory/packs/pack.registry'
 
@@ -20,7 +21,7 @@ function esc(s: string): string {
 router.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const token = c.req.query('token') || ''
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
 
   const q = '?tenant=' + tenantId + (token ? '&token=' + token : '')
 
@@ -126,7 +127,7 @@ router.get('/', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/create', async (c) => {
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   try {
     const fd = await c.req.formData()
     const id = (fd.get('id') as string || '').trim()
@@ -156,7 +157,7 @@ router.post('/create', async (c) => {
     if (compliancePackName && compliancePackVer) (blueprint.packs as Record<string, unknown>).compliance_pack = { name: compliancePackName, version: compliancePackVer }
 
     // Immutable: write versioned key + update latest pointer
-    const rawKV = (c.env as any)?.TENANT_KV
+    const rawKV = envFromContext(c).TENANT_KV
     await rawKV.put('blueprint:' + id + ':v' + version, JSON.stringify(blueprint))
     await rawKV.put('blueprint:' + id + ':latest', JSON.stringify(blueprint))
 
