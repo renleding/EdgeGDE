@@ -5,6 +5,7 @@
 
 import { Hono } from 'hono'
 import { envFromContext } from '../lib/env'
+import { guardKV } from '../lib/kv'
 import {
   cloneTenantConfig,
   ensureAgentProfile,
@@ -13,6 +14,7 @@ import {
   getEffectiveConfig,
   listActiveParents,
   propagateParent,
+  rebuildTenantConfig,
   renderConfigPage,
   setChildInheritance,
   setParentInheritance,
@@ -87,7 +89,7 @@ function redirectUrl(c: any, tenantId: string): string {
 configRouter.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'alpha-broker-01'
   const token = c.req.query('token')
-  const kv = envFromContext(c).TENANT_KV
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   if (!kv) return c.html(errorHtml('KV binding not available'), 500)
   try {
     const profile = await ensureAgentProfile(kv, tenantId)
@@ -192,7 +194,7 @@ configRouter.post('/propagate', async (c) => {
 configRouter.get('/json', async (c) => {
   const tenantId = c.req.query('tenant')
   if (!tenantId) return c.json({ error: 'tenant query param required' }, 400)
-  const kv = envFromContext(c).TENANT_KV
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const profile = await getAgentProfile(kv, tenantId)
   const effective = await getEffectiveConfig(kv, tenantId)
   const children = await getChildren(kv, tenantId)
