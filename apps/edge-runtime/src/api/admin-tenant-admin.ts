@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import { guardDB } from '../lib/db'
 import {
@@ -369,8 +370,8 @@ function computeInheritedFields(config: Record<string, any>, parentConfig: Recor
 // ═══════════════════════════════════════════════════════════════════════════
 
 adminTenantRouter.get('/', async (c) => {
-  const kv = guardKV((c.env as any)?.TENANT_KV)
-  const db = (c.env as any)?.DB
+  const kv = guardKV(envFromContext(c).TENANT_KV)
+  const db = envFromContext(c).DB
   const token = c.req.query('token')
 
   try {
@@ -443,7 +444,7 @@ adminTenantRouter.get('/', async (c) => {
 
 adminTenantRouter.get('/:id', async (c) => {
   const tenantId = c.req.param('id')
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const token = c.req.query('token')
 
   try {
@@ -523,7 +524,7 @@ adminTenantRouter.get('/:id', async (c) => {
 
 adminTenantRouter.post('/:id/sync', async (c) => {
   const tenantId = c.req.param('id')
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
 
   try {
     const profile = await getAgentProfile(kv, tenantId)
@@ -533,14 +534,15 @@ adminTenantRouter.post('/:id/sync', async (c) => {
 
     // If this tenant is a parent, propagate to children
     let result
+    const env = envFromContext(c)
     if (profile.parentInheritanceEnabled) {
-      result = await propagateParent(kv as any, c.env as any, tenantId)
+      result = await propagateParent(kv, env, tenantId)
     } else if (profile.childInheritanceEnabled && profile.parentTenantId) {
       // Child: rebuild from parent
-      result = await rebuildTenantConfig(kv as any, c.env as any, tenantId)
+      result = await rebuildTenantConfig(kv, env, tenantId)
     } else {
       // Standalone: rebuild self
-      result = await rebuildTenantConfig(kv as any, c.env as any, tenantId)
+      result = await rebuildTenantConfig(kv, env, tenantId)
     }
 
     return c.json({
@@ -560,7 +562,7 @@ adminTenantRouter.post('/:id/sync', async (c) => {
 
 adminTenantRouter.delete('/:id', async (c) => {
   const tenantId = c.req.param('id')
-  const rawKV = (c.env as any)?.TENANT_KV
+  const rawKV = envFromContext(c).TENANT_KV
   if (!rawKV) return c.json({ error: 'TENANT_KV not available' }, 500)
   const kv = guardKV(rawKV)
 
@@ -587,7 +589,7 @@ adminTenantRouter.delete('/:id', async (c) => {
     }
 
     // Mark tenant record as deleted if D1 is available
-    const db = (c.env as any)?.DB
+    const db = envFromContext(c).DB
     if (db && typeof db.prepare === 'function') {
       try {
         await db.prepare(

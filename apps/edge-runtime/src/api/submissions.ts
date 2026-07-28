@@ -12,6 +12,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { deployTenantLayout } from '../lib/publish-tenant'
 import { generateTestScript } from '../lib/test-generator'
 import { layoutDefinitionSchema } from '@edgegde/schema'
@@ -63,7 +64,7 @@ submissionRouter.post('/tenant/submit-layout', async (c) => {
   }
 
   // ── 3. Resolve D1 ──────────────────────────────────────────────────────
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   // ── 4. Insert into queue ───────────────────────────────────────────────
@@ -106,7 +107,7 @@ submissionRouter.post('/tenant/submit-layout', async (c) => {
 submissionRouter.get('/admin/pending-layouts', async (c) => {
   // ── Auth is handled by adminAuth middleware ─────────────────────────────
 
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   try {
@@ -145,8 +146,8 @@ submissionRouter.post('/admin/approve-layout', async (c) => {
   }
 
   // ── 1. Resolve bindings ────────────────────────────────────────────────
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
 
@@ -201,7 +202,7 @@ submissionRouter.post('/admin/approve-layout', async (c) => {
        WHERE id = ? AND status = 'pending'`
     ).bind('admin', submissionId).run()
 
-    if (!updateResult || updateResult.changes === 0) {
+    if (!updateResult || (updateResult.meta?.changes ?? 0) === 0) {
       // Race condition — another admin already processed this submission
       return c.json({ error: 'Submission already processed by another admin' }, 409)
     }
@@ -262,7 +263,7 @@ submissionRouter.post('/admin/reject-layout', async (c) => {
     return c.json({ error: 'Missing submissionId' }, 400)
   }
 
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const result = await db.prepare(
@@ -271,7 +272,7 @@ submissionRouter.post('/admin/reject-layout', async (c) => {
      WHERE id = ? AND status = 'pending'`
   ).bind(submissionId).run()
 
-  if (!result || result.changes === 0) {
+  if (!result || (result.meta?.changes ?? 0) === 0) {
     return c.json({ error: 'Submission not found or already processed' }, 404)
   }
 
@@ -291,7 +292,7 @@ submissionRouter.post('/admin/reject-layout', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 submissionRouter.get('/admin/submissions', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const status = c.req.query('status')
@@ -334,8 +335,8 @@ submissionRouter.get('/tenant/layout', async (c) => {
   // ── Auth is handled by tenantAuth middleware ─────────────────────────────
 
   const tenantId = (c as any).get('authenticatedTenantId') as string
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV binding required' }, 500)
@@ -423,7 +424,7 @@ submissionRouter.get('/admin/smoke-test', async (c) => {
   if (!tenantId) return c.json({ error: 'Missing tenantId query param' }, 400)
 
   const baseUrl = c.req.query('baseUrl') || undefined
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV not available' }, 500)
 
   // Fetch layout
@@ -481,7 +482,7 @@ submissionRouter.get('/admin/leads/:tenantId/export.csv', async (c) => {
   const offset = Math.max(0, Number(c.req.query('offset')) || 0)
 
   // ── 2. Query D1 ────────────────────────────────────────────────────────
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   let rows: any[]

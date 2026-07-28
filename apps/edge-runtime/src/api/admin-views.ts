@@ -6,6 +6,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import { rebuildTenantConfig } from '../lib/config-inheritance'
 
@@ -158,7 +159,7 @@ function renderRejectedEntries(entries: any[], topic: string, tid: string, token
 
 adminRouter.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
 
   const token = c.req.query('token')
@@ -227,7 +228,7 @@ adminRouter.get('/', async (c) => {
 
 adminRouter.get('/pending', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
   const token = c.req.query('token')
   const topics = ['rates', 'products', 'policy', 'fees', 'compliance', 'general']
@@ -246,7 +247,7 @@ adminRouter.get('/pending', async (c) => {
 
 adminRouter.get('/list', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
   const token = c.req.query('token')
   const topics = ['rates', 'products', 'policy', 'fees', 'compliance', 'general']
@@ -265,7 +266,7 @@ adminRouter.get('/list', async (c) => {
 
 adminRouter.get('/rejected', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
   const token = c.req.query('token')
   const topics = ['rates', 'products', 'policy', 'fees', 'compliance', 'general']
@@ -290,7 +291,7 @@ adminRouter.post('/approve', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const topic = c.req.query('topic')
   if (!topic) return c.html('<div class="empty">Missing topic</div>')
-  const rawKV = (c.env as any)?.TENANT_KV
+  const rawKV = envFromContext(c).TENANT_KV
   if (!rawKV) return c.html('<div class="empty">KV binding not available</div>')
   try {
     const kv = guardKV(rawKV)
@@ -306,7 +307,8 @@ adminRouter.post('/approve', async (c) => {
     for (const e of (pending.entries || [])) merged.set(e.id, e)
     await kv.put(`tenant:${tenantId}:kb:${topic}`, JSON.stringify({ entries: Array.from(merged.values()), updated_at: Date.now(), source_ref: pending.source_ref || '' }), ctx)
     await rawKV.delete(`tenant:${tenantId}:kb_pending:${topic}`)
-    await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+    const env = envFromContext(c)
+    await rebuildTenantConfig(env.TENANT_KV, env, tenantId)
     return c.html(`<div class="card" style="border-color:#238636"><h3>${escapeHtml(topic)}</h3><div style="color:#3fb950;font-size:12px;margin-top:4px">✅ Approved · ${merged.size} entries · config rebuilt</div></div>`)
   } catch (err: any) {
     return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
@@ -317,7 +319,7 @@ adminRouter.post('/reject', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const topic = c.req.query('topic')
   if (!topic) return c.html('<div class="empty">Missing topic</div>')
-  const rawKV = (c.env as any)?.TENANT_KV
+  const rawKV = envFromContext(c).TENANT_KV
   if (!rawKV) return c.html('<div class="empty">KV binding not available</div>')
   try {
     const kv = guardKV(rawKV)
@@ -327,7 +329,8 @@ adminRouter.post('/reject', async (c) => {
     const pending = JSON.parse(pendingRaw)
     await kv.put(`tenant:${tenantId}:kb_rejected:${topic}`, JSON.stringify({ entries: pending.entries || [], source_ref: pending.source_ref || '', rejected_at: Date.now() }), ctx)
     await rawKV.delete(`tenant:${tenantId}:kb_pending:${topic}`)
-    await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+    const env = envFromContext(c)
+    await rebuildTenantConfig(env.TENANT_KV, env, tenantId)
     return c.html(`<div class="card" style="border-color:#da3633"><h3>${escapeHtml(topic)}</h3><div style="color:#f85149;font-size:12px;margin-top:4px">❌ Rejected · config rebuilt</div></div>`)
   } catch (err: any) {
     return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
@@ -345,7 +348,7 @@ adminRouter.post('/ingest-url', async (c) => {
     const url = (fd.get('url') as string || '').trim()
     const topic = (fd.get('topic') as string || '').trim() || undefined
     if (!url) return c.html('<div style="color:#da3633">URL required</div>')
-    const queue = (c.env as any)?.LEAD_SCORING_QUEUE
+    const queue = envFromContext(c).LEAD_SCORING_QUEUE
     if (queue?.send) {
       await queue.send({ type: 'kb_ingest', tenantId, url, topic, sourceRef: url })
       return c.html('<div style="color:#3fb950">✅ Queued for ingestion. Refresh pending tab.</div>')
@@ -399,7 +402,7 @@ adminRouter.post('/upload-file', async (c) => {
 
     // Store in R2
     let r2Key = ''
-    const r2 = (c.env as any)?.VAULT_BUCKET
+    const r2 = envFromContext(c).VAULT_BUCKET
     if (r2) {
       const hashArr = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer))).slice(0, 8)
       const hash = hashArr.map(b => b.toString(16).padStart(2, '0')).join('')
@@ -427,7 +430,7 @@ adminRouter.post('/delete-entry', async (c) => {
   const entryId = c.req.query('entryId')
   const state = c.req.query('state') || 'pending'
   if (!topic || !entryId) return c.html('<div style="color:#da3633">Missing topic or entryId</div>')
-  const rawKV = (c.env as any)?.TENANT_KV
+  const rawKV = envFromContext(c).TENANT_KV
   if (!rawKV) return c.html('<div style="color:#da3633">KV binding not available</div>')
   try {
     const kv = guardKV(rawKV)
@@ -457,7 +460,7 @@ adminRouter.post('/delete-topic', async (c) => {
   const topic = c.req.query('topic')
   const state = c.req.query('state') || 'approved'
   if (!topic) return c.html('<div style="color:#da3633">Missing topic</div>')
-  const rawKV = (c.env as any)?.TENANT_KV
+  const rawKV = envFromContext(c).TENANT_KV
   if (!rawKV) return c.html('<div style="color:#da3633">KV binding not available</div>')
   try {
     let key: string
