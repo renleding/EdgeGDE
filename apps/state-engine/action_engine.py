@@ -14,9 +14,10 @@ logger = logging.getLogger('state-engine.action')
 ALL_TIERS = ['CDP', 'AX', 'JS', 'REACT', 'KEY', 'OS']
 
 class ActionEngine:
-    def __init__(self, cdp: CdpConnection, cache: StateCache):
+    def __init__(self, cdp: CdpConnection, cache: StateCache, journal=None):
         self.cdp = cdp
         self.cache = cache
+        self.journal = journal
         self.verifier = VerificationEngine()
         self.resolver = Resolver(cdp)
         self.rules = get_salestrekker_rules()
@@ -63,15 +64,31 @@ class ActionEngine:
         for tier in tiers:
             self._tier_stats[tier]['attempts'] += 1
             start = time.time()
+            tier_result = None
             
             try:
                 ok = await self._try_tier(tier, action_type, target, value)
                 duration = time.time() - start
                 
+                tier_result = {
+                    'tier': tier,
+                    'action': f"{action_type.value}:{target}",
+                    'value': value,
+                    'duration': round(duration, 2),
+                    'executed': ok,
+                    'timestamp': time.time(),
+                }
+                
                 if ok:
                     after = build_state_summary(await self.cache.get_state())
                     diff = StateDiff(before, after)
                     verification = self.verifier.verify(action_type, diff, tier)
+                    
+                    tier_result['verification'] = verification.__dict__
+                    tier_result['diff'] = diff.summary()
+                    tier_result['status'] = 'success' if verification.success else 'no_state_change'
+                    
+                    self._log_journal(tier_result)
                     
                     result = {
                         'status': 'success' if verification.success else 'no_state_change',
@@ -83,15 +100,28 @@ class ActionEngine:
                     }
                     
                     if verification.success:
-                        if not verification.success:
-                            self._tier_stats[tier]['failures'] += 1
                         return result
                     
                     self._tier_stats[tier]['failures'] += 1
                 else:
+                    tier_result['status'] = 'tier_error'
+                    tier_result['error'] = 'tier returned False'
+                    self._log_journal(tier_result)
                     self._tier_stats[tier]['failures'] += 1
                     
             except Exception as e:
+                duration = time.time() - start
+                tier_result = {
+                    'tier': tier,
+                    'action': f"{action_type.value}:{target}",
+                    'value': value,
+                    'duration': round(duration, 2),
+                    'executed': False,
+                    'status': 'exception',
+                    'error': str(e),
+                    'timestamp': time.time(),
+                }
+                self._log_journal(tier_result)
                 self._tier_stats[tier]['failures'] += 1
                 logger.warning("Tier %s failed: %s", tier, e)
         
@@ -110,6 +140,10 @@ class ActionEngine:
         result['tiers_attempted'] = tiers
         
         return result
+
+    def _log_journal(self, entry: dict):
+        if self.journal:
+            self.journal.log(entry)
 
     async def _try_tier(self, tier: str, action_type: ActionType,
                         target: str, value: Optional[str]) -> bool:

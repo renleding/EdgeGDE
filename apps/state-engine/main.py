@@ -46,7 +46,7 @@ class StateEngineMCP:
             await self.cdp.connect()
             
             self.cache = StateCache(self.cdp)
-            self.engine = ActionEngine(self.cdp, self.cache)
+            self.engine = ActionEngine(self.cdp, self.cache, self.journal)
             self.resolver = Resolver(self.cdp)
             self.workflow = WorkflowEngine(self.engine)
             
