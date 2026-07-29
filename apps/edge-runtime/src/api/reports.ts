@@ -54,7 +54,7 @@ reportAdminRouter.post('/reports/schedules', async (c) => {
     JSON.stringify(recipients || []), utcOffset, nextRunAt,
   ).run()
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'report_schedule_created', scheduleId, tenantId, type,
     nextRunAt, timestamp: Date.now(),
   }))
@@ -158,7 +158,7 @@ reportCronHandler.post('/cron/tick', async (c) => {
     results.triggered = schedules.length
 
     for (const schedule of schedules) {
-      const s = schedule as any
+      const s = schedule as { id: string; tenant_id: string; type: string; cron_expression: string; utc_offset: string; recipients_json: string }
       const targetDate = now.split('T')[0]
 
       // ── 3. Create execution record (idempotent via UNIQUE) ─────────────
@@ -205,13 +205,13 @@ reportCronHandler.post('/cron/tick', async (c) => {
       }
 
       // ── 5. Update next run ──────────────────────────────────────────────
-      const nextRun = computeNextRun(s.cron_expression, s.utc_offset)
+      const nextRun = computeNextRun(s.cron_expression, Number(s.utc_offset))
       await db.prepare(
         `UPDATE report_schedules SET next_run_at = ? WHERE id = ?`
       ).bind(nextRun, s.id).run()
     }
 
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       event: 'cron_tick',
       ...results,
       timestamp: Date.now(),

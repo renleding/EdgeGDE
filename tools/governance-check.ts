@@ -44,7 +44,13 @@ function getChangedFiles(): string[] {
     const output = execSync(`git diff --name-only ${base}...HEAD`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
     return output.trim().split('\n').filter(Boolean)
   } catch {
-    return []
+    // Fallback: HEAD~1 works with fetch-depth: 2 and doesn't need origin/main
+    try {
+      const output = execSync('git diff --name-only HEAD~1...HEAD', { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
+      return output.trim().split('\n').filter(Boolean)
+    } catch {
+      return []
+    }
   }
 }
 

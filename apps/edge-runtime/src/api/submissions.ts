@@ -32,7 +32,7 @@ export const submissionRouter = new Hono()
 submissionRouter.post('/tenant/submit-layout', async (c) => {
   // ── Auth is handled by tenantAuth middleware ─────────────────────────────
 
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = (c as { get: (key: string) => unknown }).get('authenticatedTenantId') as string
 
   // Parse body for layout + design
   let raw: any
@@ -82,7 +82,7 @@ submissionRouter.post('/tenant/submit-layout', async (c) => {
     return c.json({ error: 'Queue submission failed', details: err.message }, 500)
   }
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'submission',
     action: 'submitted',
     submissionId,
@@ -207,7 +207,7 @@ submissionRouter.post('/admin/approve-layout', async (c) => {
       return c.json({ error: 'Submission already processed by another admin' }, 409)
     }
 
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       event: 'submission',
       action: 'approved',
       submissionId,
@@ -232,7 +232,7 @@ submissionRouter.post('/admin/approve-layout', async (c) => {
       ).bind(submissionId).run()
     } catch { /* non-fatal */ }
 
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       event: 'submission',
       action: 'failed',
       submissionId,
@@ -276,7 +276,7 @@ submissionRouter.post('/admin/reject-layout', async (c) => {
     return c.json({ error: 'Submission not found or already processed' }, 404)
   }
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'submission',
     action: 'rejected',
     submissionId,
@@ -334,7 +334,7 @@ submissionRouter.get('/admin/submissions', async (c) => {
 submissionRouter.get('/tenant/layout', async (c) => {
   // ── Auth is handled by tenantAuth middleware ─────────────────────────────
 
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = (c as { get: (key: string) => unknown }).get('authenticatedTenantId') as string
   const db = envFromContext(c).DB
   const TENANT_KV = envFromContext(c).TENANT_KV
 
@@ -347,8 +347,8 @@ submissionRouter.get('/tenant/layout', async (c) => {
     const row = await db.prepare(
       `SELECT version FROM tenant_artifacts WHERE tenant_id = ? AND artifact_id = 'layout'`
     ).bind(tenantId).first()
-    if (row && typeof (row as any).version === 'number') {
-      version = (row as any).version
+    if (row && typeof (row as { version: unknown }).version === 'number') {
+      version = (row as { version: unknown }).version as number
     }
   } catch {
     // Missing D1 row = version 0 (new tenant)
@@ -396,7 +396,7 @@ submissionRouter.get('/tenant/layout', async (c) => {
   }
 
   // ── 4. Return atomic snapshot ──────────────────────────────────────────
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'tenant_layout_read',
     tenantId,
     version,
@@ -438,7 +438,7 @@ submissionRouter.get('/admin/smoke-test', async (c) => {
   // Generate test script
   const script = generateTestScript(layout, { tenantId, baseUrl })
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'smoke_test_generated',
     tenantId,
     fieldCount: (() => {
@@ -579,7 +579,7 @@ submissionRouter.get('/admin/leads/:tenantId/export.csv', async (c) => {
   const csv = csvLines.join('\n')
 
   // ── 7. Log + return ────────────────────────────────────────────────────
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'csv_export',
     tenantId,
     rowCount: parsed.length,

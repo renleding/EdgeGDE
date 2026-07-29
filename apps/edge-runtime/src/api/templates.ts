@@ -187,7 +187,7 @@ templateRouter.post('/templates', async (c) => {
     design: design || '## Colors\nprimary: #1a73e8\nbackground: #ffffff\ntext: #111111',
   }))
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'template_created',
     id,
     name,
@@ -209,7 +209,7 @@ export const instantiateRouter = new Hono()
 instantiateRouter.post('/tenant/forms/instantiate-template', async (c) => {
   // ── Auth is handled by tenantAuth middleware ─────────────────────────────
 
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = (c as { get: (key: string) => unknown }).get('authenticatedTenantId') as string
   const db = envFromContext(c).DB
   const ARTIFACT_KV = envFromContext(c).ARTIFACT_KV
   const TENANT_KV = envFromContext(c).TENANT_KV
@@ -301,7 +301,7 @@ instantiateRouter.post('/tenant/forms/instantiate-template', async (c) => {
     'template',
   )
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'template_instantiated',
     templateId,
     tenantId,
