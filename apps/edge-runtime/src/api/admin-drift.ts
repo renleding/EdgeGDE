@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import { detectConfigDrift } from '../factory/drift/drift.detector'
 
@@ -29,7 +30,7 @@ function parseJson<T>(value: T | string): T {
 router.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const token = c.req.query('token')
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
   const qs = (token ? `?token=${token}` : '') + (tenantId ? `&tenant=${tenantId}` : '')
 
