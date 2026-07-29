@@ -102,6 +102,19 @@ class ActionEngine:
                     if verification.success:
                         return result
                     
+                    # Handle pending async save — poll for delayed creation
+                    if verification.detail == 'pending_async_save':
+                        logger.info("Save pending async, polling for up to 5min...")
+                        after_url = after.get('url', '')
+                        poll_result = await self.verifier.check_save_result(after_url)
+                        if poll_result.success:
+                            result['status'] = 'success'
+                            result['verification'] = poll_result.__dict__
+                            result['tier'] = tier + '+async_poll'
+                            self._log_journal(result)
+                            return result
+                        logger.info("Async poll completed: %s", poll_result.detail)
+                    
                     self._tier_stats[tier]['failures'] += 1
                 else:
                     tier_result['status'] = 'tier_error'
