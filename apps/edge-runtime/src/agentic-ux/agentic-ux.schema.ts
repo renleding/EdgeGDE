@@ -17,9 +17,11 @@ import { z } from 'zod'
 // Primitive Enums
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Risk level for an action or mission. */
 export const RiskLevelSchema = z.enum(['none', 'low', 'medium', 'high', 'critical'])
 export type RiskLevel = z.output<typeof RiskLevelSchema>
 
+/** Approval mode for an action requiring authorization. */
 export const ApprovalModeSchema = z.enum(['none', 'user', 'tenant_policy', 'admin', 'external'])
 export type ApprovalMode = z.output<typeof ApprovalModeSchema>
 
@@ -127,6 +129,7 @@ export type EdgeGDEActionType = z.output<typeof EdgeGDEActionTypeSchema>
 // Shared Schemas
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** SHA-256 hex digest idempotency key. */
 export const IdempotencyKeySchema = z
   .string()
   .regex(/^[a-f0-9]{64}$/, 'idempotencyKey must be a sha256 hex digest')
@@ -237,6 +240,7 @@ export type MissionStep = z.output<typeof MissionStepSchema>
 // Mission Manifest
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Schema for a complete agentic mission manifest. */
 export const AgenticMissionManifestSchema = z
   .object({
     id: MissionIdSchema,
@@ -369,6 +373,7 @@ export const AgenticMissionManifestSchema = z
 export type AgenticMissionManifest = z.output<typeof AgenticMissionManifestSchema>
 export type RawAgenticMissionManifest = z.input<typeof AgenticMissionManifestSchema>
 
+/** Detect cycles in mission step dependency graph. */
 export function hasDependencyCycle(steps: MissionStep[]): boolean {
   const graph = new Map<string, string[]>()
 
@@ -414,6 +419,7 @@ export function hasDependencyCycle(steps: MissionStep[]): boolean {
 // LLM Boundary
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Schema for LLM proposals, restricted to non-executable fields. */
 export const LLMProposalSchema = z
   .object({
     sessionId: SessionIdSchema,
@@ -452,6 +458,7 @@ export const LLMProposalSchema = z
 export type LLMProposal = z.output<typeof LLMProposalSchema>
 export type RawLLMProposal = z.input<typeof LLMProposalSchema>
 
+/** Assert that an LLM proposal does not satisfy an executable action schema. */
 export function assertLlmProposalIsNotExecutable(proposal: LLMProposal): true {
   if (EdgeGDEActionSchema.safeParse(proposal).success) {
     throw new Error('LLM proposal incorrectly satisfies EdgeGDEAction schema')
@@ -464,6 +471,7 @@ export function assertLlmProposalIsNotExecutable(proposal: LLMProposal): true {
 // State Projection
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Summary of applicable policies for a state projection. */
 export const PolicySummarySchema = z
   .object({
     policyVersion: z.string().min(1),
@@ -578,6 +586,7 @@ export type StateProjection = z.output<typeof StateProjectionSchema>
 // EdgeGDEAction
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Schema for a complete EdgeGDE action with all required fields. */
 export const EdgeGDEActionSchema = z
   .object({
     id: ActionIdSchema,
@@ -639,6 +648,7 @@ export type RawEdgeGDEAction = z.input<typeof EdgeGDEActionSchema>
 // Action Result + Dry Run
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Schema for action verification results. */
 export const VerificationResultSchema = z
   .object({
     passed: z.boolean(),

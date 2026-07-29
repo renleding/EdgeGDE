@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { adminAuth } from '../middleware/auth'
 import { guardDB } from '../lib/db'
 import { guardKV } from '../lib/kv'
@@ -28,6 +29,7 @@ import {
 } from '../lib/forecast-model-comparison'
 import { queryAuditLogs } from '../lib/audit'
 
+/** Hono router for admin analytics endpoints. */
 export const adminAnalyticsRouter = new Hono()
 
 adminAnalyticsRouter.use('*', adminAuth)
@@ -47,6 +49,7 @@ interface AnalyticsSummary {
   generatedAt: string
 }
 
+/** Render an HTML badge for projection status. */
 export function projectionStatusBadge(status?: string): string {
   const value = status || 'pending'
   const normalized = value.toLowerCase()
@@ -57,6 +60,7 @@ export function projectionStatusBadge(status?: string): string {
   return '<span class="badge badge-pending">pending</span>'
 }
 
+/** Render HTML table rows for metric series data. */
 export function renderMetricSeriesRows(series: any[]): string {
   if (!series.length) return '<tr><td colspan="6" class="empty-cell">No metric series found</td></tr>'
   return series.map((row: any) => `
@@ -70,6 +74,7 @@ export function renderMetricSeriesRows(series: any[]): string {
     </tr>`).join('')
 }
 
+/** Render HTML table rows for forecast point data. */
 export function renderForecastPoints(rows: any[]): string {
   if (!rows.length) return '<tr><td colspan="6" class="empty-cell">No forecast points found</td></tr>'
   return rows.map((row: any) => `
@@ -83,6 +88,7 @@ export function renderForecastPoints(rows: any[]): string {
     </tr>`).join('')
 }
 
+/** Render HTML for backtest metric results. */
 export function renderBacktestMetrics(result?: any): string {
   if (!result?.metrics) return '<div class="empty">No backtest requested</div>'
   const metrics = result.metrics
@@ -94,6 +100,7 @@ export function renderBacktestMetrics(result?: any): string {
   </div>`
 }
 
+/** Build a summary of analytics data from database and KV stores. */
 export async function buildAnalyticsSummary(
   db: any,
   kv: any,
@@ -189,7 +196,7 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const summary = await buildAnalyticsSummary((c.env as any).DB, (c.env as any).TENANT_KV, {
+    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
       tenantId,
       metricName,
       seriesId,
@@ -213,7 +220,7 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const summary = await buildAnalyticsSummary((c.env as any).DB, (c.env as any).TENANT_KV, {
+    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
       tenantId,
       metricName,
       seriesId,
@@ -242,7 +249,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
   const primaryMetric = c.req.query('primaryMetric') as 'mae' | 'rmse' | 'smape' | 'mape' | undefined
 
   try {
-    const summary = await buildAnalyticsSummary((c.env as any).DB, (c.env as any).TENANT_KV, {
+    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
       tenantId,
       metricName,
       seriesId,
@@ -270,6 +277,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
   }
 })
 
+/** Render the full analytics admin page HTML. */
 export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, error?: string, includeBacktest = false): string {
   const tenantId = summary.tenantId
   const qs = (token ? `&token=${token}` : '')
@@ -364,6 +372,7 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
 </html>`
 }
 
+/** Render HTML table rows for model comparison results. */
 export function renderModelComparisonRows(result?: ForecastModelComparisonResult): string {
   if (!result) return `<div class="empty">No model comparison requested. Use ?compare=true&amp;models=${DEFAULT_MODEL_COMPARISON_MODELS.join(',')}</div>`
   const winner = result.winner?.model || 'none'

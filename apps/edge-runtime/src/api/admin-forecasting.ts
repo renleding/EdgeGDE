@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { adminAuth } from '../middleware/auth'
 import {
   createForecastRun,
@@ -18,6 +19,7 @@ import { guardDB } from '../lib/db'
 import { guardKV } from '../lib/kv'
 import type { ForecastRunnerEnv } from '../queues/forecast-runner'
 
+/** Hono router for admin forecasting endpoints. */
 export const adminForecastingRouter = new Hono()
 
 adminForecastingRouter.use('*', adminAuth)
@@ -30,7 +32,7 @@ adminForecastingRouter.get('/latest', async (c) => {
     return c.json({ error: 'tenant and metric query params are required' }, 400)
   }
 
-  const db = guardDB((c.env as any).DB)
+  const db = guardDB(envFromContext(c).DB)
   const run = await getLatestForecastRun(db, tenantId, metricName, seriesId)
   if (!run) {
     return c.json({ error: 'No forecast run found' }, 404)
@@ -48,7 +50,7 @@ adminForecastingRouter.get('/points', async (c) => {
     return c.json({ error: 'tenant and metric query params are required' }, 400)
   }
 
-  const db = guardDB((c.env as any).DB)
+  const db = guardDB(envFromContext(c).DB)
   const points = await queryForecastPoints(db, tenantId, metricName, seriesId, limit)
   return c.json({ points })
 })
@@ -66,9 +68,9 @@ adminForecastingRouter.post('/run', async (c) => {
     return c.json({ error: 'tenantId and metricName are required' }, 400)
   }
 
-  const db = guardDB((c.env as any).DB)
-  const kv = guardKV((c.env as any).TENANT_KV)
-  const queue = (c.env as any)?.FORECASTING_QUEUE
+  const db = guardDB(envFromContext(c).DB)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
+  const queue = envFromContext(c).FORECASTING_QUEUE
   const runId = await createForecastRun(db, kv, {
     tenantId,
     metricName,
@@ -114,7 +116,7 @@ adminForecastingRouter.post('/run', async (c) => {
       ack: async () => {},
       retry: async () => {},
     }],
-  }, c.env as any as ForecastRunnerEnv))
+  }, envFromContext(c) as unknown as ForecastRunnerEnv))
 
   return c.json({ success: true, status: 'queued', runId })
 })
@@ -127,7 +129,7 @@ adminForecastingRouter.get('/pointer', async (c) => {
     return c.json({ error: 'tenant and metric query params are required' }, 400)
   }
 
-  const kv = guardKV((c.env as any).TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const key = forecastLatestPointerKey(tenantId, metricName, seriesId)
   const value = await kv.get(key, 'json')
   return c.json({ key, value })

@@ -22,6 +22,7 @@ import { runCompensation } from './compensation'
 import { runReconcileLoop } from './reconcile'
 import type { CompensationReport } from './types'
 import type { ReconcileLoopResult } from './reconcile'
+import type { ReconcileDecisionAction } from './types'
 import { instrumentLifecycleEvent } from '../lib/otel-worker'
 import {
   auditActionExecuted,
@@ -100,7 +101,7 @@ export function listActions(): EdgeGDEAction[] {
 
 /** Get action input from a mission step. */
 function stepInput(step: MissionStep): unknown {
-  return (step as any).input ?? (step as any).params ?? {}
+  return step.input ?? {}
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +244,7 @@ export async function runMission(
             executedActions,
             reconcileResult,
             totalDurationMs: Date.now() - startTime,
-            error: (reconcileResult.finalDecision as any).reason ?? 'Mission halted by reconcile',
+            error: (reconcileResult.finalDecision.action === 'halt' || reconcileResult.finalDecision.action === 'compensate') ? reconcileResult.finalDecision.reason : 'Mission halted by reconcile',
           }
         }
 
@@ -255,7 +256,7 @@ export async function runMission(
             executedActions,
             reconcileResult,
             totalDurationMs: Date.now() - startTime,
-            error: (reconcileResult.finalDecision as any).reason ?? 'Loop limit exceeded',
+            error: (reconcileResult.finalDecision.action === 'halt' || reconcileResult.finalDecision.action === 'compensate') ? reconcileResult.finalDecision.reason : 'Loop limit exceeded',
           }
         }
       }
@@ -328,7 +329,7 @@ export async function runMission(
             'app.action.id': record.actionId,
             'compensation.status': record.status,
           },
-          opts.env as any,
+          opts.env,
         ).catch(() => {})
         // Fire-and-forget audit event
         auditCompensationExecuted(

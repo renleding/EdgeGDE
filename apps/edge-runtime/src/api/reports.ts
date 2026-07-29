@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import {
   computeNextRun,
   generateWeeklyDigest,
@@ -24,7 +25,7 @@ export const reportCronHandler = new Hono()
 // ═══════════════════════════════════════════════════════════════════════════
 
 reportAdminRouter.post('/reports/schedules', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   let body: Record<string, unknown>
@@ -70,7 +71,7 @@ reportAdminRouter.post('/reports/schedules', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 reportAdminRouter.get('/reports/schedules', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenantId')
@@ -90,7 +91,7 @@ reportAdminRouter.get('/reports/schedules', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 reportAdminRouter.delete('/reports/schedules/:id', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const scheduleId = c.req.param('id')
@@ -107,7 +108,7 @@ reportAdminRouter.delete('/reports/schedules/:id', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 reportAdminRouter.get('/reports/executions', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const scheduleId = c.req.query('scheduleId')
@@ -127,9 +128,9 @@ reportAdminRouter.get('/reports/executions', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 reportCronHandler.post('/cron/tick', async (c) => {
-  const db = (c.env as any)?.DB
-  const TENANT_KV = (c.env as any)?.TENANT_KV
-  const R2_BUCKET = (c.env as any)?.VAULT_BUCKET
+  const db = envFromContext(c).DB
+  const TENANT_KV = envFromContext(c).TENANT_KV
+  const R2_BUCKET = envFromContext(c).VAULT_BUCKET
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV required' }, 500)
@@ -145,7 +146,7 @@ reportCronHandler.post('/cron/tick', async (c) => {
        SET status = 'pending', updated_at = ?
        WHERE status = 'processing' AND updated_at < datetime('now', '-15 minutes')`
     ).bind(now).run()
-    results.recovered = (staleResult as any)?.changes || 0
+    results.recovered = (staleResult.meta?.changes ?? 0)
 
     // ── 2. Find due schedules ────────────────────────────────────────────────
     const due: any = await db.prepare(
@@ -176,7 +177,7 @@ reportCronHandler.post('/cron/tick', async (c) => {
            WHERE id = ? AND status = 'pending'`
         ).bind(now, executionId).run()
 
-        if ((lockResult as any)?.changes > 0) {
+        if ((lockResult.meta?.changes ?? 0) > 0) {
           try {
             const payload = await generateWeeklyDigest(db, s.tenant_id)
             const artifactKey = await storeReportArtifact(R2_BUCKET, TENANT_KV, s.tenant_id, s.id, targetDate, payload)

@@ -29,7 +29,7 @@ import { safeEnv } from '../lib/env'
 function tryD1(env: Record<string, unknown>): any | null {
   try {
     const typed = safeEnv(env)
-    const rawDB = typed.DB as any
+    const rawDB = typed.DB
     if (!rawDB || typeof rawDB.prepare !== 'function') return null
     return rawDB
   } catch { return null }
@@ -165,7 +165,7 @@ const sitePublish: EdgeGDEAction = {
 
     // Try writing a rollback marker to KV
     const typedEnv = safeEnv(ctx.env)
-    const rawKv = typedEnv.TENANT_KV as any
+    const rawKv = typedEnv.TENANT_KV as KVNamespace
     if (!rawKv) {
       try {
         const marker = JSON.stringify({
@@ -176,7 +176,7 @@ const sitePublish: EdgeGDEAction = {
           timestamp: new Date().toISOString(),
           correlationId: ctx.correlationId,
         })
-        await rawKv.put(
+        await (rawKv as KVNamespace).put(
           `compensate:${ctx.missionId}:site.rollback`,
           marker,
           { expirationTtl: 604800 },
@@ -235,7 +235,7 @@ const calculatorExecute: EdgeGDEAction = {
       if (!engineCalc) return undefined
       return {
         id: engineCalc.id, description: engineCalc.description,
-        schema: engineCalc.inputSchema as any,
+        schema: engineCalc.inputSchema,
         execute(input: any) { return engineCalc.execute(input) },
       }
     })()
@@ -272,8 +272,8 @@ const calculatorExecute: EdgeGDEAction = {
             weeklyRepayment: result.weeklyRepayment,
             totalInterest: result.totalInterest,
             totalCost: result.totalCost,
-            totalRepayments: (parsed.data as any).loanTerm ? (parsed.data as any).loanTerm * 12 : 0,
-            loanTerm: (parsed.data as any).loanTerm ?? null,
+            totalRepayments: parsed.data.loanTerm ? parsed.data.loanTerm * 12 : 0,
+            loanTerm: parsed.data.loanTerm ?? null,
             totalFees: 0,
           },
           timestamp: new Date().toISOString(),

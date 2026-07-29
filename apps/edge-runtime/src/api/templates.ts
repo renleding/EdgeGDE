@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { deployTenantLayout } from '../lib/publish-tenant'
 import { layoutDefinitionSchema } from '@edgegde/schema'
 import { validateDesign } from '../lib/design-validator'
@@ -45,7 +46,7 @@ export const templateRouter = new Hono()
 // ═══════════════════════════════════════════════════════════════════════════
 
 templateRouter.get('/templates', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const category = c.req.query('category') || null
@@ -89,8 +90,8 @@ templateRouter.get('/templates', async (c) => {
 
 templateRouter.get('/templates/:id', async (c) => {
   const templateId = c.req.param('id')
-  const db = (c.env as any)?.DB
-  const ARTIFACT_KV = (c.env as any)?.ARTIFACT_KV
+  const db = envFromContext(c).DB
+  const ARTIFACT_KV = envFromContext(c).ARTIFACT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
@@ -121,8 +122,8 @@ templateRouter.get('/templates/:id', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 templateRouter.post('/templates', async (c) => {
-  const db = (c.env as any)?.DB
-  const ARTIFACT_KV = (c.env as any)?.ARTIFACT_KV
+  const db = envFromContext(c).DB
+  const ARTIFACT_KV = envFromContext(c).ARTIFACT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!ARTIFACT_KV) return c.json({ error: 'ARTIFACT_KV required' }, 500)
@@ -209,9 +210,9 @@ instantiateRouter.post('/tenant/forms/instantiate-template', async (c) => {
   // ── Auth is handled by tenantAuth middleware ─────────────────────────────
 
   const tenantId = (c as any).get('authenticatedTenantId') as string
-  const db = (c.env as any)?.DB
-  const ARTIFACT_KV = (c.env as any)?.ARTIFACT_KV
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const db = envFromContext(c).DB
+  const ARTIFACT_KV = envFromContext(c).ARTIFACT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
 
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV required' }, 500)

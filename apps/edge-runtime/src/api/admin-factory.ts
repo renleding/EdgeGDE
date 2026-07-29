@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import { compileBlueprint } from '../factory/factory/factory.engine'
 import { logAuditEvent } from '../lib/audit'
@@ -24,7 +25,7 @@ function escapeHtml(s: string): string {
 router.get('/', async (c) => {
   const token = c.req.query('token')
   const bpId = c.req.query('blueprint')
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
 
   let bpJson = ''
   let bpInfo = '<div style="color:#4a4d55;font-size:12px">No blueprint selected</div>'
@@ -109,7 +110,7 @@ router.post('/create', async (c) => {
       return c.html('<div style="color:#da3633">Blueprint ID and slug required</div>')
     }
 
-    const rawKV = (c.env as any)?.TENANT_KV
+    const rawKV = envFromContext(c).TENANT_KV
     if (!rawKV) return c.html('<div style="color:#da3633">KV binding not available</div>')
 
     const rawStr = await rawKV.get('blueprint:' + blueprintId + ':latest')
@@ -146,7 +147,7 @@ router.post('/create', async (c) => {
     )
 
     // Audit: log factory event
-    const db = (c.env as any)?.DB
+    const db = envFromContext(c).DB
     logAuditEvent(db, tenantId, 'factory', 'tenant_created', {
       blueprint: blueprintId,
       slug,

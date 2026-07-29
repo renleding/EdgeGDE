@@ -51,6 +51,7 @@ function navBar(tenantId: string, token: string, current: string): string {
 // Page layout (replaces admin-views pageLayout for consistency)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Render the admin page layout shell with header and navigation. */
 export function adminPageLayout(title: string, body: string, tenantId: string = 'au-mortgage-broker-afirmico', token: string = '', current: string = '/admin'): string {
   return `<!DOCTYPE html>
 <html lang="en">
