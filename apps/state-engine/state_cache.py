@@ -12,7 +12,7 @@ class CacheDirty(Enum):
 
 class PageSnapshot:
     def __init__(self, url="", buttons=None, inputs=None, comboboxes=None, 
-                 dialogs=None, errors=None, toast=None):
+                 dialogs=None, errors=None, toast=None, body_text=""):
         self.url = url
         self.buttons = buttons or []
         self.inputs = inputs or []
@@ -20,6 +20,7 @@ class PageSnapshot:
         self.dialogs = dialogs or []
         self.errors = errors or []
         self.toast = toast
+        self.body_text = body_text
 
 class StateCache:
     def __init__(self, cdp):

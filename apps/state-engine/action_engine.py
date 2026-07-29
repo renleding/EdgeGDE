@@ -19,9 +19,21 @@ class ActionEngine:
         self.cache = cache
         self.journal = journal
         self.verifier = VerificationEngine()
+        
+        # Wire up async state function for save polling
+        # A lambda that captures and returns the board body text
+        self.verifier.set_state_fn(self._poll_board_state)
         self.resolver = Resolver(cdp)
         self.rules = get_salestrekker_rules()
         self._tier_stats = {t: {'attempts': 0, 'failures': 0} for t in ALL_TIERS}
+
+    async def _poll_board_state(self) -> dict:
+        """Get current page body text for async save polling."""
+        try:
+            snapshot = await self.cache.get_state()
+            return {'body_text': snapshot.body_text or '', 'url': snapshot.url or ''}
+        except Exception:
+            return {'body_text': '', 'url': ''}
 
     def _select_tiers(self, action_type: ActionType, target: str, 
                       context: Optional[str] = None) -> list:
@@ -105,8 +117,12 @@ class ActionEngine:
                     # Handle pending async save — poll for delayed creation
                     if verification.detail == 'pending_async_save':
                         logger.info("Save pending async, polling for up to 5min...")
-                        after_url = after.get('url', '')
-                        poll_result = await self.verifier.check_save_result(after_url)
+                        # Extract deal title from the action params
+                        deal_title = result.get('field_value', result.get('value', ''))
+                        if not deal_title:
+                            deal_title = after.get('title', '')
+                        poll_result = await self.verifier.check_save_result(
+                            after.get('url', ''), deal_title=deal_title)
                         if poll_result.success:
                             result['status'] = 'success'
                             result['verification'] = poll_result.__dict__

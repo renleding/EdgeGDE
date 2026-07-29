@@ -83,26 +83,28 @@ class VerificationEngine:
         # Return pending state — caller should poll via check_save_result()
         return VerificationResult(False, tier, "pending_async_save")
 
-    async def check_save_result(self, check_url: str, poll_seconds: int = 300, 
-                                 interval: int = 15) -> VerificationResult:
-        """Poll for async save completion. Checks if URL has changed to deal view."""
+    async def check_save_result(self, check_url: str, deal_title: str = "",
+                                 poll_seconds: int = 300, 
+                                 interval: int = 30) -> VerificationResult:
+        """Poll for async save completion by checking board for deal title.
+        
+        The SPA does NOT auto-navigate after Save. URL change checking is
+        unreliable. Instead, navigate to the board and look for the deal title."""
         import time, re
         start = time.time()
         while time.time() - start < poll_seconds:
             await asyncio.sleep(interval)
-            if self._get_state_fn:
+            if self._get_state_fn and deal_title:
                 try:
                     state = await self._get_state_fn()
-                    current_url = state.get('url', '')
-                    if current_url != check_url:
-                        m = re.search(r'/deals/view/([^/]+)/([^/]+)', current_url)
-                        if m:
-                            return VerificationResult(True, "async_poll",
-                                f"Deal created after {time.time()-start:.0f}s, CID={m.group(2)[:16]}")
+                    body = state.get('body_text', state.get('content', ''))
+                    if deal_title in body:
+                        return VerificationResult(True, "async_poll",
+                            f"Deal '{deal_title}' found on board after {time.time()-start:.0f}s")
                 except Exception as e:
                     logger.warning("Async poll failed: %s", e)
         return VerificationResult(False, "async_poll", 
-            f"No deal created after {poll_seconds}s")
+            f"Deal '{deal_title}' not found after {poll_seconds}s")
 
     def _verify_navigate(self, diff: StateDiff, tier: str) -> VerificationResult:
         if diff.url_changed():
