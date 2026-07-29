@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Complete the existing test deal with all asset/liability/expense data."""
-import time, pyotp, re, json, sys
+import time, json, sys
 from patchright.sync_api import sync_playwright
 
 BOARD = "24f7b6a0-545a-4f8c-9e0f-0dc9ed175269"
@@ -12,28 +12,11 @@ pw = sync_playwright().start()
 browser = pw.chromium.connect_over_cdp('http://localhost:9222')
 page = browser.contexts[0].pages[0]
 
-# Login if needed
-if 'sign-in' in page.url.lower() or 'sign' in page.title().lower():
-    log("Logging in...")
-    page.goto('https://pc.v2.salestrekker.com/auth/sign-in')
-    time.sleep(10)
-    page.evaluate("()=>document.querySelector('input[name=\"eMail\"]').focus()")
-    time.sleep(0.3)
-    page.keyboard.type('connect@afirmico.com', delay=3)
-    page.evaluate("()=>document.querySelector('input[name=\"password\"]').focus()")
-    time.sleep(0.3)
-    page.keyboard.type('U2ers$4Ts2HzddKJP%NHJHAJ3mhEqgpq', delay=2)
-    page.evaluate("""()=>{for(var b of document.querySelectorAll('button')){if(b.textContent.trim()==='Sign in'){b.removeAttribute('disabled');b.click();return}}}""")
-    time.sleep(5)
-    if 'two-factor' in page.url.lower():
-        code = pyotp.TOTP("MCQNAJGXKIAPUU7MWSCFVQTAQFOVLMPE7AE4KFP223N3IU2ZEVKQ").now()[:6]
-        page.evaluate("""()=>{var ins=document.querySelectorAll('input');for(var i of ins){if(i.offsetParent){i.focus();return}}}""")
-        time.sleep(0.3)
-        for ch in code: page.keyboard.press(ch); time.sleep(0.05)
-        time.sleep(0.3)
-        page.keyboard.press('Enter')
-        time.sleep(8)
-    log("Logged in")
+# ─── Check session — DO NOT LOGIN ───
+if '/auth/sign-in' in page.url.lower():
+    log("Session expired — login manually")
+    pw.stop()
+    exit(1)
 
 # Navigate to home-loan assets section
 page.evaluate(f"window.location.href = '/deals/home-loan/{BOARD}/{CID_SAM}/assets'")

@@ -1,5 +1,5 @@
 """Reproduction test: inject interceptor -> create deal -> wait for result."""
-import time, re, sys, pyotp, json, datetime
+import time, re, json, datetime
 from patchright.sync_api import sync_playwright
 
 BOARD = "24f7b6a0-545a-4f8c-9e0f-0dc9ed175269"
@@ -10,26 +10,11 @@ pw = sync_playwright().start()
 b = pw.chromium.connect_over_cdp('http://localhost:9222')
 p = b.contexts[0].pages[0]
 
-# Login
-p.goto('https://pc.v2.salestrekker.com/auth/sign-in')
-time.sleep(10)
-p.evaluate("()=>document.querySelector('input[name=\"eMail\"]').focus()")
-time.sleep(0.3)
-p.keyboard.type('connect@afirmico.com', delay=3)
-p.evaluate("()=>document.querySelector('input[name=\"password\"]').focus()")
-time.sleep(0.3)
-p.keyboard.type('U2ers$4Ts2HzddKJP%NHJHAJ3mhEqgpq', delay=2)
-p.evaluate("""()=>{for(var b of document.querySelectorAll('button')){if(b.textContent.trim()==='Sign in'){b.removeAttribute('disabled');b.click();return}}}""")
-time.sleep(5)
-if 'two-factor' in p.url.lower():
-    code = pyotp.TOTP("MCQNAJGXKIAPUU7MWSCFVQTAQFOVLMPE7AE4KFP223N3IU2ZEVKQ").now()[:6]
-    p.evaluate("""()=>{var ins=document.querySelectorAll('input');for(var i of ins){if(i.offsetParent){i.focus();return}}}""")
-    time.sleep(0.3)
-    for ch in code: p.keyboard.press(ch); time.sleep(0.05)
-    time.sleep(0.3)
-    p.keyboard.press('Enter')
-    time.sleep(8)
-log("Logged in")
+# ─── Check session — DO NOT LOGIN ───
+if '/auth/sign-in' in p.url.lower():
+    log("Session expired — login manually")
+    pw.stop()
+    exit(1)
 
 # Log existing deals before test
 existing = p.evaluate("""()=>document.body.innerText.substring(0,300)""")
