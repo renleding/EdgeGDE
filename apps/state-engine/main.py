@@ -11,6 +11,7 @@ from action_journal import ActionJournal
 from cdp_connection import CdpConnection
 from evidence_adapter import EvidenceAdapter
 from evidence_worker import EvidenceWorker
+from fact_registry_api import FactRegistryAPI
 from resolver import Resolver
 from salestrekker_rules import get_salestrekker_rules
 from state_cache import StateCache, build_state_summary
@@ -55,15 +56,18 @@ class StateEngineMCP:
             await self.cdp.connect()
 
             self.cache = StateCache(self.cdp)
-            self.engine = ActionEngine(self.cdp, self.cache, self.journal)
-            self.resolver = Resolver(self.cdp)
-            self.workflow = WorkflowEngine(self.engine)
 
-            # FRS-006 Evidence Engine
+            # FRS-006 Evidence Engine (must init before ActionEngine)
             self.evidence = EvidenceAdapter()
             self.evidence.open()
             self.evidence_worker = EvidenceWorker(self.evidence)
             asyncio.create_task(self.evidence_worker.run())
+            self.fact_registry = FactRegistryAPI(self.evidence)
+
+            self.engine = ActionEngine(self.cdp, self.cache, self.journal,
+                                        registry=self.fact_registry)
+            self.resolver = Resolver(self.cdp)
+            self.workflow = WorkflowEngine(self.engine)
 
             logger.info("State Engine MCP started on port %d", PORT)
             return True

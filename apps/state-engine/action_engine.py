@@ -3,6 +3,7 @@ import asyncio, json, logging, time
 from typing import Any, Optional
 from cdp_connection import CdpConnection
 from failure_envelope import FailureEnvelope
+from fact_registry_api import FactRegistryAPI
 from resolver import Resolver
 from salestrekker_rules import get_salestrekker_rules
 from state_cache import StateCache, build_state_summary
@@ -14,12 +15,14 @@ logger = logging.getLogger('state-engine.action')
 ALL_TIERS = ['CDP', 'AX', 'JS', 'REACT', 'KEY', 'OS']
 
 class ActionEngine:
-    def __init__(self, cdp: CdpConnection, cache: StateCache, journal=None):
+    def __init__(self, cdp: CdpConnection, cache: StateCache, journal=None,
+                 registry: Optional[FactRegistryAPI] = None):
         self.cdp = cdp
         self.cache = cache
         self.journal = journal
         self.verifier = VerificationEngine()
-        
+        self.registry = registry or FactRegistryAPI()  # Degrade gracefully
+
         # Wire up async state function for save polling
         # A lambda that captures and returns the board body text
         self.verifier.set_state_fn(self._poll_board_state)
@@ -60,6 +63,20 @@ class ActionEngine:
                 logger.info("Skipping underperforming tier %s (fail rate: %.0f%%)",
                            tier, stats['failures']/stats['attempts']*100)
                 continue
+
+            # Contradiction check: skip tiers whose recovery strategies
+            # have been disproven by the Evidence Engine
+            if tier == 'REACT':
+                if self.registry.is_blocked('fiber_manipulation_required'):
+                    logger.info("Skipping REACT tier — 'fiber_manipulation_required' disproven")
+                    continue
+                if self.registry.is_blocked('event_interceptor_required'):
+                    logger.info("Skipping REACT tier — 'event_interceptor_required' disproven")
+                    continue
+            if tier == 'OS':
+                if self.registry.is_blocked('pyautogui_os_required'):
+                    logger.info("Skipping OS tier — disproven")
+
             result.append(tier)
         
         return result
