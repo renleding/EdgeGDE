@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS missions (
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
     mission_id TEXT,
+    step_id TEXT,
     parent_run_id TEXT,
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     finished_at DATETIME,
@@ -55,6 +56,29 @@ CREATE TABLE IF NOT EXISTS runs (
     action TEXT NOT NULL,
     status TEXT NOT NULL,
     FOREIGN KEY(mission_id) REFERENCES missions(mission_id)
+);
+
+-- Mission step tracking
+CREATE TABLE IF NOT EXISTS mission_steps (
+    step_id TEXT PRIMARY KEY,
+    mission_id TEXT NOT NULL,
+    step_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    verification_result TEXT,
+    FOREIGN KEY(mission_id) REFERENCES missions(mission_id)
+);
+
+-- Mission-level L1 resumption checkpoints
+CREATE TABLE IF NOT EXISTS mission_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    mission_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    l1_signature TEXT NOT NULL,
+    validated_at DATETIME NOT NULL,
+    FOREIGN KEY(mission_id) REFERENCES missions(mission_id),
+    FOREIGN KEY(step_id) REFERENCES mission_steps(step_id)
 );
 
 -- Governance gatekeeper
@@ -300,15 +324,87 @@ class EvidenceAdapter:
         )
         self._require_open().commit()
 
+    # ── Step Management ──
+
+    def begin_step(self, step_id: str, mission_id: str, step_name: str) -> str:
+        if not step_id:
+            step_id = str(uuid.uuid4())
+        self._require_open().execute(
+            "INSERT INTO mission_steps (step_id, mission_id, step_name, status) "
+            "VALUES (?, ?, ?, 'RUNNING')",
+            (step_id, mission_id, step_name),
+        )
+        self._require_open().commit()
+        return step_id
+
+    def complete_step(self, step_id: str, status: str,
+                      verification_result: Optional[dict] = None):
+        if status not in ('COMPLETED', 'FAILED'):
+            raise ValueError(f"Invalid step status: {status}")
+        self._require_open().execute(
+            "UPDATE mission_steps SET completed_at = ?, status = ?, "
+            "verification_result = ? WHERE step_id = ?",
+            (datetime.now(timezone.utc).isoformat(), status,
+             json.dumps(verification_result) if verification_result else None,
+             step_id),
+        )
+        self._require_open().commit()
+
+    def find_first_incomplete_step(self, mission_id: str) -> Optional[dict]:
+        cur = self._require_open().execute(
+            "SELECT * FROM mission_steps WHERE mission_id = ? AND status != 'COMPLETED' "
+            "ORDER BY started_at ASC LIMIT 1",
+            (mission_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def get_mission_steps(self, mission_id: str) -> list:
+        cur = self._require_open().execute(
+            "SELECT * FROM mission_steps WHERE mission_id = ? ORDER BY started_at",
+            (mission_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    # ── Resumption Checkpoints ──
+
+    def set_checkpoint(self, mission_id: str, step_id: str,
+                       l1_signature: str) -> str:
+        cid = str(uuid.uuid4())
+        self._require_open().execute(
+            "INSERT INTO mission_checkpoints (checkpoint_id, mission_id, step_id, "
+            "l1_signature, validated_at) VALUES (?, ?, ?, ?, ?)",
+            (cid, mission_id, step_id, l1_signature,
+             datetime.now(timezone.utc).isoformat()),
+        )
+        self._require_open().commit()
+        return cid
+
+    def get_checkpoint(self, mission_id: str, step_id: str) -> Optional[dict]:
+        cur = self._require_open().execute(
+            "SELECT * FROM mission_checkpoints WHERE mission_id = ? AND step_id = ? "
+            "ORDER BY validated_at DESC LIMIT 1",
+            (mission_id, step_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    def l1_is_verified(self, mission_id: str, step_id: str) -> bool:
+        """Check if a step's business outcome was previously verified."""
+        cp = self.get_checkpoint(mission_id, step_id)
+        return cp is not None
+
+    # ── Run beginnings ──
+
     def begin_run(self, run_id: str, mission_id: str, application: str,
-                  action: str) -> str:
-        """Start a new execution run within a mission."""
+                  action: str, step_id: Optional[str] = None) -> str:
+        """Start a new execution run within a mission. Optional step_id for step-level tracking."""
         if not run_id:
             run_id = str(uuid.uuid4())
         self._require_open().execute(
-            "INSERT INTO runs (run_id, mission_id, application, action, status) "
-            "VALUES (?, ?, ?, ?, 'RUNNING')",
-            (run_id, mission_id, application, action),
+            "INSERT INTO runs (run_id, mission_id, step_id, application, action, status) "
+            "VALUES (?, ?, ?, ?, ?, 'RUNNING')",
+            (run_id, mission_id, step_id, application, action),
         )
         self._require_open().commit()
         return run_id
