@@ -22,6 +22,7 @@ import { validateDesign } from '../lib/design-validator'
 // Router
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Tenant layout submission queue router. Mounted under /api/v1/tenant/submit-layout with admin approval gate. */
 export const submissionRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════

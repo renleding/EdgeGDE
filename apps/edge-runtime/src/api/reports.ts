@@ -16,7 +16,9 @@ import {
 // Router
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Admin-facing report schedule CRUD router. Mounted at /api/v1/admin/reports/* */
 export const reportAdminRouter = new Hono()
+/** Cron-triggered report generation handler. Mounted independently for CF Cron Triggers. */
 export const reportCronHandler = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════

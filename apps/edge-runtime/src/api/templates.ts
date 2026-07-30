@@ -38,6 +38,7 @@ interface TemplatePayload {
 // Router — mounted at /api/v1/admin/*
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Template gallery admin router. Mounted at /api/v1/admin/templates — list, create, version templates. */
 export const templateRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -204,6 +205,7 @@ templateRouter.post('/templates', async (c) => {
 // Bypasses approval queue — templates are pre-approved.
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Template instantiation router for tenant self-service. Mounted at /api/v1/tenant/forms/instantiate-template. */
 export const instantiateRouter = new Hono()
 
 instantiateRouter.post('/tenant/forms/instantiate-template', async (c) => {
