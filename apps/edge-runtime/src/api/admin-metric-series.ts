@@ -8,6 +8,7 @@
 
 import { Hono } from 'hono'
 import { adminAuth } from '../middleware/auth'
+import { envFromContext } from '../lib/env'
 import { guardDB } from '../lib/db'
 import {
   ingestMetricSeriesPoints,
@@ -35,7 +36,7 @@ adminMetricSeriesRouter.post('/points', async (c) => {
   }
 
   try {
-    const summary = await ingestMetricSeriesPoints((c.env as any).DB, {
+    const summary = await ingestMetricSeriesPoints(envFromContext(c).DB, {
       tenantId,
       metricName,
       seriesId,
@@ -45,8 +46,8 @@ adminMetricSeriesRouter.post('/points', async (c) => {
       points,
     })
     return c.json({ success: true, series: summary, ingestedPoints: points.length })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
   }
 })
 
@@ -58,7 +59,7 @@ adminMetricSeriesRouter.get('/series', async (c) => {
     return c.json({ error: 'tenant query param is required' }, 400)
   }
 
-  const series = await listMetricSeries((c.env as any).DB, tenantId, metricName, limit)
+  const series = await listMetricSeries(envFromContext(c).DB, tenantId, metricName, limit)
   return c.json({ series })
 })
 
@@ -74,7 +75,7 @@ adminMetricSeriesRouter.get('/points', async (c) => {
     return c.json({ error: 'tenant and metric query params are required' }, 400)
   }
 
-  const points = await queryMetricSeriesPoints((c.env as any).DB, {
+  const points = await queryMetricSeriesPoints(envFromContext(c).DB, {
     tenantId,
     metricName,
     seriesId,
@@ -98,7 +99,7 @@ adminMetricSeriesRouter.post('/backtest', async (c) => {
     return c.json({ error: 'tenantId and metricName are required' }, 400)
   }
 
-  const points = await queryMetricSeriesPoints((c.env as any).DB, {
+  const points = await queryMetricSeriesPoints(envFromContext(c).DB, {
     tenantId,
     metricName,
     seriesId,
