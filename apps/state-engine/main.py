@@ -12,6 +12,7 @@ from cdp_connection import CdpConnection
 from evidence_adapter import EvidenceAdapter
 from evidence_worker import EvidenceWorker
 from fact_registry_api import FactRegistryAPI
+from mission_runtime import MissionRuntime
 from resolver import Resolver
 from salestrekker_rules import get_salestrekker_rules
 from state_cache import StateCache, build_state_summary
@@ -63,6 +64,10 @@ class StateEngineMCP:
             self.evidence_worker = EvidenceWorker(self.evidence)
             asyncio.create_task(self.evidence_worker.run())
             self.fact_registry = FactRegistryAPI(self.evidence)
+            self.mission = MissionRuntime(
+                page=None, cdp=None,
+                evidence=self.evidence, registry=self.fact_registry
+            )
 
             self.engine = ActionEngine(self.cdp, self.cache, self.journal,
                                         registry=self.fact_registry)
