@@ -484,6 +484,7 @@ class EvidenceAdapter:
         if not row:
             return None
         return {
+            'fact_id': row['fact_id'],
             'key': row['key'],
             'value': row['value'],
             'confidence': row['confidence'],
