@@ -1,0 +1,55 @@
+{
+  "scan_id": "droid-scan-2026-07-31",
+  "timestamp": "2026-07-31T12:00:00Z",
+  "scanned_dir": "apps/edge-runtime/src",
+  "files_count": 236,
+  "total_lines": 48057,
+  "findings": {
+    "console_log_count": 14,
+    "console_warn_error_count": 20,
+    "as_any_count": 165,
+    "any_usage_count": 650,
+    "ts_ignore_directives": 3,
+    "catch_blocks_total": 39,
+    "setInterval_calls": 7,
+    "setTimeout_calls": 11,
+    "TODO_FIXME_count": 3,
+    "eval_usage": 0
+  },
+  "console_log_files": [
+    "crons/dispatcher.ts",
+    "workers/cloner-worker.ts",
+    "api/chat-views.ts",
+    "api/chat-scoring.ts",
+    "api/scoring.ts",
+    "api/doc-intel/routes/ingest.ts",
+    "api/doc-intel/routes/jobs.ts",
+    "api/vault.ts",
+    "api/tenants.ts",
+    "queues/lead-scorer.ts",
+    "queues/kb-ingest.ts",
+    "lib/webhook.ts",
+    "lib/publish-tenant.ts",
+    "lib/report-engine.ts"
+  ],
+  "high_any_density_files": [
+    "index.ts",
+    "routes/ai-tutor-api.ts",
+    "routes/staging.ts",
+    "lib/renderer.ts",
+    "factory/upgrade/upgrade.engine.ts",
+    "api/admin-views.ts",
+    "api/workspace.ts",
+    "api/canvas-chat.ts",
+    "api/chat.ts",
+    "api/chat-views.ts"
+  ],
+  "new_vs_previous": {
+    "files_change": "+2",
+    "lines_change": "+6",
+    "console_log_delta": "+0 files, same 14",
+    "as_any_delta": "-4 (169→165)",
+    "any_usage_delta": "+39 (611→650)",
+    "ts_ignore_delta": "unchanged (3)"
+  }
+}
