@@ -39,19 +39,23 @@ interface GovernanceReport {
 }
 
 function getChangedFiles(): string[] {
-  try {
-    const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'HEAD~1'
-    const output = execSync(`git diff --name-only ${base}...HEAD`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
-    return output.trim().split('\n').filter(Boolean)
-  } catch {
-    // Fallback: HEAD~1 works with fetch-depth: 2 and doesn't need origin/main
+  const attempts: string[] = []
+  const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'HEAD~1'
+  attempts.push(`git diff --name-only ${base}...HEAD`)
+  // Fallback: HEAD~1 works with fetch-depth: 2 and doesn't need origin/main
+  attempts.push('git diff --name-only HEAD~1...HEAD')
+  // Last resort: origin/main..HEAD (PR merged into main, or full-history checkouts)
+  attempts.push('git diff --name-only origin/main...HEAD')
+  for (const cmd of attempts) {
     try {
-      const output = execSync('git diff --name-only HEAD~1...HEAD', { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
-      return output.trim().split('\n').filter(Boolean)
+      const output = execSync(cmd, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
+      const files = output.trim().split('\n').filter(Boolean)
+      if (files.length > 0) return files
     } catch {
-      return []
+      // try next base
     }
   }
+  return []
 }
 
 function findSourceFiles(dir: string, results: string[] = []): string[] {
