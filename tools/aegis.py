@@ -279,18 +279,100 @@ class AegisCLI:
             print(f"║   ❌ Invalid DAG: {e}")
             return {"blocked": True, "error": str(e), "dag_valid": False}
 
+    def _granted_gogo_level(self) -> tuple[str, str]:
+        """Resolve the currently granted gogo level.
+
+        Sources, in priority order:
+        1. SDLC auth state (~/.hermes/.edgegde-auth.json) — set by
+           `edgegde-sdlc authorize gogo on|off` / `nodeploy on|off`.
+           gogo=true + deploy_block=false  → "deploy gogo" (full)
+           gogo=true + deploy_block=true   → "gogo" (deploy blocked)
+        2. Manifest structured gogo (GogoAuthorization, gogo.ts schema).
+
+        Returns (level, source). Level ∈ {"none", "gogo", "deploy gogo"}.
+        """
+        # 1. SDLC auth file — the authoritative gate state
+        auth_path = Path.home() / ".hermes" / ".edgegde-auth.json"
+        auth: dict = {}
+        try:
+            if auth_path.exists():
+                auth = json.loads(auth_path.read_text())
+        except Exception:
+            auth = {}
+
+        sdlc_gogo = bool(auth.get("gogo"))
+        sdlc_block = bool(auth.get("deploy_block"))
+        if sdlc_gogo and not sdlc_block:
+            return "deploy gogo", "sdlc-auth(gogo=true, deploy_block=false)"
+        if sdlc_gogo:
+            return "gogo", "sdlc-auth(gogo=true, deploy_block=true)"
+
+        # 2. Manifest structured gogo (gogo.ts GogoAuthorization)
+        mgogo = self.manifest_data.get("gogo")
+        if isinstance(mgogo, dict) and mgogo.get("authorizedBy"):
+            exp = mgogo.get("expiresAt")
+            if exp:
+                try:
+                    exp_dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                    if datetime.now(timezone.utc) > exp_dt:
+                        return "none", "manifest-gogo(expired)"
+                except Exception:
+                    pass
+            scope = mgogo.get("scope") or {}
+            actions = scope.get("actions") or []
+            if any(
+                kw in str(a).lower()
+                for a in actions
+                for kw in ("deploy", "publish", "rollback")
+            ):
+                return "deploy gogo", "manifest-gogo(scope=deploy)"
+            return "gogo", "manifest-gogo"
+
+        return "none", "no-gogo-authorization"
+
     def _phase_gate(self) -> dict:
-        """Phase 3: Check authorization level."""
+        """Phase 3: Check gogo authorization level — THE GATE.
+
+        Enforces policy.md Phase 3: no gogo authorization → no execution.
+        Required level comes from risk scoring; granted level comes from the
+        SDLC auth file or the manifest's structured gogo. Blocks when the
+        granted level is below the required level.
+        """
         risk = self.phases.get("discovery", {}).get("risk_score", {})
         required_level = risk.get("requires_gogo_level", "gogo")
 
-        if self.dry_run:
-            # In dry-run mode, we just report what's needed
-            level_map = {"gogo": "gogo", "deploy gogo": "deploy gogo", "gogo + caution": "gogo"}
-            return {"blocked": False, "required_level": required_level, "source": "dry_run"}
+        granted_level, granted_source = self._granted_gogo_level()
 
-        # In real mode, report what authorization is needed
-        return {"blocked": False, "required_level": required_level, "source": "manifest"}
+        # Level ordering: none < gogo < deploy gogo.
+        # "gogo + caution" is advisory — it still only requires "gogo".
+        req_base = {
+            "gogo": "gogo",
+            "gogo + caution": "gogo",
+            "deploy gogo": "deploy gogo",
+        }.get(required_level, "gogo")
+        level_rank = {"none": 0, "gogo": 1, "deploy gogo": 2}
+        req_rank = level_rank.get(req_base, 1)
+        granted_rank = level_rank.get(granted_level, 0)
+
+        blocked = granted_rank < req_rank
+        if blocked:
+            print(
+                f"║   ❌ GATE BLOCKED: requires '{required_level}' "
+                f"but granted '{granted_level}' ({granted_source})"
+            )
+            print(f"║      Fix: edgegde-sdlc authorize gogo on   (or set manifest gogo field)")
+        else:
+            print(
+                f"║   ✅ GATE PASS: required '{required_level}' "
+                f"≤ granted '{granted_level}' ({granted_source})"
+            )
+
+        return {
+            "blocked": blocked,
+            "required_level": required_level,
+            "granted_level": granted_level,
+            "granted_source": granted_source,
+        }
 
     def _phase_execution(self) -> dict:
         """Phase 4: Execute via Saga coordinator."""
