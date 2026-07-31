@@ -18,13 +18,17 @@ BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 STALE_COUNT=0
 
 # ── Parse args ──────────────────────────────────────────────────────────────
-for arg in "$@"; do
-  case "$arg" in
-    --prune)    PRUNE=true ;;
-    --dry-run)  DRY_RUN=true ;;
-    --list)     LIST=true ;;
-    --max-age=*) MAX_AGE="${arg#*=}" ;;
+# Note: supports both "--max-age 14" (space form, used by the cron wrapper
+# edgegde-cleanup-worktrees.sh) and "--max-age=14" (equals form).
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prune)      PRUNE=true ;;
+    --dry-run)    DRY_RUN=true ;;
+    --list)       LIST=true ;;
+    --max-age=*)  MAX_AGE="${1#*=}" ;;
+    --max-age)    MAX_AGE="${2:-30}"; shift ;;
   esac
+  shift
 done
 
 # Default: list mode
@@ -75,16 +79,30 @@ git worktree list --porcelain | while IFS= read -r line; do
     if [ "$DIRTY" -gt 0 ]; then
       DIRTY_STR=" ⚠ dirty"
     fi
-    
+
+    # ── Check in-use (live services with cwd/open files in the worktree) ──
+    # e.g. launchd http.server serving the system dashboard from this dir.
+    # A clean + old worktree may still host a running process; pruning it
+    # would break the service. lsof +D lists processes with open files under
+    # the path (including cwd), which is a reliable in-use signal.
+    # NOTE: lsof's exit code is unreliable on macOS (returns 1 even when it
+    # finds matches); detect via output, not exit status.
+    IN_USE=false
+    IN_USE_STR=""
+    if [ -n "$(lsof +D "$WT_PATH" 2>/dev/null)" ]; then
+      IN_USE=true
+      IN_USE_STR=" ⚡ in-use"
+    fi
+
     echo "  📂 $BRANCH"
     echo "     path: $WT_PATH"
-    echo "     age:  ${AGE_STR}${DIRTY_STR}${LOCK_STR}"
-    
+    echo "     age:  ${AGE_STR}${DIRTY_STR}${LOCK_STR}${IN_USE_STR}"
+
     # ── Prune stale or locked ─────────────────────────────────────────────
     SHOULD_PRUNE=false
     if [ -n "${PRUNE:-}" ]; then
-      # Prune if locked (any age = orphan) OR if old + clean
-      if [ "$LOCKED" = true ] || { [ "$AGE_DAYS" -gt "$MAX_AGE" ] && [ "$DIRTY" -eq 0 ]; }; then
+      # Prune if locked (any age = orphan) OR if old + clean + not in use
+      if [ "$LOCKED" = true ] || { [ "$AGE_DAYS" -gt "$MAX_AGE" ] && [ "$DIRTY" -eq 0 ] && [ "$IN_USE" = false ]; }; then
         SHOULD_PRUNE=true
       fi
     fi
