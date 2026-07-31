@@ -41,7 +41,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Fetch base branch for diff-based governance
-        run: git fetch origin "${{ github.base_ref || github.ref_name }}" --depth=1
+        if: github.event_name == 'pull_request'
+        run: git fetch origin "${{ github.base_ref }}" --depth=1
 
       # ═══ GATE 1: TypeScript type check ═══
       - name: Gate 1 — Typecheck
