@@ -38,7 +38,7 @@ interface GovernanceReport {
   files_checked: number
 }
 
-function getChangedFiles(): string[] {
+function getChangedFiles(): string[] | null {
   const attempts: string[] = []
   const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'HEAD~1'
   attempts.push(`git diff --name-only ${base}...HEAD`)
@@ -55,7 +55,7 @@ function getChangedFiles(): string[] {
       // try next base
     }
   }
-  return []
+  return null // diff resolution failed entirely — caller decides fallback
 }
 
 function findSourceFiles(dir: string, results: string[] = []): string[] {
@@ -227,8 +227,12 @@ function checkTestCoverage(sourceFile: string): CheckResult {
 function runAllChecks(): GovernanceReport {
   const changedFiles = getChangedFiles()
   const sourceFiles = findSourceFiles(EDGE_RUNTIME)
-  const tsChangedFiles = changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
-  const filesToCheck = tsChangedFiles.length > 0 ? tsChangedFiles : sourceFiles
+  // When the git diff resolves (even to an empty/excluded set), only check changed .ts files.
+  // Full-repo scan is the fallback ONLY when diff resolution failed entirely (no history).
+  const tsChangedFiles = changedFiles === null
+    ? []
+    : changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
+  const filesToCheck = changedFiles === null ? sourceFiles : tsChangedFiles
 
   const results: CheckResult[] = []
 
