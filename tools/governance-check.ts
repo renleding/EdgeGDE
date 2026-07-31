@@ -38,20 +38,25 @@ interface GovernanceReport {
   files_checked: number
 }
 
-function getChangedFiles(): string[] {
-  try {
-    const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'HEAD~1'
-    const output = execSync(`git diff --name-only ${base}...HEAD`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
-    return output.trim().split('\n').filter(Boolean)
-  } catch {
-    // Fallback: HEAD~1 works with fetch-depth: 2 and doesn't need origin/main
+function getChangedFiles(): { files: string[]; ok: boolean } {
+  // Candidate diff bases, in priority order:
+  //   1. origin/<base-ref> (PRs — GITHUB_BASE_REF set by GitHub Actions)
+  //   2. HEAD~1 (push events with fetch-depth >= 2)
+  // Returns ok=false only when EVERY candidate fails — the tool must NOT
+  // silently fall back to a full-repo scan in --diff-only mode, because
+  // pre-existing violations in untouched files would then block deploys.
+  const candidates: string[] = []
+  if (process.env.GITHUB_BASE_REF) candidates.push(`origin/${process.env.GITHUB_BASE_REF}`)
+  candidates.push('HEAD~1')
+  for (const base of candidates) {
     try {
-      const output = execSync('git diff --name-only HEAD~1...HEAD', { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
-      return output.trim().split('\n').filter(Boolean)
+      const output = execSync(`git diff --name-only ${base}...HEAD`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
+      return { files: output.trim().split('\n').filter(Boolean), ok: true }
     } catch {
-      return []
+      // try next candidate
     }
   }
+  return { files: [], ok: false }
 }
 
 function findSourceFiles(dir: string, results: string[] = []): string[] {
@@ -221,10 +226,27 @@ function checkTestCoverage(sourceFile: string): CheckResult {
 }
 
 function runAllChecks(): GovernanceReport {
-  const changedFiles = getChangedFiles()
+  const diffOnly = process.argv.includes('--diff-only')
+  const { files: changedFiles, ok: diffOk } = getChangedFiles()
   const sourceFiles = findSourceFiles(EDGE_RUNTIME)
   const tsChangedFiles = changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
-  const filesToCheck = tsChangedFiles.length > 0 ? tsChangedFiles : sourceFiles
+  let filesToCheck: string[]
+
+  if (diffOnly) {
+    // --diff-only: check ONLY files touched by this change. If the diff
+    // cannot be computed, fail loudly — do NOT silently scan the whole repo,
+    // because pre-existing violations in untouched files would block every
+    // deploy (this is what caused the 2026-07 deploy failure cascade).
+    if (!diffOk) {
+      console.error('ERROR: --diff-only mode but git diff failed (no candidate base revision resolved).')
+      console.error('  Ensure CI checks out with fetch-depth >= 2 and does NOT re-fetch with --depth=1')
+      console.error('  (use --deepen=1 instead, which preserves the parent commit).')
+      process.exit(2)
+    }
+    filesToCheck = tsChangedFiles
+  } else {
+    filesToCheck = tsChangedFiles.length > 0 ? tsChangedFiles : sourceFiles
+  }
 
   const results: CheckResult[] = []
 

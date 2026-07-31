@@ -83,7 +83,7 @@ jobs:
         working-directory: apps/edge-runtime
         run: bun install --frozen-lockfile
       - name: Fetch base branch for diff-based governance
-        run: git fetch origin "${{ github.base_ref || github.ref_name }}" --depth=1
+        run: git fetch origin "${{ github.base_ref || github.ref_name }}" --deepen=1
       - name: Governance compliance check
         working-directory: apps/edge-runtime
         run: npx tsx ../../tools/governance-check.ts --diff-only
