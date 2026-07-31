@@ -6,6 +6,7 @@
 import { Hono } from 'hono'
 import { loadRulePack, loadCompliancePack, listAllPacks } from '../factory/packs/pack.registry'
 import { dryRunUpgrade, executeUpgrade, rollbackUpgrade } from '../factory/upgrade/upgrade.engine'
+import { envFromContext } from '../lib/env'
 
 const router = new Hono()
 
@@ -66,7 +67,7 @@ function shell(title: string, body: string, tenantId?: string, token?: string): 
 router.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const token = c.req.query('token') || ''
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
 
   // Current pack versions
   let currentVersions = '<div style="color:#4a4d55">No pack versions loaded</div>'
@@ -134,11 +135,11 @@ router.post('/dry-run', async (c) => {
     const packName = (fd.get('packName') as string || '').trim()
     if (!packName) return c.html('<div style="color:#da3633">Pack name required</div>')
 
-    const kv = (c.env as any)?.TENANT_KV
+    const kv = envFromContext(c).TENANT_KV
     if (!kv) return c.html('<div style="color:#da3633">KV not available</div>')
 
     // Load existing rules as old state
-    const db = (c.env as any)?.DB
+    const db = envFromContext(c).DB
     let oldRules: any[] = []
     if (db) {
       try {
@@ -259,7 +260,7 @@ router.post('/rollback', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 router.post('/seed-test', async (c) => {
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
   if (!kv) return c.html('<div style="color:#da3633">KV not available</div>')
 
   try {
