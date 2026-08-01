@@ -228,11 +228,18 @@ function runAllChecks(): GovernanceReport {
   const changedFiles = getChangedFiles()
   const sourceFiles = findSourceFiles(EDGE_RUNTIME)
   // When the git diff resolves (even to an empty/excluded set), only check changed .ts files.
-  // Full-repo scan is the fallback ONLY when diff resolution failed entirely (no history).
-  const tsChangedFiles = changedFiles === null
-    ? []
-    : changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
-  const filesToCheck = changedFiles === null ? sourceFiles : tsChangedFiles
+  // If diff resolution failed entirely (no history / HEAD~1 missing), FAIL LOUDLY instead of
+  // silently full-scanning — a full scan flags pre-existing `as any` in files the commit didn't
+  // touch, blocking deploys with false positives (historical bug, Jul 2026).
+  if (changedFiles === null) {
+    console.error(
+      'GOVERNANCE_DIFF_ERROR: could not resolve changed files (git diff HEAD~1...HEAD failed). ' +
+      'Check checkout fetch-depth and base-ref fetch steps. Refusing to full-scan.'
+    )
+    process.exit(2)
+  }
+  const tsChangedFiles = changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
+  const filesToCheck = tsChangedFiles
 
   const results: CheckResult[] = []
 
