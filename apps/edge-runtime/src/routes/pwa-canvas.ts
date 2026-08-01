@@ -6,6 +6,7 @@
  */
 
 import type { Context } from 'hono'
+import { envFromContext } from '../lib/env'
 
 type PwaTransientState = {
   selected: string
@@ -16,6 +17,17 @@ type PwaTransientState = {
 type PwaActionProposal = Record<string, unknown> & {
   id: string
   createdAt: string
+}
+
+/**
+ * Minimal KV-like surface used by the PWA helpers.
+ * ARTIFACT_KV is a Workers KV binding; these helpers need JSON convenience
+ * access, so we type only the members the code depends on.
+ */
+interface PwaKvLike {
+  get(key: string): Promise<string | null>
+  getJson(key: string): Promise<Record<string, unknown> | null>
+  put(key: string, value: unknown): Promise<void>
 }
 
 const DEFAULT_TRANSIENT: PwaTransientState = {
@@ -32,8 +44,8 @@ function pwaKey(workspaceId: string, suffix: string): string {
   return `global:pwa:${normalizeWorkspaceId(workspaceId)}:${suffix}`
 }
 
-function artifactKv(c: Context) {
-  const rawKV = (c.env as any)?.ARTIFACT_KV
+function artifactKv(c: Context): PwaKvLike | null {
+  const rawKV = envFromContext(c).ARTIFACT_KV as unknown as PwaKvLike
   if (!rawKV || typeof rawKV.get !== 'function' || typeof rawKV.put !== 'function') return null
   return rawKV
 }

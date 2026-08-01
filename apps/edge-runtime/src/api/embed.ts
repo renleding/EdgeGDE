@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 
 const embedRouter = new Hono()
 
@@ -36,9 +37,9 @@ embedRouter.get('/chat', async (c) => {
 
   let config: Record<string, any> = { ...DEFAULT_CONFIG }
   try {
-    const kv = (c.env as any)?.TENANT_KV
+    const kv = envFromContext(c).TENANT_KV
     if (kv) {
-      const raw = await kv.get(`tenant:${tenantId}:chat:config`, 'json')
+      const raw = await kv.get<Record<string, any>>(`tenant:${tenantId}:chat:config`, 'json')
       if (raw) {
         config = typeof raw === 'object' ? raw : JSON.parse(raw)
       }

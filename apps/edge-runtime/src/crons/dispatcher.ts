@@ -8,10 +8,11 @@
 
 import { guardDB } from '../lib/db'
 import { guardKV } from '../lib/kv'
+import { safeEnv } from '../lib/env'
 
 export async function runDispatcher(env: any): Promise<void> {
   const rawKv = env.TENANT_KV
-  const rawDb = env.DB as any
+  const rawDb = safeEnv(env).DB
   const guardedDb = guardDB(rawDb)
   const webhookUrl = env.ALERT_WEBHOOK_URL as string | undefined
 
