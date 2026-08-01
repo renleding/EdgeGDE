@@ -29,7 +29,7 @@ missionRouter.post('/dry-run', async (c) => {
 
     const mission: MissionDefinition = {
       id: missionId,
-      name: (manifest as any).intent ?? missionId,
+      name: manifest.intent ?? missionId,
       desiredState: {},
       actions: manifest.steps
         .map((step) => getAction(step.actionType))

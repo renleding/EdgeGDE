@@ -6,7 +6,8 @@
  * @packageDocumentation
  */
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
+import { envFromContext } from '../lib/env'
 import {
   setTenantLayout,
   promoteToProduction,
@@ -29,8 +30,8 @@ import {
 // KV Resolver — Workers KV binding or shared MemoryKvStore singleton
 import { kv } from '../index'
 
-function resolveKv(c: any): KvStore {
-  const bindings = (c.env as any)?.ARTIFACT_KV
+function resolveKv(c: Context): KvStore {
+  const bindings = envFromContext(c).ARTIFACT_KV
   if (bindings && typeof bindings.get === 'function') {
     return bindings as KvStore
   }

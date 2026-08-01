@@ -44,6 +44,17 @@ export interface SessionPayload {
 }
 
 /**
+ * Variables set on the Hono context by requireSession().
+ */
+interface SessionVars {
+  tenantSession: SessionPayload
+  tenantId: string
+  slug: string
+}
+
+type SessionContext = Context<{ Variables: SessionVars }>
+
+/**
  * Create a signed JWT session token.
  * Expiry defaults to 24 hours.
  */
@@ -116,9 +127,10 @@ export function requireSession(): MiddlewareHandler {
     }
 
     // Set tenant context for downstream handlers
-    ;(c as any).set('tenantSession', payload)
-    ;(c as any).set('tenantId', payload.tenantId)
-    ;(c as any).set('slug', payload.slug)
+    const ctx = c as SessionContext
+    ctx.set('tenantSession', payload)
+    ctx.set('tenantId', payload.tenantId)
+    ctx.set('slug', payload.slug)
 
     await next()
   }

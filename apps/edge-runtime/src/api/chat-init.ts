@@ -6,12 +6,13 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { logAuditEvent } from './chat-audit'
 
 export const initRouter = new Hono()
 
 initRouter.post('/chat/init', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
   const tenantId = c.req.query('tenant')

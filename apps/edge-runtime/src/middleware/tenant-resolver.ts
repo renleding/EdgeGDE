@@ -26,6 +26,7 @@ import type { TenantConfig } from '../lib/tenant'
 import devSeed from '../lib/dev_seed.json'
 import { getCachedTenant, setCachedTenant } from '../lib/cache'
 import { guardKV } from '../lib/kv'
+import { envFromContext } from '../lib/env'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Dev Detection
@@ -39,6 +40,19 @@ function isDevEnvironment(c: Context): boolean {
   return !host.includes('workers.dev') && (env?.NODE_ENV === 'development' || host.startsWith('localhost'))
 }
 
+/**
+ * Legacy tenant records were stored with either `tenantId` or `id`, and
+ * optional display fields. Typed so legacy reads stay type-safe.
+ */
+interface LegacyTenantRecord {
+  tenantId?: string
+  id?: string
+  name?: string
+  displayName?: string
+  createdAt?: string
+  plan?: string
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Legacy Lookup
 // ═══════════════════════════════════════════════════════════════════════════
@@ -48,15 +62,15 @@ async function attemptLegacyLookup(
   slug: string,
 ): Promise<TenantConfig | null> {
   const possibleHost = `${slug}.workers.dev`
-  const TENANT_KV = c.env?.TENANT_KV as any
-  const ARTIFACT_KV = c.env?.ARTIFACT_KV as any
+  const TENANT_KV = envFromContext(c).TENANT_KV
+  const ARTIFACT_KV = envFromContext(c).ARTIFACT_KV
 
   if (!TENANT_KV || !ARTIFACT_KV) return null
 
-  const legacyTenant = await TENANT_KV.get(`tenant:${possibleHost}`, 'json')
+  const legacyTenant = await TENANT_KV.get<LegacyTenantRecord>(`tenant:${possibleHost}`, 'json')
   if (!legacyTenant) return null
 
-  const tenantId: string = legacyTenant.tenantId || legacyTenant.id
+  const tenantId: string | undefined = legacyTenant.tenantId || legacyTenant.id
   if (!tenantId) return null
 
   const oldLayout = await ARTIFACT_KV.get(
@@ -87,7 +101,7 @@ async function attemptLegacyLookup(
     slug,
     name: legacyTenant.name || legacyTenant.displayName || slug,
     createdAt: legacyTenant.createdAt || new Date().toISOString(),
-    plan: legacyTenant.plan || 'free',
+    plan: (legacyTenant.plan || 'free') as TenantConfig['plan'],
   }
 }
 
@@ -165,7 +179,7 @@ export async function tenantResolver(
   if (!slug && queryTenant) {
     slug = queryTenant
     try {
-      const TELEMETRY_KV = c.env?.TELEMETRY_KV as any
+      const TELEMETRY_KV = envFromContext(c).TELEMETRY_KV
       if (TELEMETRY_KV && typeof TELEMETRY_KV.put === 'function') {
         // FIX #2: Daily-gated telemetry — one write per day, not per request
         const todayKey = `deprecated:tenant_query:${new Date().toISOString().slice(0, 10)}`
@@ -197,7 +211,7 @@ export async function tenantResolver(
   }
 
   // Step 2: TENANT_KV lookup
-  const TENANT_KV = c.env?.TENANT_KV as any
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (TENANT_KV && typeof TENANT_KV.get === 'function') {
     try {
       const raw = await TENANT_KV.get(`tenant:${slug}`, 'json')
@@ -212,7 +226,7 @@ export async function tenantResolver(
           tenant = altRaw as TenantConfig
           setCachedTenant(slug, tenant)
           try {
-            const TELEMETRY_KV = c.env?.TELEMETRY_KV as any
+            const TELEMETRY_KV = envFromContext(c).TELEMETRY_KV
             if (TELEMETRY_KV && typeof TELEMETRY_KV.put === 'function') {
               // FIX #2: Daily-gated telemetry — one write per day, not per request
               const todayKey = `deprecated:tenant_query:${new Date().toISOString().slice(0, 10)}`

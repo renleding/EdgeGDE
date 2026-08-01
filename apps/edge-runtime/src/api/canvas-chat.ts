@@ -368,7 +368,7 @@ export async function handleCanvasChat(
     return { success: false, error: errBody.error || 'Mutation failed' }
   }
 
-  const batchData = await batchRes.json() as any
+  const batchData = (await batchRes.json()) as { version?: number }
 
   return {
     success: true,
