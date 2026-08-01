@@ -225,16 +225,24 @@ STATE ENGINE READY FOR:
 - Real-time page capture and element resolution
 """)
 
-print("\n--- ACTION JOURNAL ---")
+print("\n--- ACTION JOURNAL (FRS-007 ledger integrity) ---")
 journal_path = "/Users/warren/.hermes/logs/state-engine/actions.jsonl"
 try:
-    with open(journal_path) as f:
-        lines = f.readlines()
-    print(f"  Journal entries: {len(lines)}")
-    if lines:
-        print(f"  Last entry: {lines[-1][:120]}")
-except:
-    print(f"  Journal: not found at {journal_path}")
+    from ledger_verify import verify
+    lr = verify()
+    ok = lr["integrity_ok"]
+    print(f"  {'✅' if ok else '❌'} integrity: {'INTACT' if ok else 'TAMPERED/BROKEN'}")
+    print(f"  total_entries: {lr['total_entries']}  verified: {lr['verified']}  "
+          f"legacy_unverifiable: {lr['legacy_unverifiable']}")
+    if not ok:
+        print(f"  first_invalid_index: {lr['first_invalid_index']}  "
+              f"reason: {lr['failure_reason']}")
+    if not os.path.exists(journal_path):
+        print(f"  Journal: not found at {journal_path}")
+except ImportError:
+    print(f"  ledger_verify not importable — journal integrity check skipped")
+except Exception as e:
+    print(f"  Journal check error: {str(e)[:120]}")
 
 print("\n--- RECOMMENDATIONS ---")
 print("""
