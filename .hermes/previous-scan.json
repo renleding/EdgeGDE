@@ -1,21 +1,25 @@
 {
-  "scan_id": "droid-scan-2026-07-31",
-  "timestamp": "2026-07-31T12:00:00Z",
+  "scan_id": "droid-scan-2026-08-01",
+  "timestamp": "2026-08-01T00:00:00Z",
   "scanned_dir": "apps/edge-runtime/src",
   "files_count": 236,
-  "total_lines": 48057,
+  "total_lines": 48058,
+  "typecheck": "PASS (tsc --noEmit, 0 errors)",
   "findings": {
-    "console_log_count": 14,
-    "console_warn_error_count": 20,
-    "as_any_count": 165,
-    "any_usage_count": 650,
-    "ts_ignore_directives": 3,
-    "catch_blocks_total": 39,
+    "console_log_count": 28,
+    "console_log_files": 14,
+    "console_warn_error_count": 100,
+    "console_warn_error_files": 30,
+    "as_any_count": 161,
+    "any_usage_count": 834,
+    "ts_expect_error_directives": 3,
+    "catch_blocks_total": 253,
     "setInterval_calls": 7,
     "setTimeout_calls": 11,
     "TODO_FIXME_count": 3,
     "eval_usage": 0
   },
+  "methodology_note": "Occurrence counts via rg -c over *.ts only. Previous scans (2026-07-31) mixed file-counts (console_log=14 files) and occurrence-counts; as_any/setTimeout/setInterval/TODO/eval were occurrence-based and comparable. console_warn_error, catch, any_usage were NOT comparable across scans due to pattern drift.",
   "console_log_files": [
     "crons/dispatcher.ts",
     "workers/cloner-worker.ts",
@@ -32,24 +36,26 @@
     "lib/publish-tenant.ts",
     "lib/report-engine.ts"
   ],
+  "ts_expect_error_files": ["routes/dashboard.ts (x3, all justified comments)"],
   "high_any_density_files": [
-    "index.ts",
-    "routes/ai-tutor-api.ts",
-    "routes/staging.ts",
-    "lib/renderer.ts",
-    "factory/upgrade/upgrade.engine.ts",
-    "api/admin-views.ts",
-    "api/workspace.ts",
-    "api/canvas-chat.ts",
-    "api/chat.ts",
-    "api/chat-views.ts"
+    "index.ts (68)",
+    "api/scoring.ts (46)",
+    "api/chat.ts (20)",
+    "factory/upgrade/upgrade.engine.ts (19)",
+    "api/admin-analytics.ts (19)",
+    "lib/renderer.ts (18)",
+    "routes/ai-tutor-api.ts (17)",
+    "queues/lead-scorer.ts (17)",
+    "lib/config-inheritance.ts (17)",
+    "objects/AuditLedger.ts (15)"
   ],
   "new_vs_previous": {
-    "files_change": "+2",
-    "lines_change": "+6",
-    "console_log_delta": "+0 files, same 14",
-    "as_any_delta": "-4 (169→165)",
-    "any_usage_delta": "+39 (611→650)",
-    "ts_ignore_delta": "unchanged (3)"
+    "commits_touching_src": ["01cd757 fix: replace 4x (c.env as any) with envFromContext in admin-packs (#67)"],
+    "files_change": "0 (236)",
+    "lines_change": "+1 (48057→48058)",
+    "as_any_delta": "-4 (165→161) — real improvement from 01cd757",
+    "console_log_delta": "0 new files (same 14 files)",
+    "ts_ignore_delta": "3 @ts-expect-error, stable (previous count 3 was same directives)",
+    "setInterval/setTimeout/TODO/eval": "unchanged"
   }
 }

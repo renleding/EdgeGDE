@@ -1436,14 +1436,151 @@
       }
     },
     {
-      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/ornith-001-droid-coding-test.report.json",
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac1.report.json",
       "data": {
         "agents_md": "AGENTS.md",
-        "context_snapshot": {
-          "agents_md": "AGENTS.md",
-          "instructions_md": ".hermes/instructions/instructions.md",
-          "policy_md": ".hermes/policies/policy.md"
+        "budget": {
+          "approved_override": null,
+          "declared": true,
+          "elapsed_seconds": 0.001,
+          "exhausted": true,
+          "limit": {
+            "max_cost_usd": 0.5,
+            "max_duration_seconds": 3600,
+            "max_tokens": 8000,
+            "max_tool_calls": 2
+          },
+          "max_cost_usd": 0.5,
+          "max_duration_seconds": 3600,
+          "max_tokens": 8000,
+          "max_tool_calls": 2,
+          "operations": 2,
+          "reason_code": "budget_exhausted",
+          "stop_reason": "budget max_tool_calls 2 reached"
         },
+        "context_snapshot": {},
+        "diffs": [],
+        "exit_codes": [
+          0,
+          0
+        ],
+        "instructions_md": ".hermes/instructions/instructions.md",
+        "mission_id": "frs007-ac1",
+        "objective": "FRS-007 FEATURE-02 test",
+        "operations": [
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t0",
+            "verification_criteria": []
+          },
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t1",
+            "verification_criteria": []
+          },
+          {
+            "diffs": [],
+            "error": "budget_exhausted",
+            "exit_codes": [],
+            "status": "skipped",
+            "task_id": "t2"
+          },
+          {
+            "diffs": [],
+            "error": "budget_exhausted",
+            "exit_codes": [],
+            "status": "skipped",
+            "task_id": "t3"
+          }
+        ],
+        "policy_md": ".hermes/policies/policy.md",
+        "retry_count": 0,
+        "status": "failure",
+        "test_results": {},
+        "timestamp": "2026-08-01T00:22:42+00:00",
+        "violations": [
+          "BUDGET EXHAUSTED: budget max_tool_calls 2 reached"
+        ]
+      }
+    },
+    {
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac2.report.json",
+      "data": {
+        "agents_md": "AGENTS.md",
+        "budget": {
+          "approved_override": null,
+          "declared": true,
+          "elapsed_seconds": 0.0,
+          "exhausted": true,
+          "limit": {
+            "max_cost_usd": 50.0,
+            "max_duration_seconds": 3600,
+            "max_tokens": 8000,
+            "max_tool_calls": 200
+          },
+          "max_cost_usd": 50.0,
+          "max_duration_seconds": 3600,
+          "max_tokens": 8000,
+          "max_tool_calls": 200,
+          "operations": 0,
+          "reason_code": "budget_rejected_preflight"
+        },
+        "context_snapshot": {},
+        "diffs": [],
+        "exit_codes": [],
+        "instructions_md": ".hermes/instructions/instructions.md",
+        "mission_id": "frs007-ac2",
+        "objective": "FRS-007 FEATURE-02 test",
+        "operations": [],
+        "policy_md": ".hermes/policies/policy.md",
+        "retry_count": 0,
+        "status": "failure",
+        "test_results": {},
+        "timestamp": "2026-08-01T00:22:42+00:00",
+        "violations": [
+          "budget max_cost_usd 50.0 exceeds ceiling 10.0; requires approved_override (F02-R05)"
+        ]
+      }
+    },
+    {
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac2b.report.json",
+      "data": {
+        "agents_md": "AGENTS.md",
+        "budget": {
+          "approved_override": "gov:gate3:check-999",
+          "declared": true,
+          "elapsed_seconds": 0.001,
+          "exhausted": false,
+          "limit": {
+            "max_cost_usd": 50.0,
+            "max_duration_seconds": 3600,
+            "max_tokens": 8000,
+            "max_tool_calls": 200
+          },
+          "max_cost_usd": 50.0,
+          "max_duration_seconds": 3600,
+          "max_tokens": 8000,
+          "max_tool_calls": 200,
+          "operations": 3,
+          "reason_code": null
+        },
+        "context_snapshot": {},
         "diffs": [],
         "exit_codes": [
           0,
@@ -1451,56 +1588,52 @@
           0
         ],
         "instructions_md": ".hermes/instructions/instructions.md",
-        "mission_id": "ornith-001-droid-coding-test",
-        "objective": "Verify ornith:9b-generated TypeScript Trie implementation through Droid execution framework",
+        "mission_id": "frs007-ac2b",
+        "objective": "FRS-007 FEATURE-02 test",
         "operations": [
           {
-            "content_preview": "/**\n * Represents a node in the Trie structure.\n */\nclass TrieNode {\n  /** Map of character \u2192 child node (case-insensitive storage). */\n  children: Map<string, TrieNode> = new Map();\n  /** Marks whether this node is the terminal end of an inserted word. */\n  isEndOfWord: boolean = false;\n\n  /** Returns all words stored in the subtree rooted at this node, sorted alphabetically (case-insensitive). */\n  collectWords(): string[] {\n    const results: string[] = [];\n    if (this.isEndOfWord) {\n      results.push('');\n    }\n    for (const [char, child] of this.children.entries()) {\n      const subWords = child.collectWords();\n      for (const w of subWords) {\n        results.push(char + w);\n      }\n    }\n    return results;\n  }\n}\n\n/**\n * A Trie (prefix tree) data structure supporting insert, search, autocomplete, delete, and export.\n * All operations are case-insensitive by default: input strings are normalized to lowercase on insertion and lookup.\n */\nexport class Trie {\n  private root: TrieNode;\n\n  constructor() {\n    this.root = new TrieNode();\n  }\n\n  /**\n   * Inserts a word into the trie, normalizing it to lowercase.\n   */\n  insert(word: string): void {\n    if (!word) return;\n    const normalized = word.toLowerCase();\n    let node = this.root;\n    for (const ch of normalized) {\n      if (!node.children.has(ch)) {\n        node.children.set(ch, new TrieNode());\n      }\n      node = node.children.get(ch)!;\n    }\n    node.isEndOfWord = true;\n  }\n\n  /**\n   * Searches for an exact word in the trie (case-insensitive).\n   */\n  search(word: string): boolean {\n    if (!word) return false;\n    const normalized = word.toLowerCase();\n    let node = this.root;\n    for (const ch of normalized) {\n      if (!node.children.has(ch)) {\n        return false;\n      }\n      node = node.children.get(ch)!;\n    }\n    return node.isEndOfWord;\n  }\n\n  /**\n   * Returns up to 10 words that start with the given prefix (case-insensitive).\n   */\n  startsWith(prefix: string): string[] {\n    if (!prefix) return [];\n    const normalized = prefix.toLowerCase();\n    let node = this.root;\n    for (const ch of normalized) {\n      if (!node.children.has(ch)) {\n        return [];\n      }\n      node = node.children.get(ch)!;\n    }\n    return node.collectWords().slice(0, 10);\n  }\n\n  /**\n   * Removes a word from the trie. Returns true if the word existed and was removed.\n   */\n  delete(word: string): boolean {\n    if (!word) return false;\n    const normalized = word.toLowerCase();\n\n    // First verify the word exists\n    const nodeAtEnd = this._findNode(normalized);\n    if (!nodeAtEnd || !nodeAtEnd.isEndOfWord) {\n      return false;\n    }\n\n    // Unmark the end\n    nodeAtEnd.isEndOfWord = false;\n\n    // Clean up nodes on the path that are no longer needed\n    this._removeNode(this.root, normalized);\n    return true;\n  }\n\n  /**\n   * Returns the total number of words currently stored in the trie.\n   */\n  countWords(): number {\n    return this._countWords(this.root);\n  }\n\n  /**\n   * Returns the total number of nodes in the trie (including the root).\n   */\n  countNodes(): number {\n    return this._countNodesRecursive(this.root);\n  }\n\n  /**\n   * Exports all words stored in the trie, sorted alphabetically.\n   */\n  exportWords(): string[] {\n    const results: string[] = [];\n    this._collectAllWords(this.root, '', results);\n    return results;\n  }\n\n  /**\n   * Finds and returns the TrieNode corresponding to the given prefix path.\n   */\n  private _findNode(prefix: string): TrieNode | null {\n    let node = this.root;\n    for (const ch of prefix) {\n      if (!node.children.has(ch)) {\n        return null;\n      }\n      node = node.children.get(ch)!;\n    }\n    return node;\n  }\n\n  private _countWords(node: TrieNode): number {\n    let count = node.isEndOfWord ? 1 : 0;\n    for (const child of node.children.values()) {\n      count += this._countWords(child);\n    }\n    return count;\n  }\n\n  private _countNodesRecursive(node: TrieNode): number {\n    let count = 1; // this node\n    for (const ch",
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
             "diffs": [],
             "exit_codes": [
               0
             ],
             "operation": "read_file",
-            "path": ".hermes/missions/ornith-test/generated-trie.ts",
-            "sha256": "0748e463db41b8a17b3b65aca0229478c7e6c068bea499e94060aeb5b0fe3177",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
             "status": "success",
-            "task_id": "verify_trie_file",
+            "task_id": "t0",
             "verification_criteria": [
-              "file exists",
-              "contains Trie class"
+              "file read"
             ]
           },
           {
-            "content_preview": "import { Trie } from './generated-trie.ts';\n\nconst trie = new Trie();\n\n// Test 1: insert and search\ntrie.insert('hello');\ntrie.insert('world');\ntrie.insert('help');\ntrie.insert('helm');\ntrie.insert('he');\nconsole.assert(trie.search('hello') === true, 'search(hello)');\nconsole.assert(trie.search('world') === true, 'search(world)');\nconsole.assert(trie.search('help') === true, 'search(help)');\nconsole.assert(trie.search('helm') === true, 'search(helm)');\nconsole.assert(trie.search('he') === true, 'search(he)');\nconsole.assert(trie.search('notfound') === false, 'search(notfound)');\nconsole.log('PASS: insert + search');\n\n// Test 2: case insensitivity\nconst trie2 = new Trie();\ntrie2.insert('Hello');\nconsole.assert(trie2.search('hello') === true, 'case insensitive search');\nconsole.assert(trie2.search('HELLO') === true, 'case insensitive search upper');\nconsole.log('PASS: case insensitivity');\n\n// Test 3: startsWith (autocomplete)\nconst trie3 = new Trie();\ntrie3.insert('apple');\ntrie3.insert('app');\ntrie3.insert('application');\ntrie3.insert('apt');\ntrie3.insert('banana');\n\nconst completions = trie3.startsWith('app');\nconsole.assert(completions.length >= 3, `startsWith(app) should have >= 3, got ${completions.length}`);\nconsole.assert(completions.includes(''), 'should include empty for exact prefix \"app\"');\nconsole.assert(completions.includes('le'), 'should include \"le\" for apple');\nconsole.assert(completions.includes('lication'), 'should include \"lication\" for application');\nconsole.log(`PASS: startsWith(autocomplete): ${JSON.stringify(completions)}`);\n\n// Test 4: countWords and countNodes\nconst trie4 = new Trie();\ntrie4.insert('a');\ntrie4.insert('an');\ntrie4.insert('and');\nconsole.assert(trie4.countWords() === 3, `countWords should be 3, got ${trie4.countWords()}`);\nconsole.assert(trie4.countNodes() === 5, `countNodes should be 5 (root+a+an+and+n+d), got ${trie4.countNodes()}`);\nconsole.log(`PASS: countWords=${trie4.countWords()}, countNodes=${trie4.countNodes()}`);\n\n// Test 5: delete\nconst trie5 = new Trie();\ntrie5.insert('test');\ntrie5.insert('testing');\nconsole.assert(trie5.delete('test') === true, 'delete(test) success');\nconsole.assert(trie5.search('test') === false, 'test should be gone after delete');\nconsole.assert(trie5.search('testing') === true, 'testing should still exist');\nconsole.log('PASS: delete');\n\n// Test 6: exportWords\nconst trie6 = new Trie();\ntrie6.insert('banana');\ntrie6.insert('apple');\ntrie6.insert('cherry');\nconst exported = trie6.exportWords();\nconsole.assert(exported.length === 3, `exportWords should have 3, got ${exported.length}`);\nconsole.assert(exported[0] === 'apple', `first should be apple, got ${exported[0]}`);\nconsole.assert(exported[1] === 'banana', `second should be banana, got ${exported[1]}`);\nconsole.assert(exported[2] === 'cherry', `third should be cherry, got ${exported[2]}`);\nconsole.log(`PASS: exportWords=${JSON.stringify(exported)}`);\n\n// Test 7: empty string edge case\nconst trie7 = new Trie();\ntrie7.insert('');\nconsole.assert(trie7.search('') === false, 'empty string not stored');\nconsole.assert(trie7.countWords() === 0, 'no words from empty insert');\nconsole.log('PASS: empty string edge case');\n\n// Test 8: non-existent prefix\nconst trie8 = new Trie();\ntrie8.insert('hello');\nconsole.assert(trie8.startsWith('x').length === 0, 'non-existent prefix returns []');\nconsole.log('PASS: non-existent prefix');\n\nconsole.log('\\n=== ALL 8 TESTS PASSED ===');\n",
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
             "diffs": [],
             "exit_codes": [
               0
             ],
             "operation": "read_file",
-            "path": ".hermes/missions/ornith-test/test-trie.ts",
-            "sha256": "7c0b66a1890020e4224505544b341ffd9654b7167a8991ff3f6352266ce1864d",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
             "status": "success",
-            "task_id": "verify_test_file",
+            "task_id": "t1",
             "verification_criteria": [
-              "file exists",
-              "contains test cases"
+              "file read"
             ]
           },
           {
-            "command": "/Users/warren/.bun/bin/bun .hermes/missions/ornith-test/test-trie.ts 2>&1",
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
             "diffs": [],
-            "exit_code": 0,
             "exit_codes": [
               0
             ],
-            "operation": "shell",
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
             "status": "success",
-            "stderr": "",
-            "stdout": "PASS: insert + search\nPASS: case insensitivity\nPASS: startsWith(autocomplete): [\"\",\"le\",\"lication\"]\ncountNodes should be 5 (root+a+an+and+n+d), got 4\nPASS: countWords=3, countNodes=4\nPASS: delete\nfirst should be apple, got banana\nsecond should be banana, got apple\nPASS: exportWords=[\"banana\",\"apple\",\"cherry\"]\nPASS: empty string edge case\nPASS: non-existent prefix\n\n=== ALL 8 TESTS PASSED ===\n",
-            "task_id": "compile_and_test",
+            "task_id": "t2",
             "verification_criteria": [
-              "bun exits 0",
-              "ALL 8 TESTS PASSED"
+              "file read"
             ]
           }
         ],
@@ -1508,8 +1641,282 @@
         "retry_count": 0,
         "status": "success",
         "test_results": {},
-        "timestamp": "2026-06-30T10:54:55+00:00",
+        "timestamp": "2026-08-01T00:22:42+00:00",
         "violations": []
+      }
+    },
+    {
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac4.report.json",
+      "data": {
+        "agents_md": "AGENTS.md",
+        "budget": {
+          "approved_override": null,
+          "declared": true,
+          "elapsed_seconds": 0.001,
+          "exhausted": false,
+          "limit": {
+            "max_cost_usd": 0.5,
+            "max_duration_seconds": 3600,
+            "max_tokens": 5000,
+            "max_tool_calls": 3
+          },
+          "max_cost_usd": 0.5,
+          "max_duration_seconds": 3600,
+          "max_tokens": 5000,
+          "max_tool_calls": 3,
+          "operations": 3,
+          "reason_code": null
+        },
+        "context_snapshot": {},
+        "diffs": [],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ],
+        "instructions_md": ".hermes/instructions/instructions.md",
+        "mission_id": "frs007-ac4",
+        "objective": "FRS-007 FEATURE-02 test",
+        "operations": [
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t0",
+            "verification_criteria": [
+              "file read"
+            ]
+          },
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t1",
+            "verification_criteria": [
+              "file read"
+            ]
+          },
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t2",
+            "verification_criteria": [
+              "file read"
+            ]
+          }
+        ],
+        "policy_md": ".hermes/policies/policy.md",
+        "retry_count": 0,
+        "status": "success",
+        "test_results": {},
+        "timestamp": "2026-08-01T00:22:42+00:00",
+        "violations": []
+      }
+    },
+    {
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac5.report.json",
+      "data": {
+        "agents_md": "AGENTS.md",
+        "budget": {
+          "approved_override": null,
+          "declared": false,
+          "elapsed_seconds": 0.001,
+          "exhausted": false,
+          "limit": {
+            "max_cost_usd": 0.1,
+            "max_duration_seconds": 900,
+            "max_tokens": 2000,
+            "max_tool_calls": 50
+          },
+          "max_cost_usd": 0.1,
+          "max_duration_seconds": 900,
+          "max_tokens": 2000,
+          "max_tool_calls": 50,
+          "operations": 3,
+          "reason_code": null
+        },
+        "context_snapshot": {},
+        "diffs": [],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ],
+        "instructions_md": ".hermes/instructions/instructions.md",
+        "mission_id": "frs007-ac5",
+        "objective": "FRS-007 FEATURE-02 test",
+        "operations": [
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t0",
+            "verification_criteria": [
+              "file read"
+            ]
+          },
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t1",
+            "verification_criteria": [
+              "file read"
+            ]
+          },
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t2",
+            "verification_criteria": [
+              "file read"
+            ]
+          }
+        ],
+        "policy_md": ".hermes/policies/policy.md",
+        "retry_count": 0,
+        "status": "success",
+        "test_results": {},
+        "timestamp": "2026-08-01T00:22:42+00:00",
+        "violations": []
+      }
+    },
+    {
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac6.report.json",
+      "data": {
+        "agents_md": "AGENTS.md",
+        "budget": {
+          "approved_override": null,
+          "declared": true,
+          "elapsed_seconds": 0.001,
+          "exhausted": false,
+          "limit": {
+            "max_cost_usd": 0.5,
+            "max_duration_seconds": 3600,
+            "max_tokens": 8000,
+            "max_tool_calls": 3
+          },
+          "max_cost_usd": 0.5,
+          "max_duration_seconds": 3600,
+          "max_tokens": 8000,
+          "max_tool_calls": 3,
+          "operations": 3,
+          "reason_code": null
+        },
+        "context_snapshot": {},
+        "diffs": [],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ],
+        "instructions_md": ".hermes/instructions/instructions.md",
+        "mission_id": "frs007-ac6",
+        "objective": "FRS-007 FEATURE-02 test",
+        "operations": [
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t0",
+            "verification_criteria": [
+              "file read"
+            ]
+          },
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t1",
+            "verification_criteria": [
+              "file read"
+            ]
+          },
+          {
+            "content_preview": "# EdgeGDE \u2014 Project Contract for Aegis-Governed Work\n\nVersion: `edgegde-contract-2026-06-11`  \nRuntime: Cloudflare Workers  \nStack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  \nCurrent product version reference: `v0.9.7`\n\n## 1. System Model\n\nAegis-governed EdgeGDE work uses three separated roles:\n\n```text\nHermes = Director\nAegis  = Governance\nDroid  = Constrained execution runtime\n```\n\n### Token Efficiency Policy\n\nAll agents in this repo MUST follow the **Token Efficiency 80/20 Owl** policy (`~/.hermes/policies/token_efficiency_owl.yaml`):\n- Relevant context only \u2014 localized snippets, not full-file dumps\n- Output caps: small 400, medium 2,000, large 4,000, absolute 6,000\n- No filler \u2014 no polite closings, no restating the question\n- History window: default 4 turns, max 8\n- Hermes is orchestrator in code tasks \u2014 keep output under 800 tokens, delegate >20 line generations\n- Before full reads, check if a grep/snippet suffices\n- Before verbose responses, check if concise answer suffices\n\n### Hermes owns\n\n- requirements interpretation\n- architecture decisions\n- task decomposition\n- Mission Manifest creation\n- diff and constraint verification\n- retry, rollback, and final acceptance decisions\n\n### Droid owns\n\n- deterministic execution of declared operations\n- file edits only when explicitly authorized\n- build/test execution only when explicitly authorized\n- controlled shell commands only when explicitly allowed\n- structured execution reports\n\nDroid does **not** own planning, architecture, correctness, or scope.\n\n## 2. Non-Negotiable SDLC Rules\n\n- Follow the 5-phase state machine: DISCOVERY \u2192 ALIGNMENT \u2192 `gogo` \u2192 EXECUTION \u2192 VERIFICATION.\n- Use `work/{short-description}` branches for code changes.\n- No direct push to `main`.\n- PR + CI required for merges.\n- Aider is never the executor of record.\n- Hermes is the final approver.\n- Verify before declaring success.\n- Log mission evidence under `.hermes/logs/missions/`.\n\n## 3. Architecture Contract\n\n### Runtime\n\nPrimary runtime code lives in:\n\n```text\napps/edge-runtime/\n```\n\nExpected runtime concerns:\n\n- Hono routes\n- Cloudflare Workers bindings\n- Durable Objects\n- D1 migrations\n- KV-backed tenant/config/artifact state\n- deterministic chat, form, publish, and registry pipelines\n\n### UI Builder\n\nUI/editor code lives in:\n\n```text\napps/ui-builder/UIBuilder/\n```\n\nExpected UI concerns:\n\n- Tauri/Vue shell\n- OpenPencil canvas/editor\n- artifact publishing contract\n- no silent schema drift from shared `op-schema`\n\n### Shared schema\n\nShared schema lives in:\n\n```text\npackages/op-schema/\n```\n\nRules:\n\n- shared schemas are authoritative\n- duplicates must be synchronized or removed\n- schema changes require tests in `packages/op-schema`\n\n### Documentation\n\nFor meaningful architecture, data-flow, version, or deployment changes, keep these in sync:\n\n```text\nREADME.md\nTEACHING.md\nTOPOLOGY.md\nrunbooks/\nprompts/       \u2190 Role-specific system prompts (Hermes, Aegis, Droid)\n```\n\n## 4. Droid Operation Contract\n\nDroid accepts only structured operations from a validated Mission Manifest.\n\nAllowed operation families:\n\n```text\narchitecture_summary\nread_file\nlist_dir\nwrite_text\nshell\ndelete\n```\n\nHigh-risk operation families are denied unless explicitly allowed by the Mission Manifest:\n\n```text\nshell\ndelete\nnetwork\ndeploy\npermissions\nsecrets\n```\n\n### Default constraints\n\n```json\n{\n  \"allow_shell\": false,\n  \"allow_delete\": false,\n  \"allow_network\": false,\n  \"allow_deploy\": false,\n  \"allow_permissions\": false,\n  \"allow_secrets_access\": false,\n  \"allowed_paths\": [\".\"],\n  \"forbidden_paths\": [\".git/**\", \"**/.env\", \"**/node_modules/**\", \"**/dist/**\", \"**/build/**\", \"**/coverage/**\"],\n  \"max_retries\": 3\n}\n```\n\n## 5. Mission Manifest Requirements\n\nEvery mission must include:\n\n```json\n{\n  \"mission_id\": \"stable-id\",\n  \"objective\": \"human-readable goal\",\n  \"autonomy_level\": \"low | medium | high\",\n  \"saga\": {\n    \"compensation_strategy\": \"reverse_order | parallel | manual\",\n    \"partial_failure_policy\": \"compensate_all | sto",
+            "diffs": [],
+            "exit_codes": [
+              0
+            ],
+            "operation": "read_file",
+            "path": "AGENTS.md",
+            "sha256": "b4e16df9112ed7e02d72ab8f054a2163114425345afa2916f14e0149c28b8853",
+            "status": "success",
+            "task_id": "t2",
+            "verification_criteria": [
+              "file read"
+            ]
+          }
+        ],
+        "policy_md": ".hermes/policies/policy.md",
+        "retry_count": 0,
+        "status": "success",
+        "test_results": {},
+        "timestamp": "2026-08-01T00:22:42+00:00",
+        "violations": []
+      }
+    },
+    {
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/ornith-001-droid-coding-test.report.json",
+      "data": {
+        "timestamp": "2026-07-31T23:46:36.113697+00:00",
+        "mission_id": "ornith-001-droid-coding-test",
+        "status": "success",
+        "task_count": 3,
+        "completed": 3,
+        "failed": 0,
+        "compensated": 0,
+        "duration": 0.09
       }
     },
     {
@@ -1575,6 +1982,6 @@
       }
     }
   ],
-  "pr_count": 5,
-  "scanned_at": "2026-07-30T12:05:30.210779+00:00"
+  "pr_count": 11,
+  "scanned_at": "2026-08-01T12:06:18.481917+00:00"
 }
