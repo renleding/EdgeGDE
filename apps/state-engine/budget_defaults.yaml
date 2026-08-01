@@ -1,0 +1,37 @@
+# FRS-007 FEATURE-02 — budget defaults table (SDD-007 §4.2)
+#
+# Reference documentation. The Droid wrapper (.hermes/bin/droid.py) embeds
+# identical values as BUDGET_DEFAULTS — keep this file in sync when changing
+# the enforcement defaults. Overrides are enforced at runtime by droid.py;
+# this YAML is the documented source of truth.
+
+autonomy_defaults:
+  low:
+    max_tokens: 2000
+    max_cost_usd: 0.10
+    max_tool_calls: 50
+    max_duration_seconds: 900
+  medium:
+    max_tokens: 8000
+    max_cost_usd: 0.50
+    max_tool_calls: 200
+    max_duration_seconds: 3600
+  high:
+    max_tokens: 25000
+    max_cost_usd: 2.00
+    max_tool_calls: 1000
+    max_duration_seconds: 14400
+
+# F02-R05: missions declaring a budget above this ceiling are rejected at
+# preflight unless they carry an approved_override governance reference.
+# Env override: DROID_BUDGET_CEILING_USD
+ceiling:
+  max_cost_usd: 10.0
+
+# Declarable budget keys (F02-R01) — subset allowed in a mission manifest:
+#   budget:
+#     max_tokens: <int>          # declared allowance (Hermes-level accounting)
+#     max_cost_usd: <float>      # declared allowance (preflight ceiling check)
+#     max_tool_calls: <int>      # hard-stop dimension (Droid enforcement)
+#     max_duration_seconds: <int># hard-stop dimension (Droid enforcement)
+#     approved_override: <str>   # governance reference for over-ceiling budgets
