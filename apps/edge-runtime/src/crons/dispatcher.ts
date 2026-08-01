@@ -29,7 +29,7 @@ export async function runDispatcher(env: any): Promise<void> {
       const cached = await rawKv.get(cacheKey)
       if (cached) {
         tenants = JSON.parse(cached)
-        console.log(`[dispatcher] cache hit: ${tenants.length} tenants`)
+        console.warn(`[dispatcher] cache hit: ${tenants.length} tenants`)
       }
     } catch { /* cache miss — fall through to D1 */ }
 
@@ -48,11 +48,11 @@ export async function runDispatcher(env: any): Promise<void> {
     }
 
     if (tenants.length === 0) {
-      console.log('[dispatcher] no tenants found')
+      console.warn('[dispatcher] no tenants found')
       return
     }
 
-    console.log(`[dispatcher] scanning ${tenants.length} tenants`)
+    console.warn(`[dispatcher] scanning ${tenants.length} tenants`)
 
     for (const tenantId of tenants) {
       const ctx = { tenantId }
@@ -106,7 +106,7 @@ export async function runDispatcher(env: any): Promise<void> {
               dispatched_at: Date.now(),
             }
             await guardedKv.put(key, JSON.stringify(updated), ctx)
-            console.log(`[dispatcher] dispatched ${submissionId} for ${tenantId}`)
+            console.warn(`[dispatcher] dispatched ${submissionId} for ${tenantId}`)
           } else {
             console.warn(`[dispatcher] webhook returned ${res.status} for ${submissionId}`)
           }
