@@ -847,13 +847,13 @@ app.get('/api/canvas/:id/debug', async (c) => {
   const stub = env.CANVAS_SESSION.get(doId)
   const stateRes = await stub.fetch('http://dO/state')
   if (stateRes.status === 400) return c.json({ error: 'Not found' }, 404)
-  const doc = await stateRes.json()
+  const doc = (await stateRes.json()) as Record<string, unknown>
   // Return minimal debug info
   return c.json({
     id: doc.id,
     version: doc.version,
     rootId: doc.rootId,
-    nodeCount: Object.keys(doc.nodes || {}).length,
+    nodeCount: Object.keys((doc.nodes as Record<string, unknown>) || {}).length,
     hasDT: !!(doc as any).designTokens,
     dtKeys: (doc as any).designTokens ? Object.keys((doc as any).designTokens) : [],
     colors: (doc as any).designTokens?.colors || null,
