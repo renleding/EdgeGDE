@@ -140,22 +140,111 @@ def test_miner_requires_min_cluster_size(obs):
 
 
 # ── 5. promotion baseline ────────────────────────────────────────────
+def _shadow_runs(n, success=True):
+    """n successful runs, each a full dual-gate shadow pass."""
+    return [{'success': 1 if success else 0, 'shadow_pass': success}
+            for _ in range(n)]
+
+
 def test_promotion_bar_below_min_runs(obs):
-    runs = [{'success': 1} for _ in range(5)]
+    runs = _shadow_runs(5)
     verdict = promote_baseline(runs, min_runs=10, min_success_rate=0.95)
     assert verdict['eligible'] is False
     assert verdict['needed'] == 5
+    assert verdict['consecutive_shadow_passes'] == 0
 
 
 def test_promotion_bar_meets_bar(obs):
-    runs = [{'success': 1} for _ in range(10)]
+    runs = _shadow_runs(10)
     verdict = promote_baseline(runs, min_runs=10, min_success_rate=0.95)
     assert verdict['eligible'] is True
     assert verdict['success_rate'] == 1.0
+    assert verdict['consecutive_shadow_passes'] == 10
 
 
 def test_promotion_bar_fails_on_low_success(obs):
-    runs = [{'success': 1} for _ in range(9)] + [{'success': 0}]
+    runs = _shadow_runs(9) + [{'success': 0, 'shadow_pass': False}]
     verdict = promote_baseline(runs, min_runs=10, min_success_rate=0.95)
     assert verdict['eligible'] is False
     assert verdict['success_rate'] == 0.9
+    assert verdict['consecutive_shadow_passes'] == 0
+
+
+def test_promotion_bar_requires_consecutive_shadow_passes(obs):
+    """10 successful runs but only 2 TRAILING shadow passes → NOT eligible."""
+    runs = [{'success': 1, 'shadow_pass': True} for _ in range(8)] \
+        + [{'success': 1, 'shadow_pass': False},
+           {'success': 1, 'shadow_pass': True}]
+    verdict = promote_baseline(runs, min_runs=10, min_success_rate=0.95)
+    assert verdict['success_rate'] == 1.0      # constraint 2 satisfied
+    assert verdict['consecutive_shadow_passes'] == 1  # only the last run
+    assert verdict['eligible'] is False         # constraint 3 fails
+    assert verdict['shadow_passes_needed'] == 2
+
+
+def test_promotion_bar_counts_trailing_only(obs):
+    """Scattered shadow passes are NOT consecutive — only the trailing
+    run chain counts."""
+    runs = [{'success': 1, 'shadow_pass': True}] * 3 \
+        + [{'success': 1, 'shadow_pass': False}] * 7
+    verdict = promote_baseline(runs, min_runs=10, min_success_rate=0.95)
+    assert verdict['consecutive_shadow_passes'] == 0  # 3 passes, not trailing
+    assert verdict['eligible'] is False
+
+    # now the 3 passes ARE trailing → eligible
+    runs2 = [{'success': 1, 'shadow_pass': False}] * 7 \
+        + [{'success': 1, 'shadow_pass': True}] * 3
+    verdict2 = promote_baseline(runs2, min_runs=10, min_success_rate=0.95)
+    assert verdict2['consecutive_shadow_passes'] == 3
+    assert verdict2['eligible'] is True
+
+
+def test_promotion_bar_prefers_independent_executions(obs):
+    """3 trailing shadow passes BUT success rate = 90% → NOT eligible
+    (constraint 2 fails while constraint 3 holds)."""
+    runs = [{'success': 1, 'shadow_pass': False}] * 6 \
+        + [{'success': 0, 'shadow_pass': False}] \
+        + [{'success': 1, 'shadow_pass': True}] * 3
+    # success rate = 9/10 = 0.9 < 0.95 → fails on rate despite 3 passes
+    verdict = promote_baseline(runs, min_runs=10, min_success_rate=0.95)
+    assert verdict['success_rate'] == 0.9
+    assert verdict['consecutive_shadow_passes'] == 3  # 3 trailing passes
+    assert verdict['eligible'] is False                # ...but 90% < 95%
+
+
+def test_end_run_records_shadow_pass(obs):
+    rid = obs.begin_run('promotion-mission')
+    obs.record('dom', 'input', 'gross', value=1, run_id=rid)
+    obs.end_run(True, run_id=rid, shadow_pass=True)
+    runs = obs.runs('promotion-mission')
+    assert runs[0]['success'] == 1
+    assert runs[0]['shadow_pass'] == 1
+
+    rid2 = obs.begin_run('promotion-mission')
+    obs.end_run(True, run_id=rid2, shadow_pass=False)
+    assert obs.runs('promotion-mission')[0]['shadow_pass'] == 0
+
+
+def test_shadow_pass_column_migrated_for_old_db(tmp_path):
+    """Pre-closure databases (no shadow_pass column) migrate in-place."""
+    import sqlite3
+    old = tmp_path / 'old.db'
+    conn = sqlite3.connect(old)
+    conn.execute("""CREATE TABLE observer_runs (
+        run_id TEXT PRIMARY KEY, mission_id TEXT NOT NULL,
+        started_at INTEGER NOT NULL, ended_at INTEGER,
+        steps_observed INTEGER NOT NULL DEFAULT 0,
+        success INTEGER NOT NULL DEFAULT 0,
+        transitions_json TEXT NOT NULL DEFAULT '[]',
+        task_candidates TEXT NOT NULL DEFAULT '[]')""")
+    conn.commit()
+    conn.close()
+
+    d = ObserverDaemon(str(old))
+    d.open()
+    cols = [r['name'] for r in d.conn.execute(
+        'PRAGMA table_info(observer_runs)').fetchall()]
+    assert 'shadow_pass' in cols  # migrated
+    # and old rows read back cleanly with the default
+    assert d.runs('anything') == []
+    d.close()

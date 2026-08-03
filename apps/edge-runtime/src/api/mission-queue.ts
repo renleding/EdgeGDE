@@ -14,6 +14,16 @@
  *   - After max_attempts releases, the item goes DEAD (dead-lettered).
  *
  * Statuses: QUEUED → IN_PROGRESS → COMPLETED | FAILED | DEAD
+ *
+ * CLOCK RULE (FRS-007 closure, LOCKED): lease issuance (claim), expiry
+ * (reap), renewal (heartbeat), and validation (complete) MUST all use the
+ * SAME DB clock — unixepoch() * 1000. Never mix Python/browser/DB time
+ * for lease decisions; the DB is the single authority on lease state.
+ *
+ * Completion is ATOMIC (no TOCTOU): validate + mutate in ONE UPDATE ...
+ * WHERE lease_expires_at > (unixepoch() * 1000) RETURNING. A late
+ * complete() after lease expiry matches 0 rows → 409 Conflict, and the
+ * queue row is untouched.
  */
 
 import { Hono } from 'hono'
@@ -132,12 +142,13 @@ missionQueueRouter.post('/claim', async (c) => {
       return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { performerId, leaseDurationSeconds } = parsed.data
-    const t = now()
-    const leaseUntil = t + leaseDurationSeconds * 1000
+    const leaseMs = leaseDurationSeconds * 1000
+    const dbNow = '(unixepoch() * 1000)'
 
     // 1. Reap expired leases first (crash/hang recovery): any IN_PROGRESS
     //    item whose lease expired returns to QUEUED, attempts + 1, unless
     //    attempts already exceed max_attempts → DEAD.
+    //    CLOCK RULE: expiry compared against the DB clock, never Date.now().
     await db(c.env as Record<string, unknown>).prepare(
       `UPDATE mission_queue
           SET status = CASE
@@ -147,21 +158,22 @@ missionQueueRouter.post('/claim', async (c) => {
               lease_holder = NULL,
               lease_expires_at = NULL,
               attempts = attempts + 1,
-              updated_at = ?
+              updated_at = ${dbNow}
         WHERE status = 'IN_PROGRESS'
           AND lease_expires_at IS NOT NULL
-          AND lease_expires_at < ?`,
-    ).bind(t, t).run()
+          AND lease_expires_at < ${dbNow}`,
+    ).run()
 
-    // 2. Atomic claim — highest priority first, then oldest.
+    // 2. Atomic claim — highest priority first, then oldest. Lease issued
+    //    off the DB clock so expiry, renewal, and validation share one time.
     const row = await db(c.env as Record<string, unknown>).prepare(
       `UPDATE mission_queue
           SET status = 'IN_PROGRESS',
               lease_holder = ?,
-              lease_expires_at = ?,
-              last_heartbeat_at = ?,
+              lease_expires_at = ${dbNow} + ?,
+              last_heartbeat_at = ${dbNow},
               heartbeat_count = 0,
-              updated_at = ?
+              updated_at = ${dbNow}
         WHERE item_id = (
           SELECT item_id FROM mission_queue
            WHERE status = 'QUEUED'
@@ -171,7 +183,7 @@ missionQueueRouter.post('/claim', async (c) => {
         RETURNING item_id, mission_id, payload_json, status, attempts,
                   lease_expires_at, lease_duration_seconds,
                   target_state, state_object_id`,
-    ).bind(performerId, leaseUntil, t, t).first()
+    ).bind(performerId, leaseMs).first()
 
     if (!row) {
       return c.json(ClaimResponseSchema.parse({ success: true, item: null, message: 'queue_empty' }))
@@ -206,18 +218,18 @@ missionQueueRouter.post('/heartbeat', async (c) => {
       return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { itemId, performerId } = parsed.data
-    const t = now()
+    const dbNow = '(unixepoch() * 1000)'
     const row = await db(c.env as Record<string, unknown>).prepare(
       `UPDATE mission_queue
-          SET lease_expires_at = ?,
-              last_heartbeat_at = ?,
+          SET lease_expires_at = ${dbNow} + 60000,
+              last_heartbeat_at = ${dbNow},
               heartbeat_count = heartbeat_count + 1,
-              updated_at = ?
+              updated_at = ${dbNow}
         WHERE item_id = ?
           AND status = 'IN_PROGRESS'
           AND lease_holder = ?
         RETURNING item_id, lease_expires_at, heartbeat_count`,
-    ).bind(t + 60000, t, t, itemId, performerId).first()
+    ).bind(itemId, performerId).first()
     if (!row) {
       return c.json({ success: false, error: 'lease_not_held_or_expired', itemId }, 409)
     }
@@ -243,7 +255,11 @@ missionQueueRouter.post('/complete', async (c) => {
       return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { itemId, performerId, status, result, error } = parsed.data
-    const t = now()
+    // ATOMIC completion (eliminates TOCTOU): validate lease + mutate in
+    // ONE statement. The lease is valid only while lease_expires_at is in
+    // the future on the DB clock — a late complete() after expiry (or after
+    // reclaim by another performer) matches 0 rows → 409, state untouched.
+    const dbNow = '(unixepoch() * 1000)'
     const row = await db(c.env as Record<string, unknown>).prepare(
       `UPDATE mission_queue
           SET status = ?,
@@ -251,13 +267,14 @@ missionQueueRouter.post('/complete', async (c) => {
               error_log = ?,
               lease_holder = NULL,
               lease_expires_at = NULL,
-              completed_at = ?,
-              updated_at = ?
+              completed_at = ${dbNow},
+              updated_at = ${dbNow}
         WHERE item_id = ?
           AND status = 'IN_PROGRESS'
           AND lease_holder = ?
+          AND lease_expires_at > ${dbNow}
         RETURNING item_id, status`,
-    ).bind(status, JSON.stringify(result), error, t, t, itemId, performerId).first()
+    ).bind(status, JSON.stringify(result), error, itemId, performerId).first()
     if (!row) {
       return c.json({ success: false, error: 'lease_not_held_or_expired', itemId }, 409)
     }

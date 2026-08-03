@@ -14,7 +14,15 @@ Pipeline:
 
 TaskMiner groups raw events into task candidates by temporal + target
 clustering, producing the 10-run baseline inputs the FRS-007 promotion
-bar (>=10 observed runs, >=95% success) consumes.
+bar consumes.
+
+PROMOTION BAR (FRS-007 closure, LOCKED — all three MUST hold):
+    total_observed_runs       >= 10
+    historical_success_rate   >= 0.95
+    consecutive_shadow_passes >= 3
+A shadow pass = Candidate Selected → Pre-Read → Execution → Post-Read →
+L1 Confirmed (the full dual-gate). 3 passes across INDEPENDENT
+executions are preferred over replaying the same transaction.
 """
 
 import json
@@ -51,11 +59,17 @@ CREATE TABLE IF NOT EXISTS observer_runs (
     ended_at        INTEGER,
     steps_observed  INTEGER NOT NULL DEFAULT 0,
     success         INTEGER NOT NULL DEFAULT 0,
+    shadow_pass     INTEGER NOT NULL DEFAULT 0,  -- full dual-gate (L1 confirmed)
     transitions_json TEXT NOT NULL DEFAULT '[]',  -- mined transitions
     task_candidates TEXT NOT NULL DEFAULT '[]'    -- mined task candidates
 );
 CREATE INDEX IF NOT EXISTS idx_observer_runs_mission ON observer_runs (mission_id, started_at);
 """
+
+_SHADOW_PASS_MIGRATION = (
+    "ALTER TABLE observer_runs "
+    "ADD COLUMN shadow_pass INTEGER NOT NULL DEFAULT 0"
+)
 
 
 def _utc_ms() -> int:
@@ -116,7 +130,17 @@ class ObserverDaemon:
         self._conn = sqlite3.connect(self.db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
-        self._open = True
+        self._open = True          # set BEFORE migrate (conn property gate)
+        self._migrate()
+
+    def _migrate(self):
+        """In-place migration for pre-closure databases: observer_runs
+        predates the shadow_pass column — add it if missing."""
+        cols = [r['name'] for r in self.conn.execute(
+            'PRAGMA table_info(observer_runs)').fetchall()]
+        if 'shadow_pass' not in cols:
+            self.conn.execute(_SHADOW_PASS_MIGRATION)
+            self.conn.commit()
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -182,7 +206,11 @@ class ObserverDaemon:
 
     def end_run(self, success: bool, run_id: Optional[str] = None,
                 transitions: Optional[list] = None,
-                candidates: Optional[list] = None):
+                candidates: Optional[list] = None,
+                shadow_pass: bool = False):
+        """Close a run. shadow_pass=True records that this run satisfied
+        the FULL dual-gate (Pre-Read → Execution → Post-Read → L1
+        Confirmed) — the promotion pipeline counts consecutive passes."""
         rid = run_id or self._run_id
         steps = self.conn.execute(
             'SELECT COUNT(*) AS n FROM observer_events WHERE run_id = ?',
@@ -190,9 +218,10 @@ class ObserverDaemon:
         self.conn.execute(
             """UPDATE observer_runs
                   SET ended_at = ?, steps_observed = ?, success = ?,
-                      transitions_json = ?, task_candidates = ?
+                      shadow_pass = ?, transitions_json = ?,
+                      task_candidates = ?
                 WHERE run_id = ?""",
-            (_utc_ms(), steps, 1 if success else 0,
+            (_utc_ms(), steps, 1 if success else 0, 1 if shadow_pass else 0,
              json.dumps(transitions or []), json.dumps(candidates or []), rid))
         self.conn.commit()
 
@@ -263,12 +292,36 @@ class TaskMiner:
 
 
 def promote_baseline(runs: list[dict], min_runs: int = 10,
-                     min_success_rate: float = 0.95) -> dict:
-    """FRS-007 promotion bar: >= min_runs observed, >= 95% success."""
+                     min_success_rate: float = 0.95,
+                     min_consecutive_shadow_passes: int = 3) -> dict:
+    """FRS-007 promotion bar — ALL THREE constraints MUST hold:
+
+      1. total_observed_runs       >= min_runs           (default 10)
+      2. historical_success_rate   >= min_success_rate   (default 0.95)
+      3. consecutive_shadow_passes >= min_consecutive_shadow_passes (3)
+
+    A shadow pass = full dual-gate (Pre-Read → Execution → Post-Read →
+    L1 Confirmed): run['shadow_pass'] is truthy AND run['success'].
+    Consecutive passes are counted from the most recent run backwards —
+    scattered passes do NOT qualify.
+    """
     if len(runs) < min_runs:
         return {'eligible': False, 'runs': len(runs),
-                'needed': min_runs - len(runs), 'success_rate': None}
-    successes = sum(1 for r in runs if r['success'])
+                'needed': min_runs - len(runs), 'success_rate': None,
+                'consecutive_shadow_passes': 0,
+                'shadow_passes_needed': min_consecutive_shadow_passes}
+    successes = sum(1 for r in runs if r.get('success'))
     rate = successes / len(runs)
-    return {'eligible': rate >= min_success_rate, 'runs': len(runs),
-            'success_rate': round(rate, 3), 'successes': successes}
+    consecutive = 0
+    for r in reversed(runs):
+        if r.get('shadow_pass') and r.get('success'):
+            consecutive += 1
+        else:
+            break
+    eligible = (rate >= min_success_rate
+                and consecutive >= min_consecutive_shadow_passes)
+    return {'eligible': eligible, 'runs': len(runs),
+            'success_rate': round(rate, 3), 'successes': successes,
+            'consecutive_shadow_passes': consecutive,
+            'shadow_passes_needed': max(0, min_consecutive_shadow_passes
+                                        - consecutive)}

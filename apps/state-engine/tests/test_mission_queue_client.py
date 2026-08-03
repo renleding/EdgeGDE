@@ -324,6 +324,64 @@ def test_p3_resumption_handshake_executes_when_not_reached(queue):
     assert executed == ['item_1']
 
 
+def test_p5_dual_gate_post_readback_confirms(queue):
+    """P5 Gate 2: post-execution read-back confirms → COMPLETED."""
+    client = FakeClient(queue)
+    client.enqueue('m1', {'deal': 'A'})
+    readbacks = []
+
+    def handler(item):
+        return {'verified': True, 'n': 1}
+
+    def verify_check(item, result):
+        # independent LIVE re-query of the target application
+        readbacks.append(result)
+        return True  # confirmed
+
+    stats = Performer(client, 'node-1').work(handler, verify_check=verify_check)
+    assert stats['completed'] == 1
+    assert stats['verify_failed'] == 0
+    assert len(readbacks) == 1  # gate ran exactly once
+    assert queue['item_1']['status'] == 'COMPLETED'
+
+
+def test_p5_dual_gate_post_readback_fails_does_not_commit(queue):
+    """P5 Gate 2: post-execution read-back NOT confirmed → FAILED,
+    business state NOT committed as success (L3 self-report is ignored)."""
+    client = FakeClient(queue)
+    client.enqueue('m1', {'deal': 'A'})
+
+    def handler(item):
+        return {'verified': True}  # self-report — NOT authoritative
+
+    def verify_check(item, result):
+        return False  # LIVE re-query shows the state did NOT change
+
+    stats = Performer(client, 'node-1').work(handler, verify_check=verify_check)
+    assert stats['verify_failed'] == 1
+    assert stats['failed'] == 1
+    assert stats['completed'] == 0
+    assert queue['item_1']['status'] == 'FAILED'
+    assert 'read-back' in (queue['item_1']['error_log'] or '').lower()
+
+
+def test_p5_dual_gate_post_readback_raising_treated_as_failure(queue):
+    """P5 Gate 2: read-back exception → treated as NOT confirmed → FAILED."""
+    client = FakeClient(queue)
+    client.enqueue('m1', {'deal': 'A'})
+
+    def handler(item):
+        return {'verified': True}
+
+    def verify_check(item, result):
+        raise RuntimeError('target application unreachable')
+
+    stats = Performer(client, 'node-1').work(handler, verify_check=verify_check)
+    assert stats['verify_failed'] == 1
+    assert stats['completed'] == 0
+    assert queue['item_1']['status'] == 'FAILED'
+
+
 def test_p4_heartbeat_independent_of_long_operation(queue):
     """P4: heartbeat continues during a long-running handler (no stall)."""
     client = FakeClient(queue)
