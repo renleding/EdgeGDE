@@ -333,3 +333,56 @@ Expected report fields:
   "timestamp": "ISO-8601"
 }
 ```
+
+## 10. Skill Library Policy (Parent/Child Versioning — No Duplication)
+
+**Applies to ALL agents in this repo** (Hermes main session, cmux agents, cron, subagents, Droid).
+
+### Hard Rule
+
+NEVER create a new skill unless it is completely independent and has NO
+relationship to the existing skill library. If the intent overlaps any
+existing skill — same capability, domain, app, or workflow class — it is an
+UPDATE or a CHILD of the existing skill, never a new standalone skill.
+
+### Parent/Child Model
+
+- Every durable capability has ONE baseline (parent/umbrella) skill.
+- Child skills build off the parent with different implementations but SHARE
+  the baseline via reference — never re-implement the parent's core content.
+- Frontmatter contract (REQUIRED on every skill):
+  ```yaml
+  name: my-skill
+  description: "Use when <trigger>. <one-line behavior>."
+  version: 1.0.0            # semver, REQUIRED, bumped on every change
+  parent: parent-skill-name # only for child skills
+  related_skills: [...]     # REQUIRED if any relationship exists
+  ```
+- Versioning: major = breaking contract; minor = new capability; patch = fixes.
+- Child body MUST open with a reference: "Baseline capability: see `parent-skill-name`."
+
+### Pre-Create Gate (MANDATORY before any skill_manage create)
+
+1. Run `skills_list` + `skill_discover` on the workflow's intent.
+2. Consult the skill library map (see below).
+3. Any overlap → UPDATE (patch the existing skill), regardless of implementation.
+4. Different implementation of an existing capability → create a CHILD
+   (declare parent + version + body reference).
+5. NEW standalone skill ONLY when no existing skill covers the class AND no
+   parent exists.
+6. Every create/rename/merge/delete updates the skill library map.
+
+### Skill Library Map
+
+Location: `~/.hermes/skills/agent-skills/using-agent-skills/references/skill-library-map.md`
+Consult before any create. Update on every change.
+
+### Enforcement
+
+- Hermes oversees and corrects violations (merge + delete duplicate with
+  `absorbed_into=<umbrella>`).
+- Unresolvable conflict (user-created vs agent-created skill, ambiguous
+  ownership, destructive merge) → SURFACE to Warren for explicit approval.
+- Known violations to fix: `multi-ai-sounding-board` vs `copilot-gemini-ai-loop`
+  (awaiting Warren's go-go on which is parent), browser-automation +
+  salestrekker clusters pending consolidation.

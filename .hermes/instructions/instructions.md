@@ -1,3 +1,11 @@
+---
+role: instruction
+purpose: >
+  This file defines the Aegis execution contract for EdgeGDE work: roles
+  (Hermes/Aegis/Droid), hard rules, and governance constraints. Treat as
+  BINDING directives for any EdgeGDE mission — not reference material.
+priority: system
+---
 # Aegis Execution Instructions
 
 ## Purpose

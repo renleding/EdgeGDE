@@ -1,6 +1,6 @@
 {
-  "scan_id": "droid-scan-2026-08-02",
-  "timestamp": "2026-08-02T00:00:00Z",
+  "scan_id": "droid-scan-2026-08-03",
+  "timestamp": "2026-08-03T00:00:00Z",
   "scanned_dir": "apps/edge-runtime/src",
   "files_count": 236,
   "total_lines": 48100,
@@ -20,7 +20,7 @@
     "TODO_FIXME_count": 3,
     "eval_usage": 0
   },
-  "methodology_note": "Occurrence counts via rg -c over *.ts only. as_any/setTimeout/setInterval/TODO/eval/console_log/console_warn_err/catch are occurrence-based. empty_catch_blocks (1) detected via rg -U multiline 'catch(e){ }' — file: do/canvas-session.do.ts:287 (silent KV snapshot failure swallow). high-density file lists were 'any-usage'-based in the 08-01 scan and 'as-any'-based in this scan — NOT comparable per-file.",
+  "methodology_note": "Occurrence counts via rg -c over *.ts only. as_any/setTimeout/setInterval/TODO/eval/console_log/console_warn_err/catch are occurrence-based. empty_catch_blocks: raw rg -Uo count printed 2 this run vs 1 baseline, but both matches are the SAME single block (do/canvas-session.do.ts:287-289, verified by read_file — source unchanged); count artifact of the multiline pattern, real value 1. high-density file lists are as-any-based, consistent with 08-02 scan.",
   "console_log_files": [
     "workers/cloner-worker.ts",
     "api/chat-views.ts",
@@ -50,17 +50,15 @@
     "routes/tenant-dashboard.ts (4)"
   ],
   "new_vs_previous": {
-    "commits_touching_src": [
-      "71a975a fix: replace console.log with console.warn in dispatcher cron (#77)",
-      "78c6758 fix(typesafety): reduce as any count 161->146 in edge-runtime src (#76)"
-    ],
+    "commits_touching_src": [],
     "files_change": "0 (236)",
-    "lines_change": "+42 (48058→48100)",
-    "as_any_delta": "-15 (161→146) — real, matches commit 78c6758 message exactly",
-    "console_log_delta": "-4 occurrences, -1 file (crons/dispatcher.ts converted to console.warn per commit 71a975a)",
-    "console_warn_error_delta": "+4 (100→104) — same conversion, net zero",
+    "lines_change": "0 (48100)",
+    "as_any_delta": "0 (146)",
+    "console_log_delta": "0 (24, 13 files)",
+    "console_warn_error_delta": "0 (104, 30 files)",
     "ts_ignore_delta": "3 @ts-expect-error, stable",
+    "empty_catch_delta": "0 real (raw rg -Uo count artifact 1->2, same block canvas-session.do.ts:287)",
     "setInterval/setTimeout/TODO/eval": "unchanged",
-    "git_status": "clean except .hermes/improvement-*.json churn (known noise)"
+    "git_status": "clean except .hermes/improvement-*.json + instructions.md churn (known noise); HEAD 9128a84"
   }
 }
