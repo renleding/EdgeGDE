@@ -35,6 +35,7 @@ class StateEngineMCP:
         self.resolver = None
         self.evidence = None
         self.evidence_worker = None
+        self.state_registry = None  # FRS-007 Phase 2
         self._ws_url = None
 
     async def start(self):
@@ -64,6 +65,10 @@ class StateEngineMCP:
             self.evidence_worker = EvidenceWorker(self.evidence)
             asyncio.create_task(self.evidence_worker.run())
             self.fact_registry = FactRegistryAPI(self.evidence)
+            # FRS-007 Phase 2: State & Transition Registries (Data Plane)
+            from state_registry import StateRegistry
+            self.state_registry = StateRegistry()
+            self.state_registry.open()
             self.mission = MissionRuntime(
                 page=None, cdp=None,
                 evidence=self.evidence, registry=self.fact_registry
@@ -247,6 +252,74 @@ class StateEngineMCP:
             if f:
                 return json.dumps(f)
             return json.dumps({"error": "fact_not_found", "key": key})
+
+        # ── FRS-007 Phase 2: State & Transition Registries ──────────────
+        @mcp.tool()
+        async def mcp_object_state(object_id: str = "") -> str:
+            """State Registry: read an object's current state, its history,
+            or the full registry report.
+
+            object_id empty → registry report (state_count, pending
+            transitions, active transitions).
+            """
+            if not self.state_registry:
+                return json.dumps({"error": "state_registry_not_initialized"})
+            if not object_id:
+                return json.dumps(self.state_registry.get_registry_report())
+            state = self.state_registry.get_state(object_id)
+            if state is None:
+                return json.dumps({"error": "object_not_registered",
+                                   "object_id": object_id})
+            state['history'] = self.state_registry.get_history(object_id, limit=10)
+            return json.dumps(state)
+
+        @mcp.tool()
+        async def mcp_transition(object_id: str, transition_id: str,
+                                 action: str = "begin",
+                                 evidence_id: str = "",
+                                 evidence_strength: str = "L1",
+                                 reason: str = "") -> str:
+            """Transition Registry lifecycle.
+
+            action=begin  → stage a transition (validates source state)
+            action=commit → COMMIT ONLY on independent L1 evidence
+                            (executor self-reports are rejected)
+            action=abort  → compensate: discard the staged transition
+            """
+            if not self.state_registry:
+                return json.dumps({"error": "state_registry_not_initialized"})
+            try:
+                if action == "begin":
+                    return json.dumps(
+                        self.state_registry.begin_transition(object_id,
+                                                             transition_id))
+                if action == "commit":
+                    return json.dumps(
+                        self.state_registry.commit_transition(
+                            object_id, transition_id,
+                            evidence_id=evidence_id,
+                            evidence_strength=evidence_strength))
+                if action == "abort":
+                    return json.dumps(
+                        self.state_registry.abort_transition(
+                            object_id, transition_id, reason=reason))
+                return json.dumps({"error": "unknown_action", "action": action})
+            except (ValueError, PermissionError) as e:
+                return json.dumps({"error": str(e), "action": action,
+                                   "object_id": object_id,
+                                   "transition_id": transition_id})
+
+        @mcp.tool()
+        async def mcp_transitions(source_state: str = "") -> str:
+            """Transition Registry: list active transitions (optionally from
+            a source state) or load the declarative YAML definitions.
+            """
+            if not self.state_registry:
+                return json.dumps({"error": "state_registry_not_initialized"})
+            if source_state:
+                return json.dumps(
+                    self.state_registry.find_transitions(source_state))
+            return json.dumps(self.state_registry.get_registry_report())
 
         return mcp
 
