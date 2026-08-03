@@ -69,6 +69,10 @@ class StateEngineMCP:
             from state_registry import StateRegistry
             self.state_registry = StateRegistry()
             self.state_registry.open()
+            # FRS-007 Phase 4: Observer Daemon (Pillar I — read-only capture)
+            from observer import ObserverDaemon
+            self.observer = ObserverDaemon(self.evidence.db_path)
+            self.observer.open()
             self.mission = MissionRuntime(
                 page=None, cdp=None,
                 evidence=self.evidence, registry=self.fact_registry
