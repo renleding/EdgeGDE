@@ -107,6 +107,7 @@ import { hotLeadIndexKey, hotLeadKey, tenantLayoutKey, canvasCacheGenKey, tenant
 import { guardDB } from './lib/db'
 import { guardKV } from './lib/kv'
 import { safeEnv, envFromContext, type Env } from './lib/env'
+import type { KVNamespace } from '@cloudflare/workers-types'
 // ═══════════════════════════════════════════════════════════════════════════
 // Action Registry — registers system actions for the lifecycle runner
 // ═══════════════════════════════════════════════════════════════════════════
@@ -698,7 +699,7 @@ app.post('/api/canvas/generate', async (c) => {
   const pHash = await hashPrompt(prompt)
   if (tenantKv && typeof tenantKv.get === 'function') {
     try {
-      const cached = await tenantKv.get('cache:canvas:gen:' + pHash, 'json') as any
+      const cached = (await tenantKv.get('cache:canvas:gen:' + pHash, 'json')) as unknown as { id?: string; title?: string } | null
       if (cached && cached.id) {
         return c.json({ id: cached.id, title: cached.title, cached: true })
       }
@@ -752,7 +753,7 @@ app.get('/api/canvas/generate/status/:jobId', async (c) => {
   if (!tenantKv || typeof tenantKv.get !== 'function') {
     return c.json({ error: 'Storage unavailable' }, 500)
   }
-  const job = await tenantKv.get('job:canvas:gen:' + jobId, 'json') as any
+  const job = (await tenantKv.get('job:canvas:gen:' + jobId, 'json')) as unknown as { id?: string; status?: string } | null
   if (!job) return c.json({ error: 'Job not found' }, 404)
   return c.json(job)
 })
@@ -788,7 +789,7 @@ app.get('/canvas/:id/edit', async (c) => {
     // Fallback: attempt lazy migration from legacy layout
     const env = c.env as Env
     const tenantKv = guardKV(env['TENANT_KV'])
-    const ARTIFACT_KV = env.ARTIFACT_KV as any
+    const ARTIFACT_KV = env.ARTIFACT_KV
     let layout: any = null
 
     // Try ARTIFACT_KV legacy layout (format: layout:{tenantId}:production:latest)
@@ -834,8 +835,8 @@ app.get('/api/canvas/:id/state', async (c) => {
     version: doc.version,
     rootId: doc.rootId,
     nodeCount: Object.keys((doc.nodes as Record<string, unknown>) || {}).length,
-    hasDesignTokens: !!(doc as any).designTokens,
-    designTokens: (doc as any).designTokens || null,
+    hasDesignTokens: !!(doc.designTokens as unknown),
+    designTokens: doc.designTokens || null,
   })
 })
 
@@ -854,9 +855,9 @@ app.get('/api/canvas/:id/debug', async (c) => {
     version: doc.version,
     rootId: doc.rootId,
     nodeCount: Object.keys((doc.nodes as Record<string, unknown>) || {}).length,
-    hasDT: !!(doc as any).designTokens,
-    dtKeys: (doc as any).designTokens ? Object.keys((doc as any).designTokens) : [],
-    colors: (doc as any).designTokens?.colors || null,
+    hasDT: !!(doc.designTokens as unknown),
+    dtKeys: doc.designTokens ? Object.keys(doc.designTokens as Record<string, unknown>) : [],
+    colors: (doc.designTokens as { colors?: unknown } | undefined)?.colors || null,
   })
 })
 
@@ -1150,7 +1151,7 @@ app.route('/api/v1/mission-queue', missionQueueRouter)
 const SITE_PAGES = ['home', 'about', 'services', 'calculators', 'media', 'contact'] as const
 
 /** Shared site renderer — loads config from KV and returns the full multi-page HTML */
-async function renderSite(slug: string, activePage: string, rawKv: any, isHtmx = false): Promise<{ html: string; error?: string }> {
+async function renderSite(slug: string, activePage: string, rawKv: KVNamespace | undefined, isHtmx = false): Promise<{ html: string; error?: string }> {
   if (!rawKv) return { html: '', error: 'KV not available' }
   try {
     const siteRaw = await rawKv.get('tenant:' + slug + ':site', 'json')
@@ -1268,7 +1269,7 @@ ${SITE_PAGES.map(p => `<div class="page${p === activePage ? ' active' : ''}" id=
 // Site routes — each page gets its own URL path, supports HTMX partial swaps
 app.get('/sites/:slug/about', async (c) => {
   const isHtmx = c.req.header('HX-Request') === 'true'
-  const { html, error } = await renderSite(c.req.param('slug'), 'about', (c.env as any)?.TENANT_KV, isHtmx)
+  const { html, error } = await renderSite(c.req.param('slug'), 'about', (c.env as Env)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -1276,7 +1277,7 @@ app.get('/sites/:slug/about', async (c) => {
 
 app.get('/sites/:slug/services', async (c) => {
   const isHtmx = c.req.header('HX-Request') === 'true'
-  const { html, error } = await renderSite(c.req.param('slug'), 'services', (c.env as any)?.TENANT_KV, isHtmx)
+  const { html, error } = await renderSite(c.req.param('slug'), 'services', (c.env as Env)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -1284,7 +1285,7 @@ app.get('/sites/:slug/services', async (c) => {
 
 app.get('/sites/:slug/calculators', async (c) => {
   const isHtmx = c.req.header('HX-Request') === 'true'
-  const { html, error } = await renderSite(c.req.param('slug'), 'calculators', (c.env as any)?.TENANT_KV, isHtmx)
+  const { html, error } = await renderSite(c.req.param('slug'), 'calculators', (c.env as Env)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -1292,7 +1293,7 @@ app.get('/sites/:slug/calculators', async (c) => {
 
 app.get('/sites/:slug/media', async (c) => {
   const isHtmx = c.req.header('HX-Request') === 'true'
-  const { html, error } = await renderSite(c.req.param('slug'), 'media', (c.env as any)?.TENANT_KV, isHtmx)
+  const { html, error } = await renderSite(c.req.param('slug'), 'media', (c.env as Env)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -1300,7 +1301,7 @@ app.get('/sites/:slug/media', async (c) => {
 
 app.get('/sites/:slug/contact', async (c) => {
   const isHtmx = c.req.header('HX-Request') === 'true'
-  const { html, error } = await renderSite(c.req.param('slug'), 'contact', (c.env as any)?.TENANT_KV, isHtmx)
+  const { html, error } = await renderSite(c.req.param('slug'), 'contact', (c.env as Env)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -1309,7 +1310,7 @@ app.get('/sites/:slug/contact', async (c) => {
 // Home page — must be last so sub-routes match first
 app.get('/sites/:slug', async (c) => {
   const isHtmx = c.req.header('HX-Request') === 'true'
-  const { html, error } = await renderSite(c.req.param('slug'), 'home', (c.env as any)?.TENANT_KV, isHtmx)
+  const { html, error } = await renderSite(c.req.param('slug'), 'home', (c.env as Env)?.TENANT_KV, isHtmx)
   if (error) return c.text(error, error === 'Site not found' ? 404 : 500)
   c.header('Content-Type', 'text/html; charset=utf-8')
   return c.body(html)
@@ -1369,7 +1370,7 @@ registerSystemActions()
 // One-Time Counter Seed Route (Phase 30)
 // ═══════════════════════════════════════════════════════════════════════════
 app.get('/api/dev/seed-counters', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = (c.env as Env)?.DB
 
   if (!db || typeof db.prepare !== 'function') {
     return c.text('D1 binding required', 500)
@@ -1384,9 +1385,9 @@ app.get('/api/dev/seed-counters', async (c) => {
     ])
 
     const artifactCount = 0 // Artifacts are KV-only — no D1 mirror yet
-    const submissionCount = (submissionsResult as any)?.count || 0
-    const tenantCount = (tenantsResult as any)?.count || 0
-    const draftCount = (draftsResult as any)?.count || 0
+    const submissionCount = (submissionsResult as { count?: number } | null)?.count || 0
+    const tenantCount = (tenantsResult as { count?: number } | null)?.count || 0
+    const draftCount = (draftsResult as { count?: number } | null)?.count || 0
 
     return c.text(
       `D1 counters: submissions=${submissionCount} tenants=${tenantCount} drafts=${draftCount}`
@@ -1409,7 +1410,7 @@ app.get('/api/admin/leads/:tenantId', async (c) => {
   const limit = 100
 
   try {
-    const db = guardDB((c.env as any)?.DB)
+    const db = guardDB((c.env as Env)?.DB)
     const ctx = { tenantId }
 
     const rows = await db.all(ctx, `
@@ -1435,12 +1436,12 @@ import { parseDesignMd, type DesignTokens } from './lib/design-parser'
 
 app.post('/api/render', async (c) => {
   try {
-    const body = await c.req.json() as any
+    const body = (await c.req.json()) as Record<string, unknown>
     const layout = body.layout || body
 
     let design: DesignTokens | undefined
     if (body.designMd) {
-      design = parseDesignMd(body.designMd)
+      design = parseDesignMd(body.designMd as string)
     }
 
     if (body.debugDesign) {
