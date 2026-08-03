@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@edgegde/schema": "workspace:*",
-    "brace-expansion": "^5.0.8",
+    "brace-expansion": "^5.0.9",
     "hono": "^4.12.5",
     "sharp": "^0.35.3",
     "zod": "3.25.76",
