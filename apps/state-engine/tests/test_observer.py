@@ -18,7 +18,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from observer import ObserverDaemon, TaskMiner, promote_baseline  # noqa: E402
+from observer import (ObserverDaemon, TaskMiner, promote_baseline,
+                      verify_promotion_guard)  # noqa: E402
 
 
 @pytest.fixture()
@@ -242,9 +243,113 @@ def test_shadow_pass_column_migrated_for_old_db(tmp_path):
 
     d = ObserverDaemon(str(old))
     d.open()
-    cols = [r['name'] for r in d.conn.execute(
-        'PRAGMA table_info(observer_runs)').fetchall()]
-    assert 'shadow_pass' in cols  # migrated
+    cols = {r['name'] for r in d.conn.execute(
+        'PRAGMA table_info(observer_runs)').fetchall()}
+    assert {'shadow_pass', 'transition_id',
+            'observation_diversity_hash', 'created_at'} <= cols  # migrated
     # and old rows read back cleanly with the default
     assert d.runs('anything') == []
     d.close()
+
+
+# ── 6. B1: observation diversity hash (independent-execution guard) ──
+def _end_shadow_run(obs, ctx, sig='Deal_totalBusinessIncome', ts=None):
+    rid = obs.begin_run('promotion-mission')
+    obs.record('dom', 'input', 'gross', value=1, run_id=rid)
+    obs.end_run(True, run_id=rid, shadow_pass=True, transition_id=sig,
+                object_type='Deal', transition_name='totalBusinessIncome',
+                context_type=ctx)
+    if ts is not None:  # control ORDER BY created_at determinism
+        obs.conn.execute('UPDATE observer_runs SET created_at = ? '
+                         'WHERE run_id = ?', (ts, rid))
+        obs.conn.commit()
+    return rid
+
+
+def test_b1_diversity_hash_recorded(obs):
+    rid = _end_shadow_run(obs, 'Income')
+    row = obs.conn.execute(
+        'SELECT observation_diversity_hash, transition_id, shadow_pass '
+        'FROM observer_runs WHERE run_id = ?', (rid,)).fetchone()
+    assert row['shadow_pass'] == 1
+    assert row['transition_id'] == 'Deal_totalBusinessIncome'
+    # B1 formula: SHA256(object_type + transition_name + context_type)
+    import hashlib
+    expected = hashlib.sha256(
+        b'Deal' + b'totalBusinessIncome' + b'Income').hexdigest()
+    assert row['observation_diversity_hash'] == expected
+
+
+def test_b1_same_context_same_hash_different_context_differs(obs):
+    _end_shadow_run(obs, 'Income', ts=1)
+    _end_shadow_run(obs, 'Income', ts=2)
+    _end_shadow_run(obs, 'Asset', ts=3)
+    hashes = [r['observation_diversity_hash']
+              for r in obs.conn.execute(
+                  'SELECT observation_diversity_hash FROM observer_runs '
+                  'ORDER BY created_at').fetchall()]
+    assert hashes[0] == hashes[1]      # same context → same hash
+    assert hashes[1] != hashes[2]      # different context → different hash
+
+
+def test_b2_guard_passes_3_distinct_contexts(obs):
+    """3 consecutive shadow passes across 3 DISTINCT contexts → guard OK."""
+    for i, ctx in enumerate(['Income', 'Asset', 'Liability'], start=1):
+        _end_shadow_run(obs, ctx, ts=i)
+    assert verify_promotion_guard('Deal_totalBusinessIncome', obs.conn) is True
+
+
+def test_b2_guard_fails_same_context(obs):
+    """3 consecutive shadow passes but ONE context → no generalization."""
+    for i in range(1, 4):
+        _end_shadow_run(obs, 'Income', ts=i)
+    assert verify_promotion_guard('Deal_totalBusinessIncome', obs.conn) is False
+
+
+def test_b2_guard_fails_broken_chain(obs):
+    """Chain broken by a non-shadow run between passes → False."""
+    _end_shadow_run(obs, 'Income', ts=1)
+    _end_shadow_run(obs, 'Asset', ts=2)
+    # non-shadow run breaks the consecutive chain
+    rid = obs.begin_run('promotion-mission')
+    obs.end_run(False, run_id=rid, shadow_pass=False,
+                transition_id='Deal_totalBusinessIncome',
+                object_type='Deal', transition_name='totalBusinessIncome',
+                context_type='Liability')
+    obs.conn.execute('UPDATE observer_runs SET created_at = 3 WHERE run_id = ?',
+                     (rid,))
+    obs.conn.commit()
+    _end_shadow_run(obs, 'Expense', ts=4)
+    assert verify_promotion_guard('Deal_totalBusinessIncome', obs.conn) is False
+
+
+def test_b2_guard_fails_insufficient_passes(obs):
+    _end_shadow_run(obs, 'Income', ts=1)
+    _end_shadow_run(obs, 'Asset', ts=2)
+    assert verify_promotion_guard('Deal_totalBusinessIncome', obs.conn) is False
+
+
+def test_b2_guard_ignores_other_transitions(obs):
+    """Guard queries by transition_id — other transitions don't pollute."""
+    for i, ctx in enumerate(['Income', 'Asset', 'Liability'], start=1):
+        _end_shadow_run(obs, ctx, ts=i)
+    _end_shadow_run(obs, 'Income', ts=99, sig='Deal_grossProfit')
+    assert verify_promotion_guard('Deal_totalBusinessIncome', obs.conn) is True
+    assert verify_promotion_guard('Deal_grossProfit', obs.conn) is False
+
+
+def test_b2_promote_baseline_enforces_guard(obs):
+    """promote_baseline with guard_result: all three stats pass but the
+    guard fails → NOT eligible; guard passes → eligible."""
+    runs = [{'success': 1, 'shadow_pass': True} for _ in range(10)]
+    no_guard = promote_baseline(runs, min_runs=10, min_success_rate=0.95,
+                                guard_result=False)
+    assert no_guard['eligible'] is False     # guard vetoes
+    assert no_guard['success_rate'] == 1.0
+    assert no_guard['consecutive_shadow_passes'] == 10
+    with_guard = promote_baseline(runs, min_runs=10, min_success_rate=0.95,
+                                  guard_result=True)
+    assert with_guard['eligible'] is True
+    # guard unset (None) → unchanged legacy behaviour
+    legacy = promote_baseline(runs, min_runs=10, min_success_rate=0.95)
+    assert legacy['eligible'] is True

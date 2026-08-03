@@ -60,16 +60,35 @@ CREATE TABLE IF NOT EXISTS observer_runs (
     steps_observed  INTEGER NOT NULL DEFAULT 0,
     success         INTEGER NOT NULL DEFAULT 0,
     shadow_pass     INTEGER NOT NULL DEFAULT 0,  -- full dual-gate (L1 confirmed)
+    transition_id   TEXT,                        -- candidate signature / family id
+    observation_diversity_hash TEXT,             -- SHA256(object_type + transition_name + context_type)
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     transitions_json TEXT NOT NULL DEFAULT '[]',  -- mined transitions
     task_candidates TEXT NOT NULL DEFAULT '[]'    -- mined task candidates
 );
 CREATE INDEX IF NOT EXISTS idx_observer_runs_mission ON observer_runs (mission_id, started_at);
 """
 
+# NOTE: idx_observer_runs_transition is created in _migrate() AFTER the
+# transition_id/created_at columns exist (pre-closure DBs lack them).
+
 _SHADOW_PASS_MIGRATION = (
     "ALTER TABLE observer_runs "
     "ADD COLUMN shadow_pass INTEGER NOT NULL DEFAULT 0"
 )
+_OBSERVATION_COLUMNS = {
+    'shadow_pass': (
+        "ALTER TABLE observer_runs "
+        "ADD COLUMN shadow_pass INTEGER NOT NULL DEFAULT 0"),
+    'transition_id': (
+        "ALTER TABLE observer_runs ADD COLUMN transition_id TEXT"),
+    'observation_diversity_hash': (
+        "ALTER TABLE observer_runs "
+        "ADD COLUMN observation_diversity_hash TEXT"),
+    'created_at': (
+        "ALTER TABLE observer_runs "
+        "ADD COLUMN created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)"),
+}
 
 
 def _utc_ms() -> int:
@@ -79,6 +98,13 @@ def _utc_ms() -> int:
 def _hash_value(v: Any) -> str:
     import hashlib
     return hashlib.sha256(str(v).encode()).hexdigest()[:16]
+
+
+def _sha256_hex(s: str) -> str:
+    """Full SHA-256 hex digest — used for the observation diversity hash
+    (B1: SHA256(object_type + transition_name + context_type))."""
+    import hashlib
+    return hashlib.sha256(s.encode('utf-8')).hexdigest()
 
 
 @dataclass
@@ -135,12 +161,17 @@ class ObserverDaemon:
 
     def _migrate(self):
         """In-place migration for pre-closure databases: observer_runs
-        predates the shadow_pass column — add it if missing."""
-        cols = [r['name'] for r in self.conn.execute(
-            'PRAGMA table_info(observer_runs)').fetchall()]
-        if 'shadow_pass' not in cols:
-            self.conn.execute(_SHADOW_PASS_MIGRATION)
-            self.conn.commit()
+        predates the shadow_pass / transition_id / diversity columns —
+        add whatever is missing, then build the transition index."""
+        cols = {r['name'] for r in self.conn.execute(
+            'PRAGMA table_info(observer_runs)').fetchall()}
+        for col, stmt in _OBSERVATION_COLUMNS.items():
+            if col not in cols:
+                self.conn.execute(stmt)
+        self.conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_observer_runs_transition '
+            'ON observer_runs (transition_id, created_at DESC)')
+        self.conn.commit()
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -198,30 +229,48 @@ class ObserverDaemon:
     def begin_run(self, mission_id: str) -> str:
         self._run_id = str(uuid.uuid4())
         self.conn.execute(
-            """INSERT INTO observer_runs (run_id, mission_id, started_at)
-               VALUES (?,?,?)""",
-            (self._run_id, mission_id, _utc_ms()))
+            """INSERT INTO observer_runs
+                 (run_id, mission_id, started_at, created_at)
+               VALUES (?,?,?,?)""",
+            (self._run_id, mission_id, _utc_ms(), _utc_ms()))
         self.conn.commit()
         return self._run_id
 
     def end_run(self, success: bool, run_id: Optional[str] = None,
                 transitions: Optional[list] = None,
                 candidates: Optional[list] = None,
-                shadow_pass: bool = False):
+                shadow_pass: bool = False,
+                transition_id: Optional[str] = None,
+                object_type: Optional[str] = None,
+                transition_name: Optional[str] = None,
+                context_type: Optional[str] = None):
         """Close a run. shadow_pass=True records that this run satisfied
         the FULL dual-gate (Pre-Read → Execution → Post-Read → L1
-        Confirmed) — the promotion pipeline counts consecutive passes."""
+        Confirmed) — the promotion pipeline counts consecutive passes.
+
+        B1 — observation_diversity_hash = SHA256(object_type +
+        transition_name + context_type): contextual diversity measures
+        GENERALIZATION (Income / Asset / Liability count as independent
+        even inside the SAME deal), not entity count. transition_id links
+        the run to the registry candidate/family for the promotion guard.
+        """
         rid = run_id or self._run_id
         steps = self.conn.execute(
             'SELECT COUNT(*) AS n FROM observer_events WHERE run_id = ?',
             (rid,)).fetchone()['n']
+        div_hash = None
+        if object_type and transition_name and context_type:
+            div_hash = _sha256_hex(
+                f'{object_type}{transition_name}{context_type}')
         self.conn.execute(
             """UPDATE observer_runs
                   SET ended_at = ?, steps_observed = ?, success = ?,
-                      shadow_pass = ?, transitions_json = ?,
-                      task_candidates = ?
+                      shadow_pass = ?, transition_id = ?,
+                      observation_diversity_hash = ?,
+                      transitions_json = ?, task_candidates = ?
                 WHERE run_id = ?""",
             (_utc_ms(), steps, 1 if success else 0, 1 if shadow_pass else 0,
+             transition_id, div_hash,
              json.dumps(transitions or []), json.dumps(candidates or []), rid))
         self.conn.commit()
 
@@ -291,9 +340,39 @@ class TaskMiner:
                 'clusters': len(clusters)}
 
 
+def verify_promotion_guard(candidate_id: str, db_conn) -> bool:
+    """B2 — independent-execution guard (verbatim from the closure spec).
+
+    The last 3 CONSECUTIVE shadow passes must span >= 3 DISTINCT
+    observation_diversity_hash values — proving generalization across
+    independent contexts (Income / Asset / Liability count as independent
+    even inside the SAME deal), not replay of one transaction.
+
+    Full bar (unchanged): >=10 runs AND >=0.95 success AND >=3 consecutive
+    shadow passes AND this guard.
+    """
+    rows = db_conn.execute("""
+        SELECT shadow_pass, observation_diversity_hash
+        FROM observer_runs WHERE transition_id = ?
+        ORDER BY created_at DESC LIMIT 10
+    """, (candidate_id,)).fetchall()
+    consecutive = []
+    for row in rows:
+        if row["shadow_pass"] == 1:
+            consecutive.append(row["observation_diversity_hash"])
+            if len(consecutive) == 3:
+                break
+        else:
+            break  # consecutive chain broken
+    if len(consecutive) < 3:
+        return False
+    return len(set(consecutive)) >= 3  # generalization across 3 distinct contexts
+
+
 def promote_baseline(runs: list[dict], min_runs: int = 10,
                      min_success_rate: float = 0.95,
-                     min_consecutive_shadow_passes: int = 3) -> dict:
+                     min_consecutive_shadow_passes: int = 3,
+                     guard_result: Optional[bool] = None) -> dict:
     """FRS-007 promotion bar — ALL THREE constraints MUST hold:
 
       1. total_observed_runs       >= min_runs           (default 10)
@@ -304,12 +383,18 @@ def promote_baseline(runs: list[dict], min_runs: int = 10,
     L1 Confirmed): run['shadow_pass'] is truthy AND run['success'].
     Consecutive passes are counted from the most recent run backwards —
     scattered passes do NOT qualify.
+
+    4. independent-execution guard (B2): when guard_result is provided
+       (from verify_promotion_guard), eligibility additionally requires
+       it to be True — >= 3 distinct contexts across the consecutive
+       shadow passes.
     """
     if len(runs) < min_runs:
         return {'eligible': False, 'runs': len(runs),
                 'needed': min_runs - len(runs), 'success_rate': None,
                 'consecutive_shadow_passes': 0,
-                'shadow_passes_needed': min_consecutive_shadow_passes}
+                'shadow_passes_needed': min_consecutive_shadow_passes,
+                'guard_result': guard_result}
     successes = sum(1 for r in runs if r.get('success'))
     rate = successes / len(runs)
     consecutive = 0
@@ -320,8 +405,11 @@ def promote_baseline(runs: list[dict], min_runs: int = 10,
             break
     eligible = (rate >= min_success_rate
                 and consecutive >= min_consecutive_shadow_passes)
+    if guard_result is not None:
+        eligible = eligible and bool(guard_result)
     return {'eligible': eligible, 'runs': len(runs),
             'success_rate': round(rate, 3), 'successes': successes,
             'consecutive_shadow_passes': consecutive,
             'shadow_passes_needed': max(0, min_consecutive_shadow_passes
-                                        - consecutive)}
+                                        - consecutive),
+            'guard_result': guard_result}
