@@ -222,6 +222,51 @@ describe('FRS-007 Mission Queue — lease-based locking (real SQL)', () => {
     assert.strictEqual(ok.body.success, true)
   })
 
+  it('P2b (TOCTOU): late complete() 1ms after lease expiry fails ATOMICALLY, row untouched', async () => {
+    await call('POST', '/enqueue', { missionId: 'm11', payload: { deal: 'X' } })
+    const claimA = await call('POST', '/claim', {
+      performerId: 'node-A', leaseDurationSeconds: 60,
+    })
+    const itemId = claimA.body.item.itemId
+    // Lease holder UNCHANGED, but the lease is now 1ms past expiry on the
+    // DB clock (holder never heartbeated / process stalled). No reclaim yet.
+    //   unixepoch()*1000 is the current whole-second boundary on the DB
+    //   clock; subtracting 1 is deterministically in the past.
+    db.prepare('UPDATE mission_queue SET lease_expires_at = ? WHERE item_id = ?')
+      .run(Math.floor(Date.now() / 1000) * 1000 - 1, itemId)
+
+    // The holder itself attempts a late complete() — lease is dead.
+    const late = await call('POST', '/complete', {
+      itemId, performerId: 'node-A', status: 'COMPLETED',
+      result: { sideEffect: 'applied' },
+    })
+    assert.strictEqual(late.body.success, false)
+    assert.strictEqual(late.body.error, 'lease_not_held_or_expired')
+    // ATOMIC: the queue row is EXACTLY as it was — no partial mutation.
+    const row = rowById(itemId)
+    assert.strictEqual(row.status, 'IN_PROGRESS')   // not COMPLETED/FAILED
+    assert.strictEqual(row.lease_holder, 'node-A')  // holder untouched
+    assert.strictEqual(row.result_json, null)       // result NOT written
+    assert.strictEqual(row.completed_at, null)      // completion NOT stamped
+  })
+
+  it('CLOCK RULE: claim issues the lease off the DB clock, not Date.now()', async () => {
+    await call('POST', '/enqueue', { missionId: 'm12', payload: {} })
+    // Bracket the claim between two wall-clock reads: the DB clock
+    // (unixepoch()*1000) at statement time must land inside this window.
+    const before = Date.now()
+    const claim = await call('POST', '/claim', {
+      performerId: 'node-1', leaseDurationSeconds: 60,
+    })
+    const after = Date.now()
+    const row = rowById(claim.body.item.itemId)
+    const issuedAt = row.lease_expires_at - 60000 // DB-now at issuance
+    const floorBefore = Math.floor(before / 1000) * 1000
+    const floorAfter = Math.floor(after / 1000) * 1000
+    assert.ok(issuedAt >= floorBefore, `issuedAt ${issuedAt} < floorBefore ${floorBefore}`)
+    assert.ok(issuedAt <= floorAfter, `issuedAt ${issuedAt} > floorAfter ${floorAfter}`)
+  })
+
   it('P3: claim carries target_state for the resumption handshake', async () => {
     await call('POST', '/enqueue', {
       missionId: 'm10', payload: {}, targetState: 'PERSISTED', stateObjectId: 'deal_1',

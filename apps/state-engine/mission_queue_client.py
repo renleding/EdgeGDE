@@ -17,6 +17,17 @@ Lease contract (FRS-007 Q2 resolution, LOCKED):
 
 L1 verification is the caller's contract: the handler must return an
 outcome backed by independent read-back before it is reported COMPLETED.
+
+DUAL-GATE (FRS-007 closure, LOCKED): every transaction passes through TWO
+independent read-back gates against the LIVE target application —
+  Gate 1 (Pre-Execution Read-Back, resume_check): target state already
+    reached? YES → skip actuator, complete idempotently. NO → proceed.
+  Gate 2 (Post-Execution Read-Back, verify_check): after the actuator
+    returns, re-query the LIVE application. Confirmed? YES → commit +
+    complete. NO → report FAILED, do NOT commit state.
+The actuator's return value is non-authoritative L3 evidence — it never
+self-certifies. evidence.db is historical context, never authoritative
+business state; both gates query the live application.
 """
 
 import json
@@ -211,23 +222,34 @@ class Performer:
     # ── main loop ─────────────────────────────────────────────────────
     def work(self, handler: Callable[[dict], dict],
              resume_check: Optional[Callable[[dict], bool]] = None,
+             verify_check: Optional[Callable[[dict, dict], bool]] = None,
              max_items: int = -1,
              on_error: Optional[Callable[[dict, Exception], str]] = None) -> dict:
-        """Claim → resume handshake → process → verify → report.
+        """Claim → dual-gate read-backs → process → verify → report.
 
-        P3 — L1 RESUMPTION HANDSHAKE (idempotency, mandatory):
-          Claim Lease → Independent Read-Back (resume_check) → target
-          state already reached?  YES → mark COMPLETED (idempotent skip),
-          do NOT execute.  NO → execute the transition.
-          resume_check(item) must perform an AUTHORITATIVE read-back
-          (fresh API GET / DB read / board reload) — never a cached DOM.
+        DUAL-GATE INDEPENDENT READ-BACK (FRS-007 closure, mandatory):
 
-        handler(item) -> result dict (must be L1-verified by the caller)
+        Gate 1 — Pre-Execution Read-Back (resume_check, idempotency):
+          Claim Lease → Independent Read-Back → target state already
+          reached?  YES → mark COMPLETED (idempotent skip), do NOT execute.
+          NO → execute the transition.  resume_check(item) must perform an
+          AUTHORITATIVE read-back (fresh API GET / DB read / board reload)
+          — never a cached DOM.
+
+        Gate 2 — Post-Execution Read-Back (verify_check):
+          After the actuator (handler) returns, re-query the LIVE target
+          application.  Confirmed?  YES → complete the mission.  NO →
+          report FAILED with the read-back error — the business state is
+          NOT committed as successful.  The handler's return value is
+          non-authoritative L3 evidence and NEVER self-certifies.
+          verify_check(item, result) returns bool (or raises → False).
+
+        handler(item) -> result dict (L3 self-report — not authoritative)
         on_error(item, exc) -> error string (defaults to str(exc))
         """
         stats = {'claimed': 0, 'completed': 0, 'completed_idempotent': 0,
-                 'failed': 0, 'queue_empty': 0, 'leased_lost': 0,
-                 'malformed': 0}
+                 'failed': 0, 'verify_failed': 0, 'queue_empty': 0,
+                 'leased_lost': 0, 'malformed': 0}
         while max_items < 0 or stats['claimed'] < max_items:
             try:
                 resp = self.client.claim(
@@ -278,6 +300,24 @@ class Performer:
                     # auto-release and be retried by another performer
                     stats['leased_lost'] += 1
                     continue
+                # ── Gate 2: POST-EXECUTION READ-BACK (L1 handshake) ──
+                # The handler's return is L3 self-report — it never
+                # certifies itself. Re-query the LIVE application; only a
+                # confirmed read-back may commit the mission.
+                if verify_check is not None:
+                    try:
+                        confirmed = verify_check(item, result)
+                    except Exception:  # noqa: BLE001 — read-back failure
+                        confirmed = False
+                    if not confirmed:
+                        msg = ('post-execution read-back FAILED for '
+                               f'{item_id} — state NOT committed')
+                        self.client.complete(
+                            item_id, self.performer_id, 'FAILED', error=msg)
+                        stats['verify_failed'] += 1
+                        stats['failed'] += 1
+                        logger.warning("Item %s %s", item_id, msg)
+                        continue
                 done = self.client.complete(
                     item_id, self.performer_id, 'COMPLETED', result=result)
                 if done.get('success'):
