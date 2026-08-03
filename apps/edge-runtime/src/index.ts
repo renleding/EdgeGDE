@@ -244,7 +244,7 @@ app.use('*', tenantContextResolver)
 
 // 2. RATE LIMITER
 async function rateLimitHandler(c: any, next: any) {
-  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+  const tenant = (c as unknown as { get: (key: string) => TenantConfig | undefined }).get('tenant')
 
   if (!tenant) {
     // No tenant resolved (admin/agent endpoints) — skip rate limiting
@@ -304,7 +304,7 @@ app.get('/healthz', (c) => {
 
 // Canvas WebSocket upgrade routing — browser editor connects to /ws?do=<doId>
 app.all('/ws', async (c) => {
-  const env = (c as any).env
+  const env = c.env as Env
   const canvasId = c.req.query('do') || c.req.query('canvasId') || c.req.query('id')
   if (!canvasId) return c.json({ error: 'Canvas DO id required' }, 400)
 
@@ -360,7 +360,7 @@ app.post('/api/webhook/leads', adminAuth, async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.get('/api/leads/feed', adminAuth, async (c) => {
-  const rawKv = (c.env as any)?.TENANT_KV
+  const rawKv = (c.env as Env | undefined)?.TENANT_KV
   if (!rawKv) return c.json({ alerts: [] })
 
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
@@ -394,11 +394,11 @@ app.get('/api/leads/feed', adminAuth, async (c) => {
 app.get('/.well-known/mcp.json', (c) => {
   const calcTools = Object.values(CALCULATOR_REGISTRY).map((tool) => {
     // Unwrap ZodEffects (refined) schemas to get the inner ZodObject
-    const innerSchema = (tool.schema as any)._def?.innerType ?? tool.schema
+    const innerSchema = (tool.schema as unknown as { _def?: { innerType?: unknown } })._def?.innerType ?? tool.schema
     return {
       name: `calculate_${tool.id}`,
       description: tool.description,
-      inputSchema: zodToJsonSchema(innerSchema as any) as Record<string, unknown>,
+      inputSchema: zodToJsonSchema(innerSchema as Parameters<typeof zodToJsonSchema>[0]) as Record<string, unknown>,
     }
   })
 
@@ -566,7 +566,7 @@ app.get('/api/pwa/workspaces/:workspaceId/action-proposals', getPwaActionProposa
 app.post('/api/pwa/workspaces/:workspaceId/action-proposals', postPwaActionProposal)
 // Create a new canvas session
 app.post('/api/canvas/create', async (c) => {
-  const env = (c as any).env
+  const env = c.env as Env
   const id = crypto.randomUUID()
   const doId = env.CANVAS_SESSION.idFromName(id)
   const stub = env.CANVAS_SESSION.get(doId)
@@ -612,9 +612,9 @@ app.post('/api/canvas/clone', async (c) => {
       typography: { ...inlineTokens?.typography, ...cssTokens.typography },
       spacing: { ...inlineTokens?.spacing, ...cssTokens.spacing },
     }
-    ;(doc as any).designTokens = designTokens
+    ;(doc as unknown as { designTokens: unknown }).designTokens = designTokens
 
-    const env = (c as any).env
+    const env = c.env as Env
     const doId = env.CANVAS_SESSION.idFromName(id)
     const stub = env.CANVAS_SESSION.get(doId)
     await stub.fetch('http://dO/init', {
@@ -689,10 +689,10 @@ app.post('/api/canvas/generate', async (c) => {
   const { prompt } = await c.req.json() as { prompt: string }
   if (!prompt) return c.json({ error: 'Prompt required' }, 400)
 
-  const env = (c as any).env
+  const env = c.env as Env
   const tenantKv = guardKV(env['TENANT_KV'])
   const LLM_KEY = env.LLM_API_KEY as string || ''
-  const CANVAS_SESSION = env.CANVAS_SESSION as any
+  const CANVAS_SESSION = env.CANVAS_SESSION
 
   // ── Check KV cache ──────────────────────────────────────────────────
   const pHash = await hashPrompt(prompt)
@@ -747,7 +747,7 @@ app.post('/api/canvas/generate', async (c) => {
 // Poll generation status
 app.get('/api/canvas/generate/status/:jobId', async (c) => {
   const jobId = c.req.param('jobId')
-  const env = (c as any).env
+  const env = c.env as Env
   const tenantKv = guardKV(env['TENANT_KV'])
   if (!tenantKv || typeof tenantKv.get !== 'function') {
     return c.json({ error: 'Storage unavailable' }, 500)
@@ -769,7 +769,7 @@ app.post('/api/canvas/:id/chat', async (c) => {
 })
 
 app.get('/canvas/:id/edit', async (c) => {
-  const env = (c as any).env
+  const env = c.env as Env
   const canvasId = c.req.param('id')
   const doId = env.CANVAS_SESSION.idFromName(canvasId)
   const stub = env.CANVAS_SESSION.get(doId)
@@ -786,7 +786,7 @@ app.get('/canvas/:id/edit', async (c) => {
     }
 
     // Fallback: attempt lazy migration from legacy layout
-    const env = (c as any).env
+    const env = c.env as Env
     const tenantKv = guardKV(env['TENANT_KV'])
     const ARTIFACT_KV = env.ARTIFACT_KV as any
     let layout: any = null
@@ -822,18 +822,18 @@ app.get('/canvas/:id/edit', async (c) => {
 
 // Raw DO state (for debugging)
 app.get('/api/canvas/:id/state', async (c) => {
-  const env = (c as any).env
+  const env = c.env as Env
   const canvasId = c.req.param('id')
   const doId = env.CANVAS_SESSION.idFromName(canvasId)
   const stub = env.CANVAS_SESSION.get(doId)
   const stateRes = await stub.fetch('http://dO/state')
   if (stateRes.status === 400) return c.json({ error: 'Not found' }, 404)
-  const doc = await stateRes.json()
+  const doc = (await stateRes.json()) as Record<string, any>
   return c.json({
     id: doc.id,
     version: doc.version,
     rootId: doc.rootId,
-    nodeCount: Object.keys(doc.nodes || {}).length,
+    nodeCount: Object.keys((doc.nodes as Record<string, unknown>) || {}).length,
     hasDesignTokens: !!(doc as any).designTokens,
     designTokens: (doc as any).designTokens || null,
   })
@@ -841,7 +841,7 @@ app.get('/api/canvas/:id/state', async (c) => {
 
 // Raw DO state check
 app.get('/api/canvas/:id/debug', async (c) => {
-  const env = (c as any).env
+  const env = c.env as Env
   const canvasId = c.req.param('id')
   const doId = env.CANVAS_SESSION.idFromName(canvasId)
   const stub = env.CANVAS_SESSION.get(doId)
@@ -861,7 +861,7 @@ app.get('/api/canvas/:id/debug', async (c) => {
 })
 
 app.get('/api/canvas/:id/html', async (c) => {
-  const env = (c as any).env
+  const env = c.env as Env
   const canvasId = c.req.param('id')
   const doId = env.CANVAS_SESSION.idFromName(canvasId)
   const stub = env.CANVAS_SESSION.get(doId)
@@ -951,7 +951,7 @@ const MCP_TOOLS = [
 
 async function handleMcpTool(name: string, args: any, env: any): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
-    const CANVAS_SESSION = env.CANVAS_SESSION as any
+    const CANVAS_SESSION = env.CANVAS_SESSION
 
     switch (name) {
       case 'canvas_create': {
@@ -976,7 +976,7 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         doc.id = id
         const styles = collectStyles(doc)
         const designTokens = extractDesignTokens(styles, { fallback: 'light' })
-        ;(doc as any).designTokens = designTokens
+        ;(doc as unknown as { designTokens: unknown }).designTokens = designTokens
         const doId = CANVAS_SESSION.idFromName(id)
         const stub = CANVAS_SESSION.get(doId)
         await stub.fetch('http://dO/init', {
@@ -1324,7 +1324,7 @@ app.route('/api/tenants', tenantRouter)
 
 app.put('/api/tenants/:slug', adminAuth, async (c) => {
   const slug = c.req.param('slug')
-  const rawKv = (c.env as any)?.TENANT_KV
+  const rawKv = (c.env as Env | undefined)?.TENANT_KV
   if (!rawKv) return c.json({ error: 'TENANT_KV not available' }, 500)
 
   const kv = guardKV(rawKv)
@@ -1460,10 +1460,10 @@ app.post('/api/render', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.get('/', async (c) => {
-  const tenant = (c as any).get('tenant') as TenantConfig | undefined
+  const tenant = (c as unknown as { get: (key: string) => TenantConfig | undefined }).get('tenant')
   if (!tenant) return c.text('Tenant not resolved', 500)
 
-  const rawKv = (c.env as any)?.TENANT_KV
+  const rawKv = (c.env as Env | undefined)?.TENANT_KV
   if (!rawKv) return c.text('TENANT_KV not available', 500)
 
   const kv = guardKV(rawKv)
