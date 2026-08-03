@@ -1,0 +1,83 @@
+# FRS-007 Phase 2 — Declarative Transition Registry (Data Plane)
+# Loaded by StateRegistry.load_transitions_from_yaml().
+#
+# L1 COMMIT CONTRACT: verification_gate entries reference BUSINESS-STATE
+# read-backs (independent confirmation), never DOM observations (FRS-007 R1).
+#
+# Example (from FRS-007 v1.0 spec):
+#   transitions:
+#     save_transaction:
+#       source_state: DRAFT
+#       target_state: PERSISTED
+#       verification_gate:
+#         - deal_visible_on_board
+#       synchronization_gate:
+#         - network_idle
+#         - no_active_spinners
+#       rollback_policy:
+#         - revert_to_draft
+
+transitions:
+  save_transaction:
+    name: Save deal transaction
+    source_state: DRAFT
+    target_state: PERSISTED
+    verification_gate:
+      - independent_readback: deal_visible_on_board
+      - state_readback: deal_status == PERSISTED
+    synchronization_gate:
+      - network_idle
+      - no_active_spinners
+      - save_button_enabled
+    rollback_policy:
+      - revert_to_draft
+
+  attach_applicant:
+    name: Attach applicant to deal
+    source_state: PERSISTED
+    target_state: APPLICANT_ATTACHED
+    verification_gate:
+      - readback: applicant_visible_on_deal
+    synchronization_gate:
+      - dom_attached
+      - contact_picker_closed
+    rollback_policy:
+      - remove_applicant
+
+  add_security:
+    name: Add security to deal
+    source_state: APPLICANT_ATTACHED
+    target_state: SECURITY_ADDED
+    verification_gate:
+      - readback: stash_address_resolved
+      - readback: security_value_persisted
+    synchronization_gate:
+      - network_idle
+      - stash_suggestions_loaded
+    rollback_policy:
+      - delete_security
+
+  complete_funding:
+    name: Complete funding worksheet
+    source_state: SECURITY_ADDED
+    target_state: FUNDING_COMPLETE
+    verification_gate:
+      - readback: contract_prices_persisted
+      - readback: zero_required_fields
+    synchronization_gate:
+      - network_idle
+    rollback_policy:
+      - reset_funding
+
+  request_approval:
+    name: Request approval from mentor
+    source_state: FUNDING_COMPLETE
+    target_state: APPROVAL_REQUESTED
+    verification_gate:
+      - readback: approval_dialog_closed
+      - readback: approval_recorded_in_activity
+    synchronization_gate:
+      - dialog_open
+      - note_filled
+    rollback_policy:
+      - withdraw_approval_request
