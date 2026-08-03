@@ -27,6 +27,8 @@ const EnqueueSchema = z.object({
   payload: z.record(z.unknown()).optional().default({}),
   priority: z.number().int().min(0).max(10).optional().default(0),
   maxAttempts: z.number().int().min(1).max(10).optional().default(3),
+  targetState: z.string().optional().default(''),
+  stateObjectId: z.string().optional().default(''),
 })
 
 const ClaimSchema = z.object({
@@ -45,6 +47,39 @@ const CompleteSchema = z.object({
   status: z.enum(['COMPLETED', 'FAILED']),
   result: z.record(z.unknown()).optional().default({}),
   error: z.string().optional().default(''),
+})
+
+// P1 — trust boundaries: every response crossing the network boundary is
+// validated at runtime; malformed payloads fail before business logic.
+const ClaimResponseSchema = z.object({
+  success: z.boolean(),
+  item: z.object({
+    itemId: z.string(),
+    missionId: z.string(),
+    payload: z.record(z.unknown()),
+    status: z.string(),
+    attempts: z.number(),
+    leaseExpiresAt: z.number(),
+    leaseDurationSeconds: z.number(),
+    targetState: z.string().optional(),
+    stateObjectId: z.string().optional(),
+  }).nullable().optional(),
+  message: z.string().optional(),
+})
+
+const HeartbeatResponseSchema = z.object({
+  success: z.boolean(),
+  itemId: z.string().optional(),
+  leaseExpiresAt: z.number().optional(),
+  heartbeatCount: z.number().optional(),
+  error: z.string().optional(),
+})
+
+const CompleteResponseSchema = z.object({
+  success: z.boolean(),
+  itemId: z.string().optional(),
+  status: z.string().optional(),
+  error: z.string().optional(),
 })
 
 function db(env: Record<string, unknown>): D1Database {
@@ -67,14 +102,15 @@ missionQueueRouter.post('/enqueue', async (c) => {
     if (!parsed.success) {
       return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
-    const { missionId, payload, priority, maxAttempts } = parsed.data
+    const { missionId, payload, priority, maxAttempts, targetState, stateObjectId } = parsed.data
     const itemId = crypto.randomUUID()
     await db(c.env as Record<string, unknown>).prepare(
       `INSERT INTO mission_queue
          (item_id, mission_id, payload_json, status, priority,
-          max_attempts, created_at, updated_at)
-       VALUES (?, ?, ?, 'QUEUED', ?, ?, ?, ?)`,
-    ).bind(itemId, missionId, JSON.stringify(payload), priority, maxAttempts, now(), now()).run()
+          max_attempts, target_state, state_object_id, created_at, updated_at)
+       VALUES (?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?)`,
+    ).bind(itemId, missionId, JSON.stringify(payload), priority, maxAttempts,
+           targetState || null, stateObjectId || null, now(), now()).run()
     return c.json({ success: true, itemId, status: 'QUEUED' })
   } catch (err) {
     return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500)
@@ -133,13 +169,14 @@ missionQueueRouter.post('/claim', async (c) => {
            LIMIT 1
         )
         RETURNING item_id, mission_id, payload_json, status, attempts,
-                  lease_expires_at, lease_duration_seconds`,
+                  lease_expires_at, lease_duration_seconds,
+                  target_state, state_object_id`,
     ).bind(performerId, leaseUntil, t, t).first()
 
     if (!row) {
-      return c.json({ success: true, item: null, message: 'queue_empty' })
+      return c.json(ClaimResponseSchema.parse({ success: true, item: null, message: 'queue_empty' }))
     }
-    return c.json({
+    return c.json(ClaimResponseSchema.parse({
       success: true,
       item: {
         itemId: row.item_id,
@@ -149,8 +186,10 @@ missionQueueRouter.post('/claim', async (c) => {
         attempts: row.attempts,
         leaseExpiresAt: row.lease_expires_at,
         leaseDurationSeconds: row.lease_duration_seconds,
+        targetState: row.target_state ?? '',
+        stateObjectId: row.state_object_id ?? '',
       },
-    })
+    }))
   } catch (err) {
     return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500)
   }
@@ -234,16 +273,45 @@ missionQueueRouter.post('/complete', async (c) => {
 missionQueueRouter.get('/', async (c) => {
   try {
     const dbc = db(c.env as Record<string, unknown>)
-    const byStatus = await dbc.prepare(
-      `SELECT status, COUNT(*) AS n, MIN(created_at) AS oldest
-         FROM mission_queue GROUP BY status`,
+    const counts = await dbc.prepare(
+      `SELECT status, COUNT(*) AS n FROM mission_queue GROUP BY status`,
     ).all()
+    const oldestQueued = await dbc.prepare(
+      `SELECT MIN(created_at) AS oldest FROM mission_queue WHERE status='QUEUED'`,
+    ).first()
+    const oldestLease = await dbc.prepare(
+      `SELECT MIN(lease_expires_at) AS oldest FROM mission_queue WHERE status='IN_PROGRESS'`,
+    ).first()
+    const recovered = await dbc.prepare(
+      `SELECT COUNT(*) AS n FROM mission_queue WHERE attempts > 0`,
+    ).first()
     const inFlight = await dbc.prepare(
       `SELECT item_id, mission_id, lease_holder,
               lease_expires_at, heartbeat_count, attempts
          FROM mission_queue WHERE status = 'IN_PROGRESS'`,
     ).all()
-    return c.json({ success: true, byStatus: byStatus.results, inFlight: inFlight.results })
+
+    const byStatus: Record<string, number> = {}
+    for (const r of (counts.results as Array<{ status: string; n: number }>)) {
+      byStatus[r.status] = r.n
+    }
+    const t = now()
+    return c.json({
+      success: true,
+      metrics: {
+        queue_depth: byStatus.QUEUED ?? 0,
+        in_progress_count: byStatus.IN_PROGRESS ?? 0,
+        dead_letter_count: byStatus.DEAD ?? 0,
+        failed_count: byStatus.FAILED ?? 0,
+        completed_count: byStatus.COMPLETED ?? 0,
+        lease_recovery_count: (recovered?.n as number) ?? 0,
+        oldest_queue_age_ms: oldestQueued?.oldest != null
+          ? Math.max(0, t - (oldestQueued.oldest as number)) : 0,
+        oldest_lease_age_ms: oldestLease?.oldest != null
+          ? Math.max(0, t - (oldestLease.oldest as number)) : 0,
+      },
+      inFlight: inFlight.results,
+    })
   } catch (err) {
     return c.json({ success: false, error: err instanceof Error ? err.message : String(err) }, 500)
   }

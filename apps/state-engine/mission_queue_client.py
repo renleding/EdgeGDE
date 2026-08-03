@@ -83,23 +83,57 @@ class MissionQueueClient:
 
     # ── Dispatcher ────────────────────────────────────────────────────
     def enqueue(self, mission_id: str, payload: Optional[dict] = None,
-                priority: int = 0, max_attempts: int = 3) -> dict:
-        """Load a discrete transaction into the queue."""
+                priority: int = 0, max_attempts: int = 3,
+                target_state: str = '', state_object_id: str = '') -> dict:
+        """Load a discrete transaction into the queue.
+
+        target_state / state_object_id power the L1 Resumption Handshake:
+        the Performer reads back the object's state after claiming; if the
+        target state is already reached the item is completed idempotently.
+        """
         return self._post('/enqueue', {
             'missionId': mission_id,
             'payload': payload or {},
             'priority': priority,
             'maxAttempts': max_attempts,
+            'targetState': target_state,
+            'stateObjectId': state_object_id,
         })
 
     # ── Performer ─────────────────────────────────────────────────────
     def claim(self, performer_id: str,
               lease_duration_seconds: int = DEFAULT_LEASE_SECONDS) -> dict:
-        """Atomically claim the next available item (or None if empty)."""
-        return self._post('/claim', {
+        """Atomically claim the next available item (or None if empty).
+
+        P1: the response is validated at runtime; malformed payloads
+        raise ValueError instead of entering business logic.
+        """
+        resp = self._post('/claim', {
             'performerId': performer_id,
             'leaseDurationSeconds': lease_duration_seconds,
         })
+        self._validate_claim(resp)
+        return resp
+
+    @staticmethod
+    def _validate_claim(resp: dict):
+        if not isinstance(resp, dict) or 'success' not in resp:
+            raise ValueError(f"Malformed claim response: {resp!r}")
+        item = resp.get('item')
+        if item is not None:
+            if not isinstance(item, dict):
+                raise ValueError("Malformed claim item: not an object")
+            for key in ('itemId', 'missionId', 'status'):
+                if not isinstance(item.get(key), str):
+                    raise ValueError(f"Malformed claim item: missing '{key}'")
+            payload = item.get('payload')
+            if not isinstance(payload, dict):
+                raise ValueError("Malformed claim item: payload not an object")
+
+    @staticmethod
+    def _validate_complete(resp: dict):
+        if not isinstance(resp, dict) or 'success' not in resp:
+            raise ValueError(f"Malformed complete response: {resp!r}")
 
     def heartbeat(self, item_id: str, performer_id: str) -> dict:
         """Extend the lease on the held item."""
@@ -148,10 +182,14 @@ class Performer:
 
     # ── heartbeat thread (keeps the lease alive while working) ────────
     def _heartbeat_loop(self, item_id: str):
+        # Sleep in small increments so a stop is honoured quickly
         while not self._stop.is_set():
-            time.sleep(self.heartbeat_interval)
+            for _ in range(max(1, int(self.heartbeat_interval / 0.25))):
+                if self._stop.is_set():
+                    return
+                time.sleep(0.25)
             if self._stop.is_set():
-                break
+                return
             resp = self.client.heartbeat(item_id, self.performer_id)
             if not resp.get('success'):
                 logger.warning("Heartbeat lost for %s: %s",
@@ -171,18 +209,33 @@ class Performer:
             self._hb_thread.join(timeout=self.heartbeat_interval + 2)
 
     # ── main loop ─────────────────────────────────────────────────────
-    def work(self, handler: Callable[[dict], dict], max_items: int = -1,
+    def work(self, handler: Callable[[dict], dict],
+             resume_check: Optional[Callable[[dict], bool]] = None,
+             max_items: int = -1,
              on_error: Optional[Callable[[dict, Exception], str]] = None) -> dict:
-        """Claim → process → verify → report, until the queue is empty.
+        """Claim → resume handshake → process → verify → report.
+
+        P3 — L1 RESUMPTION HANDSHAKE (idempotency, mandatory):
+          Claim Lease → Independent Read-Back (resume_check) → target
+          state already reached?  YES → mark COMPLETED (idempotent skip),
+          do NOT execute.  NO → execute the transition.
+          resume_check(item) must perform an AUTHORITATIVE read-back
+          (fresh API GET / DB read / board reload) — never a cached DOM.
 
         handler(item) -> result dict (must be L1-verified by the caller)
         on_error(item, exc) -> error string (defaults to str(exc))
         """
-        stats = {'claimed': 0, 'completed': 0, 'failed': 0,
-                 'queue_empty': 0, 'leased_lost': 0}
+        stats = {'claimed': 0, 'completed': 0, 'completed_idempotent': 0,
+                 'failed': 0, 'queue_empty': 0, 'leased_lost': 0,
+                 'malformed': 0}
         while max_items < 0 or stats['claimed'] < max_items:
-            resp = self.client.claim(
-                self.performer_id, self.lease_duration)
+            try:
+                resp = self.client.claim(
+                    self.performer_id, self.lease_duration)
+            except ValueError as exc:  # P1: malformed response from boundary
+                stats['malformed'] += 1
+                logger.error("Malformed claim response: %s", exc)
+                break
             if not resp.get('success'):
                 logger.error("Claim failed: %s", resp.get('error'))
                 break
@@ -194,6 +247,30 @@ class Performer:
             item_id = item['itemId']
             stats['claimed'] += 1
             self._start_heartbeat(item_id)
+
+            # ── P3: L1 Resumption Handshake ───────────────────────────
+            if resume_check is not None and item.get('targetState'):
+                try:
+                    already_reached = resume_check(item)
+                except Exception:  # noqa: BLE001 — read-back failure = not reached
+                    already_reached = False
+                if already_reached:
+                    done = self.client.complete(
+                        item_id, self.performer_id, 'COMPLETED',
+                        result={'idempotent': True, 'skipped': True,
+                                'targetState': item.get('targetState')})
+                    self._stop_heartbeat()
+                    if done.get('success'):
+                        stats['completed'] += 1
+                        stats['completed_idempotent'] += 1
+                        logger.info("Item %s ALREADY %s — skipped (idempotent)",
+                                    item_id, item.get('targetState'))
+                    else:
+                        stats['failed'] += 1
+                        logger.warning("Idempotent complete rejected: %s",
+                                       done.get('error'))
+                    continue
+
             try:
                 result = handler(item)
                 if self._stop.is_set():

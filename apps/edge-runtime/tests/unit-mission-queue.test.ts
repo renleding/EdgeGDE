@@ -86,12 +86,17 @@ function rowById(itemId) {
 }
 
 beforeEach(() => {
-  const migration = readFileSync(
+  const m1 = readFileSync(
     join(dirname(__dirname), 'migrations', '0025_create_mission_queue.sql'),
     'utf8',
   )
+  const m2 = readFileSync(
+    join(dirname(__dirname), 'migrations', '0026_add_resumption_handshake.sql'),
+    'utf8',
+  )
   db = new DatabaseSync(':memory:')
-  db.exec(migration)
+  db.exec(m1)
+  db.exec(m2)
 })
 
 describe('FRS-007 Mission Queue — lease-based locking (real SQL)', () => {
@@ -181,11 +186,48 @@ describe('FRS-007 Mission Queue — lease-based locking (real SQL)', () => {
     assert.strictEqual(JSON.parse(final.result_json).verified, true)
   })
 
-  it('queue analytics reports status distribution', async () => {
+  it('queue analytics reports operational metrics (P5)', async () => {
     await call('POST', '/enqueue', { missionId: 'm8', payload: {} })
     const report = await call('GET', '/', {})
     assert.strictEqual(report.body.success, true)
-    const statuses = report.body.byStatus.map((s) => s.status)
-    assert.ok(statuses.includes('QUEUED'))
+    const m = report.body.metrics
+    assert.strictEqual(m.queue_depth, 1)
+    assert.strictEqual(m.in_progress_count, 0)
+    assert.strictEqual(m.dead_letter_count, 0)
+    assert.strictEqual(m.lease_recovery_count, 0)
+    assert.ok(m.oldest_queue_age_ms >= 0)
+    assert.ok(typeof m.oldest_lease_age_ms === 'number')
+  })
+
+  it('P2: late commit rejected after lease expiry + reclaim', async () => {
+    await call('POST', '/enqueue', { missionId: 'm9', payload: {} })
+    const claimA = await call('POST', '/claim', { performerId: 'node-A' })
+    const itemId = claimA.body.item.itemId
+    // A "crashes" — force lease expiry
+    db.prepare('UPDATE mission_queue SET lease_expires_at = ? WHERE item_id = ?')
+      .run(Date.now() - 1000, itemId)
+    // B reclaims
+    const claimB = await call('POST', '/claim', { performerId: 'node-B' })
+    assert.strictEqual(claimB.body.item.itemId, itemId)
+    // A's late complete MUST be rejected (409 lease_not_held)
+    const late = await call('POST', '/complete', {
+      itemId, performerId: 'node-A', status: 'COMPLETED', result: {},
+    })
+    assert.strictEqual(late.body.success, false)
+    assert.strictEqual(rowById(itemId).status, 'IN_PROGRESS')
+    // B completes fine
+    const ok = await call('POST', '/complete', {
+      itemId, performerId: 'node-B', status: 'COMPLETED', result: { done: true },
+    })
+    assert.strictEqual(ok.body.success, true)
+  })
+
+  it('P3: claim carries target_state for the resumption handshake', async () => {
+    await call('POST', '/enqueue', {
+      missionId: 'm10', payload: {}, targetState: 'PERSISTED', stateObjectId: 'deal_1',
+    })
+    const claim = await call('POST', '/claim', { performerId: 'node-1' })
+    assert.strictEqual(claim.body.item.targetState, 'PERSISTED')
+    assert.strictEqual(claim.body.item.stateObjectId, 'deal_1')
   })
 })
