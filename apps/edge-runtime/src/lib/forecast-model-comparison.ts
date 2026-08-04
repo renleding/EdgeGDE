@@ -154,8 +154,8 @@ export function runForecastModelComparison(
 
   const successful = entries.filter(entry => entry.status === 'success' && entry.metrics)
   successful.sort((a, b) => {
-    const aMetric = Number((a.metrics as any)[primaryMetric] ?? Number.POSITIVE_INFINITY)
-    const bMetric = Number((b.metrics as any)[primaryMetric] ?? Number.POSITIVE_INFINITY)
+    const aMetric = Number(a.metrics?.[primaryMetric] ?? Number.POSITIVE_INFINITY)
+    const bMetric = Number(b.metrics?.[primaryMetric] ?? Number.POSITIVE_INFINITY)
     if (aMetric !== bMetric) return aMetric - bMetric
     return a.model.localeCompare(b.model)
   })
