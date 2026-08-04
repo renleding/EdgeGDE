@@ -14,7 +14,7 @@ export async function logAuditEvent(
   metadata?: Record<string, unknown>,
 ): Promise<void> {
   try {
-    const auditDo = (env as any)?.AUDIT_LEDGER
+    const auditDo = env?.AUDIT_LEDGER
     if (!auditDo || typeof auditDo.idFromName !== 'function') return
     if (!tenantId) return
 

@@ -75,7 +75,7 @@ export async function processChatMessage(
       const complianceEntry = await kv.get(`tenant:${tenantId}:kb:compliance`, 'json')
       if (complianceEntry && typeof complianceEntry === 'object') {
         disclosureTexts = ruleOutputs.required_disclosures
-          .map((id: string) => (complianceEntry as any)[id]?.value)
+          .map((id: string) => (complianceEntry as Record<string, { value?: string }>)[id]?.value)
           .filter(Boolean) as string[]
       }
     } catch {}

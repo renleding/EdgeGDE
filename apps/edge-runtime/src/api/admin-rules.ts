@@ -9,8 +9,9 @@ import { Hono } from 'hono'
 import { guardDB } from '../lib/db'
 import { rebuildTenantConfig } from '../lib/config-inheritance'
 import { evaluateCondition, parseRuleOutput, simulateRules, type Rule, validateConditionSyntax } from '../lib/rule-engine'
+import type { Env } from '../lib/env'
 
-const adminRulesRouter = new Hono()
+const adminRulesRouter = new Hono<{ Bindings: Env }>()
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -22,12 +23,12 @@ function escapeHtml(s: string): string {
 
 adminRulesRouter.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const db = guardDB((c.env as any)?.DB)
+  const db = guardDB(c.env.DB)
   const ctx = { tenantId, env: c.env }
 
   // eslint-disable-next-line local/no-raw-storage-access
-  const { results: rulesRaw } = await (c.env as any).DB.prepare('SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority DESC, created_at DESC').bind(tenantId).all()
-  const rules: Rule[] = (rulesRaw || []) as Rule[]
+  const { results: rulesRaw } = await c.env.DB.prepare('SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority DESC, created_at DESC').bind(tenantId).all()
+  const rules: Rule[] = (rulesRaw || []) as unknown as Rule[]
 
   const rows = rules.map(r => `
     <tr id="rule-${escapeHtml(r.id)}">
@@ -139,12 +140,12 @@ adminRulesRouter.get('/', async (c) => {
 
 adminRulesRouter.get('/list', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const db = guardDB((c.env as any)?.DB)
+  const db = guardDB(c.env.DB)
   const ctx = { tenantId, env: c.env }
 
   // eslint-disable-next-line local/no-raw-storage-access
-  const { results: rulesRaw } = await (c.env as any).DB.prepare('SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority DESC, created_at DESC').bind(tenantId).all()
-  const rules: Rule[] = (rulesRaw || []) as Rule[]
+  const { results: rulesRaw } = await c.env.DB.prepare('SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority DESC, created_at DESC').bind(tenantId).all()
+  const rules: Rule[] = (rulesRaw || []) as unknown as Rule[]
 
   const rows = rules.map(r => `
     <tr id="rule-${escapeHtml(r.id)}">
@@ -170,7 +171,7 @@ adminRulesRouter.get('/list', async (c) => {
 
 adminRulesRouter.post('/create', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const db = guardDB((c.env as any)?.DB)
+  const db = guardDB(c.env.DB)
   const ctx = { tenantId, env: c.env }
 
   const fd = await c.req.formData()
@@ -191,7 +192,7 @@ adminRulesRouter.post('/create', async (c) => {
   const now = Math.floor(Date.now() / 1000)
 
   await db.insert(ctx, 'rules', { id, tenant_id: tenantId, condition, output, priority, active: 1, created_at: now })
-  await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+  await rebuildTenantConfig(c.env.TENANT_KV, c.env, tenantId)
 
   return c.html(`<div style="color:#3fb950;font-size:13px">✅ Rule created · config rebuilt. <a href="/admin/rules?tenant=${escapeHtml(tenantId)}" style="color:#58a6ff">Refresh list</a></div>`)
 })
@@ -202,7 +203,7 @@ adminRulesRouter.post('/create', async (c) => {
 
 adminRulesRouter.post('/update', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const db = guardDB((c.env as any)?.DB)
+  const db = guardDB(c.env.DB)
   const ctx = { tenantId, env: c.env }
 
   const fd = await c.req.formData()
@@ -220,7 +221,7 @@ adminRulesRouter.post('/update', async (c) => {
   }
 
   await db.update(ctx, 'rules', { condition, output, priority }, 'id = ?', [id])
-  await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+  await rebuildTenantConfig(c.env.TENANT_KV, c.env, tenantId)
 
   return c.html(`<div style="color:#3fb950;font-size:13px">✅ Rule updated · config rebuilt. <a href="/admin/rules?tenant=${escapeHtml(tenantId)}" style="color:#58a6ff">Back to rules</a></div>`)
 })
@@ -234,7 +235,7 @@ adminRulesRouter.get('/edit', async (c) => {
   const id = c.req.query('id')
   if (!id) return c.html('<div style="color:#da3633">Missing id</div>')
 
-  const db = guardDB((c.env as any)?.DB)
+  const db = guardDB(c.env.DB)
   const ctx = { tenantId, env: c.env }
 
   const rule = await db.first<Rule>(ctx, 'SELECT * FROM rules WHERE id = ?', [id])
@@ -273,7 +274,7 @@ adminRulesRouter.post('/toggle', async (c) => {
   const id = c.req.query('id')
   if (!id) return c.html('<div style="color:#da3633">Missing id</div>')
 
-  const db = guardDB((c.env as any)?.DB)
+  const db = guardDB(c.env.DB)
   const ctx = { tenantId, env: c.env }
 
   const rule = await db.first<Rule>(ctx, 'SELECT * FROM rules WHERE id = ?', [id])
@@ -281,7 +282,7 @@ adminRulesRouter.post('/toggle', async (c) => {
 
   const newActive = rule.active ? 0 : 1
   await db.update(ctx, 'rules', { active: newActive }, 'id = ?', [id])
-  await rebuildTenantConfig((c.env as any).TENANT_KV, c.env as any, tenantId)
+  await rebuildTenantConfig(c.env.TENANT_KV, c.env, tenantId)
 
   return c.html(`
     <tr id="rule-${escapeHtml(rule.id)}">
