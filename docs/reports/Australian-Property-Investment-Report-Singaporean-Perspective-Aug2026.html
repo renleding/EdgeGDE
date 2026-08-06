@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Australian Property Investment Report — Singaporean Perspective — August 2026</title>
+<style>
+  :root {
+    --ink: #1a2332;
+    --muted: #5b6779;
+    --line: #e3e8f0;
+    --accent: #b02a37;      /* deep Australian red */
+    --accent-dark: #7e1e28;
+    --gold: #c9a227;
+    --surface: #ffffff;
+    --wash: #f4f6f9;
+    --wa: #b02a37;
+    --act: #2d6a4f;
+    --serif: "Georgia", "Times New Roman", serif;
+    --sans: "Helvetica Neue", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--sans); color: var(--ink); background: #fff; line-height: 1.55; }
+
+  /* ---------- COVER ---------- */
+  .cover { position: relative; height: 100vh; min-height: 760px; overflow: hidden; background: #0d1420; color: #fff; }
+  .cover img.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.45; }
+  .cover .veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(13,20,32,0.35) 0%, rgba(13,20,32,0.82) 78%); }
+  .cover .inner { position: relative; z-index: 2; padding: 9vh 9vw; display: flex; flex-direction: column; justify-content: space-between; height: 100%; }
+  .cover .kicker { font-size: 0.8rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  .cover h1 { font-family: var(--serif); font-size: 4.2rem; line-height: 1.04; margin: 2.2rem 0 1.2rem; max-width: 15ch; font-weight: 600; }
+  .cover h1 em { font-style: italic; color: #e8c36a; }
+  .cover .subtitle { font-size: 1.25rem; color: #d7dee9; max-width: 60ch; line-height: 1.5; }
+  .cover .meta { display: flex; gap: 3rem; margin-top: 3rem; font-size: 0.9rem; color: #b9c3d2; }
+  .cover .meta b { display: block; color: #fff; font-size: 1rem; margin-top: 0.2rem; }
+  .cover .foot { font-size: 0.78rem; color: #8b97a8; letter-spacing: 0.08em; }
+
+  /* ---------- PAGE CHROME ---------- */
+  .page { max-width: 1080px; margin: 0 auto; padding: 4.5rem 4rem; }
+  .section-label { font-size: 0.72rem; letter-spacing: 0.26em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin-bottom: 1rem; }
+  h2 { font-family: var(--serif); font-size: 2.4rem; line-height: 1.12; margin-bottom: 1.4rem; font-weight: 600; }
+  h3 { font-size: 1.28rem; margin: 2.2rem 0 0.8rem; color: var(--ink); }
+  p { margin-bottom: 1.1rem; color: #2c3748; }
+  .lead { font-size: 1.14rem; color: var(--muted); line-height: 1.6; }
+  .rule { height: 3px; width: 72px; background: var(--accent); margin: 1.8rem 0 2.2rem; }
+
+  /* ---------- HERO BANNERS ---------- */
+  .banner { position: relative; height: 300px; border-radius: 10px; overflow: hidden; margin: 2.6rem 0 2.4rem; }
+  .banner img { width: 100%; height: 100%; object-fit: cover; }
+  .banner .cap { position: absolute; left: 0; bottom: 0; right: 0; padding: 2.2rem 2rem 1.2rem; background: linear-gradient(180deg, transparent, rgba(10,16,26,0.85)); color: #fff; font-size: 0.82rem; letter-spacing: 0.06em; }
+  .banner .cap b { font-size: 1rem; letter-spacing: 0.02em; }
+
+  /* ---------- STAT BANDS ---------- */
+  .statband { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.4rem; margin: 2.2rem 0; }
+  .stat { background: var(--wash); border-radius: 10px; padding: 1.6rem 1.4rem; border-top: 3px solid var(--accent); }
+  .stat .num { font-family: var(--serif); font-size: 2.5rem; font-weight: 700; color: var(--accent-dark); line-height: 1; }
+  .stat .lbl { font-size: 0.82rem; color: var(--muted); margin-top: 0.5rem; line-height: 1.35; }
+  .stat.gold { border-top-color: var(--gold); }
+  .stat.gold .num { color: #8a6d1a; }
+  .stat.green { border-top-color: var(--act); }
+  .stat.green .num { color: var(--act); }
+
+  /* ---------- TABLES ---------- */
+  table { width: 100%; border-collapse: collapse; margin: 1.8rem 0 2.2rem; font-size: 0.9rem; }
+  th { background: var(--ink); color: #fff; text-align: left; padding: 0.8rem 1rem; font-weight: 600; font-size: 0.82rem; letter-spacing: 0.05em; }
+  td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  td.hl { font-weight: 700; color: var(--accent-dark); }
+  .rank1 td { background: #fdf3e7 !important; border-left: 3px solid var(--gold); }
+  .rank2 td { background: #eaf4ee !important; border-left: 3px solid var(--act); }
+  .tbl-note { font-size: 0.78rem; color: var(--muted); margin-top: -1.4rem; margin-bottom: 2rem; }
+
+  /* ---------- CARDS ---------- */
+  .cardgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin: 2.2rem 0; }
+  .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+  .card img { width: 100%; height: 190px; object-fit: cover; display: block; }
+  .card .body { padding: 1.4rem 1.5rem 1.6rem; }
+  .card .tag { font-size: 0.7rem; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; }
+  .card.wa .tag { color: var(--wa); }
+  .card.act .tag { color: var(--act); }
+  .card h4 { font-family: var(--serif); font-size: 1.35rem; margin: 0.4rem 0 0.7rem; }
+  .card p { font-size: 0.9rem; color: var(--muted); margin-bottom: 0.5rem; }
+
+  /* ---------- CALLOUT ---------- */
+  .callout { background: #fbf5ea; border-left: 4px solid var(--gold); padding: 1.4rem 1.6rem; border-radius: 0 8px 8px 0; margin: 2rem 0; }
+  .callout b { color: #7a5f12; }
+  .callout p { margin-bottom: 0.4rem; color: #4d4428; }
+
+  /* ---------- COMPARISON ---------- */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin: 2rem 0; }
+  .vsbox { border-radius: 10px; padding: 1.6rem 1.6rem 1.8rem; }
+  .vsbox.wa { background: #fdf3e7; border-top: 4px solid var(--wa); }
+  .vsbox.act { background: #eaf4ee; border-top: 4px solid var(--act); }
+  .vsbox h4 { font-size: 1.3rem; margin-bottom: 0.6rem; }
+  .vsbox ul { margin-left: 1.1rem; font-size: 0.9rem; color: #2c3748; }
+  .vsbox li { margin-bottom: 0.45rem; }
+  .vsbox .verdict { margin-top: 1rem; font-size: 0.88rem; font-weight: 600; }
+
+  /* ---------- FOOTER ---------- */
+  .footer { background: var(--ink); color: #b9c3d2; padding: 3rem 4rem; font-size: 0.8rem; }
+  .footer b { color: #fff; }
+  .pagebreak { page-break-before: always; }
+
+  @media print {
+    .cover { height: 100vh; }
+    .page { max-width: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== COVER ==================== -->
+<section class="cover">
+  <img class="bg" src="img/perth-kings-park.jpg" alt="Perth skyline over Kings Park">
+  <div class="veil"></div>
+  <div class="inner">
+    <div>
+      <div class="kicker">Property Investment Intelligence &nbsp;·&nbsp; Prepared by Afirmico Finance</div>
+      <h1>Australian Property Investment Report <em>— Singaporean Perspective —</em></h1>
+      <p class="subtitle">Why Australia's Australian Capital Territory and Western Australia are the two best states for Singaporean investors to buy new residential property — and how the 60% Singapore ABSD arbitrage transforms the economics of entry.</p>
+      <div class="meta">
+        <div>REPORT DATE<b>August 2026</b></div>
+        <div>PREPARED FOR<b>Singaporean Investors</b></div>
+        <div>PREPARED BY<b>W. Ledingham, Mortgage Broker</b></div>
+        <div>EDITION<b>v1.0 — 6 August 2026</b></div>
+      </div>
+    </div>
+    <div class="foot">Research converged via Gemini &times; Microsoft Copilot analysis, locally orchestrated. Figures verified against ATO, ABS, REIWA, SQM Research and state revenue offices, August 2026.</div>
+  </div>
+</section>
+
+<!-- ==================== INTRO ==================== -->
+<section class="page">
+  <div class="section-label">Introduction</div>
+  <h2>Australia's property market is the most accessible for foreign investors among major Western economies</h2>
+  <div class="rule"></div>
+  <p class="lead">For a Singaporean investor, the numbers are stark. Singapore's Additional Buyer's Stamp Duty charges foreign purchasers <b>60%</b> of a property's value. In Australia's Australian Capital Territory the equivalent foreign surcharge is <b>0%</b> — and in Western Australia, a <b>100% off-the-plan duty concession</b> removes the standard transfer duty on new dwellings up to $800,000.</p>
+  <p>The federal ban on foreign purchases of established dwellings (1 April 2025 – 30 June 2029) means new property is the <b>only lawful pathway</b> for foreign non-residents. That regulatory reality — combined with record-low vacancy, the strongest population growth in the country, and state incentives designed to channel capital into new builds — makes Australia not merely open to Singaporean capital, but actively structured to reward it.</p>
+  <div class="statband">
+    <div class="stat"><div class="num">60%</div><div class="lbl">Singapore ABSD on foreign buyers — the benchmark Australia beats</div></div>
+    <div class="stat gold"><div class="num">0%</div><div class="lbl">ACT foreign surcharge duty and land tax surcharge</div></div>
+    <div class="stat green"><div class="num">100%</div><div class="lbl">WA off-the-plan duty relief on new dwellings to $800k (to 30 Jun 2028)</div></div>
+    <div class="stat"><div class="num">2.2%</div><div class="lbl">WA population growth — fastest in Australia (ABS, Dec 2025)</div></div>
+  </div>
+  <div class="banner">
+    <img src="img/city-skyline-sunset.jpg" alt="City skyline at sunset">
+    <div class="cap"><b>Australia vs Singapore:</b> the 60% ABSD arbitrage makes even Australia's most expensive state cheaper to enter than the Singaporean alternative.</div>
+  </div>
+</section>
+
+<!-- ==================== EXECUTIVE SUMMARY ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Executive Summary</div>
+  <h2>Five reasons the ACT and WA win for Singaporean investors</h2>
+  <div class="rule"></div>
+  <p class="lead">This report ranks all Australian states for the Singaporean investor. The composite winner is <b>Western Australia</b> — on growth momentum, undersupply and the single most valuable state incentive in the country. The runner-up is the <b>Australian Capital Territory</b> — on tax purity, stability and zero-friction entry.</p>
+  <h3>1 — The 60% arbitrage</h3>
+  <p>Singapore's ABSD of 60% is among the most punitive property taxes in the developed world. Against it, Australia's state surcharges of 0–9% are a rounding error — and the ACT (0%) and WA (7%, offset by the 100% duty concession) deliver the steepest reduction in entry cost for Singaporean capital.</p>
+  <h3>2 — Zero-friction entry in the ACT</h3>
+  <p>The ACT is one of only two jurisdictions (with the Northern Territory) charging <b>no foreign surcharge at all</b> — neither surcharge purchaser duty nor surcharge land tax. Against NSW's 9% surcharge, that is a direct saving of up to $63,000 on a $700,000 purchase.</p>
+  <h3>3 — The cheapest new-property entry in WA</h3>
+  <p>WA's 7% surcharge is the lowest of the mainland states, and its <b>off-the-plan duty concession removes 100% of transfer duty on new dwellings up to $800,000</b> (capped $50,000, extended to 30 June 2028). No other state offers a comparable new-build incentive.</p>
+  <h3>4 — The strongest demand fundamentals</h3>
+  <p>WA recorded the fastest population growth of any state (2.2% in the year to December 2025, ABS), with Perth's rental vacancy among the tightest in the nation (REIWA ~2.0%; SQM Research 0.6%). The ACT's government-anchored economy delivers exceptional rental-demand stability.</p>
+  <h3>5 — New builds are the only lawful door</h3>
+  <p>The 2025–29 established-dwelling ban channels all foreign investment into new property — precisely the segment ACT and WA reward most. Singaporean investors are legally directed to the product class these two states have built their incentives around.</p>
+  <div class="callout">
+    <p><b>Bottom line:</b> for a Singaporean investor deploying capital once and holding long-term, <b>WA offers the better risk-adjusted entry</b> (the 100% duty concession directly reduces all-in acquisition cost); the <b>ACT is the superior choice for a conservative allocation</b> seeking maximum capital preservation and predictable, government-anchored rental income.</p>
+  </div>
+</section>
+
+<!-- ==================== THE ARBITRAGE ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 1</div>
+  <h2>The arbitrage: Singapore's 60% ABSD versus Australia's 0–9%</h2>
+  <div class="rule"></div>
+  <p class="lead">Singapore imposes a 60% Additional Buyer's Stamp Duty on foreign individuals purchasing residential property — on top of standard buyer's stamp duty. A $1 million Singapore purchase attracts approximately <b>$600,000 in ABSD alone</b>.</p>
+  <p>Australia's state-level foreign surcharges range from <b>0% (ACT, NT) to 9% (NSW)</b>. Even in Australia's most expensive jurisdiction, a Singaporean investor pays a fraction of the entry tax they face at home. And the AUD's historically low value against the SGD compounds the advantage: Singaporean currency buys more Australian property today than at most points in the past decade, with no capital controls on repatriating sale proceeds.</p>
+  <table>
+    <tr><th>Jurisdiction</th><th>Foreign surcharge duty</th><th>Foreign surcharge land tax</th><th>Off-the-plan concession</th></tr>
+    <tr class="rank2"><td><b>ACT</b></td><td class="hl">0%</td><td class="hl">0%</td><td>—</td></tr>
+    <tr class="rank1"><td><b>WA</b></td><td>7%</td><td class="hl">0%</td><td class="hl">100% duty relief ≤ $800k (to 2028)</td></tr>
+    <tr><td>NT</td><td class="hl">0%</td><td class="hl">0%</td><td>—</td></tr>
+    <tr><td>SA</td><td>8%</td><td>4% (from 2025-26)</td><td>—</td></tr>
+    <tr><td>TAS</td><td>8%</td><td>2%</td><td>—</td></tr>
+    <tr><td>QLD</td><td>8%</td><td>3%</td><td>—</td></tr>
+    <tr><td>VIC</td><td>8%</td><td>4% (absentee)</td><td>Off-the-plan construction deduction (to Oct 2026)</td></tr>
+    <tr><td>NSW</td><td>9%</td><td>5%</td><td>—</td></tr>
+  </table>
+  <p class="tbl-note">Source: state revenue offices; verified 6 August 2026.</p>
+  <div class="banner">
+    <img src="img/singapore-skyline.jpg" alt="Singapore skyline">
+    <div class="cap"><b>The benchmark:</b> Singapore's Marina Bay skyline — where the 60% ABSD is the reference point for every comparison in this report.</div>
+  </div>
+</section>
+
+<!-- ==================== THE DOOR ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 2</div>
+  <h2>The only lawful door: the new-dwelling pathway</h2>
+  <div class="rule"></div>
+  <p class="lead">Under the <i>Foreign Acquisitions and Takeovers Act</i>, foreign persons are <b>banned from purchasing established dwellings from 1 April 2025 to 30 June 2029</b> (extended from an earlier 31 March 2027 expiry; ATO).</p>
+  <p>The only lawful pathways for most foreign non-residents are:</p>
+  <ul style="margin-left:1.4rem; margin-bottom:1.4rem;">
+    <li><b>New dwellings</b> — never occupied, never previously sold (off-the-plan and near-new);</li>
+    <li><b>Vacant land with an approved development plan</b> — construction must commence within 24 months;</li>
+    <li>Purchases within developments holding <b>New/Near-New Dwelling Exemption Certificates</b> (streamlined approval).</li>
+  </ul>
+  <p>FIRB approval is a one-off application: <b>$15,600</b> for a dwelling up to $1 million (2026-27, indexed from $15,100 in 2025-26), $31,300 up to $2 million, with <b>50% refundable</b> if the purchase falls through.</p>
+  <div class="callout">
+    <p><b>The strategic implication:</b> the ban makes new property the <i>entire addressable market</i> for foreign investors. It is government policy — not marketing — that directs foreign capital into new developments. The states that actively incentivise new builds (WA above all) convert this regulatory reality into a direct financial advantage.</p>
+  </div>
+</section>
+
+<!-- ==================== RANKING FRAMEWORK ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 3</div>
+  <h2>The ranking framework</h2>
+  <div class="rule"></div>
+  <p class="lead">Each jurisdiction is scored across six dimensions, weighted for the <i>Singaporean</i> investor:</p>
+  <table>
+    <tr><th>#</th><th>Dimension</th><th>What it measures</th></tr>
+    <tr><td>1</td><td><b>Foreign-entry cost</b></td><td>Surcharge duty + surcharge land tax burden</td></tr>
+    <tr><td>2</td><td><b>New-dwelling incentives</b></td><td>Off-the-plan concessions, rebates, deferrals</td></tr>
+    <tr><td>3</td><td><b>Rental yield</b></td><td>Gross yield and vacancy tightness</td></tr>
+    <tr><td>4</td><td><b>Capital-growth outlook</b></td><td>Population growth, undersupply, pipeline</td></tr>
+    <tr><td>5</td><td><b>Liquidity and exit depth</b></td><td>Market size, resale depth, investor demand</td></tr>
+    <tr><td>6</td><td><b>Tax-regime simplicity</b></td><td>Land tax, absentee provisions, compliance burden</td></tr>
+  </table>
+  <div class="banner">
+    <img src="img/australian-beach-coast.jpg" alt="Australian coastline">
+    <div class="cap"><b>Australia's long-run appeal:</b> freehold Torrens title, no estate tax, no capital controls — a safe-haven jurisdiction for generational wealth.</div>
+  </div>
+</section>
+
+<!-- ==================== WA ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Ranked #1</div>
+  <h2>Western Australia — the performance leader</h2>
+  <div class="rule"></div>
+  <p class="lead">WA ranks first on the composite score: the strongest demand fundamentals in Australia combined with the single most valuable state incentive for new property.</p>
+  <div class="cardgrid">
+    <div class="card wa">
+      <img src="img/perth-kings-park.jpg" alt="Perth skyline over Kings Park">
+      <div class="body">
+        <div class="tag">Demand fundamentals</div>
+        <h4>The fastest-growing state</h4>
+        <p><b>2.2% population growth</b> in the year to December 2025 — fastest of any state (ABS). Six of Australia's ten fastest-growing LGAs are in WA.</p>
+      </div>
+    </div>
+    <div class="card wa">
+      <img src="img/apartment-building-australia.jpg" alt="New apartment building">
+      <div class="body">
+        <div class="tag">Entry cost</div>
+        <h4>The cheapest new-build entry</h4>
+        <p><b>100% off-the-plan duty relief</b> on new dwellings ≤ $800k (capped $50k, to 30 June 2028) — $0 transfer duty at the most common price point.</p>
+      </div>
+    </div>
+  </div>
+  <table>
+    <tr><th>$700,000 new apartment, off-the-plan</th><th>WA</th><th>ACT</th><th>QLD (comparison)</th></tr>
+    <tr><td>Transfer duty</td><td class="hl">$0 (100% OTP concession)</td><td>~$19,300</td><td>~$24,500</td></tr>
+    <tr><td>Foreign surcharge duty</td><td>$49,000 (7%)</td><td class="hl">$0 (0%)</td><td>$56,000 (8%)</td></tr>
+    <tr><td><b>Total state entry tax</b></td><td><b>$49,000</b></td><td><b>$19,300</b></td><td><b>$80,500</b></td></tr>
+    <tr><td>Foreign land tax (annual)</td><td>0%</td><td>0%</td><td>3%</td></tr>
+  </table>
+  <p class="tbl-note">WA's $0 duty outcome relies on the Off-The-Plan concession: 100% of transfer duty for new dwellings ≤ $800,000, capped at $50,000, valid 12 March 2026 – 30 June 2028, sliding to 50% between $800k–$900k. Concession rules are conditional (pre-construction contracts) and subject to legislative change — obtain independent legal and tax validation before exchange.</p>
+  <div class="callout">
+    <p><b>Honest caveats:</b> WA's economy carries commodity-cycle exposure; capital growth is more volatile than the eastern states' long-run averages; and distance from Sydney/Melbourne means weaker east-coast buyer depth. The resource-driven demand base has, however, translated into sustained migration and one of the tightest rental markets in the country (Perth vacancy ~0.6–2.0%).</p>
+  </div>
+</section>
+
+<!-- ==================== ACT ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Ranked #2</div>
+  <h2>Australian Capital Territory — the tax-efficiency leader</h2>
+  <div class="rule"></div>
+  <p class="lead">The ACT ranks second — and first on pure tax efficiency — because it is one of only two Australian jurisdictions with <b>zero foreign surcharges</b> (0% surcharge purchaser duty, 0% surcharge land tax).</p>
+  <div class="cardgrid">
+    <div class="card act">
+      <img src="img/canberra-aerial.jpg" alt="Aerial view of Canberra">
+      <div class="body">
+        <div class="tag">Demand stability</div>
+        <h4>A government-anchored economy</h4>
+        <p>Canberra's employment base is anchored by the Commonwealth public sector — the most counter-cyclical employer in Australia. Vacancy ~1.7% (SQM, June 2026).</p>
+      </div>
+    </div>
+    <div class="card act">
+      <img src="img/city-skyline-sunset.jpg" alt="Canberra skyline">
+      <div class="body">
+        <div class="tag">Entry cost</div>
+        <h4>Zero-friction entry</h4>
+        <p><b>0% surcharge on everything.</b> On a $700,000 purchase, the ACT saves the Singaporean investor $49,000–63,000 in surcharge duty compared with WA (7%) or NSW (9%).</p>
+      </div>
+    </div>
+  </div>
+  <div class="callout">
+    <p><b>Honest caveats — the supply pipeline:</b> the ACT's future apartment pipeline is substantial. HIA reports ACT dwelling commencements surged <b>71.8% in the March 2026 quarter, driven almost entirely by apartments</b>, and multi-unit dwellings dominate scheduled land releases under the territory's new planning framework. A heavily supplied apartment pipeline can suppress short-term capital growth — target sites with genuine scarcity (location, view, quality) rather than volume product.</p>
+  </div>
+</section>
+
+<!-- ==================== HEAD-TO-HEAD ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Comparison</div>
+  <h2>ACT vs WA — head-to-head</h2>
+  <div class="rule"></div>
+  <div class="compare">
+    <div class="vsbox wa">
+      <h4>WA — #1 Growth + entry-cost maximisation</h4>
+      <ul>
+        <li>Foreign surcharge duty: 7%</li>
+        <li>Foreign land tax surcharge: 0%</li>
+        <li><b>100% off-the-plan duty relief ≤ $800k (to 2028)</b></li>
+        <li>Vacancy: ~0.6–2.0% (tightest tier)</li>
+        <li>Population growth: 2.2% — fastest in Australia</li>
+        <li>Supply risk: moderate</li>
+        <li>Market liquidity: deep (Perth)</li>
+      </ul>
+      <div class="verdict">Best for: growth + entry-cost maximisation</div>
+    </div>
+    <div class="vsbox act">
+      <h4>ACT — #2 Tax purity + stability</h4>
+      <ul>
+        <li>Foreign surcharge duty: <b>0%</b></li>
+        <li>Foreign land tax surcharge: <b>0%</b></li>
+        <li>Off-the-plan duty relief: none</li>
+        <li>Vacancy: ~1.7% (tight)</li>
+        <li>Population growth: 1.3%</li>
+        <li>Supply risk: elevated (apartment pipeline)</li>
+        <li>Market liquidity: thinner</li>
+      </ul>
+      <div class="verdict">Best for: stability + zero-surcharge purity</div>
+    </div>
+  </div>
+  <p class="lead" style="margin-top:1.6rem;"><b>The verdict:</b> WA wins on growth momentum and the unmatched off-the-plan incentive; ACT wins on tax purity and defensive stability. For a Singaporean investor seeking to deploy capital once and hold long-term, <b>WA offers the better risk-adjusted entry</b> because the 100% duty concession directly reduces the all-in acquisition cost at the most common price point. The ACT is the superior choice for a conservative allocation seeking maximum capital preservation and predictable rental income.</p>
+</section>
+
+<!-- ==================== FULL RANKING ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 4</div>
+  <h2>Full state ranking — all jurisdictions</h2>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Rank</th><th>Jurisdiction</th><th>Foreign duty</th><th>Foreign land tax</th><th>OTP incentive</th><th>Yield</th><th>Growth</th><th>Liquidity</th><th>Composite</th></tr>
+    <tr class="rank1"><td><b>1</b></td><td><b>WA</b></td><td>7%</td><td>0%</td><td><b>100% ≤ $800k</b></td><td>★★★★★</td><td>★★★★★</td><td>★★★★</td><td><b>Best overall</b></td></tr>
+    <tr class="rank2"><td><b>2</b></td><td><b>ACT</b></td><td><b>0%</b></td><td><b>0%</b></td><td>None</td><td>★★★★</td><td>★★★</td><td>★★★</td><td><b>Tax purity + stability</b></td></tr>
+    <tr><td>3</td><td>QLD</td><td>8%</td><td>3%</td><td>—</td><td>★★★★</td><td>★★★★</td><td>★★★★</td><td>Strong, but 8% + 3% drag</td></tr>
+    <tr><td>4</td><td>NT</td><td>0%</td><td>0%</td><td>—</td><td>★★★</td><td>★★</td><td>★★</td><td>Zero surcharge, thin market</td></tr>
+    <tr><td>5</td><td>SA</td><td>8%</td><td>4%</td><td>—</td><td>★★★</td><td>★★★</td><td>★★★</td><td>Balanced, mid-tier costs</td></tr>
+    <tr><td>6</td><td>VIC</td><td>8%</td><td>4%</td><td>Construction deduction</td><td>★★★</td><td>★★★</td><td>★★★★★</td><td>Deep market, high costs</td></tr>
+    <tr><td>7</td><td>TAS</td><td>8%</td><td>2%</td><td>—</td><td>★★★</td><td>★★</td><td>★★</td><td>Small market</td></tr>
+    <tr><td>8</td><td>NSW</td><td>9%</td><td>5%</td><td>—</td><td>★★</td><td>★★★</td><td>★★★★★</td><td><b>Most expensive entry</b></td></tr>
+  </table>
+</section>
+
+<!-- ==================== RISKS ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 5</div>
+  <h2>Risks and compliance obligations</h2>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Item</th><th>Detail</th></tr>
+    <tr><td><b>FIRB application fee</b></td><td>$15,600 (≤ $1M, 2026-27) — one-off; 50% refundable if the purchase falls through.</td></tr>
+    <tr><td><b>Vacancy fee</b></td><td>If a foreign-owned dwelling is vacant (or not genuinely available for rent) more than 183 days a year, an annual fee of <b>double the FIRB application fee</b> applies.</td></tr>
+    <tr><td><b>Capital gains tax</b></td><td>Foreign residents are <b>ineligible for the 50% CGT discount</b>. A <b>15% Foreign Resident Capital Gains Withholding</b> applies at settlement — a creditable prepayment, not an additional tax.</td></tr>
+    <tr><td><b>Income tax</b></td><td>Rental income taxed at non-resident marginal rates (~30–45%); negative gearing permitted, losses offset Australian-sourced income. New builds maximise Division 43 deductions (2.5%/yr) and plant-and-equipment depreciation.</td></tr>
+    <tr><td><b>Estate tax</b></td><td><b>None.</b> Australia imposes no estate or inheritance tax — unrestricted generational wealth transfer (vs US 40% above USD 60k; UK 40%).</td></tr>
+    <tr><td><b>Lending</b></td><td>Non-resident borrowers typically access 60–70% LVR via specialist non-bank lenders; Singaporean income documentation is commonly accepted.</td></tr>
+    <tr><td><b>Double-tax treaty</b></td><td>The Australia–Singapore DTA allocates primary property-taxing rights to Australia, with home-country foreign tax credits preventing double taxation.</td></tr>
+  </table>
+  <div class="callout">
+    <p><b>Advisory note:</b> this report is research information for discussion purposes, not personal financial, legal or tax advice. Figures were verified against the cited authorities on 6 August 2026; FIRB fees index annually on 1 July and state rates change periodically. Confirm all figures and concession eligibility at the time of purchase and seek independent legal and tax advice before contracting.</p>
+  </div>
+</section>
+
+<!-- ==================== SOURCES ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Sources</div>
+  <h2>References — verified August 2026</h2>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Authority</th><th>Document / Data</th></tr>
+    <tr><td>ABS</td><td>National State and Territory Population, December 2025 — WA 2.2% growth, fastest in Australia.</td></tr>
+    <tr><td>REIWA / Blackburne</td><td>Perth rental market, mid-2026 — vacancy 2.0–2.5% (REIWA measure); SQM Research June 2026 — Perth 0.6%, Canberra 1.7%.</td></tr>
+    <tr><td>HIA Economic Research</td><td>Apartment surge, July 2026 — ACT commencements +71.8% in March 2026 quarter, apartment-driven.</td></tr>
+    <tr><td>ATO</td><td>Residential fees for a foreign person (2026-27 tables; $15,600 fee; ban to 30 June 2029).</td></tr>
+    <tr><td>Revenue NSW</td><td>Surcharge land tax rates (5% from 2025); transfer duty rates (2026-27).</td></tr>
+    <tr><td>WA Government</td><td>Off-the-plan duty concession (100% ≤ $800k, to 30 June 2028); foreign buyers duty (7%).</td></tr>
+    <tr><td>FIRB</td><td>Schedule of Fees (2025-26 reference).</td></tr>
+    <tr><td>Pexels</td><td>Imagery licenced under the Pexels License (free to use, no attribution required).</td></tr>
+  </table>
+</section>
+
+<div class="footer">
+  <b>Australian Property Investment Report — Singaporean Perspective — August 2026</b><br>
+  Prepared by Afirmico Finance (W. Ledingham, Mortgage Broker) &nbsp;·&nbsp; Report v1.0 — 6 August 2026<br>
+  Research converged via Gemini × Microsoft Copilot analysis loop, locally orchestrated, with Hermes reality-checking against primary sources.<br>
+  Figures verified 6 August 2026 against ATO, ABS, REIWA, SQM Research, HIA and state revenue offices. Not financial advice.
+</div>
+
+</body>
+</html>

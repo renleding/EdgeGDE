@@ -24,6 +24,13 @@ export interface ChatResult {
   disclosures?: string[]
 }
 
+/**
+ * Process a chat message through the full pipeline: field engine, rule eval,
+ * LLM call, field extraction, compliance, and audit.
+ * @param env Worker bindings (TENANT_KV, DB) — accessed defensively.
+ * @param input Structured chat input (tenant, session, text, fields, config).
+ * @returns The chat result including response text and any collected updates.
+ */
 export async function processChatMessage(
   env: any,
   input: ChatInput

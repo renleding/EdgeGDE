@@ -28,8 +28,11 @@ export type ForecastModelName =
   | 'timesfm25'
   | string
 
+/** Default production forecasting model name. */
 export const DEFAULT_PRODUCTION_MODEL_NAME = 'timesfm_2_5'
+/** Default challenger forecasting model name. */
 export const DEFAULT_CHALLENGER_MODEL_NAME = 'chronos2'
+/** Default set of models used for forecast comparison backtests. */
 export const DEFAULT_MODEL_COMPARISON_MODELS: ForecastModelName[] = [
   'seasonal_naive',
   'moving_average',
@@ -79,6 +82,7 @@ export interface ForecastModelComparisonResult {
   generatedAt: string
 }
 
+/** Build the default model policy: production/challenger models, baselines, and primary metric. */
 export function getDefaultForecastModelPolicy(): ForecastModelPolicy {
   return {
     productionModel: DEFAULT_PRODUCTION_MODEL_NAME,
@@ -89,6 +93,7 @@ export function getDefaultForecastModelPolicy(): ForecastModelPolicy {
   }
 }
 
+/** Resolve model defaults (name/version/checkpoint) for a given model name. */
 export function resolveForecastModelDefaults(modelName?: string): ForecastModelDefaults {
   const normalized = normalizeForecastModelName(modelName || DEFAULT_PRODUCTION_MODEL_NAME)
   if (normalized === 'chronos2' || normalized === 'chronos-2') {
@@ -105,6 +110,7 @@ export function resolveForecastModelDefaults(modelName?: string): ForecastModelD
   }
 }
 
+/** Normalize a model name to lowercase alphanumerics, dots, dashes, and underscores. */
 export function normalizeForecastModelName(model: ForecastModelName): string {
   return String(model || 'seasonal_naive')
     .trim()
@@ -112,6 +118,12 @@ export function normalizeForecastModelName(model: ForecastModelName): string {
     .replace(/[^a-z0-9_.-]/g, '')
 }
 
+/**
+ * Run a deterministic backtest comparison across configured models.
+ * @param points Historical metric points used for the backtest.
+ * @param config Comparison options (horizon, models, primary metric, quantiles).
+ * @returns Ranked comparison result with winner and per-model runtime.
+ */
 export function runForecastModelComparison(
   points: MetricPoint[],
   config: ForecastModelComparisonConfig = {},
@@ -174,6 +186,7 @@ export function runForecastModelComparison(
   }
 }
 
+/** Return the comparison runtime in milliseconds for a given result. */
 export function getComparisonRuntimeMs(result: ForecastModelComparisonResult): number {
   const generated = Date.parse(result.generatedAt)
   if (!Number.isFinite(generated)) return 0

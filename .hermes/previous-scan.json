@@ -1,26 +1,26 @@
 {
-  "scan_id": "droid-scan-2026-08-03",
-  "timestamp": "2026-08-03T00:00:00Z",
+  "scan_id": "droid-scan-2026-08-06",
+  "timestamp": "2026-08-06T00:00:00Z",
   "scanned_dir": "apps/edge-runtime/src",
-  "files_count": 236,
-  "total_lines": 48100,
-  "typecheck": "PASS (tsc --noEmit via apps/edge-runtime/node_modules/.bin/tsc, 0 errors)",
+  "files_count": 238,
+  "total_lines": 48827,
+  "typecheck": "PASS (tsc --noEmit via apps/edge-runtime/node_modules/.bin/tsc, TSC_EXIT=0)",
   "findings": {
     "console_log_count": 24,
     "console_log_files": 13,
     "console_warn_error_count": 104,
     "console_warn_error_files": 30,
-    "as_any_count": 146,
-    "any_usage_count": 819,
+    "as_any_count": 90,
+    "any_usage_count": 768,
     "ts_expect_error_directives": 3,
-    "catch_blocks_total": 253,
+    "catch_blocks_total": 263,
     "empty_catch_blocks": 1,
     "setInterval_calls": 7,
     "setTimeout_calls": 11,
     "TODO_FIXME_count": 3,
     "eval_usage": 0
   },
-  "methodology_note": "Occurrence counts via rg -c over *.ts only. as_any/setTimeout/setInterval/TODO/eval/console_log/console_warn_err/catch are occurrence-based. empty_catch_blocks: raw rg -Uo count printed 2 this run vs 1 baseline, but both matches are the SAME single block (do/canvas-session.do.ts:287-289, verified by read_file — source unchanged); count artifact of the multiline pattern, real value 1. high-density file lists are as-any-based, consistent with 08-02 scan.",
+  "methodology_note": "Occurrence counts via rg over *.ts only. empty_catch_blocks: raw rg -Uo prints 2 lines but both belong to the SAME single block (do/canvas-session.do.ts, unchanged). as_any uses \\bas any\\b (90). any_usage 768 = +1 vs 08-05, explained by JSDoc text 'any collected updates' in uncommitted chat-processor.ts doc block (noise, not code).",
   "console_log_files": [
     "workers/cloner-worker.ts",
     "api/chat-views.ts",
@@ -38,27 +38,32 @@
   ],
   "ts_expect_error_files": ["routes/dashboard.ts (x3, all justified comments)"],
   "top_as_any_files": [
-    "index.ts (41)",
     "lib/renderer.ts (17)",
-    "api/admin-rules.ts (11)",
     "queues/lead-scorer.ts (9)",
     "api/scoring.ts (7)",
     "api/chat-views.ts (7)",
     "objects/AuditLedger.ts (6)",
-    "factory/upgrade/upgrade.engine.ts (6)",
-    "api/tenants.ts (6)",
-    "routes/tenant-dashboard.ts (4)"
+    "factory/upgrade/upgrade.engine.ts (6)"
   ],
   "new_vs_previous": {
-    "commits_touching_src": [],
-    "files_change": "0 (236)",
-    "lines_change": "0 (48100)",
-    "as_any_delta": "0 (146)",
-    "console_log_delta": "0 (24, 13 files)",
-    "console_warn_error_delta": "0 (104, 30 files)",
-    "ts_ignore_delta": "3 @ts-expect-error, stable",
-    "empty_catch_delta": "0 real (raw rg -Uo count artifact 1->2, same block canvas-session.do.ts:287)",
-    "setInterval/setTimeout/TODO/eval": "unchanged",
-    "git_status": "clean except .hermes/improvement-*.json + instructions.md churn (known noise); HEAD 9128a84"
+    "commits_touching_src": ["NONE since 2026-08-05 baseline (last: 4c80fd3 #86, already in prior baseline)"],
+    "dirty_src_files": [
+      "apps/edge-runtime/src/lib/chat-processor.ts (+7 JSDoc-only, uncommitted)",
+      "apps/edge-runtime/src/lib/forecast-model-comparison.ts (+13 JSDoc-only, uncommitted)"
+    ],
+    "per_metric_deltas": {
+      "console_log": "24 -> 24 (0)",
+      "console_warn_error": "104 -> 104 (0)",
+      "as_any": "90 -> 90 (0)",
+      "any_usage": "767 -> 768 (+1, JSDoc text noise)",
+      "suppressions": "3 -> 3 (0)",
+      "catch_blocks": "263 -> 263 (0)",
+      "empty_catch": "1 -> 1 (unchanged: canvas-session.do.ts)",
+      "setInterval": "7 -> 7 (0)",
+      "setTimeout": "11 -> 11 (0)",
+      "TODO_FIXME": "3 -> 3 (0)",
+      "eval": "0 -> 0 (0)"
+    },
+    "corpus_delta": "238 files / 48,807 -> 48,827 lines (+20 = the two dirty JSDoc files)"
   }
 }

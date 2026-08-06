@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Australian Property Market Research Report — Singaporean Perspective — August 2026</title>
+<style>
+  :root {
+    --ink: #1a2332;
+    --muted: #5b6779;
+    --line: #e3e8f0;
+    --accent: #b02a37;
+    --accent-dark: #7e1e28;
+    --gold: #c9a227;
+    --surface: #ffffff;
+    --wash: #f4f6f9;
+    --wa: #b02a37;
+    --act: #2d6a4f;
+    --serif: "Georgia", "Times New Roman", serif;
+    --sans: "Helvetica Neue", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--sans); color: var(--ink); background: #fff; line-height: 1.55; }
+
+  .cover { position: relative; height: 100vh; min-height: 760px; overflow: hidden; background: #0d1420; color: #fff; }
+  .cover img.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.45; }
+  .cover .veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(13,20,32,0.35) 0%, rgba(13,20,32,0.82) 78%); }
+  .cover .inner { position: relative; z-index: 2; padding: 9vh 9vw; display: flex; flex-direction: column; justify-content: space-between; height: 100%; }
+  .cover .kicker { font-size: 0.8rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  .cover h1 { font-family: var(--serif); font-size: 3.9rem; line-height: 1.05; margin: 2.2rem 0 1.2rem; max-width: 17ch; font-weight: 600; }
+  .cover h1 em { font-style: italic; color: #e8c36a; }
+  .cover .subtitle { font-size: 1.2rem; color: #d7dee9; max-width: 62ch; line-height: 1.5; }
+  .cover .meta { display: flex; gap: 3rem; margin-top: 3rem; font-size: 0.9rem; color: #b9c3d2; }
+  .cover .meta b { display: block; color: #fff; font-size: 1rem; margin-top: 0.2rem; }
+  .cover .foot { font-size: 0.78rem; color: #8b97a8; letter-spacing: 0.06em; line-height: 1.6; }
+
+  .page { max-width: 1080px; margin: 0 auto; padding: 4.5rem 4rem; }
+  .section-label { font-size: 0.72rem; letter-spacing: 0.26em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin-bottom: 1rem; }
+  h2 { font-family: var(--serif); font-size: 2.2rem; line-height: 1.14; margin-bottom: 1.4rem; font-weight: 600; }
+  h3 { font-size: 1.25rem; margin: 2.2rem 0 0.8rem; color: var(--ink); }
+  p { margin-bottom: 1.1rem; color: #2c3748; }
+  .lead { font-size: 1.12rem; color: var(--muted); line-height: 1.6; }
+  .rule { height: 3px; width: 72px; background: var(--accent); margin: 1.8rem 0 2.2rem; }
+
+  .banner { position: relative; height: 300px; border-radius: 10px; overflow: hidden; margin: 2.6rem 0 2.4rem; }
+  .banner img { width: 100%; height: 100%; object-fit: cover; }
+  .banner .cap { position: absolute; left: 0; bottom: 0; right: 0; padding: 2.2rem 2rem 1.2rem; background: linear-gradient(180deg, transparent, rgba(10,16,26,0.85)); color: #fff; font-size: 0.82rem; letter-spacing: 0.06em; }
+  .banner .cap b { font-size: 1rem; letter-spacing: 0.02em; }
+
+  .statband { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.4rem; margin: 2.2rem 0; }
+  .stat { background: var(--wash); border-radius: 10px; padding: 1.6rem 1.4rem; border-top: 3px solid var(--accent); }
+  .stat .num { font-family: var(--serif); font-size: 2.5rem; font-weight: 700; color: var(--accent-dark); line-height: 1; }
+  .stat .lbl { font-size: 0.82rem; color: var(--muted); margin-top: 0.5rem; line-height: 1.35; }
+  .stat.gold { border-top-color: var(--gold); }
+  .stat.gold .num { color: #8a6d1a; }
+  .stat.green { border-top-color: var(--act); }
+  .stat.green .num { color: var(--act); }
+
+  table { width: 100%; border-collapse: collapse; margin: 1.8rem 0 2.2rem; font-size: 0.9rem; }
+  th { background: var(--ink); color: #fff; text-align: left; padding: 0.8rem 1rem; font-weight: 600; font-size: 0.82rem; letter-spacing: 0.05em; }
+  td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  td.hl { font-weight: 700; color: var(--accent-dark); }
+  .rank1 td { background: #fdf3e7 !important; border-left: 3px solid var(--gold); }
+  .rank2 td { background: #eaf4ee !important; border-left: 3px solid var(--act); }
+  .tbl-note { font-size: 0.78rem; color: var(--muted); margin-top: -1.4rem; margin-bottom: 2rem; }
+
+  .cardgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin: 2.2rem 0; }
+  .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+  .card img { width: 100%; height: 190px; object-fit: cover; display: block; }
+  .card .body { padding: 1.4rem 1.5rem 1.6rem; }
+  .card .tag { font-size: 0.7rem; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; }
+  .card.wa .tag { color: var(--wa); }
+  .card.act .tag { color: var(--act); }
+  .card h4 { font-family: var(--serif); font-size: 1.3rem; margin: 0.4rem 0 0.7rem; }
+  .card p { font-size: 0.9rem; color: var(--muted); margin-bottom: 0.5rem; }
+
+  .callout { background: #fbf5ea; border-left: 4px solid var(--gold); padding: 1.4rem 1.6rem; border-radius: 0 8px 8px 0; margin: 2rem 0; }
+  .callout b { color: #7a5f12; }
+  .callout p { margin-bottom: 0.4rem; color: #4d4428; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin: 2rem 0; }
+  .vsbox { border-radius: 10px; padding: 1.6rem 1.6rem 1.8rem; }
+  .vsbox.wa { background: #fdf3e7; border-top: 4px solid var(--wa); }
+  .vsbox.act { background: #eaf4ee; border-top: 4px solid var(--act); }
+  .vsbox h4 { font-size: 1.25rem; margin-bottom: 0.6rem; }
+  .vsbox ul { margin-left: 1.1rem; font-size: 0.9rem; color: #2c3748; }
+  .vsbox li { margin-bottom: 0.45rem; }
+
+  /* -------- notices / disclaimer page -------- */
+  .notice { border: 1px solid var(--line); border-radius: 10px; padding: 1.8rem 2rem; margin-bottom: 1.4rem; }
+  .notice h4 { font-size: 1.05rem; margin-bottom: 0.5rem; color: var(--ink); display: flex; align-items: center; gap: 0.6rem; }
+  .notice p, .notice li { font-size: 0.9rem; color: #3a4658; }
+  .notice ul { margin-left: 1.2rem; margin-top: 0.4rem; }
+  .notice li { margin-bottom: 0.4rem; }
+  .notice .nnum { display: inline-flex; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--ink); color: #fff; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; flex: 0 0 auto; }
+  .notice.warn { border-left: 4px solid var(--accent); }
+
+  .footer { background: var(--ink); color: #b9c3d2; padding: 3rem 4rem; font-size: 0.8rem; }
+  .footer b { color: #fff; }
+  .pagebreak { page-break-before: always; }
+
+  @media print {
+    .cover { height: 100vh; }
+    .page { max-width: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== COVER ==================== -->
+<section class="cover">
+  <img class="bg" src="img/perth-kings-park.jpg" alt="Perth skyline over Kings Park">
+  <div class="veil"></div>
+  <div class="inner">
+    <div>
+      <div class="kicker">Property Market Research &nbsp;·&nbsp; Prepared by Afirmico Finance</div>
+      <h1>Australian Property Market Research Report <em>— Singaporean Perspective —</em></h1>
+      <p class="subtitle">A factual, data-driven comparison of Australia's state-level environment for foreign purchasers of new residential property — with a focus on the Australian Capital Territory and Western Australia.</p>
+      <div class="meta">
+        <div>REPORT DATE<b>August 2026</b></div>
+        <div>PREPARED FOR<b>Singaporean Investors</b></div>
+        <div>PREPARED BY<b>W. Ledingham, Mortgage Broker</b></div>
+        <div>EDITION<b>v1.0 — 6 August 2026</b></div>
+      </div>
+    </div>
+    <div class="foot">Artificial Intelligence (AI) was used in the preparation of this report. All figures and market data have been human-verified against primary sources (ATO, ABS, REIWA, SQM Research, HIA and state revenue offices) as at August 2026. This report is general information only and is not financial, credit, legal or tax advice.</div>
+  </div>
+</section>
+
+<!-- ==================== IMPORTANT NOTICES ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Important Notices</div>
+  <h2>Please read before relying on this report</h2>
+  <div class="rule"></div>
+
+  <div class="notice warn">
+    <h4><span class="nnum">1</span> General information only — not financial advice</h4>
+    <p>This report contains factual information and general market data only. It has been prepared without regard to any person's objectives, financial situation or investment needs, and it is <b>not</b> financial product advice, investment advice or a recommendation to buy, sell or hold any particular property or asset. You should obtain independent professional advice before acting on anything in this report.</p>
+  </div>
+
+  <div class="notice">
+    <h4><span class="nnum">2</span> Not credit assistance</h4>
+    <p>This report is not an assessment of any borrower's suitability for a loan and does not constitute credit assistance under the National Consumer Credit Protection Act 2009 (Cth). Any discussion of lending parameters is general market information only.</p>
+  </div>
+
+  <div class="notice">
+    <h4><span class="nnum">3</span> Taxation and legal matters</h4>
+    <p>The author is a mortgage broker and is <b>not</b> a registered tax agent or legal practitioner. Tax outcomes depend on individual circumstances, residency status and future legislative changes. Readers must obtain independent taxation advice from a qualified tax professional in Australia and in their home jurisdiction, and independent legal advice on FIRB eligibility, state revenue laws and cross-border implications, before making any commitment.</p>
+  </div>
+
+  <div class="notice">
+    <h4><span class="nnum">4</span> Artificial Intelligence disclosure</h4>
+    <p>Artificial intelligence tools and multi-agent workflows were used to assist in aggregating, structuring and drafting portions of this report. All financial figures, tax rates and market statistics have been human-verified against primary sources (ATO, ABS, REIWA, SQM Research, HIA and state revenue offices). The author assumes full responsibility for the accuracy of the content.</p>
+  </div>
+
+  <div class="notice">
+    <h4><span class="nnum">5</span> Conflict of interest disclosure</h4>
+    <p>The author is a mortgage broker and may receive commissions, fees or other remuneration from lenders or referral partners where readers obtain finance or related services as a result of this report or otherwise.</p>
+  </div>
+
+  <div class="notice">
+    <h4><span class="nnum">6</span> Credit licence status</h4>
+    <p>W. Ledingham is a Credit Representative of Purple Circle Financial Services, Australian Credit Licence 486112 (credit services only). This report is published for information purposes and does not extend the scope of any credit licence.</p>
+  </div>
+
+  <div class="notice">
+    <h4><span class="nnum">7</span> Date-sensitive information</h4>
+    <p>Figures in this report were verified on 6 August 2026. FIRB fees are indexed annually on 1 July; state surcharge rates and concession eligibility change periodically. Confirm all figures at the time of any purchase decision.</p>
+  </div>
+
+  <div class="callout">
+    <p><b>Methodology note:</b> this report applies a transparent, weighted scoring framework (Section 3 and the Appendix) to compare Australian jurisdictions. Different investors weighting criteria differently may reasonably reach different conclusions. The report presents the results of that framework; it does not recommend that any reader invest in any particular state or property.</p>
+  </div>
+</section>
+
+<!-- ==================== INTRO ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Introduction</div>
+  <h2>Australia's property market — the context for Singaporean buyers</h2>
+  <div class="rule"></div>
+  <p class="lead">For a Singaporean purchaser, the starting comparison is stark. Singapore's Additional Buyer's Stamp Duty charges foreign buyers <b>60%</b> of a property's value. In Australia's Australian Capital Territory the equivalent foreign surcharge is <b>0%</b>, and in Western Australia a <b>100% off-the-plan duty concession</b> removes the standard transfer duty on new dwellings up to $800,000.</p>
+  <p>The federal ban on foreign purchases of established dwellings (1 April 2025 – 30 June 2029) means that, for most foreign non-residents, <b>new dwellings represent the primary pathway available under current FIRB rules</b> (limited exceptions apply). This report examines the state-level environment — surcharges, incentives, yields, population growth and market depth — for purchasers of new property, and applies a transparent scoring framework to compare the eight Australian jurisdictions.</p>
+  <div class="statband">
+    <div class="stat"><div class="num">60%</div><div class="lbl">Singapore ABSD on foreign buyers — the benchmark against which Australia is compared</div></div>
+    <div class="stat gold"><div class="num">0%</div><div class="lbl">ACT foreign surcharge duty and land tax surcharge</div></div>
+    <div class="stat green"><div class="num">100%</div><div class="lbl">WA off-the-plan duty relief on new dwellings to $800k (to 30 Jun 2028)</div></div>
+    <div class="stat"><div class="num">2.2%</div><div class="lbl">WA population growth — fastest in Australia (ABS, Dec 2025)</div></div>
+  </div>
+</section>
+
+<!-- ==================== KEY OBSERVATIONS ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Key Observations</div>
+  <h2>What the data shows</h2>
+  <div class="rule"></div>
+  <p class="lead">Applying the weighted scoring framework in Section 3, <b>Western Australia recorded the highest composite score</b> among the eight jurisdictions, and the <b>Australian Capital Territory the second-highest</b>. The observations below summarise the data behind those scores.</p>
+  <h3>1 — The ABSD differential</h3>
+  <p>Singapore's ABSD of 60% on foreign buyers is among the highest property-transfer taxes in the developed world. Australia's state-level foreign surcharges range from 0% (ACT, NT) to 9% (NSW). The ACT (0%) and WA (7%, offset by the 100% duty concession) exhibit the lowest combined foreign-investor entry costs.</p>
+  <h3>2 — ACT: the zero-surcharge jurisdiction</h3>
+  <p>The ACT is one of two jurisdictions (with the Northern Territory) with no foreign surcharge — neither surcharge purchaser duty nor surcharge land tax. On a $700,000 purchase, the ACT's zero surcharge compares with $49,000 in WA and $63,000 in NSW.</p>
+  <h3>3 — WA: the off-the-plan duty concession</h3>
+  <p>WA's 7% surcharge is the lowest of the mainland states, and its off-the-plan duty concession removes 100% of transfer duty on new dwellings up to $800,000 (capped $50,000, extended to 30 June 2028) — the only concession of its kind among Australian states.</p>
+  <h3>4 — Demand fundamentals</h3>
+  <p>WA recorded the fastest population growth of any state (2.2% in the year to December 2025, ABS), with Perth's rental vacancy among the tightest in the nation (REIWA ~2.0%; SQM Research 0.6%). The ACT's government-anchored economy provides a stable employment and rental base (SQM Research, June 2026: Canberra 1.7%).</p>
+  <h3>5 — The new-dwelling pathway</h3>
+  <p>For most foreign non-residents, the 2025–29 established-dwelling ban directs investment toward new property — the segment in which ACT and WA exhibit the strongest state-level incentives. FIRB approval is a one-off application ($15,600 for dwellings up to $1M, 2026-27).</p>
+  <div class="callout">
+    <p><b>Reading this report:</b> the scores reflect the weighting framework described in Section 3. An investor who weights capital-growth stability or market liquidity more heavily than entry cost may reasonably reach a different ordering. The purpose of this report is to present the data and the framework — not to direct any purchase.</p>
+  </div>
+</section>
+
+<!-- ==================== SECTION 1: THE DIFFERENTIAL ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 1</div>
+  <h2>The ABSD differential: Singapore's 60% versus Australia's 0–9%</h2>
+  <div class="rule"></div>
+  <p class="lead">Singapore imposes a 60% Additional Buyer's Stamp Duty on foreign individuals purchasing residential property, on top of standard buyer's stamp duty. A $1 million Singapore purchase attracts approximately $600,000 in ABSD alone.</p>
+  <p>Australia's state-level foreign surcharges range from 0% (ACT, NT) to 9% (NSW). The table below sets out the surcharge position in each Australian jurisdiction for a foreign purchaser. The AUD's historically low value against the SGD also affects relative purchasing power and is a two-way currency exposure for investors on repatriation.</p>
+  <table>
+    <tr><th>Jurisdiction</th><th>Foreign surcharge duty</th><th>Foreign surcharge land tax</th><th>Off-the-plan concession</th></tr>
+    <tr class="rank2"><td><b>ACT</b></td><td class="hl">0%</td><td class="hl">0%</td><td>—</td></tr>
+    <tr class="rank1"><td><b>WA</b></td><td>7%</td><td class="hl">0%</td><td class="hl">100% duty relief ≤ $800k (to 2028)</td></tr>
+    <tr><td>NT</td><td class="hl">0%</td><td class="hl">0%</td><td>—</td></tr>
+    <tr><td>SA</td><td>8%</td><td>4% (from 2025-26)</td><td>—</td></tr>
+    <tr><td>TAS</td><td>8%</td><td>2%</td><td>—</td></tr>
+    <tr><td>QLD</td><td>8%</td><td>3%</td><td>—</td></tr>
+    <tr><td>VIC</td><td>8%</td><td>4% (absentee)</td><td>Off-the-plan construction deduction (to Oct 2026)</td></tr>
+    <tr><td>NSW</td><td>9%</td><td>5%</td><td>—</td></tr>
+  </table>
+  <p class="tbl-note">Sources: state revenue offices; verified 6 August 2026.</p>
+  <div class="banner">
+    <img src="img/singapore-marina-bay.jpg" alt="Singapore Marina Bay skyline">
+    <div class="cap"><b>Australia vs Singapore:</b> the 60% ABSD differential means Australia's state surcharge environment — 0% to 9% — is lower-cost for foreign purchasers than the Singaporean alternative.</div>
+  </div>
+</section>
+
+<!-- ==================== SECTION 2: PATHWAY ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 2</div>
+  <h2>The purchase pathway for foreign non-residents</h2>
+  <div class="rule"></div>
+  <p class="lead">Under the <i>Foreign Acquisitions and Takeovers Act</i>, foreign persons are generally prohibited from purchasing established dwellings from 1 April 2025 to 30 June 2029 (extended from an earlier 31 March 2027 expiry; ATO). For most foreign non-resident investors, <b>new dwellings represent the primary pathway available under current FIRB rules</b>; limited exceptions and special structures exist.</p>
+  <p>The principal pathways are:</p>
+  <ul style="margin-left:1.4rem; margin-bottom:1.4rem;">
+    <li><b>New dwellings</b> — never occupied, never previously sold (off-the-plan and near-new);</li>
+    <li><b>Vacant land with an approved development plan</b> — construction must commence within 24 months;</li>
+    <li>Purchases within developments holding <b>New/Near-New Dwelling Exemption Certificates</b> (streamlined approval).</li>
+  </ul>
+  <p>FIRB approval is a one-off application: <b>$15,600</b> for a dwelling up to $1 million (2026-27, indexed from $15,100 in 2025-26), $31,300 up to $2 million, with 50% refundable if the purchase does not proceed. Eligibility under FIRB rules is case-specific — readers should confirm their position with an adviser.</p>
+</section>
+
+<!-- ==================== SECTION 3: METHODOLOGY ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 3</div>
+  <h2>Scoring methodology and weightings</h2>
+  <div class="rule"></div>
+  <p class="lead">Each jurisdiction is scored across six dimensions. The weightings reflect the relative importance of each dimension for a foreign purchaser of new residential property, and are disclosed in full below so that readers can assess — and if they wish, re-weight — the framework.</p>
+  <table>
+    <tr><th>#</th><th>Dimension</th><th>Weight</th><th>What it measures</th></tr>
+    <tr><td>1</td><td><b>Foreign-entry cost</b></td><td class="hl">30%</td><td>Surcharge duty + surcharge land tax burden</td></tr>
+    <tr><td>2</td><td><b>Rental yield</b></td><td class="hl">20%</td><td>Gross yield and vacancy tightness</td></tr>
+    <tr><td>3</td><td><b>Capital-growth outlook</b></td><td class="hl">20%</td><td>Population growth, undersupply, pipeline</td></tr>
+    <tr><td>4</td><td><b>Liquidity and exit depth</b></td><td class="hl">15%</td><td>Market size, resale depth, investor demand</td></tr>
+    <tr><td>5</td><td><b>New-dwelling incentives</b></td><td class="hl">10%</td><td>Off-the-plan concessions, rebates, deferrals</td></tr>
+    <tr><td>6</td><td><b>Tax-regime simplicity</b></td><td class="hl">5%</td><td>Land tax, absentee provisions, compliance burden</td></tr>
+  </table>
+  <p class="tbl-note">Weightings are the author's judgement, disclosed for transparency. Scores are derived from the data inputs listed in the Appendix. Re-weighting these factors will change the ordering.</p>
+</section>
+
+<!-- ==================== WA ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Western Australia</div>
+  <h2>WA — highest composite score under the framework</h2>
+  <div class="rule"></div>
+  <p class="lead">Western Australia recorded the highest composite score: the strongest population-growth data in Australia combined with the most valuable state incentive for new property.</p>
+  <div class="cardgrid">
+    <div class="card wa">
+      <img src="img/perth-kings-park.jpg" alt="Perth skyline over Kings Park">
+      <div class="body">
+        <div class="tag">Demand fundamentals</div>
+        <h4>The fastest-growing state</h4>
+        <p><b>2.2% population growth</b> in the year to December 2025 — the fastest of any state (ABS). Six of Australia's ten fastest-growing LGAs are in WA.</p>
+      </div>
+    </div>
+    <div class="card wa">
+      <img src="img/apartment-building-australia.jpg" alt="New apartment building">
+      <div class="body">
+        <div class="tag">Entry cost</div>
+        <h4>The off-the-plan duty concession</h4>
+        <p><b>100% off-the-plan duty relief</b> on new dwellings ≤ $800k (capped $50k, to 30 June 2028) — $0 transfer duty at the most common price point.</p>
+      </div>
+    </div>
+  </div>
+  <table>
+    <tr><th>$700,000 new apartment, off-the-plan</th><th>WA</th><th>ACT</th><th>QLD (comparison)</th></tr>
+    <tr><td>Transfer duty</td><td class="hl">$0 (100% OTP concession)</td><td>~$19,300</td><td>~$24,500</td></tr>
+    <tr><td>Foreign surcharge duty</td><td>$49,000 (7%)</td><td class="hl">$0 (0%)</td><td>$56,000 (8%)</td></tr>
+    <tr><td><b>Total state entry tax</b></td><td><b>$49,000</b></td><td><b>$19,300</b></td><td><b>$80,500</b></td></tr>
+    <tr><td>Foreign land tax (annual)</td><td>0%</td><td>0%</td><td>3%</td></tr>
+  </table>
+  <p class="tbl-note">WA's $0 duty outcome relies on the Off-The-Plan concession: 100% of transfer duty for new dwellings ≤ $800,000, capped at $50,000, valid 12 March 2026 – 30 June 2028, sliding to 50% between $800k–$900k. Concession rules are conditional (pre-construction contracts) and subject to legislative change — obtain independent legal and tax validation before exchange.</p>
+  <div class="callout">
+    <p><b>Considerations:</b> WA's economy carries commodity-cycle exposure; capital growth has historically been more volatile than the eastern states' long-run averages; and distance from the Sydney–Melbourne corridor means a different buyer profile. The resource-driven demand base has translated into sustained migration and one of the tightest rental markets in the country (Perth vacancy ~0.6–2.0%).</p>
+  </div>
+</section>
+
+<!-- ==================== ACT ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Australian Capital Territory</div>
+  <h2>ACT — lowest foreign-investor entry costs</h2>
+  <div class="rule"></div>
+  <p class="lead">The ACT recorded the second-highest composite score and the lowest foreign-investor entry costs: it is one of only two Australian jurisdictions with <b>zero foreign surcharges</b> (0% surcharge purchaser duty, 0% surcharge land tax).</p>
+  <div class="cardgrid">
+    <div class="card act">
+      <img src="img/canberra-aerial.jpg" alt="Aerial view of Canberra">
+      <div class="body">
+        <div class="tag">Demand stability</div>
+        <h4>A government-anchored economy</h4>
+        <p>Canberra's employment base is anchored by the Commonwealth public sector — a stable, counter-cyclical employer. Vacancy ~1.7% (SQM, June 2026).</p>
+      </div>
+    </div>
+    <div class="card act">
+      <img src="img/city-skyline-sunset.jpg" alt="Canberra skyline">
+      <div class="body">
+        <div class="tag">Entry cost</div>
+        <h4>Zero-surcharge jurisdiction</h4>
+        <p><b>0% surcharge duty and 0% surcharge land tax.</b> On a $700,000 purchase, the ACT's entry cost is lower than WA (7%) and materially lower than NSW (9%).</p>
+      </div>
+    </div>
+  </div>
+  <div class="callout">
+    <p><b>Supply considerations:</b> the ACT's future apartment pipeline is substantial. HIA reports ACT dwelling commencements surged <b>71.8% in the March 2026 quarter, driven almost entirely by apartments</b>, and multi-unit dwellings dominate scheduled land releases under the territory's planning framework. A heavily supplied pipeline may affect short-term rental and price dynamics — site selection (location, view, quality) is a material factor.</p>
+  </div>
+</section>
+
+<!-- ==================== HEAD-TO-HEAD ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Comparison</div>
+  <h2>ACT and WA — side-by-side data</h2>
+  <div class="rule"></div>
+  <div class="compare">
+    <div class="vsbox wa">
+      <h4>WA — highest composite score</h4>
+      <ul>
+        <li>Foreign surcharge duty: 7%</li>
+        <li>Foreign land tax surcharge: 0%</li>
+        <li><b>100% off-the-plan duty relief ≤ $800k (to 2028)</b></li>
+        <li>Vacancy: ~0.6–2.0% (tightest tier)</li>
+        <li>Population growth: 2.2% — fastest in Australia</li>
+        <li>Supply risk: moderate</li>
+        <li>Market liquidity: deep (Perth)</li>
+      </ul>
+    </div>
+    <div class="vsbox act">
+      <h4>ACT — lowest entry costs</h4>
+      <ul>
+        <li>Foreign surcharge duty: <b>0%</b></li>
+        <li>Foreign land tax surcharge: <b>0%</b></li>
+        <li>Off-the-plan duty relief: none</li>
+        <li>Vacancy: ~1.7% (tight)</li>
+        <li>Population growth: 1.3%</li>
+        <li>Supply risk: elevated (apartment pipeline)</li>
+        <li>Market liquidity: thinner</li>
+      </ul>
+    </div>
+  </div>
+  <p class="lead" style="margin-top:1.6rem;">Under the framework applied, WA's higher scores on growth, yield and liquidity offset ACT's lower entry cost. A reader weighting capital preservation more heavily than growth could reasonably order them differently — the data is presented here for that assessment.</p>
+</section>
+
+<!-- ==================== FULL RANKING ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 4</div>
+  <h2>Full state comparison — all jurisdictions</h2>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Rank</th><th>Jurisdiction</th><th>Foreign duty</th><th>Foreign land tax</th><th>OTP incentive</th><th>Yield</th><th>Growth</th><th>Liquidity</th><th>Composite</th></tr>
+    <tr class="rank1"><td><b>1</b></td><td><b>WA</b></td><td>7%</td><td>0%</td><td><b>100% ≤ $800k</b></td><td>★★★★★</td><td>★★★★★</td><td>★★★★</td><td><b>Highest score</b></td></tr>
+    <tr class="rank2"><td><b>2</b></td><td><b>ACT</b></td><td><b>0%</b></td><td><b>0%</b></td><td>None</td><td>★★★★</td><td>★★★</td><td>★★★</td><td><b>Second-highest</b></td></tr>
+    <tr><td>3</td><td>QLD</td><td>8%</td><td>3%</td><td>—</td><td>★★★★</td><td>★★★★</td><td>★★★★</td><td>Strong on growth/liquidity; higher entry cost</td></tr>
+    <tr><td>4</td><td>NT</td><td>0%</td><td>0%</td><td>—</td><td>★★★</td><td>★★</td><td>★★</td><td>Zero surcharge; thin market</td></tr>
+    <tr><td>5</td><td>SA</td><td>8%</td><td>4%</td><td>—</td><td>★★★</td><td>★★★</td><td>★★★</td><td>Balanced; mid-tier costs</td></tr>
+    <tr><td>6</td><td>VIC</td><td>8%</td><td>4%</td><td>Construction deduction</td><td>★★★</td><td>★★★</td><td>★★★★★</td><td>Deep market; high costs</td></tr>
+    <tr><td>7</td><td>TAS</td><td>8%</td><td>2%</td><td>—</td><td>★★★</td><td>★★</td><td>★★</td><td>Small market</td></tr>
+    <tr><td>8</td><td>NSW</td><td>9%</td><td>5%</td><td>—</td><td>★★</td><td>★★★</td><td>★★★★★</td><td>Highest entry cost</td></tr>
+  </table>
+  <p class="tbl-note">Ranks reflect the Section 3 weighting framework. Star ratings are qualitative scores derived from the data inputs in the Appendix.</p>
+</section>
+
+<!-- ==================== LENDING ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 5</div>
+  <h2>The financing environment for foreign non-residents</h2>
+  <div class="rule"></div>
+  <p class="lead">For context on the purchase pathway, the following is general information on how Australian lenders assess foreign non-resident borrowers. Lending criteria vary between lenders and change over time; this is not an assessment of any borrower's eligibility.</p>
+  <table>
+    <tr><th>Parameter</th><th>Typical position for foreign non-residents</th></tr>
+    <tr><td><b>Maximum LVR</b></td><td>60–70% via specialist non-bank lenders; some lenders offer up to 80% for borrowers on certain visa classes. LVR limits are lower than for resident borrowers.</td></tr>
+    <tr><td><b>Income assessment</b></td><td>Foreign-currency income is typically accepted with documented exchange-rate history; HK and Singapore income documentation is commonly accepted by many non-resident lenders. Repayment capacity is assessed at serviceability buffers.</td></tr>
+    <tr><td><b>FIRB clearance</b></td><td>Lenders generally require the FIRB approval/clearance before settlement; some require it before formal approval.</td></tr>
+    <tr><td><b>Source of funds / AML</b></td><td>Enhanced anti-money-laundering and source-of-funds checks apply; borrowers should expect to evidence the provenance of deposits.</td></tr>
+    <tr><td><b>Product range</b></td><td>Principal-and-interest loans predominate; interest-only periods are generally shorter than for residents.</td></tr>
+    <tr><td><b>Deposit</b></td><td>30–40% deposit typical (reflecting the 60–70% LVR), plus government costs as set out in this report.</td></tr>
+  </table>
+  <p class="tbl-note">General market information only; not credit assistance. Confirm current criteria with a licensed lender or broker before relying on any figure.</p>
+</section>
+
+<!-- ==================== RISKS ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Section 6</div>
+  <h2>Risks, taxes and compliance obligations</h2>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Item</th><th>Detail</th></tr>
+    <tr><td><b>FIRB application fee</b></td><td>$15,600 (≤ $1M, 2026-27) — one-off; 50% refundable if the purchase does not proceed.</td></tr>
+    <tr><td><b>Vacancy fee</b></td><td>If a foreign-owned dwelling is vacant (or not genuinely available for rent) more than 183 days a year, an annual fee of <b>double the FIRB application fee</b> applies.</td></tr>
+    <tr><td><b>Capital gains tax</b></td><td>Foreign residents are <b>ineligible for the 50% CGT discount</b>. A <b>15% Foreign Resident Capital Gains Withholding</b> applies at settlement — a creditable prepayment, not an additional tax.</td></tr>
+    <tr><td><b>Income tax</b></td><td>Rental income is taxed at non-resident marginal rates (~30–45%); negative gearing is permitted, with losses offsetting Australian-sourced income. New builds may support Division 43 capital-works deductions (2.5%/yr) and plant-and-equipment depreciation claims — tax outcomes depend on individual circumstances and are a matter for a qualified tax adviser.</td></tr>
+    <tr><td><b>Estate tax</b></td><td>Australia imposes no estate or inheritance tax (in contrast to the US and UK regimes). Confirm position with advisers in both jurisdictions.</td></tr>
+    <tr><td><b>Currency</b></td><td>SGD/AUD movements affect both purchasing power at entry and repatriated proceeds at exit — a two-way exposure.</td></tr>
+    <tr><td><b>Double-tax treaty</b></td><td>The Australia–Singapore DTA allocates primary property-taxing rights to Australia, with home-country foreign tax credits addressing double taxation — confirm the current position with a tax adviser in both jurisdictions.</td></tr>
+  </table>
+</section>
+
+<!-- ==================== APPENDIX ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Appendix</div>
+  <h2>Methodology — data inputs and scoring</h2>
+  <div class="rule"></div>
+  <p class="lead">The composite scores in Section 4 were derived as follows. Each jurisdiction was scored 1–5 (stars) on each dimension, then weighted per Section 3 and summed. Scores reflect the data inputs below as at 6 August 2026.</p>
+  <table>
+    <tr><th>Dimension (weight)</th><th>Primary data input</th><th>Source</th></tr>
+    <tr><td>Foreign-entry cost (30%)</td><td>Surcharge purchaser duty and surcharge land tax rates</td><td>State revenue offices (Aug 2026)</td></tr>
+    <tr><td>Rental yield (20%)</td><td>Vacancy rates; gross-yield range</td><td>REIWA; SQM Research (Jun 2026)</td></tr>
+    <tr><td>Capital-growth outlook (20%)</td><td>Population growth; dwelling commencements; supply pipeline</td><td>ABS (Dec 2025); HIA (Mar 2026)</td></tr>
+    <tr><td>Liquidity / exit depth (15%)</td><td>Market size; transaction volumes; buyer depth</td><td>State revenue offices; industry data</td></tr>
+    <tr><td>New-dwelling incentives (10%)</td><td>Off-the-plan concessions and rebates</td><td>WA Gov; VIC Gov; state revenue offices</td></tr>
+    <tr><td>Tax-regime simplicity (5%)</td><td>Land tax structure; absentee provisions</td><td>State revenue offices</td></tr>
+  </table>
+  <p class="tbl-note">Weightings and star ratings are the author's judgement, disclosed for transparency so readers can re-weight or re-score. This is a market-research framework, not a recommendation.</p>
+</section>
+
+<!-- ==================== SOURCES ==================== -->
+<section class="page pagebreak">
+  <div class="section-label">Sources</div>
+  <h2>References — verified August 2026</h2>
+  <div class="rule"></div>
+  <table>
+    <tr><th>Authority</th><th>Document / Data</th></tr>
+    <tr><td>ABS</td><td>National State and Territory Population, December 2025 — WA 2.2% growth, fastest in Australia.</td></tr>
+    <tr><td>REIWA / Blackburne</td><td>Perth rental market, mid-2026 — vacancy 2.0–2.5% (REIWA measure); SQM Research June 2026 — Perth 0.6%, Canberra 1.7%.</td></tr>
+    <tr><td>HIA Economic Research</td><td>Apartment surge, July 2026 — ACT commencements +71.8% in March 2026 quarter, apartment-driven.</td></tr>
+    <tr><td>ATO</td><td>Residential fees for a foreign person (2026-27 tables; $15,600 fee; ban to 30 June 2029).</td></tr>
+    <tr><td>Revenue NSW</td><td>Surcharge land tax rates (5% from 2025); transfer duty rates (2026-27).</td></tr>
+    <tr><td>WA Government</td><td>Off-the-plan duty concession (100% ≤ $800k, to 30 June 2028); foreign buyers duty (7%).</td></tr>
+    <tr><td>FIRB</td><td>Schedule of Fees (2025-26 reference).</td></tr>
+    <tr><td>Pexels</td><td>Report imagery (licensed for free use).</td></tr>
+  </table>
+  <p class="tbl-note">Figures verified against the cited authorities on 6 August 2026. FIRB fees index annually on 1 July; state rates change periodically — re-verify before relying.</p>
+</section>
+
+<div class="footer">
+  <b>Australian Property Market Research Report — Singaporean Perspective — August 2026</b><br>
+  Prepared by Afirmico Finance (W. Ledingham, Mortgage Broker) &nbsp;·&nbsp; Credit Representative of Purple Circle Financial Services, ACL 486112<br>
+  Artificial Intelligence (AI) was used in the preparation of this report. All figures have been human-verified against primary sources.<br>
+  This report is general information only and is not financial, credit, legal or tax advice. It is not prepared having regard to any person's objectives, financial situation or needs.
+</div>
+
+</body>
+</html>
