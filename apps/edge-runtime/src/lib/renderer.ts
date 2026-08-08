@@ -32,6 +32,37 @@ interface UiComponent {
   type: string
   id?: string
   children?: UiComponent[]
+  // Typed props accessed by the renderer (all optional — UI primitives are sparse configs)
+  text?: string
+  label?: string
+  title?: string
+  subtitle?: string
+  direction?: string
+  gap?: string | number
+  level?: string
+  variant?: string
+  dot?: boolean
+  action?: string
+  method?: string
+  submitLabel?: string
+  name?: string
+  placeholder?: string
+  value?: string | number
+  required?: boolean
+  maxLength?: number
+  min?: number
+  max?: number
+  step?: number
+  prefix?: string
+  suffix?: string
+  options?: Array<{ value: string; label?: string }>
+  checked?: boolean
+  disabled?: boolean
+  href?: string
+  target?: string
+  src?: string
+  alt?: string
+  objectFit?: string
   [key: string]: unknown
 }
 
@@ -109,14 +140,14 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
   switch (type) {
     // ── Layout ───────────────────────────────────────────────────────────
     case 'container': {
-      const dir = (component as any).direction || 'column'
-      const style = `display:flex;flex-direction:${dir}${(component as any).gap ? `;gap:${escapeAttr(String((component as any).gap))}` : ''}`
-      const children = renderChildren((component as any).children, ctx, depth + 1)
+      const dir = component.direction || 'column'
+      const style = `display:flex;flex-direction:${dir}${component.gap ? `;gap:${escapeAttr(String(component.gap))}` : ''}`
+      const children = renderChildren(component.children, ctx, depth + 1)
       return `<div${idAttr} style="${style}"${attrs}>${children}</div>`
     }
 
     case 'card': {
-      const c = component as any
+      const c = component
       const title = c.title ? `<div style="font-weight:600;margin-bottom:8px">${interpolate(c.title, ctx)}</div>` : ''
       const sub = c.subtitle ? `<div style="font-size:12px;color:#8b949e;margin-bottom:8px">${interpolate(c.subtitle, ctx)}</div>` : ''
       const children = renderChildren(c.children, ctx, depth + 1)
@@ -124,7 +155,7 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
     }
 
     case 'section': {
-      const c = component as any
+      const c = component
       const title = c.title ? `<h3 style="font-size:14px;font-weight:600;margin-bottom:8px">${interpolate(c.title, ctx)}</h3>` : ''
       const children = renderChildren(c.children, ctx, depth + 1)
       return `<section${idAttr}${attrs}>${title}${children}</section>`
@@ -132,30 +163,30 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
 
     // ── Typography ───────────────────────────────────────────────────────
     case 'heading': {
-      const c = component as any
+      const c = component
       const level = c.level || 'h2'
-      const text = escapeHtml(interpolate(c.text, ctx))
+      const text = escapeHtml(interpolate(c.text ?? '', ctx))
       return `<${level}${idAttr}${attrs}>${text}</${level}>`
     }
 
     case 'text': {
-      const text = escapeHtml(interpolate((component as any).text || '', ctx))
+      const text = escapeHtml(interpolate(component.text || '', ctx))
       return `<span${idAttr}${attrs}>${text}</span>`
     }
 
     case 'badge': {
-      const c = component as any
+      const c = component
       const variant = c.variant || 'neutral'
       const colors: Record<string, string> = { info: '#58a6ff', success: '#3fb950', warning: '#d29922', danger: '#f85149', neutral: '#8b949e' }
       const color = colors[variant] || colors.neutral
-      const text = escapeHtml(interpolate(c.text, ctx))
+      const text = escapeHtml(interpolate(c.text ?? '', ctx))
       const dot = c.dot ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${color};margin-right:4px"></span>` : ''
       return `<span${idAttr}${attrs} style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:${color}20;color:${color}">${dot}${text}</span>`
     }
 
     // ── Interactive: Form ────────────────────────────────────────────────
     case 'form': {
-      const c = component as any
+      const c = component
       const action = c.action || '/api/v1/chat/action'
       const method = c.method || 'POST'
       const submitLabel = c.submitLabel || 'Submit'
@@ -165,7 +196,7 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
 
     // ── Interactive: Input ───────────────────────────────────────────────
     case 'text_input': {
-      const c = component as any
+      const c = component
       const label = c.label ? `<label for="${escapeAttr(c.name || '')}" style="display:block;font-size:12px;margin-bottom:4px;color:#e1e4e8">${interpolate(c.label, ctx)}</label>` : ''
       const ph = c.placeholder ? ` placeholder="${escapeAttr(interpolate(c.placeholder, ctx))}"` : ''
       const val = c.value !== undefined ? ` value="${escapeAttr(String(c.value))}"` : ''
@@ -174,7 +205,7 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
     }
 
     case 'number_input': {
-      const c = component as any
+      const c = component
       const label = c.label ? `<label for="${escapeAttr(c.name || '')}" style="display:block;font-size:12px;margin-bottom:4px;color:#e1e4e8">${interpolate(c.label, ctx)}</label>` : ''
       const ph = c.placeholder ? ` placeholder="${escapeAttr(interpolate(c.placeholder, ctx))}"` : ''
       const val = c.value !== undefined ? ` value="${c.value}"` : ''
@@ -186,23 +217,23 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
     }
 
     case 'select': {
-      const c = component as any
+      const c = component
       const label = c.label ? `<label for="${escapeAttr(c.name || '')}" style="display:block;font-size:12px;margin-bottom:4px;color:#e1e4e8">${interpolate(c.label, ctx)}</label>` : ''
-      const options = (c.options || []).map((opt: any) =>
+      const options = (c.options || []).map((opt: { value: string; label?: string }) =>
         `<option value="${escapeAttr(opt.value)}"${opt.value === c.value ? ' selected' : ''}>${escapeHtml(opt.label || opt.value)}</option>`
       ).join('')
       return `<div id="wrapper-${id || ''}"${attrs}>${label}<select${idAttr} name="${escapeAttr(c.name || '')}" hx-target="#wrapper-${id || ''}" hx-trigger="change" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid #2d3140;background:#0f1117;color:#e1e4e8;font-size:14px">${options}</select></div>`
     }
 
     case 'checkbox': {
-      const c = component as any
+      const c = component
       const checked = c.checked ? ' checked' : ''
       return `<label${idAttr}${attrs} style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" name="${escapeAttr(c.name || '')}"${checked} hx-target="next siblings" hx-trigger="change">${interpolate(c.label || '', ctx)}</label>`
     }
 
     // ── Interactive: Button ──────────────────────────────────────────────
     case 'button': {
-      const c = component as any
+      const c = component
       const variant = c.variant || 'primary'
       const colors: Record<string, string> = { primary: '#238636', secondary: '#2d3140', danger: '#da3633', ghost: 'transparent', link: 'transparent' }
       const bg = colors[variant] || colors.primary
@@ -213,7 +244,7 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
     }
 
     case 'link': {
-      const c = component as any
+      const c = component
       const label = interpolate(c.label || '', ctx)
       const href = c.href ? escapeAttr(interpolate(c.href, ctx)) : '#'
       const target = c.target ? ` target="${escapeAttr(c.target)}"` : ''
@@ -222,7 +253,7 @@ function renderPrimitive(component: UiComponent, ctx: ContextMap, depth: number)
 
     // ── Display ──────────────────────────────────────────────────────────
     case 'image': {
-      const c = component as any
+      const c = component
       const src = escapeAttr(interpolate(c.src || '', ctx))
       const alt = c.alt ? ` alt="${escapeAttr(interpolate(c.alt, ctx))}"` : ''
       const fit = c.objectFit || 'cover'
@@ -277,7 +308,7 @@ export function renderUiConfigToHtmlWithOob(root: UiComponent, ctx: ContextMap, 
   // Mark OOB elements by temporarily injecting the attribute
   function markOob(node: UiComponent): void {
     if (node.id && oobIds.has(node.id)) {
-      (node as any)['hx-swap-oob'] = 'true'
+      node['hx-swap-oob'] = 'true'
     }
     if (node.children) {
       node.children.forEach(markOob)
