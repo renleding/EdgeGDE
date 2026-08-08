@@ -1,6 +1,6 @@
 # EdgeGDE — Project Contract for Aegis-Governed Work
 
-Version: `edgegde-contract-2026-06-11`  
+Version: `edgegde-contract-2026-08-08`  
 Runtime: Cloudflare Workers  
 Stack: Hono + TypeScript + D1 + KV + R2 + Durable Objects  
 Current product version reference: `v0.9.7`
@@ -55,6 +55,16 @@ Droid does **not** own planning, architecture, correctness, or scope.
 - Hermes is the final approver.
 - Verify before declaring success.
 - Log mission evidence under `.hermes/logs/missions/`.
+
+### Fleet Concurrency (multi-agent crossover prevention)
+
+- **One agent = one worktree.** Workers are numbered agent-1..agent-5 (pane mapping in `references/agent-fleet-ports.json`); each works in `../EdgeGDE-worktrees/agent-N/` (detached at main; create `work-*` branch as first act). Only the coordinator (agent-6, main checkout) works from the stable base. Never share a working tree.
+- **Ports are registered, not assumed.** Before starting ANY server, run `~/.hermes/skills/repo-worktree-policy/scripts/port-check.sh <port> <agent-N>` (exit 0 = safe). Primary ports: agent-6=8787, agent-1=8788, agent-2=8789, agent-3=8790, agent-4=8791, agent-5=8792. Secondary ports only from 8800–8897, registered in `references/agent-fleet-ports.json`.
+- **Shared services are connect-only, never started**: 8898, 8899, 4000 (LiteLLM), 11434 (Ollama), 9222 (CfT), 3000 (hermes-hudui).
+- **D1 migrations are CI-only.** `wrangler d1 migrations apply` is forbidden from agent panes; schema changes land only via PR + CI.
+- **Single-writer for local SQLite** (evidence.db, session DB, kanban): one leased writer at a time (FRS-007 lease lock); all others read.
+- **KV/R2 writes** require an explicit grant in a Mission Manifest (default `allow_network: false`).
+- Full policy: `repo-worktree-policy` skill (v1.1.0).
 
 ## 3. Architecture Contract
 
