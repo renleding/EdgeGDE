@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "policy_ref": "AGENTS.md §2 Fleet Concurrency (edgegde-contract-2026-08-08)",
+  "port_check_script": "~/.hermes/skills/repo-worktree-policy/scripts/port-check.sh",
+  "primary_ports": {
+    "agent-6": 8787,
+    "agent-1": 8788,
+    "agent-2": 8789,
+    "agent-3": 8790,
+    "agent-4": 8791,
+    "agent-5": 8792
+  },
+  "secondary_port_range": [8800, 8897],
+  "shared_services_connect_only": {
+    "8898": "shared python service (connect-only)",
+    "8899": "shared python service (connect-only)",
+    "4000": "LiteLLM gateway",
+    "11434": "Ollama",
+    "9222": "Chrome for Testing (CDP)",
+    "3000": "hermes-hudui"
+  },
+  "rules": [
+    "Before starting ANY server, run the port_check_script with the target port and agent id; exit 0 = safe.",
+    "Shared services are connect-only, never started by agents.",
+    "Secondary ports are only used from 8800-8897 and MUST be registered here before use.",
+    "D1 migrations are CI-only; wrangler d1 migrations apply is forbidden from agent panes."
+  ]
+}
