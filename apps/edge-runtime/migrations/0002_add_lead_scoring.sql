@@ -1,5 +1,12 @@
 -- Track 4 Phase 5: Add lead scoring columns to form_submissions
 -- Applied before queue consumer goes live
+--
+-- ⚠️ SEQUENCE NOTE (reconciled 2026-08-09): this file shares the 0002 prefix
+-- with 0002_create_lender_profiles.sql. Both are APPLIED and recorded in the
+-- remote d1_migrations table (lead_scoring first — lexical sort). DO NOT
+-- renumber: wrangler matches migrations by full filename; a rename would be
+-- treated as a new migration and re-run this ALTER TABLE (columns already
+-- exist → deploy failure). The duplicate prefix is intentional/harmless.
 
 ALTER TABLE form_submissions
   ADD COLUMN lead_score INTEGER DEFAULT 0;

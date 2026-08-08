@@ -1,6 +1,13 @@
 -- 0002: Create lender_profiles table
 -- Maps the 49-column Lenderniche criteria template into a structured D1 table.
 -- Each row = one lender's full underwriting profile.
+--
+-- ⚠️ SEQUENCE NOTE (reconciled 2026-08-09): this file shares the 0002 prefix
+-- with 0002_add_lead_scoring.sql. Both are APPLIED and recorded in the remote
+-- d1_migrations table (lead_scoring first — lexical sort). DO NOT renumber:
+-- wrangler matches migrations by full filename; a rename would be treated as
+-- a new migration and re-run this CREATE TABLE (table already exists →
+-- deploy failure). The duplicate prefix is intentional/harmless.
 
 CREATE TABLE IF NOT EXISTS lender_profiles (
   id            TEXT PRIMARY KEY,

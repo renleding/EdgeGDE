@@ -68,7 +68,7 @@ function captureCurrentState(): {
   let typecheckRaw = ''
   try {
     typecheckRaw = execSync('npx tsc --noEmit 2>&1', {
-      cwd: EDGE_RUNTIME, encoding: 'utf-8', timeout: 300,
+      cwd: EDGE_RUNTIME, encoding: 'utf-8', timeout: 300_000,
     })
     typecheckErrors = 0
   } catch (e: any) {
@@ -81,22 +81,30 @@ function captureCurrentState(): {
   // Tests
   let testPassed = 0, testFailed = 0, testSkipped = 0
   let testRaw = ''
+  // Vitest summary prints "Test Files  N passed" BEFORE "Tests  N passed".
+  // A first-match regex grabs the FILE count (37) instead of the TEST count
+  // (699) → false RED. Always take the LAST match, or anchor on the Tests line.
+  const lastMatch = (s: string, re: RegExp): number => {
+    let m: RegExpExecArray | null
+    let last = 0
+    const g = new RegExp(re.source, 'g')
+    while ((m = g.exec(s)) !== null) {
+      last = parseInt(m[1] ?? '0', 10)
+    }
+    return last
+  }
   try {
     testRaw = execSync('bun run test:unit 2>&1', {
-      cwd: EDGE_RUNTIME, encoding: 'utf-8', timeout: 300,
+      cwd: EDGE_RUNTIME, encoding: 'utf-8', timeout: 300_000,
     })
-    const passMatch = testRaw.match(/(\d+)\s+passed/)
-    const failMatch = testRaw.match(/(\d+)\s+failed/)
-    const skipMatch = testRaw.match(/(\d+)\s+skipped/)
-    testPassed = passMatch ? parseInt(passMatch[1]) : 0
-    testFailed = failMatch ? parseInt(failMatch[1]) : 0
-    testSkipped = skipMatch ? parseInt(skipMatch[1]) : 0
+    testPassed = lastMatch(testRaw, /(\d+)\s+passed/)
+    testFailed = lastMatch(testRaw, /(\d+)\s+failed/)
+    testSkipped = lastMatch(testRaw, /(\d+)\s+skipped/)
   } catch (e: any) {
     testRaw = e.stdout || e.message || ''
-    const passMatch = testRaw.match(/(\d+)\s+passed/)
-    const failMatch = testRaw.match(/(\d+)\s+failed/)
-    testPassed = passMatch ? parseInt(passMatch[1]) : 0
-    testFailed = failMatch ? parseInt(failMatch[1]) : 0
+    testPassed = lastMatch(testRaw, /(\d+)\s+passed/)
+    testFailed = lastMatch(testRaw, /(\d+)\s+failed/)
+    testSkipped = lastMatch(testRaw, /(\d+)\s+skipped/)
   }
 
   return {

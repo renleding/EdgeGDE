@@ -6,6 +6,9 @@
 set -uo pipefail
 # Intentionally NOT using -e: individual checks handle their own failures with || true
 
+# Ensure bun is on PATH for cron environments (cron does NOT source .zshrc)
+export PATH="/Users/warren/.bun/bin:$PATH"
+
 REPO="/Users/warren/Documents/_HQ_AI/EdgeGDE"
 cd "$REPO"
 
@@ -45,6 +48,13 @@ TEST_PASS=$(echo "$TEST_OUTPUT" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE 
 echo "Tests: ${TEST_PASS} passed, ${TEST_FAILS} failed"
 if [ "$TEST_FAILS" -gt 0 ]; then
   log_finding "P1" "tests" "$TEST_FAILS test(s) failing"
+  PASS=false
+fi
+# Integrity guard: 0 passed with a non-empty baseline means the runner was masked
+# (bun missing from PATH, invalid package.json) — fail loudly instead of false-PASS.
+PREV_TESTS=$(cat "$BASELINE_DIR/test.json" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total_tests') or d.get('tests') or d.get('passed') or 0)" 2>/dev/null || echo "0")
+if [ "$TEST_PASS" = "0" ] && [ "$PREV_TESTS" -gt 0 ] 2>/dev/null; then
+  log_finding "P1" "scan-integrity" "Tests reported 0 passed (baseline $PREV_TESTS) — runner masked (bun PATH / invalid package.json?). See tools/nightly-scan.sh integrity guard."
   PASS=false
 fi
 
