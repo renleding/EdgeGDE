@@ -80,17 +80,29 @@ if [ "$CONSOLE_LOG" -gt "$PREV_LOG" ] 2>/dev/null; then
 fi
 echo "{\"count\": $CONSOLE_LOG, \"date\": \"$DATE\"}" > "$BASELINE_DIR/console-log.json"
 
-# ── 5. Test file count (coverage proxy) ──
+# ── 5. Real instrumented coverage (from vitest v8 report) ──
+# Reads coverage/coverage-summary.json written by `bun run test:coverage`.
+# This is the authoritative coverage (the file-count ratio below is kept only
+# as a cheap proxy; it is NOT the gate — the CI gate reads the same summary).
 echo "--- 5. Test coverage ---"
-SRC_FILES=$(find apps/edge-runtime/src -name '*.ts' -type f | wc -l | tr -d ' ')
-TEST_FILES=$(find apps/edge-runtime/tests -name '*.ts' -type f | wc -l | tr -d ' ')
-COVERAGE_PCT=$((TEST_FILES * 100 / SRC_FILES)) 2>/dev/null || echo "0"
-echo "Source: $SRC_FILES, Tests: $TEST_FILES, Coverage: ${COVERAGE_PCT}%"
+COV_SUMMARY="apps/edge-runtime/coverage/coverage-summary.json"
+COVERAGE_PCT=0
+if [ -f "$COV_SUMMARY" ]; then
+  COVERAGE_PCT=$(python3 -c "import sys,json; d=json.load(open('$COV_SUMMARY')); print(int(d['total']['lines']['pct']))" 2>/dev/null || echo "0")
+fi
+# Fallback: file-count ratio only if the real summary is missing (cron env may
+# not run test:coverage — then keep the old proxy so the check never no-ops).
+if [ "$COVERAGE_PCT" = "0" ] && [ ! -f "$COV_SUMMARY" ]; then
+  SRC_FILES=$(find apps/edge-runtime/src -name '*.ts' -type f | wc -l | tr -d ' ')
+  TEST_FILES=$(find apps/edge-runtime/tests -name '*.ts' -type f | wc -l | tr -d ' ')
+  COVERAGE_PCT=$((TEST_FILES * 100 / SRC_FILES)) 2>/dev/null || echo "0"
+fi
+echo "Coverage (lines): ${COVERAGE_PCT}%"
 PREV_COV=$(cat "$BASELINE_DIR/coverage.json" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('pct',0))" 2>/dev/null || echo "0")
 if [ "$COVERAGE_PCT" -lt "$PREV_COV" ] 2>/dev/null; then
   log_finding "P2" "coverage" "Test coverage dropped: ${PREV_COV}% → ${COVERAGE_PCT}%"
 fi
-echo "{\"pct\": $COVERAGE_PCT, \"src\": $SRC_FILES, \"tests\": $TEST_FILES, \"date\": \"$DATE\"}" > "$BASELINE_DIR/coverage.json"
+echo "{\"pct\": $COVERAGE_PCT, \"date\": \"$DATE\", \"source\": \"$([ -f "$COV_SUMMARY" ] && echo vitest-summary || echo file-ratio)\"}" > "$BASELINE_DIR/coverage.json"
 
 # ── 6. Stale worktrees ──
 echo "--- 6. Stale worktrees ---"

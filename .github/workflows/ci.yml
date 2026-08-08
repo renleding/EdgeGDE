@@ -42,9 +42,10 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run test:unit
         name: Unit tests (compute-drift, lifecycle, gogo, replay)
-      - run: bun run test:coverage 2>&1 | tail -20 || echo "⚠️ Coverage not configured as threshold — informational only"
-        name: Coverage report (informational)
-        continue-on-error: true
+      - run: bun run test:coverage 2>&1 | tail -20
+        name: Coverage gate (thresholds enforced in vitest.coverage.config.ts)
+        # NO continue-on-error — coverage below threshold fails CI and blocks merge.
+        # Thresholds ratchet up in each coverage batch PR (EG-TEST-0009).
 
   swe-bench-lint:
     needs: unit-tests

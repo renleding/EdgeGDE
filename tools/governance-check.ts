@@ -114,6 +114,11 @@ function getChangedLineRanges(filePath: string): [number, number][] | null {
 function checkNoAsAny(content: string, file: string, lineRanges?: [number, number][] | null): CheckResult {
   const details: string[] = []
   const lines = content.split('\n')
+  const fileName = file.split('/').pop() || ''
+  // Skip test files — mock setup routinely needs casts (matches console.log rule)
+  if (fileName.endsWith('.test.ts')) {
+    return { check: 'No `as any`', status: 'pass', details: [] }
+  }
   for (let i = 0; i < lines.length; i++) {
     if (lineRanges) {
       const lineNum = i + 1
