@@ -48,6 +48,12 @@ cd "$BASE_DIR"
 git worktree list --porcelain | while IFS= read -r line; do
   if [[ "$line" =~ ^worktree\ (.*) ]]; then
     WT_PATH="${BASH_REMATCH[1]}"
+    # Reset per-entry state: the primary worktree's branch value would
+    # otherwise leak into subsequent (e.g. detached HEAD) entries, showing
+    # the wrong branch label for worktrees that have no branch.
+    BRANCH=""
+    HEAD_HASH=""
+    LOCK_REASON=""
   elif [[ "$line" =~ ^HEAD\ (.*) ]]; then
     HEAD_HASH="${BASH_REMATCH[1]}"
   elif [[ "$line" =~ ^branch\ (.*) ]]; then
