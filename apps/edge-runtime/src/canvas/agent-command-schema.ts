@@ -21,8 +21,8 @@ const nodeSchema = z.object({
   type: nodeTypeSchema,
   parentId: z.string().nullable(),
   children: z.array(z.string()).default([]),
-  props: z.record(z.any()).default({}),
-  style: z.record(z.any()).default({}),
+  props: z.record(z.string(), z.any()).default({}),
+  style: z.record(z.string(), z.any()).default({}),
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -38,8 +38,8 @@ const addNodeMutationSchema = z.object({
 const updateNodeMutationSchema = z.object({
   type: z.literal('update_node'),
   nodeId: z.string().min(1),
-  props: z.record(z.any()).optional(),
-  style: z.record(z.any()).optional(),
+  props: z.record(z.string(), z.any()).optional(),
+  style: z.record(z.string(), z.any()).optional(),
 })
 
 const deleteNodeMutationSchema = z.object({

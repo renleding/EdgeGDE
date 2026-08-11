@@ -191,7 +191,7 @@ export const calculatorResponseSchema = z.object({
   input: mortgageCalculatorInputSchema,
   summary: repaymentSummarySchema,
   amortizationSchedule: amortizationScheduleSchema.optional(),
-  timestamp: z.string().datetime(),
+  timestamp: z.iso.datetime(),
   schemaVersion: z.literal(SCHEMA_VERSION),
 })
 

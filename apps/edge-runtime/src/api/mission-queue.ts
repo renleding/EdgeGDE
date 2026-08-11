@@ -34,7 +34,7 @@ const missionQueueRouter = new Hono()
 
 const EnqueueSchema = z.object({
   missionId: z.string().min(1),
-  payload: z.record(z.unknown()).optional().default({}),
+  payload: z.record(z.string(), z.unknown()).optional().default({}),
   priority: z.number().int().min(0).max(10).optional().default(0),
   maxAttempts: z.number().int().min(1).max(10).optional().default(3),
   targetState: z.string().optional().default(''),
@@ -55,7 +55,7 @@ const CompleteSchema = z.object({
   itemId: z.string().min(1),
   performerId: z.string().min(1),
   status: z.enum(['COMPLETED', 'FAILED']),
-  result: z.record(z.unknown()).optional().default({}),
+  result: z.record(z.string(), z.unknown()).optional().default({}),
   error: z.string().optional().default(''),
 })
 
@@ -66,7 +66,7 @@ const ClaimResponseSchema = z.object({
   item: z.object({
     itemId: z.string(),
     missionId: z.string(),
-    payload: z.record(z.unknown()),
+    payload: z.record(z.string(), z.unknown()),
     status: z.string(),
     attempts: z.number(),
     leaseExpiresAt: z.number(),
@@ -110,7 +110,7 @@ missionQueueRouter.post('/enqueue', async (c) => {
     const body = await c.req.json()
     const parsed = EnqueueSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
+      return c.json({ success: false, error: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { missionId, payload, priority, maxAttempts, targetState, stateObjectId } = parsed.data
     const itemId = crypto.randomUUID()
@@ -139,7 +139,7 @@ missionQueueRouter.post('/claim', async (c) => {
     const body = await c.req.json()
     const parsed = ClaimSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
+      return c.json({ success: false, error: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { performerId, leaseDurationSeconds } = parsed.data
     const leaseMs = leaseDurationSeconds * 1000
@@ -215,7 +215,7 @@ missionQueueRouter.post('/heartbeat', async (c) => {
     const body = await c.req.json()
     const parsed = HeartbeatSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
+      return c.json({ success: false, error: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { itemId, performerId } = parsed.data
     const dbNow = '(unixepoch() * 1000)'
@@ -252,7 +252,7 @@ missionQueueRouter.post('/complete', async (c) => {
     const body = await c.req.json()
     const parsed = CompleteSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
+      return c.json({ success: false, error: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { itemId, performerId, status, result, error } = parsed.data
     // ATOMIC completion (eliminates TOCTOU): validate lease + mutate in

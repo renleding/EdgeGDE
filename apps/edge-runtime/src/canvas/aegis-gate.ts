@@ -133,7 +133,7 @@ export function validateMutation(raw: unknown): ValidationResult {
     }
   } catch (err) {
     if (err instanceof ZodError) {
-      const errors: ValidationError[] = err.errors.map((issue) => ({
+      const errors: ValidationError[] = err.issues.map((issue) => ({
         path: issue.path.join('.'),
         code: issue.code,
         message: issue.message,

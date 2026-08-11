@@ -41,7 +41,7 @@ missionRouter.post('/dry-run', async (c) => {
   } catch (err) {
     if (err instanceof z.ZodError) {
       return c.json(
-        { report: { valid: false, actions: [], warnings: [], errors: err.errors.map((e) => `${e.path.join('.')}: ${e.message}`), estimatedTotalDurationMs: 0 } },
+        { report: { valid: false, actions: [], warnings: [], errors: err.issues.map((e) => `${e.path.join('.')}: ${e.message}`), estimatedTotalDurationMs: 0 } },
         400,
       )
     }
@@ -112,7 +112,7 @@ missionRouter.post('/execute', async (c) => {
   } catch (err) {
     if (err instanceof z.ZodError) {
       return c.json(
-        { success: false, error: err.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') },
+        { success: false, error: err.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') },
         400,
       )
     }

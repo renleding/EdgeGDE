@@ -40,7 +40,7 @@ const PromoteSchema = z.object({
   transitionName: z.string().min(1),
   sourceState: z.string().min(1),
   targetState: z.string().min(1),
-  elementSelectors: z.array(z.record(z.unknown())).min(1),
+  elementSelectors: z.array(z.record(z.string(), z.unknown())).min(1),
   dualGateSpec: z.object({
     preCheck: z.object({ type: z.string(), target: z.string() }),
     postCheck: z.object({
@@ -114,7 +114,7 @@ transitionsRouter.post('/promote', async (c) => {
     const body = await c.req.json()
     const parsed = PromoteSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
+      return c.json({ success: false, error: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const p = parsed.data
 
@@ -185,7 +185,7 @@ transitionsRouter.post('/approve', async (c) => {
     const body = await c.req.json()
     const parsed = ApproveSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
+      return c.json({ success: false, error: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { signature } = parsed.data
     const d1 = db(c.env as Record<string, unknown>)
@@ -253,7 +253,7 @@ transitionsRouter.post('/shadow-result', async (c) => {
     const body = await c.req.json()
     const parsed = ShadowResultSchema.safeParse(body)
     if (!parsed.success) {
-      return c.json({ success: false, error: parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
+      return c.json({ success: false, error: parsed.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join('; ') }, 400)
     }
     const { signature, runSeq, success } = parsed.data
     const d1 = db(c.env as Record<string, unknown>)

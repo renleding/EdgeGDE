@@ -106,7 +106,7 @@ describe('executeCalculator — schema validation', () => {
     const r = executeCalculator(def.id, {})
     expect(r.success).toBe(false)
     expect(r.calculatorName).toBe('Schema Calc')
-    expect(r.error).toBe('income: Required; name: Required')
+    expect(r.error).toBe('income: Invalid input: expected number, received undefined; name: Invalid input: expected string, received undefined')
     expect(r.executedAt).toMatch(ISO_RE)
   })
 
@@ -122,7 +122,7 @@ describe('executeCalculator — schema validation', () => {
     registerCalculator(nested)
     const r = executeCalculator(nested.id, { a: {} })
     expect(r.success).toBe(false)
-    expect(r.error).toBe('a.b: Required')
+    expect(r.error).toBe('a.b: Invalid input: expected string, received undefined')
   })
 })
 

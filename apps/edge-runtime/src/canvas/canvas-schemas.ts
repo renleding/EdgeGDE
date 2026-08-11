@@ -46,8 +46,8 @@ export const NodeSchema = z.object({
   type: NodeTypeSchema,
   parentId: ParentIdSchema,
   children: z.array(NodeIdSchema).default([]),
-  props: z.record(z.any()).default({}),
-  style: z.record(z.any()).default({}),
+  props: z.record(z.string(), z.any()).default({}),
+  style: z.record(z.string(), z.any()).default({}),
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -132,8 +132,8 @@ export const AddNodeMutationSchema = z.object({
 export const UpdateNodeMutationSchema = z.object({
   type: z.literal('update_node'),
   nodeId: NodeIdSchema,
-  props: z.record(z.any()).optional(),
-  style: z.record(z.any()).optional(),
+  props: z.record(z.string(), z.any()).optional(),
+  style: z.record(z.string(), z.any()).optional(),
 })
 
 /** DeleteNodeMutationSchema. */
@@ -233,7 +233,7 @@ export const CanvasDocumentSchema = z.object({
     name: z.string().optional(),
     tenantId: z.string().optional(),
     source: z.string().optional(),
-    sourceUrl: z.string().url().optional(),
+    sourceUrl: z.url().optional(),
     description: z.string().optional(),
     createdAt: TimestampSchema.optional(),
     updatedAt: TimestampSchema.optional(),
