@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 
 export const chatViewsRouter = new Hono()
 
@@ -80,7 +81,7 @@ chatViewsRouter.get('/chat/events', async (c) => {
     return c.json({ error: 'No session — start a chat first' }, 400)
   }
 
-  const doBinding = (c.env as any)?.AUDIT_LEDGER
+  const doBinding = envFromContext(c).AUDIT_LEDGER
   if (!doBinding || typeof doBinding.idFromName !== 'function') {
     return c.json({ error: 'AUDIT_LEDGER binding required' }, 500)
   }
@@ -123,7 +124,7 @@ function renderWidgetMessages(collected: Record<string, unknown>): string {
 // ═════════════════════════════════════════════════════════════════════════════
 
 chatViewsRouter.post('/chat/widget-action', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const sessionId = getSessionIdFromCookie(c)
   if (!sessionId) return c.html(renderWidgetMessages({}))
@@ -191,7 +192,7 @@ async function readCollected(db: any, sessionId: string, tenantId: string): Prom
 // ═════════════════════════════════════════════════════════════════════════════
 
 chatViewsRouter.get('/chat/messages', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const sessionId = getSessionIdFromCookie(c)
   if (!sessionId) return c.html('')
@@ -232,7 +233,7 @@ chatViewsRouter.get('/chat/messages', async (c) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 chatViewsRouter.get('/chat/view', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   let sessionId = getSessionIdFromCookie(c)
 
@@ -250,7 +251,7 @@ chatViewsRouter.get('/chat/view', async (c) => {
       }
     } catch {}
   }
-  if (!existingVerified) { sessionId = undefined as any }
+  if (!existingVerified) { sessionId = undefined }
 
   // Resolve session via identity levels
   let uiMode = 'chat'

@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono'
 import { guardKV } from '../lib/kv'
+import { envFromContext } from '../lib/env'
 
 const adminSiteRouter = new Hono()
 
@@ -78,7 +79,7 @@ const pageLayout = (title: string, body: string, tenantId?: string, token?: stri
 
 adminSiteRouter.get('/', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
 
   // Check staging layout
@@ -188,7 +189,7 @@ adminSiteRouter.get('/', async (c) => {
 
 adminSiteRouter.post('/promote', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
 
   try {
@@ -211,7 +212,7 @@ adminSiteRouter.post('/promote', async (c) => {
 
 adminSiteRouter.post('/save-version', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
 
   try {
@@ -251,7 +252,7 @@ adminSiteRouter.post('/save-version', async (c) => {
 
 adminSiteRouter.get('/versions', async (c) => {
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = guardKV(envFromContext(c).TENANT_KV)
   const ctx = { tenantId, env: c.env }
 
   try {

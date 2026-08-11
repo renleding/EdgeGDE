@@ -7,6 +7,7 @@ import { Hono } from 'hono'
 import type { TenantConfig } from '../lib/tenant'
 import { validateSlug } from '../lib/tenant'
 import type { WebhookConfig } from '../lib/webhook'
+import { envFromContext } from '../lib/env'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Router
@@ -38,7 +39,7 @@ tenantRouter.post('/', async (c) => {
   }
 
   // ── 3. Check for duplicates ─────────────────────────────────────────────
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV) {
     return c.json({ error: 'TENANT_KV not available' }, 500)
   }
@@ -89,7 +90,7 @@ tenantRouter.post('/', async (c) => {
   )
 
   // ── 6. Mirror to D1 for safe querying ────────────────────────────────────
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (db && typeof db.prepare === 'function') {
     try {
       await db.prepare(
@@ -114,7 +115,7 @@ tenantRouter.post('/', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 tenantRouter.get('/', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
 
   if (!db || typeof db.prepare !== 'function') {
     return c.json({ error: 'D1 binding required' }, 500)
@@ -140,7 +141,7 @@ tenantRouter.get('/', async (c) => {
 
 tenantRouter.get('/:slug/webhook', async (c) => {
   const slug = c.req.param('slug')
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV not available' }, 500)
 
   const config: WebhookConfig | null =
@@ -159,7 +160,7 @@ tenantRouter.get('/:slug/webhook', async (c) => {
 
 tenantRouter.put('/:slug/webhook', async (c) => {
   const slug = c.req.param('slug')
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV not available' }, 500)
 
   let body: Record<string, unknown>
@@ -214,7 +215,7 @@ tenantRouter.put('/:slug/webhook', async (c) => {
 
 tenantRouter.delete('/:slug/webhook', async (c) => {
   const slug = c.req.param('slug')
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV) return c.json({ error: 'TENANT_KV not available' }, 500)
 
   await TENANT_KV.delete(`tenant:${slug}:webhook`)
