@@ -90,8 +90,8 @@ class StateEngineMCP:
             return False
 
     def get_fastmcp_app(self):
-        from mcp.server.fastmcp import FastMCP
-        mcp = FastMCP("State Engine MCP")
+        from mcp.server.mcpserver import MCPServer
+        mcp = MCPServer("State Engine MCP")
 
         @mcp.tool()
         async def mcp_mission(objective: str, mission_id: str = "") -> str:
