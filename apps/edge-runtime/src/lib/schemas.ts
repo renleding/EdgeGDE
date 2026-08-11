@@ -113,7 +113,7 @@ export function buildFormSchema(fields: FormFieldDef[]): z.ZodObject<any> {
       if (field.validation.max != null) base = base.refine((n: any) => n <= field.validation.max!, { message: `Maximum ${field.label} is ${field.validation.max}` })
       zod = base
     } else if (field.fieldType === 'email') {
-      zod = z.string().email()
+      zod = z.email()
     } else {
       let base: any = z.string()
       if (field.validation.minLength != null) base = base.refine((s: any) => (s as string).length >= field.validation.minLength!, { message: `Minimum length is ${field.validation.minLength}` })

@@ -154,10 +154,10 @@ export const StepIdSchema = z.string().min(1)
 export const TransactionIdSchema = z.string().min(1)
 
 /** DateTimeSchema. */
-export const DateTimeSchema = z.string().datetime()
+export const DateTimeSchema = z.iso.datetime()
 
 /** MetadataSchema. */
-export const MetadataSchema = z.record(z.unknown()).default({})
+export const MetadataSchema = z.record(z.string(), z.unknown()).default({})
 
 /** ConfidenceMetadataSchema. */
 export const ConfidenceMetadataSchema = z
@@ -525,7 +525,7 @@ export const EdgeGDEAgentManifestSchema = z
     schemaVersion: z.string().min(1),
     tenantId: TenantIdSchema,
     siteSlug: z.string().min(1),
-    capabilities: z.record(z.unknown()).optional(),
+    capabilities: z.record(z.string(), z.unknown()).optional(),
     tools: z.array(ToolManifestSchema).optional(),
     policy: z
       .object({
@@ -838,7 +838,7 @@ export const UXEventSchema = z
     sequence: z.number().int().min(0),
 
     timestamp: DateTimeSchema,
-    data: z.record(z.unknown()).default({}),
+    data: z.record(z.string(), z.unknown()).default({}),
   })
   .strict()
 

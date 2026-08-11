@@ -275,7 +275,7 @@ export const SectionSchema = BaseComponentSchema.extend({
 /** ImageSchema. */
 export const ImageSchema = BaseComponentSchema.extend({
   type: z.literal('image'),
-  src: z.string().url(),
+  src: z.url(),
   alt: z.string().optional(),
   aspectRatio: z.string().optional(),
   objectFit: z.enum(['cover', 'contain', 'fill', 'none', 'scale-down']).optional().default('cover'),
