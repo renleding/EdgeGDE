@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 
 export const chatViewsRouter = new Hono()
 
@@ -80,7 +81,7 @@ chatViewsRouter.get('/chat/events', async (c) => {
     return c.json({ error: 'No session — start a chat first' }, 400)
   }
 
-  const doBinding = (c.env as any)?.AUDIT_LEDGER
+  const doBinding = envFromContext(c).AUDIT_LEDGER
   if (!doBinding || typeof doBinding.idFromName !== 'function') {
     return c.json({ error: 'AUDIT_LEDGER binding required' }, 500)
   }
@@ -123,7 +124,7 @@ function renderWidgetMessages(collected: Record<string, unknown>): string {
 // ═════════════════════════════════════════════════════════════════════════════
 
 chatViewsRouter.post('/chat/widget-action', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const sessionId = getSessionIdFromCookie(c)
   if (!sessionId) return c.html(renderWidgetMessages({}))
@@ -148,7 +149,7 @@ chatViewsRouter.post('/chat/widget-action', async (c) => {
     })
     if (toolRes.ok) {
       const body: any = await toolRes.json()
-      console.log('[widget-action] tool response:', JSON.stringify(body))
+      console.warn('[widget-action] tool response:', JSON.stringify(body))
       if (body.state?.collected && Object.keys(body.state.collected).length > 0) {
         responseCollected = body.state.collected
       } else {
@@ -191,7 +192,7 @@ async function readCollected(db: any, sessionId: string, tenantId: string): Prom
 // ═════════════════════════════════════════════════════════════════════════════
 
 chatViewsRouter.get('/chat/messages', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   const sessionId = getSessionIdFromCookie(c)
   if (!sessionId) return c.html('')
@@ -232,7 +233,7 @@ chatViewsRouter.get('/chat/messages', async (c) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 chatViewsRouter.get('/chat/view', async (c) => {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   const tenantId = c.req.query('tenant') || 'au-mortgage-broker-afirmico'
   let sessionId = getSessionIdFromCookie(c)
 
@@ -241,7 +242,7 @@ chatViewsRouter.get('/chat/view', async (c) => {
   let existingVerified = false
   if (sessionId) {
     try {
-      const existing = await (c.env as any)?.DB?.prepare(
+      const existing = await envFromContext(c).DB?.prepare(
         `SELECT collected_fields_json FROM chat_sessions WHERE id = ? AND tenant_id = ?`
       ).bind(sessionId, c.req.query('tenant') || 'au-mortgage-broker-afirmico').first()
       if (existing?.collected_fields_json) {
@@ -250,7 +251,7 @@ chatViewsRouter.get('/chat/view', async (c) => {
       }
     } catch {}
   }
-  if (!existingVerified) { sessionId = undefined as any }
+  if (!existingVerified) { sessionId = undefined }
 
   // Resolve session via identity levels
   let uiMode = 'chat'
@@ -296,7 +297,7 @@ chatViewsRouter.get('/chat/view', async (c) => {
   let chatTitle = 'AFIRMICO Finance'
   let chatColor = '#58a6ff'
   try {
-    const kv = (c.env as any)?.TENANT_KV
+    const kv = envFromContext(c).TENANT_KV
     if (kv) {
       const { loadChatConfig } = await import('../lib/chat-config')
       const cfg = await loadChatConfig(kv, tenantId)
