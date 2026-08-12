@@ -84,7 +84,11 @@ jobs:
         working-directory: apps/edge-runtime
         run: bun install --frozen-lockfile
       - name: Fetch base branch for diff-based governance
-        run: git fetch origin "${{ github.base_ref || github.ref_name }}" --depth=1
+        # PR-only: on push-to-main github.base_ref is empty, so this would fall back to
+        # fetching origin/main --depth=1 and collapse the shallow history, breaking HEAD~1
+        # for diff-based governance (GOVERNANCE_DIFF_ERROR, Aug 2026).
+        if: github.event_name == 'pull_request'
+        run: git fetch origin "${{ github.base_ref }}" --depth=1
       - name: Governance compliance check
         working-directory: apps/edge-runtime
         run: npx tsx ../../tools/governance-check.ts --diff-only

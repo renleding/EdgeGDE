@@ -38,7 +38,7 @@ interface GovernanceReport {
   files_checked: number
 }
 
-function getChangedFiles(): string[] {
+function getChangedFiles(): string[] | null {
   try {
     const base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'HEAD~1'
     const output = execSync(`git diff --name-only ${base}...HEAD`, { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
@@ -49,7 +49,9 @@ function getChangedFiles(): string[] {
       const output = execSync('git diff --name-only HEAD~1...HEAD', { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
       return output.trim().split('\n').filter(Boolean)
     } catch {
-      return []
+      // Diff resolution failed entirely — signal the caller to FAIL LOUDLY
+      // (GOVERNANCE_DIFF_ERROR) instead of silently returning an empty diff.
+      return null
     }
   }
 }
@@ -233,11 +235,10 @@ function runAllChecks(): GovernanceReport {
   // silently full-scanning — a full scan flags pre-existing `as any` in files the commit didn't
   // touch, blocking deploys with false positives (historical bug, Jul 2026).
   if (changedFiles === null) {
-    console.error(
+    throw new Error(
       'GOVERNANCE_DIFF_ERROR: could not resolve changed files (git diff HEAD~1...HEAD failed). ' +
       'Check checkout fetch-depth and base-ref fetch steps. Refusing to full-scan.'
     )
-    process.exit(2)
   }
   const tsChangedFiles = changedFiles.filter(f => f.endsWith('.ts') && !f.startsWith('tools/') && existsSync(join(ROOT, f)))
   const filesToCheck = tsChangedFiles
@@ -280,9 +281,16 @@ function runAllChecks(): GovernanceReport {
 }
 
 // Main
-const report = runAllChecks()
-console.log(JSON.stringify(report, null, 2))
-console.error(`\nVerdict: ${report.verdict}  (${report.files_checked} files checked)`)
-if (report.verdict === 'FAIL') {
-  process.exit(1)
+function run(): number {
+  try {
+    const report = runAllChecks()
+    console.log(JSON.stringify(report, null, 2))
+    console.error(`\nVerdict: ${report.verdict}  (${report.files_checked} files checked)`)
+    return report.verdict === 'FAIL' ? 1 : 0
+  } catch (err) {
+    // GOVERNANCE_DIFF_ERROR and any other fatal path — exit 2, never a silent pass
+    console.error(err instanceof Error ? err.message : String(err))
+    return 2
+  }
 }
+process.exit(run())
