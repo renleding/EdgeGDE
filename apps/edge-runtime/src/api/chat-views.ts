@@ -149,7 +149,7 @@ chatViewsRouter.post('/chat/widget-action', async (c) => {
     })
     if (toolRes.ok) {
       const body: any = await toolRes.json()
-      console.log('[widget-action] tool response:', JSON.stringify(body))
+      console.warn('[widget-action] tool response:', JSON.stringify(body))
       if (body.state?.collected && Object.keys(body.state.collected).length > 0) {
         responseCollected = body.state.collected
       } else {
@@ -242,7 +242,7 @@ chatViewsRouter.get('/chat/view', async (c) => {
   let existingVerified = false
   if (sessionId) {
     try {
-      const existing = await (c.env as any)?.DB?.prepare(
+      const existing = await envFromContext(c).DB?.prepare(
         `SELECT collected_fields_json FROM chat_sessions WHERE id = ? AND tenant_id = ?`
       ).bind(sessionId, c.req.query('tenant') || 'au-mortgage-broker-afirmico').first()
       if (existing?.collected_fields_json) {
@@ -297,7 +297,7 @@ chatViewsRouter.get('/chat/view', async (c) => {
   let chatTitle = 'AFIRMICO Finance'
   let chatColor = '#58a6ff'
   try {
-    const kv = (c.env as any)?.TENANT_KV
+    const kv = envFromContext(c).TENANT_KV
     if (kv) {
       const { loadChatConfig } = await import('../lib/chat-config')
       const cfg = await loadChatConfig(kv, tenantId)

@@ -196,7 +196,7 @@ tenantRouter.put('/:slug/webhook', async (c) => {
 
   await TENANT_KV.put(`tenant:${slug}:webhook`, JSON.stringify(config))
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'webhook_config',
     action: 'set',
     slug,
@@ -220,7 +220,7 @@ tenantRouter.delete('/:slug/webhook', async (c) => {
 
   await TENANT_KV.delete(`tenant:${slug}:webhook`)
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'webhook_config',
     action: 'deleted',
     slug,
