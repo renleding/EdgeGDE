@@ -77,6 +77,11 @@ export class AuditLedger {
   private state: DurableObjectState
   private env: any
 
+  /** Live SSE stream writer for this DO instance (set by handleStream). */
+  private _streamWriter?: WritableStreamDefaultWriter<Uint8Array>
+  /** Storage key the active SSE stream is bound to. */
+  private _streamKey?: string
+
   constructor(state: DurableObjectState, env: unknown) {
     this.state = state
     this.env = env
@@ -247,8 +252,8 @@ export class AuditLedger {
 
       // Push to SSE stream if active
       try {
-        const writer = (this as any)._streamWriter
-        const activeKey = (this as any)._streamKey
+        const writer = this._streamWriter
+        const activeKey = this._streamKey
         if (writer && activeKey === storageKey && typeof writer.write === 'function') {
           const encoder = new TextEncoder()
           writer.write(encoder.encode(`data: ${JSON.stringify(envelope)}\n\n`))
@@ -345,13 +350,13 @@ export class AuditLedger {
     writer.write(encoder.encode(`event: connected\ndata: {"sessionId":"${sessionId}","lastSeq":${existing?.length > 0 ? existing[existing.length - 1].seq : 0}}\n\n`))
 
     // Store writer for live appends
-    ;(this as any)._streamWriter = writer
-    ;(this as any)._streamKey = storageKey
+    this._streamWriter = writer
+    this._streamKey = storageKey
 
     request.signal.addEventListener('abort', () => {
       writer.close().catch(() => {})
-      ;(this as any)._streamWriter = undefined
-      ;(this as any)._streamKey = undefined
+      this._streamWriter = undefined
+      this._streamKey = undefined
     })
 
     const keepalive = setInterval(() => {
