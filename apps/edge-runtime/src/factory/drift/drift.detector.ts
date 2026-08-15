@@ -43,14 +43,14 @@ export function detectConfigDrift(
 
   // Also build expected chat config (same as factory would)
   const expectedConfig: Record<string, unknown> = {
-    objective: `${(blueprint as any).name || blueprint.id} — Customer intake`,
+    objective: `${blueprint.name || blueprint.id} — Customer intake`,
     fields: blueprint.fields,
     priorityOrder: blueprint.priorityOrder,
     rules: [],
     knowledgeBase: { topics: ['rates', 'products', 'policy', 'fees', 'compliance', 'general'] },
     ui: {
-      title: (blueprint as any).name || blueprint.id,
-      greeting: `Welcome to ${(blueprint as any).name || blueprint.id}! Let's get started with your application.`,
+      title: blueprint.name || blueprint.id,
+      greeting: `Welcome to ${blueprint.name || blueprint.id}! Let's get started with your application.`,
       colorAccent: '#58a6ff',
     },
     pack_versions: buildExpectedPackVersions(blueprint),

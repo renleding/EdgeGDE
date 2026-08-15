@@ -7,6 +7,7 @@
 import { loadRulePack, loadCompliancePack, validateRulePackData, validateCompliancePackData } from '../packs/pack.registry'
 import { validatePackCompatibility, generatePackDiff, SemanticDiff } from './upgrade.validator'
 import { logAuditEvent } from '../../lib/audit'
+import { safeEnv } from '../../lib/env'
 
 export interface UpgradePlan {
   compatible: boolean
@@ -89,8 +90,9 @@ export async function executeUpgrade(
   rulePackName?: string,
   compliancePackName?: string,
 ): Promise<UpgradeResult> {
-  const rawKv = (env as any)?.TENANT_KV
-  const db = (env as any)?.DB
+  const e = safeEnv(env)
+  const rawKv = e.TENANT_KV
+  const db = e.DB
   if (!rawKv) throw new Error('TENANT_KV not available')
 
   // 3a. Snapshot current pack data
@@ -164,7 +166,7 @@ export async function executeUpgrade(
   if (compliancePackName) await clearSnapshot(rawKv, tenantId, compliancePackName)
 
   // 3g. Audit
-  const dbAudit = (env as any)?.DB
+  const dbAudit = e.DB
   logAuditEvent(dbAudit, tenantId, 'upgrade', 'pack_upgrade_complete', {
     rulePack: rulePackName,
     compliancePack: compliancePackName,
@@ -187,8 +189,9 @@ export async function rollbackUpgrade(
   rulePackName?: string,
   compliancePackName?: string,
 ): Promise<UpgradeResult> {
-  const rawKv = (env as any)?.TENANT_KV
-  const db = (env as any)?.DB
+  const e = safeEnv(env)
+  const rawKv = e.TENANT_KV
+  const db = e.DB
   if (!rawKv) throw new Error('TENANT_KV not available')
 
   const result: UpgradeResult = { success: false, rulesInstalled: 0, complianceInstalled: 0, snapshotted: false }
@@ -255,7 +258,7 @@ export async function rollbackUpgrade(
   await clearSnapshot(rawKv, tenantId, packName)
 
   // Audit
-  const dbAudit = (env as any)?.DB
+  const dbAudit = e.DB
   logAuditEvent(dbAudit, tenantId, 'rollback', 'pack_rollback_complete', {
     packName,
     rulesRestored: result.rulesInstalled,

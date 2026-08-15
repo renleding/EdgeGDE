@@ -46,6 +46,7 @@ export const BlueprintPackRefSchema = z.object({
 export const BlueprintSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
+  name: z.string().optional(),
   fields: z.array(BlueprintFieldSchema).min(1),
   priorityOrder: z.array(z.string()).min(1),
   packs: BlueprintPackRefSchema.default({}),
