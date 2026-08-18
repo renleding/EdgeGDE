@@ -48,7 +48,7 @@ import { clearSessionCookie } from './middleware/session'
 import { rateLimitRegistration, rateLimitLogin } from './middleware/rate-limit'
 import { adminPacksRouter } from './api/admin-packs'
 import { adminTenantRouter } from './api/admin-tenant-admin'
-import { adminChatConfigRouter, adminChatConfigApiRouter } from './api/admin-chat-config'
+import { adminChatConfigRouter, adminChatConfigTenantRouter, adminChatConfigApiRouter } from './api/admin-chat-config'
 import { embedRouter } from './api/embed'
 import { ocrRouter } from './api/ocr'
 import { dashboardHtml } from './lib/dashboard-html'
@@ -530,6 +530,7 @@ app.route('/admin/drift', adminDriftRouter)
 app.route('/admin/deadletter', adminDeadLetterRouter)
 app.route('/admin/packs', adminPacksRouter)
 app.route('/admin/tenants', adminTenantRouter)
+app.route('/admin/tenants', adminChatConfigTenantRouter)
 app.route('/admin/chat-config', adminChatConfigRouter)
 app.route('/api/admin/chat-config', adminChatConfigApiRouter)
 app.route('/admin', adminLandingRouter)

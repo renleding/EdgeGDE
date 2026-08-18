@@ -11,7 +11,6 @@
 
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { guardKV } from '../lib/kv'
 import {
   formatZodIssues,
   loadGlobalChatConfig,
@@ -23,7 +22,7 @@ import {
 } from '../lib/chat-config'
 
 const adminChatConfigRouter = new Hono()
-const adminTenantRouter = new Hono()
+const adminChatConfigTenantRouter = new Hono()
 const adminChatConfigApiRouter = new Hono()
 
 function escapeHtml(s: string): string {
@@ -205,7 +204,7 @@ async function saveConfig(
   tenantId: string,
   config: ChatConfig,
 ): Promise<{ key: string; hash: string; snapshotKey: string; bytes: number }> {
-  const kv = guardKV((c.env as any)?.TENANT_KV)
+  const kv = (c.env as any)?.TENANT_KV
   return saveChatConfig(kv, scope, tenantId, config)
 }
 
@@ -419,20 +418,19 @@ async function handleApiPost(c: Context, scope: 'global' | 'tenant', tenantId: s
 // HTML routes
 // ═══════════════════════════════════════════════════════════════════════════
 
-adminTenantRouter.get('/tenants', async (c) => {
-  const query = c.req.query('q') || ''
-  const tenants = await listTenants(c, query)
-  return c.html(pageLayout('Tenants', renderTenantDashboard(tenants, query)))
-})
+// NOTE: tenant dashboard listing is served by the tracked adminTenantRouter
+// at /admin/tenants (admin-tenant-admin.ts) — not duplicated here.
+// This router only carries the per-tenant chat-config edit surface.
+// adminChatConfigTenantRouter.get('/tenants', ...)
 
-adminTenantRouter.get('/tenants/:tenantId/config', async (c) => {
+adminChatConfigTenantRouter.get('/:tenantId/config', async (c) => {
   const resolved = await resolveTenant(c, c.req.param('tenantId'))
   const kv = (c.env as any)?.TENANT_KV
   const config = await loadEditConfig(kv, 'tenant', resolved.tenantId)
   return c.html(pageLayout('Chat Config', renderConfigPage('tenant', config, resolved)))
 })
 
-adminTenantRouter.post('/tenants/:tenantId/config', async (c) => {
+adminChatConfigTenantRouter.post('/:tenantId/config', async (c) => {
   const resolved = await resolveTenant(c, c.req.param('tenantId'))
   return handleConfigPost(c, 'tenant', resolved.tenantId, resolved)
 })
@@ -487,4 +485,4 @@ adminChatConfigApiRouter.get('/effective/:tenantId', async (c) => {
   })
 })
 
-export { adminChatConfigRouter, adminTenantRouter, adminChatConfigApiRouter }
+export { adminChatConfigRouter, adminChatConfigTenantRouter, adminChatConfigApiRouter }
