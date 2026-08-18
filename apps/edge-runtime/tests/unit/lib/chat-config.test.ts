@@ -22,13 +22,14 @@ describe('ChatConfigSchema', () => {
     expect(parsed.rules).toEqual([])
     expect(parsed.knowledgeBase).toEqual({ topics: [] })
     expect(parsed.llmFallback).toBe(true)
-    expect(parsed.ui).toBeUndefined()
+    expect(parsed.ui).toEqual({ title: 'EdgeGDE Chat', greeting: "Welcome! Let's get started.", colorAccent: '#58a6ff' })
   })
 
   it('defaults nested validation fields while preserving provided ones', () => {
     const parsed = ChatConfigSchema.parse({
       ...MINIMAL_VALID,
       fields: [{ fieldName: 'income', label: 'Income', fieldType: 'number', validation: { min: 0 } }],
+      priorityOrder: ['income'],
     })
     expect(parsed.fields[0].validation).toEqual({ required: true, min: 0 })
   })
