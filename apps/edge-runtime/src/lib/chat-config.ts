@@ -319,7 +319,7 @@ export async function loadChatConfig(kv: any, tenantId: string): Promise<ChatCon
       raw = null
     }
     const rawObj = raw == null ? null : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return raw } })() : raw)
-    if (rawObj && typeof rawObj === 'object' && (rawObj as any).upgrade_status === 'pending') {
+    if (rawObj && typeof rawObj === 'object' && rawObj.upgrade_status === 'pending') {
       console.warn('[chat-config] Upgrade pending for', tenantId, '— blocking')
       throw new Error('System update in progress. Please try again shortly.')
     }

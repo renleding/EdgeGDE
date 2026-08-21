@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono'
 import type { Context } from 'hono'
+import { envFromContext } from '../lib/env'
 import {
   formatZodIssues,
   loadGlobalChatConfig,
@@ -105,7 +106,7 @@ function pageLayout(title: string, body: string, token?: string): string {
 }
 
 async function resolveTenant(c: Context, tenantIdOrSlug: string): Promise<{ tenantId: string; slug: string; name: string }> {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db || typeof db.prepare !== 'function') {
     return { tenantId: tenantIdOrSlug, slug: tenantIdOrSlug, name: tenantIdOrSlug }
   }
@@ -114,9 +115,9 @@ async function resolveTenant(c: Context, tenantIdOrSlug: string): Promise<{ tena
     const { results } = await db.prepare(
       `SELECT tenant_id, slug, name FROM tenants WHERE tenant_id = ? OR slug = ? LIMIT 1`
     ).bind(tenantIdOrSlug, tenantIdOrSlug).all()
-    const row = (results as any[])?.[0]
+    const row = (results?.[0] ?? null) as { tenant_id?: string; slug?: string; name?: string } | null
     if (row?.tenant_id) {
-      return { tenantId: row.tenant_id, slug: row.slug, name: row.name || row.slug }
+      return { tenantId: row.tenant_id, slug: row.slug ?? '', name: row.name || row.slug || '' }
     }
   } catch {}
 
@@ -124,7 +125,7 @@ async function resolveTenant(c: Context, tenantIdOrSlug: string): Promise<{ tena
 }
 
 async function listTenants(c: Context, query = ''): Promise<any[]> {
-  const db = (c.env as any)?.DB
+  const db = envFromContext(c).DB
   if (!db || typeof db.prepare !== 'function') return []
 
   const q = `%${query.trim()}%`
@@ -135,7 +136,7 @@ async function listTenants(c: Context, query = ''): Promise<any[]> {
      ORDER BY name COLLATE NOCASE, slug COLLATE NOCASE
      LIMIT 100`
   ).bind(query.trim(), q, q, q).all()
-  return (results as any[]) || []
+  return results || []
 }
 
 async function loadEditConfig(kv: any, scope: 'global' | 'tenant', tenantId?: string): Promise<ChatConfig> {
@@ -204,7 +205,7 @@ async function saveConfig(
   tenantId: string,
   config: ChatConfig,
 ): Promise<{ key: string; hash: string; snapshotKey: string; bytes: number }> {
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
   return saveChatConfig(kv, scope, tenantId, config)
 }
 
@@ -215,7 +216,7 @@ async function appendChatConfigAudit(
   result: { key: string; hash: string; snapshotKey: string; bytes: number },
   config: ChatConfig,
 ): Promise<void> {
-  const auditDo = (c.env as any)?.AUDIT_LEDGER
+  const auditDo = envFromContext(c).AUDIT_LEDGER
   if (!auditDo || typeof auditDo.idFromName !== 'function') {
     throw new Error('AUDIT_LEDGER binding required')
   }
@@ -383,17 +384,17 @@ async function handleConfigPost(c: Context, scope: 'global' | 'tenant', tenantId
   const fd = await c.req.formData()
   const parsed = parseConfigFromForm(fd)
   if (!parsed.config) {
-    const config = await loadEditConfig((c.env as any)?.TENANT_KV, scope, tenantId)
+    const config = await loadEditConfig(envFromContext(c).TENANT_KV, scope, tenantId)
     return c.html(pageLayout('Chat Config', renderConfigPage(scope, config, tenantMeta, '', [{ path: '$', message: parsed.error || 'Validation failed' }])), 400)
   }
 
   try {
     const result = await saveConfig(c, scope, tenantId, parsed.config)
     await appendChatConfigAudit(c, tenantId, scope, result, parsed.config)
-    const config = await loadEditConfig((c.env as any)?.TENANT_KV, scope, tenantId)
+    const config = await loadEditConfig(envFromContext(c).TENANT_KV, scope, tenantId)
     return c.html(pageLayout('Chat Config', renderConfigPage(scope, config, tenantMeta, `Saved ${scope} chat config. Hash: ${result.hash}`)))
   } catch (err: any) {
-    const config = await loadEditConfig((c.env as any)?.TENANT_KV, scope, tenantId)
+    const config = await loadEditConfig(envFromContext(c).TENANT_KV, scope, tenantId)
     const status = err.status || 500
     return c.html(pageLayout('Chat Config', renderConfigPage(scope, config, tenantMeta, '', [{ path: '$', message: err.message }])), status)
   }
@@ -425,7 +426,7 @@ async function handleApiPost(c: Context, scope: 'global' | 'tenant', tenantId: s
 
 adminChatConfigTenantRouter.get('/:tenantId/config', async (c) => {
   const resolved = await resolveTenant(c, c.req.param('tenantId'))
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
   const config = await loadEditConfig(kv, 'tenant', resolved.tenantId)
   return c.html(pageLayout('Chat Config', renderConfigPage('tenant', config, resolved)))
 })
@@ -436,7 +437,7 @@ adminChatConfigTenantRouter.post('/:tenantId/config', async (c) => {
 })
 
 adminChatConfigRouter.get('/global', async (c) => {
-  const config = await loadEditConfig((c.env as any)?.TENANT_KV, 'global')
+  const config = await loadEditConfig(envFromContext(c).TENANT_KV, 'global')
   return c.html(pageLayout('Chat Config', renderConfigPage('global', config)))
 })
 
@@ -450,7 +451,7 @@ adminChatConfigRouter.post('/global', async (c) => {
 
 adminChatConfigApiRouter.get('/global', async (c) => {
   try {
-    return c.json({ scope: 'global', config: await loadEditConfig((c.env as any)?.TENANT_KV, 'global') })
+    return c.json({ scope: 'global', config: await loadEditConfig(envFromContext(c).TENANT_KV, 'global') })
   } catch (err: any) {
     return c.json({ error: err.message || 'Load failed' }, 500)
   }
@@ -462,7 +463,7 @@ adminChatConfigApiRouter.post('/global', async (c) => {
 
 adminChatConfigApiRouter.get('/tenant/:tenantId', async (c) => {
   const resolved = await resolveTenant(c, c.req.param('tenantId'))
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
   const config = await loadEditConfig(kv, 'tenant', resolved.tenantId)
   return c.json({ scope: 'tenant', tenantId: resolved.tenantId, slug: resolved.slug, config })
 })
@@ -474,7 +475,7 @@ adminChatConfigApiRouter.post('/tenant/:tenantId', async (c) => {
 
 adminChatConfigApiRouter.get('/effective/:tenantId', async (c) => {
   const resolved = await resolveTenant(c, c.req.param('tenantId'))
-  const kv = (c.env as any)?.TENANT_KV
+  const kv = envFromContext(c).TENANT_KV
   const globalConfig = await loadGlobalChatConfig(kv)
   const tenantConfig = await loadTenantChatConfig(kv, resolved.tenantId)
   return c.json({
