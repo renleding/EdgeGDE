@@ -42,6 +42,7 @@ const ctx = (overrides: Partial<ChatContext> = {}): ChatContext => ({
   db: { prepare: () => {} },
   session: sessionState(),
   config: {
+    schemaVersion: 1,
     objective: 'Customer intake',
     // ChatConfig schema uses fieldType 'text'
     fields: [{ fieldName: 'name', label: 'Full name', fieldType: 'text', validation: { required: true } }],

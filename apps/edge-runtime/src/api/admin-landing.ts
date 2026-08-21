@@ -33,6 +33,7 @@ function navBar(tenantId: string, token: string, current: string): string {
     { href: '/admin/analytics', label: 'Analytics', icon: '📊' },
     { href: '/admin/packs', label: 'Packs', icon: '📦' },
     { href: '/admin/tenants', label: 'Tenants', icon: '👥' },
+    { href: '/admin/chat-config/global', label: 'Chat Config', icon: '💬' },
   ]
 
   return `

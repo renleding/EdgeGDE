@@ -106,6 +106,7 @@ function tenantListHtml(tenants: TenantSummary[], token?: string): string {
       <td>${new Date(t.createdAt).toLocaleDateString()}</td>
       <td style="display:flex;gap:4px">
         <a class="btn btn-sm" href="/admin/tenants/${escapeHtml(t.id)}?token=${escapeHtml(token || '')}">View</a>
+        <a class="btn btn-sm" href="/admin/tenants/${escapeHtml(t.id)}/config?token=${escapeHtml(token || '')}">Config</a>
         ${syncBtn}
       </td>
     </tr>`
