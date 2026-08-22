@@ -23,6 +23,10 @@ import {
 } from '../lib/config-inheritance'
 import { adminNav, pageShell } from '../lib/admin-layout'
 
+/**
+ * Tenant administration routes: tenant listing, config overrides,
+ * parent inheritance management, and config propagation/rebuild.
+ */
 export const adminTenantRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
