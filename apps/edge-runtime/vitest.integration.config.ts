@@ -1,6 +1,16 @@
-import { defineProject } from 'vitest/config'
+/// <reference types="vitest" />
+import { defineConfig } from 'vitest/config'
 
-export default defineProject({
+// Local integration tests — run against a locally-started wrangler dev server.
+// These are plain HTTP tests (fetch against EDGE_RUNTIME_BASE_URL) and do NOT
+// run inside the Workers runtime, so no @cloudflare/vitest-pool-workers pool is
+// used. Vitest 4 removed `test.pool`/`test.poolOptions`; a standard node-env
+// config is the correct (and simpler) shape for this suite.
+//
+// Run with: bash scripts/test-local.sh
+//   (script exports EDGE_RUNTIME_BASE_URL=http://127.0.0.1:8787 and starts
+//    wrangler dev --local if it is not already healthy)
+export default defineConfig({
   test: {
     name: 'integration',
     include: [
@@ -14,16 +24,5 @@ export default defineProject({
     exclude: ['node_modules', 'dist'],
     testTimeout: 60000,
     hookTimeout: 30000,
-    pool: '@cloudflare/vitest-pool-workers',
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: './wrangler.local.toml' },
-        miniflare: {
-          bindings: {
-            CANVAS_CHAT_LLM_PROVIDER: 'ollama',
-          },
-        },
-      },
-    },
   },
 })
