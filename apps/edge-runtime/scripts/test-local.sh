@@ -31,15 +31,28 @@ VITEST_UNIT_TESTS=(
 )
 
 # These vitest-based tests need a running wrangler dev server for HTTP calls.
+# MUST use vitest.integration.config.ts — the default vitest.config.ts `include`
+# list does not contain these files, so without --config vitest exits with
+# "No test files found, exiting with code 1".
 VITEST_INTEGRATION_TESTS=(
   "tests/domain-workspace.test.ts"
 )
+
+# Where wrangler dev persists local state (D1/KV/DO) during tests.
+PERSIST_DIR=".wrangler/local-test"
+D1_NAME="edgegde-local"
 
 cleanup_started_wrangler() {
   if [ "$started" -eq 1 ] && [ -n "${WRANGLER_PID:-}" ]; then
     kill "$WRANGLER_PID" >/dev/null 2>&1 || true
     wait "$WRANGLER_PID" >/dev/null 2>&1 || true
   fi
+  # wrangler dev spawns workerd child processes that survive `kill` on the npm
+  # wrapper; they keep PORT bound and answer /healthz with stale (unseeded)
+  # state. Kill the whole tree so the next start_wrangler binds a fresh server.
+  pkill -f "wrangler dev --local --config wrangler.local.toml --port $PORT" >/dev/null 2>&1 || true
+  pkill -f "workerd serve --binary" >/dev/null 2>&1 || true
+  sleep 1
 }
 
 run_unit_tests() {
@@ -53,45 +66,30 @@ run_unit_tests() {
 
 run_integration_tests() {
   if [ ${#VITEST_INTEGRATION_TESTS[@]} -gt 0 ]; then
-    vitest run "${VITEST_INTEGRATION_TESTS[@]}"
+    vitest run --config vitest.integration.config.ts "${VITEST_INTEGRATION_TESTS[@]}"
   fi
 }
 
 export EDGE_RUNTIME_BASE_URL="$BASE"
 export EDGE_RUNTIME_TENANT="$TENANT"
 
-seed_contacts_table() {
-  local d1_file=""
-  if [ -d .wrangler/local-test/v3/d1/miniflare-D1DatabaseObject ]; then
-    d1_file=$(find .wrangler/local-test/v3/d1/miniflare-D1DatabaseObject -type f -name '*.sqlite' ! -name 'metadata.sqlite' -print | sort | tail -n 1 || true)
-  fi
-
-  if [ -n "$d1_file" ] && ! sqlite3 "$d1_file" "SELECT 1 FROM contacts LIMIT 1;" >/dev/null 2>&1; then
-    sqlite3 "$d1_file" <<'SQL'
-CREATE TABLE IF NOT EXISTS contacts (
-  id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL,
-  name TEXT NOT NULL DEFAULT '',
-  email TEXT NOT NULL DEFAULT '',
-  phone TEXT NOT NULL DEFAULT '',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_tenant_email
-  ON contacts(tenant_id, email)
-  WHERE email != '';
-CREATE INDEX IF NOT EXISTS idx_contacts_tenant_phone
-  ON contacts(tenant_id, phone)
-  WHERE phone != '';
-SQL
-  elif [ -z "$d1_file" ]; then
-    echo "Local D1 sqlite file was not found after starting Wrangler" >&2
-    exit 1
-  fi
+# Seeds the local D1 with the schema + data the integration suite needs.
+# Uses `wrangler d1 execute --local` (NOT direct sqlite file access): wrangler
+# 4.x creates the D1 data file lazily with a content-hash name, so the old
+# `find .wrangler/... -name '*.sqlite'` glob finds nothing before the first
+# D1 write. The seed SQL is self-contained and idempotent (CREATE IF NOT EXISTS
+# + row reset), and mirrors migrations 0005/0009/0010 — the migration chain
+# itself cannot be replayed here because its 0001-bootstrap ALTERs fail
+# atomically on re-run.
+seed_local_d1() {
+  npx wrangler d1 execute "$D1_NAME" --local \
+    --persist-to "$PERSIST_DIR" \
+    --config wrangler.local.toml \
+    --file scripts/seed-local-integration-d1.sql >/dev/null
 }
 
 start_wrangler() {
-  npx wrangler dev --local --config wrangler.local.toml --port "$PORT" --persist-to .wrangler/local-test >/tmp/edge-runtime-wrangler-test.log 2>&1 &
+  npx wrangler dev --local --config wrangler.local.toml --port "$PORT" --persist-to "$PERSIST_DIR" >/tmp/edge-runtime-wrangler-test.log 2>&1 &
   WRANGLER_PID=$!
 
   for _ in $(seq 1 60); do
@@ -112,16 +110,27 @@ start_wrangler() {
 }
 
 trap cleanup_started_wrangler EXIT
+cleanup_started_wrangler  # ensure port is free before deciding
+
 if ! curl -fsS "$BASE/healthz" >/dev/null 2>&1; then
   started=1
+
+  # Fresh, deterministic local state — wipes any stale D1 rows/KV pipeline
+  # cache left by a previous run (tests assert exact per-stage counts).
+  rm -rf "$PERSIST_DIR"
 
   run_unit_tests
   start_wrangler
   kill "$WRANGLER_PID" >/dev/null 2>&1 || true
   wait "$WRANGLER_PID" >/dev/null 2>&1 || true
+  cleanup_started_wrangler
 
-  seed_contacts_table
+  seed_local_d1
   start_wrangler
+else
+  # A wrangler was already healthy at BASE — make sure it has the seed
+  # schema/data (idempotent, safe to re-run) before testing against it.
+  seed_local_d1
 fi
 
 if ! curl -fsS "$BASE/healthz" >/dev/null 2>&1; then
