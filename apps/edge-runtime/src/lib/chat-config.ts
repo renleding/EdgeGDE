@@ -109,6 +109,10 @@ export const ChatConfigSchema = z.object({
 
 export type ChatConfig = z.infer<typeof ChatConfigSchema>
 
+/**
+ * Deterministic fallback chat config used when no tenant-specific
+ * config exists or stored config fails validation.
+ */
 export const FALLBACK_CONFIG: ChatConfig = {
   schemaVersion: 1,
   objective: 'Collect contact information',
