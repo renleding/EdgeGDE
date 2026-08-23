@@ -13,6 +13,7 @@ import { computeDeterministic } from '../lib/scoring-engine'
 import type { DeterministicInput } from '../lib/scoring-engine'
 import { guardDB } from '../lib/db'
 import { guardKV } from '../lib/kv'
+import type { Env } from '../lib/env'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LLM Agentic Signal (30 points)
@@ -115,14 +116,14 @@ export interface LeadMessage {
 // Queue Consumer Entry Point
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void> {
+async function queue(batch: MessageBatch, env: Env, _ctx: ExecutionContext): Promise<void> {
 // eslint-disable-next-line local/no-raw-storage-access
   const db = guardDB(env.DB)
 // eslint-disable-next-line local/no-raw-storage-access
   const kv = guardKV(env.TENANT_KV)
 
   for (const msg of batch.messages) {
-    const body = msg.body as any
+    const body = msg.body as LeadMessage & { type?: string; eventType?: string; sessionId?: string }
     const { submissionId, tenantId, payload } = body
     const ctx = { tenantId }
 
@@ -133,9 +134,13 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
 
       if (eventType === 'financial_baseline_declared' && appId) {
         // Run affordability + risk agents
-        console.log('[swarm] running affordability + risk for app', appId)
+        console.warn('[swarm] running affordability + risk for app', appId)
         try {
-          const row: any = await db.first(
+          const row = await db.first<{
+            target_loan_amount: number | null
+            collected_financials_json: string | null
+            kyc_status: string | null
+          }>(
             ctx,
             `SELECT target_loan_amount, collected_financials_json,
                     (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status
@@ -144,7 +149,10 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
           )
 
           if (row?.collected_financials_json) {
-            const fin: any = JSON.parse(row.collected_financials_json)
+            const fin = JSON.parse(row.collected_financials_json) as {
+              income?: number
+              expenses?: number
+            }
             const { computeAffordability } = await import('../lib/agents')
             const { computeRisk } = await import('../lib/agents')
 
@@ -154,7 +162,7 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
             })
 
             const risk = computeRisk({
-              kycStatus: (row as any).kyc_status || 'pending',
+              kycStatus: row.kyc_status || 'pending',
               debtRatio: aff.debtRatio, affordabilityScore: aff.affordabilityScore,
             })
 
@@ -177,16 +185,16 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
 
       if (eventType === 'document_securely_stored' && appId) {
         // Run readiness agent
-        console.log('[swarm] running readiness for app', appId)
+        console.warn('[swarm] running readiness for app', appId)
         try {
-          const docsResult: any = await db.all(
+          const docsResult = await db.all<{ document_type: string; verification_status: string }>(
             ctx,
             `SELECT document_type, verification_status FROM application_documents WHERE application_id = ?`,
             [appId],
           )
-          const docs = docsResult || []
+          const docs = docsResult?.results || []
 
-          const row: any = await db.first(
+          const row = await db.first<{ kyc_status: string | null }>(
             ctx,
             `SELECT (SELECT verification_status FROM application_documents WHERE application_id = ? LIMIT 1) as kyc_status`,
             [appId],
@@ -194,8 +202,8 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
 
           const { computeReadiness } = await import('../lib/agents')
           const ready = computeReadiness({
-            kycStatus: (row as any)?.kyc_status || 'pending',
-            documentRecords: docs.map((d: any) => d.document_type),
+            kycStatus: row?.kyc_status || 'pending',
+            documentRecords: docs.map((d) => d.document_type),
           })
 
           const doBinding = env.AUDIT_LEDGER
@@ -231,26 +239,32 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
       // Uses guardDB insert/update — single write per LLM call vs KV read-modify-write
       try {
 // eslint-disable-next-line local/no-raw-storage-access
-        if (env.DB && typeof (env.DB as any).prepare === 'function') {
+        if (env.DB) {
           const today = new Date().toISOString().slice(0, 10)
           const isSuccess = llm.rationale !== 'LLM unavailable — scored deterministically only.' && llm.rationale !== 'LLM response parse failure.'
 
           // Check if telemetry row exists for this tenant+date
-          const existing = await db.first(
+          const existing = await db.first<{
+            llm_calls: number
+            llm_success: number
+            llm_fail: number
+            total_latency_ms: number
+            red_flag_count: number
+            total_agentic_score: number
+          }>(
             ctx,
             'SELECT llm_calls, llm_success, llm_fail, total_latency_ms, red_flag_count, total_agentic_score FROM telemetry_daily WHERE date = ?',
             [today],
           )
 
           if (existing) {
-            const e = existing as any
             await db.update(ctx, 'telemetry_daily', {
-              llm_calls: e.llm_calls + 1,
-              llm_success: e.llm_success + (isSuccess ? 1 : 0),
-              llm_fail: e.llm_fail + (isSuccess ? 0 : 1),
-              total_latency_ms: e.total_latency_ms + llmLatency,
-              red_flag_count: e.red_flag_count + (llm.redFlag ? 1 : 0),
-              total_agentic_score: e.total_agentic_score + llm.agenticScore,
+              llm_calls: existing.llm_calls + 1,
+              llm_success: existing.llm_success + (isSuccess ? 1 : 0),
+              llm_fail: existing.llm_fail + (isSuccess ? 0 : 1),
+              total_latency_ms: existing.total_latency_ms + llmLatency,
+              red_flag_count: existing.red_flag_count + (llm.redFlag ? 1 : 0),
+              total_agentic_score: existing.total_agentic_score + llm.agenticScore,
             }, 'date = ?', [today])
           } else {
             await db.insert(ctx, 'telemetry_daily', {
@@ -286,13 +300,13 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
       if (contactInfo && (contactInfo.email || contactInfo.phone)) {
         try {
 // eslint-disable-next-line local/no-raw-storage-access
-          if (env.DB && typeof (env.DB as any).prepare === 'function') {
+          if (env.DB) {
             const email = contactInfo.email.toLowerCase().trim()
             const phone = contactInfo.phone.replace(/\D/g, '')
             const name = contactInfo.name.trim() || 'Unknown'
 
             // Try email match first, then phone
-            let contact: any = null
+            let contact: { id: string; name: string } | null = null
             if (email) {
               contact = await db.first(
                 ctx,
@@ -330,7 +344,7 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
 
       // ── 5. Persist to D1 ──────────────────────────────────────────────
 // eslint-disable-next-line local/no-raw-storage-access
-      if (env.DB && typeof (env.DB as any).prepare === 'function') {
+      if (env.DB) {
         await db.update(
           ctx,
           'form_submissions',
@@ -351,7 +365,7 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
           // Hot lead — trigger broker alert
           try {
 // eslint-disable-next-line local/no-raw-storage-access
-            if (env.TENANT_KV && typeof (env.TENANT_KV as any).put === 'function') {
+            if (env.TENANT_KV) {
               await kv.put(
                 `tenant:${tenantId}:alert:hot:${submissionId}`,
                 JSON.stringify({ score: totalScore, rationale, submissionId }),
@@ -385,7 +399,7 @@ async function queue(batch: any, env: any, _ctx: ExecutionContext): Promise<void
           // Cold lead — tag for nurture sequence
           try {
 // eslint-disable-next-line local/no-raw-storage-access
-            if (env.TENANT_KV && typeof (env.TENANT_KV as any).put === 'function') {
+            if (env.TENANT_KV) {
               await kv.put(
                 `tenant:${tenantId}:nurture:${submissionId}`,
                 JSON.stringify({ score: totalScore, submissionId }),

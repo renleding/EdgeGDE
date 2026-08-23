@@ -74,7 +74,7 @@ scoringAdminRouter.post('/scoring/rubrics', async (c) => {
      VALUES (?, ?, ?, 1, ?)`
   ).bind(rubricId, tenantId, name, rulesetJson).run()
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'rubric_created', rubricId, tenantId, name,
     ruleCount: ruleset.rules.length, timestamp: Date.now(),
   }))
@@ -130,7 +130,7 @@ scoringAdminRouter.post('/scoring/rubrics/:id/activate', async (c) => {
     `UPDATE scoring_rubrics SET is_active = 1 WHERE id = ?`
   ).bind(rubricId).run()
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'rubric_activated',
     rubricId, tenantId: rubric.tenant_id, timestamp: Date.now(),
   }))
@@ -216,7 +216,7 @@ scoringAdminRouter.post('/scoring/execute', async (c) => {
       ).run()
     } catch { /* non-fatal */ }
   }
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'lead_scored', tenantId, leadId,
     rubricId: rubric.id, score: result.score,
     classification: result.classification, timestamp: Date.now(),
@@ -265,7 +265,7 @@ scoringAdminRouter.post('/scoring/override', async (c) => {
      WHERE tenant_id = ? AND lead_id = ? AND rubric_id = ?`
   ).bind(overrideScore, rationale, tenantId, leadId, rubricId).run()
 
-  console.log(JSON.stringify({
+  console.warn(JSON.stringify({
     event: 'score_override', tenantId, leadId, rubricId,
     newScore: overrideScore, rationale, timestamp: Date.now(),
   }))
@@ -279,7 +279,7 @@ scoringAdminRouter.post('/scoring/override', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 scoringTenantRouter.get('/scoring/scores', async (c) => {
-  const tenantId = (c as any).get('authenticatedTenantId') as string
+  const tenantId = (c as { get: (key: string) => unknown }).get('authenticatedTenantId') as string
   const db = envFromContext(c).DB as D1Database | undefined
   if (!db) return c.json({ error: 'D1 binding required' }, 500)
 
@@ -628,11 +628,11 @@ scoringAdminRouter.get('/insights', async (c) => {
 
   try {
     const [totalResult, avgResult, bandResult] = await Promise.all([
-      db.prepare(`SELECT COUNT(*) as total FROM form_submissions ${where}`).bind(...binds).first(),
+      db.prepare(`SELECT COUNT(*) as total FROM form_submissions ${where}`).bind(...binds).first<{ total: number }>(),
       db.prepare(
         `SELECT AVG(lead_score) as avg_total, AVG(deterministic_score) as avg_deterministic
          FROM form_submissions ${where}`
-      ).bind(...binds).first(),
+      ).bind(...binds).first<{ avg_total: number | null; avg_deterministic: number | null }>(),
       db.prepare(
         `SELECT score_band, COUNT(*) as count
          FROM form_submissions ${where}
@@ -640,8 +640,8 @@ scoringAdminRouter.get('/insights', async (c) => {
       ).bind(...binds).all(),
     ])
 
-    const total = (totalResult as any)?.total ?? 0
-    const avg = avgResult as any
+    const total = totalResult?.total ?? 0
+    const avg = avgResult ?? { avg_total: null, avg_deterministic: null }
     const bands = (bandResult?.results || []) as { score_band: string; count: number }[]
 
     const bandMap: Record<string, number> = { hot: 0, warm: 0, cold: 0 }
@@ -943,18 +943,18 @@ scoringAdminRouter.get('/health', async (c) => {
 
   try {
     const [totalLeads, totalContacts, scoredLeads] = await Promise.all([
-      db.prepare(`SELECT COUNT(*) as count FROM form_submissions WHERE tenant_id = ?`).bind(tenantId).first(),
-      db.prepare(`SELECT COUNT(*) as count FROM contacts WHERE tenant_id = ?`).bind(tenantId).first(),
-      db.prepare(`SELECT COUNT(*) as count FROM form_submissions WHERE tenant_id = ? AND lead_score IS NOT NULL`).bind(tenantId).first(),
+      db.prepare(`SELECT COUNT(*) as count FROM form_submissions WHERE tenant_id = ?`).bind(tenantId).first<{ count: number }>(),
+      db.prepare(`SELECT COUNT(*) as count FROM contacts WHERE tenant_id = ?`).bind(tenantId).first<{ count: number }>(),
+      db.prepare(`SELECT COUNT(*) as count FROM form_submissions WHERE tenant_id = ? AND lead_score IS NOT NULL`).bind(tenantId).first<{ count: number }>(),
     ])
 
     return c.json({
       tenantId,
       timestamp: Date.now(),
       projections: {
-        formSubmissions: (totalLeads as any)?.count || 0,
-        contacts: (totalContacts as any)?.count || 0,
-        scoredLeads: (scoredLeads as any)?.count || 0,
+        formSubmissions: totalLeads?.count || 0,
+        contacts: totalContacts?.count || 0,
+        scoredLeads: scoredLeads?.count || 0,
       },
       audit: {
         // Event store health is checked via the DO directly
@@ -965,7 +965,7 @@ scoringAdminRouter.get('/health', async (c) => {
         alerts: true,
         replay: true,
         vault: true,
-        dispatcher: !!((c.env as any)?.ALERT_WEBHOOK_URL),
+        dispatcher: !!envFromContext(c).ALERT_WEBHOOK_URL,
       },
       version: '0.8.1',
     })
