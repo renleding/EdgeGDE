@@ -89,7 +89,7 @@ export async function flushMetrics(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function getMetrics(
-  kv: { get: (k: string, t: 'json') => Promise<any>; list?: (opts: { prefix: string }) => AsyncIterable<{ name: string }> },
+  kv: { get: (k: string, t: 'json') => Promise<any> },
   tenant?: string,
   tool?: string,
 ): Promise<MetricsSnapshot[]> {

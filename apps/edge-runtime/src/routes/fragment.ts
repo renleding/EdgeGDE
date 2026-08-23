@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 import { calculateLoan } from '../edr/domain/calculator'
 import { compile } from '../edr/compiler/engine'
 import { transform } from '../edr/compiler/synthesis'
@@ -273,7 +274,7 @@ fragmentRouter.post('/fragment/calculate-budget', async (c) => {
 import { getMetrics } from '../lib/metrics'
 
 fragmentRouter.get('/fragment/metrics', async (c) => {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV) return c.text('KV not available', 500)
 
   try {
@@ -490,7 +491,7 @@ fragmentRouter.post('/fragment/swatch-gallery', async () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fragmentRouter.get('/fragment/dev-hash', async (c) => {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   const env = c.req.query('env')
   const manifestKey = (env === 'staging' || env === 'local') ? 'staging:latest_ast_manifest' : 'latest_ast_manifest'
   const serverHash = await getLatestHash({ kv: TENANT_KV, dev: true, manifestKey })
@@ -519,7 +520,7 @@ fragmentRouter.get('/fragment/dev-hash', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 fragmentRouter.get('/fragment/render-root', async (c) => {
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const TENANT_KV = envFromContext(c).TENANT_KV
   if (!TENANT_KV) return c.text('KV not available', 500)
 
   try {
@@ -528,7 +529,11 @@ fragmentRouter.get('/fragment/render-root', async (c) => {
     const isStaging = env === 'staging' || env === 'local'
     const layoutSuffix = tool === 'gallery' ? 'gallery' : tool === 'budget' ? 'budget' : tool === 'metrics' ? 'metrics' : 'latest'
     const layoutKey = `tenant:afirmico:layout:${layoutSuffix}${isStaging ? ':staging' : ''}`
-    const layout = await TENANT_KV.get(layoutKey, 'json')
+    const layout = (await TENANT_KV.get(layoutKey, 'json')) as {
+      root?: unknown
+      edr?: { components?: Record<string, Record<string, any>>; global?: Record<string, string> }
+      edrHash?: string
+    } | null
     if (!layout || !layout.root) return c.text('No layout found', 404)
 
     const synthesized = transform(layout.root)

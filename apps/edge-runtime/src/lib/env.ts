@@ -59,6 +59,9 @@ export interface Env {
   OTEL_EXPORTER_OTLP_ENDPOINT?: string
   OTEL_SERVICE_NAME?: string
   WORKER_VERSION?: string
+
+  // Alerting
+  ALERT_WEBHOOK_URL?: string
 }
 
 /**
