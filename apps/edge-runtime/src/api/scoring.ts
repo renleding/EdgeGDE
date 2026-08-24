@@ -41,7 +41,9 @@ interface ScoreRecord {
 // Router — admin endpoints
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Admin scoring endpoints: rubric CRUD, score overrides, leaderboard reads. */
 export const scoringAdminRouter = new Hono()
+/** Tenant-scoped scoring endpoints: submit leads for rubric-based scoring. */
 export const scoringTenantRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════

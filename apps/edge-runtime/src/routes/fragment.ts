@@ -56,6 +56,7 @@ function buildResultsFragment(result: CalcDisplay): string {
 // Router
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** HTMX fragment endpoints: stateless calculator/quote partials for page swap. */
 export const fragmentRouter = new Hono()
 
 /**

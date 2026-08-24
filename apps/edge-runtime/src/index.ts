@@ -72,6 +72,7 @@ import {
   postPwaTransient,
   getPwaActionProposals,
   postPwaActionProposal,
+  postCanvasPublish,
 } from './routes/pwa-canvas'
 import { handleCanvasChat } from './api/canvas-chat'
 import { swarmRouter } from './api/swarm'
@@ -570,6 +571,7 @@ app.get('/api/pwa/workspaces/:workspaceId/transient', getPwaTransient)
 app.post('/api/pwa/workspaces/:workspaceId/transient', postPwaTransient)
 app.get('/api/pwa/workspaces/:workspaceId/action-proposals', getPwaActionProposals)
 app.post('/api/pwa/workspaces/:workspaceId/action-proposals', postPwaActionProposal)
+app.post('/api/pwa/workspaces/:workspaceId/canvas/publish', postCanvasPublish)
 // Create a new canvas session
 app.post('/api/canvas/create', async (c) => {
   const env = c.env as Env

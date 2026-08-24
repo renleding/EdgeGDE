@@ -59,6 +59,10 @@ async function flushAll(kv: { get: (k: string, t: 'json') => Promise<any>; put: 
 // incrementRequest — fire-and-forget in-memory counter (batched KV write)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Fire-and-forget request counter — batches per tenant+tool into an in-memory
+ * map flushed to KV on a schedule; never blocks the caller.
+ */
 export async function incrementRequest(
   kv: { get: (k: string, t: 'json') => Promise<any>; put: (k: string, v: string) => Promise<void> },
   tenant: string,

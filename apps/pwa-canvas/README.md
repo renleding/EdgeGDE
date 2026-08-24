@@ -22,4 +22,6 @@ The build copies `apps/pwa-canvas/public/*` into `apps/edge-runtime/public/pwa-c
 
 - `/pwa-canvas` redirects to `/pwa-canvas/index.html`
 - `/pwa-canvas/index.html` is the PWA shell
-- `/pwa-canvas/pwa.js`, `/pwa-canvas/pwa.css`, `/pwa-canvas/sw.js`, and `/pwa-canvas/manifest.webmanifest` are static assets
+- `/pwa-canvas/js/main.js` is the ES module entry point (imports all modules)
+- `/pwa-canvas/pwa.css`, `/pwa-canvas/sw.js`, and `/pwa-canvas/manifest.webmanifest` are static assets
+- `/pwa-canvas/js/` contains the modular canvas implementation

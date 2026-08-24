@@ -123,6 +123,55 @@ export async function getPwaActionProposals(c: Context) {
   return c.json({ proposals: await readProposals(c, workspaceId) })
 }
 
+/** Publish canvas objects for a workspace: validates the payload, stores the mission receipt in ARTIFACT_KV (latest + capped history), and echoes the receipt to the caller. */
+export async function postCanvasPublish(c: Context) {
+  const workspaceId = normalizeWorkspaceId(c.req.param('workspaceId') ?? 'default')
+  let body: Record<string, unknown> = {}
+  try {
+    body = await c.req.json().catch(() => ({}))
+  } catch {
+    body = {}
+  }
+
+  if (!Array.isArray(body.objects)) {
+    return c.json({ error: 'objects array required' }, 400)
+  }
+
+  const kv = artifactKv(c)
+  if (!kv) {
+    return c.json({ error: 'ARTIFACT_KV binding unavailable' }, 503)
+  }
+
+  const mission = {
+    missionId: crypto.randomUUID(),
+    publishedAt: new Date().toISOString(),
+    status: 'published',
+    workspaceId,
+    objectCount: body.objects.length,
+    version: typeof body.version === 'number' || typeof body.version === 'string' ? body.version : null,
+    sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+    correlationId: typeof body.correlationId === 'string' ? body.correlationId : null,
+  }
+
+  await kv.put(pwaKey(workspaceId, 'canvas-published'), mission)
+
+  const HISTORY_LIMIT = 20
+  const rawHistory = await kv.getJson(pwaKey(workspaceId, 'canvas-publish-history'))
+  const history = Array.isArray(rawHistory) ? rawHistory : []
+  const nextHistory = [mission, ...history].slice(0, HISTORY_LIMIT)
+  await kv.put(pwaKey(workspaceId, 'canvas-publish-history'), nextHistory)
+
+  // Client contract (pwa-canvas main.js) reads missionId, publishedAt, status.
+  return c.json({
+    missionId: mission.missionId,
+    publishedAt: mission.publishedAt,
+    status: mission.status,
+    workspaceId: mission.workspaceId,
+    objectCount: mission.objectCount,
+    historyCount: nextHistory.length,
+  })
+}
+
 export async function postPwaActionProposal(c: Context) {
   const workspaceId = normalizeWorkspaceId(c.req.param('workspaceId') ?? 'default')
   let body: Partial<PwaActionProposal> = {}
