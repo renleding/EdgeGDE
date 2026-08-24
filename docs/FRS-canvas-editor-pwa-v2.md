@@ -21,12 +21,11 @@ The canvas remains **non-authoritative** — server state is always source of tr
 
 ## 2. Current Baseline
 
-### 2.1 Existing Capabilities (`apps/pwa-canvas/public/pwa.js`, 971 lines)
+### 2.1 Existing Capabilities (`apps/pwa-canvas/public/js/`, 10 modules)
 
-| Feature | Implementation | Status |
-|---------|---------------|--------|
-| Infinite canvas with pan/zoom | Pointer events + CSS transform | ✅ Working |
-| Object rendering | 3 hardcoded initial objects | ✅ Working |
+|| Feature | Implementation | Status |
+||---------|---------------|--------|
+|| Infinite canvas with pan/zoom | Pointer events + CSS transform | ✅ Working |
 | Drag to move objects | Pointer capture + delta tracking | ✅ Working |
 | 8-direction resize | Handle detection + edge constraints | ✅ Working |
 | Object selection (single + multi) | Shift+click, click-through | ✅ Working |
@@ -42,12 +41,13 @@ The canvas remains **non-authoritative** — server state is always source of tr
 
 ### 2.2 Architecture
 
-```
-public/pwa.js      — 971 lines of vanilla JS (no framework, no build)
-public/pwa.css     — Stylesheet
-public/index.html  — PWA shell with topbar, agent panel, canvas, inspector
-public/sw.js       — Service worker (offline cache)
-public/manifest.webmanifest  — PWA manifest
+```\npublic/
+  js/main.js        — entry point (imports all modules)
+  js/               — modular canvas implementation (10 modules)
+  pwa.css           — Stylesheet
+  index.html        — PWA shell with topbar, agent panel, canvas, inspector
+  sw.js             — Service worker (offline cache)
+  manifest.webmanifest  — PWA manifest
 ```
 
 There is **no build step**. JS/CSS are copied as static assets to `apps/edge-runtime/public/pwa-canvas/` via `scripts/copy-static.mjs`.

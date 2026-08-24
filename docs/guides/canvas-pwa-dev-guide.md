@@ -10,22 +10,22 @@
 
 ```
 public/
-├── index.html              — PWA shell
+├── index.html              — PWA shell (loads js/main.js as ES module)
 ├── pwa.css                 — Stylesheet
 ├── manifest.webmanifest    — PWA manifest
 ├── sw.js                   — Service worker (offline cache)
 ├── icons/                  — App icons
 └── js/
-    ├── main.js             — Entry point (imports + init)
-    ├── canvas-state.js     — Shared state, DOM refs, constants
-    ├── canvas-render.js    — Render/paint objects on canvas
-    ├── canvas-interactions.js — Drag, resize, snap, pan, select
-    ├── canvas-selection.js — Selection logic
-    ├── canvas-proposals.js — Proposal system
-    ├── canvas-persistence.js — IndexedDB draft save/load
-    ├── canvas-keyboard.js  — Keyboard shortcuts
-    ├── canvas-properties.js — Inline property editing
-    └── canvas-history.js   — Undo/redo stack
+    ├── main.js             — Entry point (imports + initializes all modules)
+    ├── canvas-state.js     — Shared state, DOM refs, constants, utilities
+    ├── canvas-render.js    — Render objects, canvas transforms
+    ├── canvas-interactions.js — Drag, resize, snap, pan, rectangle select
+    ├── canvas-selection.js — Single/multi selection logic
+    ├── canvas-proposals.js — Proposal system, API loading, render
+    ├── canvas-persistence.js — IndexedDB draft, online/offline badge, SW reg
+    ├── canvas-keyboard.js  — Keyboard shortcuts (Ctrl+Z/Y, Delete, Escape, Ctrl+S)
+    ├── canvas-history.js   — Undo/redo stack (50 deep)
+    └── canvas-properties.js — Inline property editing (double-click title)
 ```
 
 ## Adding a New Object Type
@@ -54,11 +54,11 @@ export function addNewObjectType() {
 
 ### 2. Add render logic in `canvas-render.js`
 
-The `renderObjectElement()` function handles rendering by object type. Add a case:
+The `objectBody()` function handles rendering by object type. Add a case:
 
 ```javascript
 if (object.type === 'my-custom-type') {
-  contentHtml = `<div class="custom-renderer">${safeText(object.body)}</div>`
+  return `<div class="custom-renderer">${safeText(object.body)}</div>`
 }
 ```
 
@@ -76,9 +76,18 @@ document.getElementById('add-custom').addEventListener('click', addNewObjectType
 ### 4. Proposals
 
 All object mutations go through the proposal system:
-- `createProposal(kind, description, effects)` — stages the action
+- `createProposal(kind, description, mutations)` — stages the action
 - Proposals require user approval before applying
 - The proposal appears in the agent panel
+
+## Publish Flow
+
+The canvas can publish its state to the EdgeGDE runtime:
+- **Endpoint:** `POST /api/pwa/workspaces/:workspaceId/canvas/publish`
+- **Payload:** `{ objects: CanvasObject[], version: number, sessionId: string, correlationId: string }`
+- **Response:** `{ workspaceId, missionId, status: 'accepted', publishedAt: string }`
+- **UI:** "Publish to EdgeGDE" button in the topbar (wires to `publishCanvas()` in `main.js`)
+- Published state is stored in KV under `global:pwa:${workspaceId}:canvas:published`
 
 ## CSS Architecture
 
@@ -117,19 +126,20 @@ The copy script `scripts/copy-static.mjs`:
 ## Testing
 
 The Canvas PWA has no automated tests yet. Manual testing checklist:
-- [ ] Pan (drag background)
-- [ ] Zoom (wheel)
-- [ ] Select single object (click)
-- [ ] Multi-select (shift+click)
-- [ ] Rectangle select (shift+drag)
-- [ ] Drag to move objects
-- [ ] Resize from edges and corners
-- [ ] Snap-to-object alignment
-- [ ] Double-click to edit title inline
-- [ ] Ctrl+Z undo / Ctrl+Y redo
-- [ ] Delete key removes selection
-- [ ] Escape deselects all
-- [ ] Save draft / load draft (IndexedDB)
-- [ ] Proposal create, approve, deny
-- [ ] Offline badge
-- [ ] Template buttons (Empty, Bundle, Calculator)
+- [x] Pan (drag background)
+- [x] Zoom (wheel)
+- [x] Select single object (click)
+- [x] Multi-select (shift+click)
+- [x] Rectangle select (shift+drag)
+- [x] Drag to move objects
+- [x] Resize from edges and corners
+- [x] Snap-to-object alignment
+- [x] Double-click to edit title inline
+- [x] Ctrl+Z undo / Ctrl+Y redo
+- [x] Delete key removes selection
+- [x] Escape deselects all
+- [x] Save draft / load draft (IndexedDB)
+- [x] Proposal create, approve, deny
+- [x] Offline badge
+- [x] Template buttons (Empty, Bundle, Calculator)
+- [ ] Publish to EdgeGDE (new — requires deployed runtime)

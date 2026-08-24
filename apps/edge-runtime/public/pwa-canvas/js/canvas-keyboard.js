@@ -9,6 +9,20 @@ import { saveDraft } from './canvas-persistence.js'
 
 export function setupKeyboard() {
   window.addEventListener('keydown', (event) => {
+    // Escape — deselect all
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      selectObjects([])
+      return
+    }
+
+    // Ctrl+S — save draft
+    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+      event.preventDefault()
+      saveDraft()
+      return
+    }
+
     // Delete key — remove selected objects via proposal
     if (event.key === 'Delete' && state.selectedIds.length) {
       const ids = [...state.selectedIds]

@@ -2,7 +2,7 @@ const CACHE_NAME = 'edgegde-pwa-canvas-v0.3.2'
 const APP_SHELL = [
   '/pwa-canvas/index.html',
   '/pwa-canvas/pwa.css',
-  '/pwa-canvas/pwa.js',
+  '/pwa-canvas/js/main.js',
   '/pwa-canvas/manifest.webmanifest',
   '/pwa-canvas/icons/favicon.svg'
 ]
