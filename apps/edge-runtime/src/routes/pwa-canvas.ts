@@ -88,15 +88,18 @@ async function writeProposals(c: Context, workspaceId: string, proposals: PwaAct
   return proposals
 }
 
+/** Redirect GET /pwa-canvas to the PWA shell entry point. */
 export function redirectPwaCanvas(c: Context) {
   return c.redirect('/pwa-canvas/index.html', 302)
 }
 
+/** Read the per-workspace transient UI state (selected canvas node, recent action results, policy state). */
 export async function getPwaTransient(c: Context) {
   const workspaceId = normalizeWorkspaceId(c.req.param('workspaceId') ?? 'default')
   return c.json(await readTransient(c, workspaceId))
 }
 
+/** Merge a partial update into the per-workspace transient UI state and persist it. */
 export async function postPwaTransient(c: Context) {
   const workspaceId = normalizeWorkspaceId(c.req.param('workspaceId') ?? 'default')
   let body: Partial<PwaTransientState> = {}
@@ -118,6 +121,7 @@ export async function postPwaTransient(c: Context) {
   return c.json(await writeTransient(c, workspaceId, next))
 }
 
+/** List the action proposals currently stored for a workspace. */
 export async function getPwaActionProposals(c: Context) {
   const workspaceId = normalizeWorkspaceId(c.req.param('workspaceId') ?? 'default')
   return c.json({ proposals: await readProposals(c, workspaceId) })
@@ -172,6 +176,7 @@ export async function postCanvasPublish(c: Context) {
   })
 }
 
+/** Submit a single action proposal for a workspace; persists into the workspace proposal index. */
 export async function postPwaActionProposal(c: Context) {
   const workspaceId = normalizeWorkspaceId(c.req.param('workspaceId') ?? 'default')
   let body: Partial<PwaActionProposal> = {}
