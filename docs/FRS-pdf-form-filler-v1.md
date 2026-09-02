@@ -175,11 +175,33 @@ state_transition:
   timestamp: <ISO-8601>
 ```
 
-### 4.8 Caching
-
-**SHOULD** cache the schema extraction (Marker output) per PDF content-hash for 24 hours.
-**SHOULD** cache the field enumeration (AcroForm) per PDF content-hash for 7 days.
+### 4.8 Caching (Q3: schema versioning)
+**SHOULD** cache the schema extraction (Marker output) keyed by `sha256(input_pdf_bytes)`.
+TTL = 7 days. On cache miss, extract (~3-5s via Marker) and cache.
 **MUST NOT** cache user_data, audit, or filled PDFs (PII).
+**SHOULD** invalidate the schema cache on any of:
+- TTL expiry
+- PDF bytes change (different content-hash)
+- Explicit cache-flush via admin endpoint
+
+### 4.9 Idempotency (Q1)
+**MUST** dedupe by `idempotency_key` using an in-memory LRU with 1h TTL.
+On hit: return the cached response without re-running the fill.
+**MUST NOT** persist idempotency cache across restarts.
+The `fill_id` (UUID v7) is the canonical identifier; callers store the response if needed.
+
+### 4.10 R2 storage (Q5: failure analytics)
+**SHALL** upload partial fills to R2 at `tenant://pdf-fills/{fill_id}/{pdf_filename}.pdf` with 7-day TTL.
+**SHALL** upload the audit log alongside at `tenant://pdf-fills/{fill_id}/audit.json`.
+**SHOULD** upload successful fills too (callers can re-fetch via signed URL).
+**SHALL** emit Sentry breadcrumb on every LLM call, cache hit/miss, and validation failure.
+**SHALL** POST to `callback_url` (if provided) on completion: `{fill_id, status, audit_url, filled_pdf_urls}`.
+
+### 4.11 Multi-PDF bundles (Q2)
+**SHALL** accept `pdf_set: Blob[]` (≤ 5 PDFs).
+**SHALL** process the bundle atomically: any per-PDF failure marks the whole set `partial`.
+**SHALL** share `fill_id` across the bundle; per-PDF `document_hash` is unique.
+**SHALL** return results as a numbered set: `{fill_id, results: [{index, status, document_hash, audit, filled_pdf_url}]}`.
 
 ---
 
@@ -220,12 +242,17 @@ state_transition:
 ### 6.1 Request
 ```typescript
 interface AutofillRequest {
+  // Single-PDF mode (backwards-compatible)
   pdf: Blob;                        // ≤ 50 MB
+
+  // OR multi-PDF bundle (Q2: government forms often need 2-3 PDFs)
+  pdf_set?: Blob[];                 // ≤ 5 PDFs, ≤ 50 MB each
+
   user_data: Record<string, string>; // ≤ 100 KB JSON
   risk_class: 'financial' | 'government' | 'legal' | 'subscription' | 'marketing' | 'low';
   tenant: string;                    // tenant ID
-  callback_url?: string;             // webhook for async
-  idempotency_key?: string;          // UUID
+  callback_url?: string;             // webhook for async (Q5)
+  idempotency_key?: string;          // UUID, dedupe-by-key for 1h (Q1)
 }
 ```
 
@@ -328,13 +355,17 @@ For `risk_class ∈ {subscription, marketing, low}`: skip the ceremony, just log
 
 ---
 
-## 10. Open Questions
+## 10. Open Questions — RESOLVED 2026-09-01
 
-1. **Idempotency**: do we keep results of completed fills for 24h (for retries) or just deduplicate by key without storing?
-2. **Multi-PDF forms**: some government forms require 2-3 PDFs to be filled from one user_data. Bundle them?
-3. **Form schema versioning**: if a bank updates their PDF, our cached schema is stale. Auto-detect and re-extract?
-4. **Cost recovery**: pass through OpenRouter charges to tenant, or always free?
-5. **Failure analytics**: when multi-pass exhausts, where do partial fills live? R2 with TTL? Sentry?
+**Q1 Idempotency:** dedupe-by-key only. `idempotency_key` lookups in an in-memory LRU with 1h TTL — if hit, return the cached response. The caller is responsible for storing the response if needed; we don't persist completed fills longer than 1h.
+
+**Q2 Multi-PDF forms:** yes, bundle. Request shape adds optional `pdf_set: [pdf_a, pdf_b, ...]`. Each PDF in the set shares the same `user_data`. Filled PDFs are returned as a numbered set with per-PDF `document_hash` and a shared `fill_id`. Bundle is atomic: any failure marks the whole set `partial` and escalates to human review.
+
+**Q3 Schema versioning:** yes, auto-detect. Schema cache key = `sha256(input_pdf_bytes)`. On request: hash input; if hit, use cached schema; if miss, extract via Marker (≈3-5s) and cache for 7 days. Content-hash mismatch is the invalidation signal.
+
+**Q4 Cost recovery:** always free. LLM is local Ollama (qwen2.5:7b for mapping, qwen3-vl:4b for visual). Track token usage in audit log for capacity planning, not billing. Future paid-model fallback requires tenant opt-in.
+
+**Q5 Failure analytics:** both. Partial fills go to `tenant://pdf-fills/{fill_id}/{pdf_filename}.pdf` in R2 with 7-day TTL, audit log alongside. Sentry for stack traces and breadcrumbs (LLM calls, cache hits, validation failures). Webhook: if `callback_url` provided, POST `{fill_id, status, audit}` on completion (success or partial).
 
 ---
 
