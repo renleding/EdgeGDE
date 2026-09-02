@@ -13,20 +13,15 @@
 - [ ] **Speed up the LLM batched mapping** — 385 fields took ~5min. Options: smaller chunks (5 fields/call), use qwen2.5:7b (3-5x faster than ornith:9b), or skip LLM entirely if the field names are semantic (like Form 80's "name fam" / "dob")
 - [ ] **Visual verification** — Vision API has insufficient balance. Top up, or switch to a local VLM (qwen3-vl:4b works for text but timed out on coordinates). Need a reliable visual check that fits in the FRS
 
-### 1.2 FRS-0005 open questions (5 questions, all in §10)
-Warren needs to decide:
-- [ ] **Q1 Idempotency** — keep results 24h (for retry lookups) vs dedupe by key only?
-- [ ] **Q2 Multi-PDF forms** — bundle 2-3 PDFs from one user_data (govt forms often do this)?
-- [ ] **Q3 Schema versioning** — auto-detect when bank updates their PDF, re-extract?
-- [ ] **Q4 Cost recovery** — pass OpenRouter charges to tenant, or always-free (current)?
-- [ ] **Q5 Failure analytics** — partial fills live in R2 with TTL? Sentry? Both?
+### 1.2 FRS-0005 open questions (5 questions, all in §10) — RESOLVED 2026-09-01
 
-**My recommendations** (per interview, awaiting Warren's call):
-- Q1: dedupe-by-key only (no storage); idempotency is the caller's contract
-- Q2: yes, bundle — add a `pdf_set: [pdf_a, pdf_b]` request shape
-- Q3: yes, content-hash mismatch triggers re-extract; cache key = sha256 of input PDF
-- Q4: always free; LLM is local Ollama, $0 to us
-- Q5: R2 with 7-day TTL, Sentry for stack traces
+All 5 questions accepted on user's go-ahead. Recorded in FRS §10 + new sub-sections §4.8-§4.11.
+
+- [x] **Q1 Idempotency** — dedupe-by-key (in-memory LRU, 1h TTL) — see FRS §4.9
+- [x] **Q2 Multi-PDF forms** — `pdf_set: Blob[]` bundle, atomic, shared `fill_id` — see FRS §4.11
+- [x] **Q3 Schema versioning** — `sha256(input)` cache key, 7d TTL, content-hash invalidation — see FRS §4.8
+- [x] **Q4 Cost recovery** — always free (local Ollama) — see FRS §5.5
+- [x] **Q5 Failure analytics** — R2 partial-fill storage (7d TTL) + Sentry + webhook — see FRS §4.10
 
 ### 1.3 Form 80 demo
 - [ ] **Fill all 19 pages, not just 3** — proven pipeline works, just needs scale. The 3 unmapped fields (other passport, lost passport, national ID) need VLM coords for their checkboxes
