@@ -64,6 +64,9 @@ export interface Env {
 
   // Alerting
   ALERT_WEBHOOK_URL?: string
+
+  // PDF Form Filler (FRS-0005) — actuator sidecar URL (Tailscale mesh)
+  PDF_SIDECAR_URL?: string
 }
 
 /**

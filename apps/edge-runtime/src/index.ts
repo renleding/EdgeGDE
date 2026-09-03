@@ -245,6 +245,7 @@ app.use('*', async (c, next) => {
     c.req.path.startsWith('/api/pwa/') ||
     c.req.path.startsWith('/api/v1/doc-intel/') ||
     c.req.path.startsWith('/doc-intel') ||
+    c.req.path.startsWith('/api/v1/pdf/') ||  // FRS-0005: PDF Form Filler (sidecar proxy)
     c.req.path === '/healthz'
   ) {
     return next()
@@ -257,6 +258,10 @@ app.use('*', tenantContextResolver)
 
 // 2. RATE LIMITER
 async function rateLimitHandler(c: Context, next: () => Promise<void>) {
+  // PDF Form Filler (FRS-0005) is internal/Tailscale — skip rate limiting
+  if (c.req.path.startsWith('/api/v1/pdf/')) {
+    return next()
+  }
   const tenant = (c as unknown as { get: (key: string) => TenantConfig | undefined }).get('tenant')
 
   if (!tenant) {

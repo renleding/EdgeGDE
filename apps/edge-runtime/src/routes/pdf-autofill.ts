@@ -78,9 +78,9 @@ function recordSidecarSuccess(): void {
   circuit.openedAt = 0
 }
 
-function sidecarUrl(c: any): string {
+function sidecarUrl(c: { env?: unknown }): string {
   const env = envFromContext(c)
-  return (env as any).PDF_SIDECAR_URL || 'http://127.0.0.1:8890'
+  return env.PDF_SIDECAR_URL || 'http://127.0.0.1:8890'
 }
 
 // Coerce multipart form fields to strings (may be File or string)
