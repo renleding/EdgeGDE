@@ -9,6 +9,7 @@
 import { Hono } from 'hono'
 import { guardDB } from '../lib/db'
 import { queryAuditLogs } from '../lib/audit'
+import { envFromContext } from '../lib/env'
 
 const auditRouter = new Hono()
 
@@ -16,7 +17,8 @@ auditRouter.get('/export', async (c) => {
   const tenantId = c.req.query('tenant')
   if (!tenantId) return c.json({ error: 'tenant query param required' }, 400)
 
-  const db = guardDB((c.env as any)?.DB)
+  const env = envFromContext(c)
+  const db = guardDB(env.DB)
   const ctx = { tenantId, env: c.env }
 
   const sessionId = c.req.query('session_id') || undefined
@@ -25,7 +27,7 @@ auditRouter.get('/export', async (c) => {
   const offset = parseInt(c.req.query('offset') || '0', 10)
 
   const events = await queryAuditLogs(
-    (c.env as any)?.DB,
+    env.DB,
     tenantId,
     { sessionId, eventType, limit, offset }
   )

@@ -16,7 +16,7 @@ export const workspaceRouter = new Hono()
 
 async function appendEvent(env: any, tenantId: string, type: string, data: Record<string, unknown>, sessionId?: string): Promise<void> {
   try {
-    const doBinding = (env as any)?.AUDIT_LEDGER
+    const doBinding = env?.AUDIT_LEDGER
     if (!doBinding || typeof doBinding.idFromName !== 'function') return
 
     const doId = doBinding.idFromName(`tenant:${tenantId}`)
@@ -276,7 +276,7 @@ workspaceRouter.get('/workspace/pipeline', async (c) => {
       LIMIT 50
     `).bind(tenantId).all()
 
-    const apps = (results || []) as any[]
+    const apps = results || []
     // ... (same rendering logic unchanged) ...
     const intake = apps.filter(a => a.workflow_stage === 'intake')
     const assessment = apps.filter(a => a.workflow_stage === 'assessment')

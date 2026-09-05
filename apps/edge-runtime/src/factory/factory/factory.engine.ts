@@ -65,8 +65,8 @@ export async function compileBlueprint(
   env: any,
 ): Promise<FactoryOutput> {
   const { blueprint, overrides, tenantId, slug, tenantName } = input
-  const rawKv = (env as any)?.TENANT_KV
-  const rawDb = (env as any)?.DB
+  const rawKv = env?.TENANT_KV
+  const rawDb = env?.DB
 
   if (!rawKv) throw new Error('TENANT_KV binding not available')
 

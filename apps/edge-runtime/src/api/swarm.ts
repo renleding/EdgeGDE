@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono'
+import { envFromContext } from '../lib/env'
 
 export const swarmRouter = new Hono()
 
@@ -17,10 +18,11 @@ const ALLOWED_EVENTS = ['affordability_assessed', 'risk_profile_generated', 'app
 // ═════════════════════════════════════════════════════════════════════════════
 
 swarmRouter.post('/swarm/ingress', async (c) => {
+  const env = envFromContext(c)
   try {
     // 1. Auth — verify SWARM_AUTH_TOKEN
     const authHeader = c.req.header('authorization') || ''
-    const expectedToken = (c.env as any)?.SWARM_AUTH_TOKEN
+    const expectedToken = env.SWARM_AUTH_TOKEN
     if (!expectedToken) return c.json({ error: 'Swarm auth not configured' }, 500)
     if (!authHeader.startsWith('Bearer ') || authHeader.slice(7) !== expectedToken) {
       return c.json({ error: 'Invalid or missing swarm token' }, 401)
@@ -35,7 +37,7 @@ swarmRouter.post('/swarm/ingress', async (c) => {
     if (!payload || typeof payload !== 'object') return c.json({ error: 'payload must be an object' }, 400)
 
     // 3. Append to AuditLedger
-    const doBinding = (c.env as any)?.AUDIT_LEDGER
+    const doBinding = env.AUDIT_LEDGER
     if (!doBinding || typeof doBinding.idFromName !== 'function') return c.json({ error: 'AUDIT_LEDGER binding required' }, 500)
 
     const doId = doBinding.idFromName('tenant:afirmico')

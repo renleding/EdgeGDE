@@ -48,7 +48,7 @@ export async function triggerScoring(
           const contact: any = await db.prepare(`SELECT id FROM contacts WHERE email = ? ORDER BY last_updated_ts DESC LIMIT 1`).bind(email.toLowerCase().trim()).first()
           if (contact?.id) {
             const result = await db.prepare(`UPDATE applications SET submission_id = ? WHERE contact_id = ? AND submission_id IS NULL`).bind(submissionId, contact.id).run()
-            if ((result as any)?.meta?.changes === 0) {
+            if (result?.meta?.changes === 0) {
               console.warn('[bridge] link failed — no matching application', { sessionId, email, submissionId })
             } else {
               console.log('[bridge] linked submission to application', { submissionId, contactId: contact.id })
@@ -61,7 +61,7 @@ export async function triggerScoring(
     }
 
     // Enqueue for scoring
-    const queue = (env as any)?.LEAD_SCORING_QUEUE
+    const queue = env?.LEAD_SCORING_QUEUE
     if (queue && typeof queue.send === 'function') {
       const msg = {
         submissionId,
@@ -82,7 +82,7 @@ export async function triggerScoring(
   } catch (err) {
     console.error('[triggerScoring] FAILED:', err)
     try {
-      const kv = (env as any)?.TELEMETRY_KV
+      const kv = env?.TELEMETRY_KV
       if (kv && typeof kv.put === 'function') {
         await kv.put(
           `diagnostic:chat:failed:${sessionId}`,

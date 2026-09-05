@@ -60,7 +60,7 @@ export async function generateWeeklyDigest(
     `SELECT COUNT(*) as count FROM form_submissions
      WHERE tenant_id = ? AND created_at >= ? AND created_at <= ?`
   ).bind(tenantId, sevenDaysAgo, now).first()
-  const totalLeads = (totalRow as any)?.count || 0
+  const totalLeads = totalRow?.count || 0
 
   // Score distribution (join with lead_scores)
   const scores: any = await db.prepare(
@@ -79,9 +79,9 @@ export async function generateWeeklyDigest(
     .sort((a: any, b: any) => b.score - a.score)
     .slice(0, 10)
     .map((r: any) => ({
-      leadId: (r as any).lead_id || '',
+      leadId: r.lead_id || '',
       score: r.score,
-      submissionDate: (r as any).created_at || '',
+      submissionDate: r.created_at || '',
     }))
 
   return {
