@@ -8,7 +8,7 @@
  */
 
 import { Hono } from 'hono'
-import { requireSession } from '../middleware/session'
+import { requireSession, SessionContext } from '../middleware/session'
 import { hashPassword } from '../lib/password'
 import { envFromContext } from '../lib/env'
 
@@ -71,8 +71,8 @@ function layout(title: string, body: string): string {
 // GET /tenant/dashboard
 // ═══════════════════════════════════════════════════════════════════════════
 
-router.get('/dashboard', requireSession(), async (c) => {
-  const session = (c as any).get('tenantSession') as any
+router.get('/dashboard', requireSession(), async (c: SessionContext) => {
+  const session = c.get('tenantSession')
   const slug = session.slug
   const env = envFromContext(c)
   const TENANT_KV = env.TENANT_KV
@@ -146,8 +146,8 @@ router.get('/dashboard', requireSession(), async (c) => {
  * POST /tenant/api-key/regenerate — Generate a new API key (protected).
  * Returns the new key exactly once via HTMX fragment.
  */
-router.post('/api-key/regenerate', requireSession(), async (c) => {
-  const session = (c as any).get('tenantSession') as any
+router.post('/api-key/regenerate', requireSession(), async (c: SessionContext) => {
+  const session = c.get('tenantSession')
   const slug = session.slug
   const env = envFromContext(c)
   const TENANT_KV = env.TENANT_KV

@@ -14,7 +14,7 @@ export async function triggerScoring(
 ): Promise<void> {
   try {
     const submissionId = crypto.randomUUID()
-    console.log('[triggerScoring] starting', { sessionId, tenantId, submissionId })
+    // console.log removed per governance
 
     if (!db || typeof db.prepare !== 'function') {
       console.error('[triggerScoring] D1 binding not available')
@@ -31,12 +31,12 @@ export async function triggerScoring(
       `INSERT INTO form_submissions (id, tenant_id, form_id, payload)
        VALUES (?, ?, 'mortgage_chat', ?)`
     ).bind(submissionId, tenantId, payloadStr).run()
-    console.log('[triggerScoring] D1 insert complete', { submissionId, success: !!insertResult })
+    // console.log removed per governance
 
     await db.prepare(
       `UPDATE chat_sessions SET submission_id = ?, status = 'complete', updated_at = ? WHERE id = ?`
     ).bind(submissionId, Date.now(), sessionId).run()
-    console.log('[triggerScoring] session linked', { sessionId, submissionId })
+    // console.log removed per governance
 
     // Bridge: link submission to application via email
     try {
@@ -51,7 +51,7 @@ export async function triggerScoring(
             if (result?.meta?.changes === 0) {
               console.warn('[bridge] link failed — no matching application', { sessionId, email, submissionId })
             } else {
-              console.log('[bridge] linked submission to application', { submissionId, contactId: contact.id })
+              // console.log removed per governance
             }
           }
         }
@@ -75,7 +75,7 @@ export async function triggerScoring(
         },
       }
       await queue.send(msg)
-      console.log('[triggerScoring] queued for scoring', { submissionId })
+      // console.log removed per governance
     } else {
       console.warn('[triggerScoring] LEAD_SCORING_QUEUE binding not available')
     }

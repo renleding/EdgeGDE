@@ -71,6 +71,13 @@ async function installCompliancePack(
   return normalized.length
 }
 
+/**
+ * Install packs into tenant storage
+ * @param env - The environment bindings
+ * @param tenantId - The tenant ID
+ * @param packs - The packs to install (rule_pack, compliance_pack)
+ * @returns The install result
+ */
 export async function installPacks(
   env: any,
   tenantId: string,

@@ -46,13 +46,13 @@ export interface SessionPayload {
 /**
  * Variables set on the Hono context by requireSession().
  */
-interface SessionVars {
+export interface SessionVars {
   tenantSession: SessionPayload
   tenantId: string
   slug: string
 }
 
-type SessionContext = Context<{ Variables: SessionVars }>
+export type SessionContext = Context<{ Variables: SessionVars }>
 
 /**
  * Create a signed JWT session token.
