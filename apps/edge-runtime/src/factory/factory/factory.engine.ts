@@ -60,13 +60,19 @@ async function commitBlueprintRef(rawKv: any, slug: string, tenantId: string, bp
 // Compile blueprint into tenant config
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Compile blueprint into tenant config
+ * @param input - The factory input
+ * @param env - The environment bindings
+ * @returns The factory output
+ */
 export async function compileBlueprint(
   input: FactoryInput,
   env: any,
 ): Promise<FactoryOutput> {
   const { blueprint, overrides, tenantId, slug, tenantName } = input
-  const rawKv = (env as any)?.TENANT_KV
-  const rawDb = (env as any)?.DB
+  const rawKv = env?.TENANT_KV
+  const rawDb = env?.DB
 
   if (!rawKv) throw new Error('TENANT_KV binding not available')
 
@@ -114,6 +120,12 @@ export async function compileBlueprint(
 // Deep merge (no mutation of originals)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Deep merge (no mutation of originals)
+ * @param base - The base object to merge into
+ * @param override - The override object
+ * @returns void
+ */
 export function applyMerge(base: Record<string, unknown>, override: Record<string, unknown>): void {
   for (const key of Object.keys(override)) {
     const bv = base[key]

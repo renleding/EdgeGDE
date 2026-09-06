@@ -24,6 +24,12 @@ export type ReportPayload = WeeklyDigestPayload
 // Computes next run time from a cron expression (simple v1: interval shorthand)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Computes next run time from a cron expression (simple v1: interval shorthand)
+ * @param cronExpression - The cron expression
+ * @param utcOffset - The UTC offset
+ * @returns The next run time as ISO string
+ */
 export function computeNextRun(
   cronExpression: string,
   utcOffset: number,
@@ -47,6 +53,12 @@ export function computeNextRun(
 // Report Generation (D1 queries, no full table scans)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Generate weekly digest report for a tenant
+ * @param db - The D1 database
+ * @param tenantId - The tenant ID
+ * @returns The weekly digest payload
+ */
 export async function generateWeeklyDigest(
   db: any,
   tenantId: string,
@@ -60,7 +72,7 @@ export async function generateWeeklyDigest(
     `SELECT COUNT(*) as count FROM form_submissions
      WHERE tenant_id = ? AND created_at >= ? AND created_at <= ?`
   ).bind(tenantId, sevenDaysAgo, now).first()
-  const totalLeads = (totalRow as any)?.count || 0
+  const totalLeads = totalRow?.count || 0
 
   // Score distribution (join with lead_scores)
   const scores: any = await db.prepare(
@@ -79,9 +91,9 @@ export async function generateWeeklyDigest(
     .sort((a: any, b: any) => b.score - a.score)
     .slice(0, 10)
     .map((r: any) => ({
-      leadId: (r as any).lead_id || '',
+      leadId: r.lead_id || '',
       score: r.score,
-      submissionDate: (r as any).created_at || '',
+      submissionDate: r.created_at || '',
     }))
 
   return {
@@ -98,6 +110,16 @@ export async function generateWeeklyDigest(
 // Storage (R2 for payloads, KV for pointers)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Store report artifact in R2 and KV pointer
+ * @param R2_BUCKET - The R2 bucket
+ * @param TENANT_KV - The tenant KV namespace
+ * @param tenantId - The tenant ID
+ * @param scheduleId - The schedule ID
+ * @param targetDate - The target date
+ * @param payload - The report payload
+ * @returns The R2 key
+ */
 export async function storeReportArtifact(
   R2_BUCKET: any,
   TENANT_KV: any,
@@ -126,6 +148,14 @@ export async function storeReportArtifact(
 // Delivery (Stubbed for v1 — logs to console)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Deliver report to recipients (stubbed v1 - logs to console)
+ * @param db - The D1 database
+ * @param executionId - The execution ID
+ * @param recipientsJson - The recipients as JSON string
+ * @param payload - The report payload
+ * @returns The delivery status
+ */
 export async function deliverReport(
   db: any,
   executionId: string,
@@ -135,17 +165,7 @@ export async function deliverReport(
   const recipients = JSON.parse(recipientsJson || '[]') as string[]
   const recipientList = recipients.length > 0 ? recipients.join(', ') : 'no-recipients-configured'
 
-  console.log(JSON.stringify({
-    event: 'report_delivery',
-    executionId,
-    recipients: recipientList,
-    period: payload.period,
-    totalLeads: payload.total_leads,
-    generatedAt: payload.generated_at,
-    provider: 'stubbed_logger',
-    simulatedStatus: 'sent',
-    timestamp: Date.now(),
-  }))
+  // console.log removed per governance
 
   return { status: 'sent' }
 }

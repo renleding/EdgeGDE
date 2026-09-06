@@ -71,14 +71,21 @@ async function installCompliancePack(
   return normalized.length
 }
 
+/**
+ * Install packs into tenant storage
+ * @param env - The environment bindings
+ * @param tenantId - The tenant ID
+ * @param packs - The packs to install (rule_pack, compliance_pack)
+ * @returns The install result
+ */
 export async function installPacks(
   env: any,
   tenantId: string,
   packs: { rule_pack?: { name: string; version: string }; compliance_pack?: { name: string; version: string } },
 ): Promise<InstallResult> {
   const result: InstallResult = { rulesInstalled: 0, complianceInstalled: 0, packVersions: {} }
-  const rawKv = (env as any)?.TENANT_KV
-  const db = (env as any)?.DB
+  const rawKv = env?.TENANT_KV
+  const db = env?.DB
   if (!rawKv) return result
 
   // Transaction safety: install packs BEFORE persisting tenant config

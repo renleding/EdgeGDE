@@ -8,8 +8,9 @@
  */
 
 import { Hono } from 'hono'
-import { requireSession } from '../middleware/session'
+import { requireSession, SessionContext } from '../middleware/session'
 import { hashPassword } from '../lib/password'
+import { envFromContext } from '../lib/env'
 
 const router = new Hono()
 
@@ -70,10 +71,11 @@ function layout(title: string, body: string): string {
 // GET /tenant/dashboard
 // ═══════════════════════════════════════════════════════════════════════════
 
-router.get('/dashboard', requireSession(), async (c) => {
-  const session = (c as any).get('tenantSession') as any
+router.get('/dashboard', requireSession(), async (c: SessionContext) => {
+  const session = c.get('tenantSession')
   const slug = session.slug
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const env = envFromContext(c)
+  const TENANT_KV = env.TENANT_KV
 
   if (!TENANT_KV) {
     return c.html(layout('Dashboard', '<div class="card"><p>Tenant storage unavailable</p></div>'))
@@ -144,10 +146,11 @@ router.get('/dashboard', requireSession(), async (c) => {
  * POST /tenant/api-key/regenerate — Generate a new API key (protected).
  * Returns the new key exactly once via HTMX fragment.
  */
-router.post('/api-key/regenerate', requireSession(), async (c) => {
-  const session = (c as any).get('tenantSession') as any
+router.post('/api-key/regenerate', requireSession(), async (c: SessionContext) => {
+  const session = c.get('tenantSession')
   const slug = session.slug
-  const TENANT_KV = (c.env as any)?.TENANT_KV
+  const env = envFromContext(c)
+  const TENANT_KV = env.TENANT_KV
 
   if (!TENANT_KV) {
     return c.html('<span style="color:#da3633">Tenant storage unavailable</span>')

@@ -14,7 +14,7 @@ export async function triggerScoring(
 ): Promise<void> {
   try {
     const submissionId = crypto.randomUUID()
-    console.log('[triggerScoring] starting', { sessionId, tenantId, submissionId })
+    // console.log removed per governance
 
     if (!db || typeof db.prepare !== 'function') {
       console.error('[triggerScoring] D1 binding not available')
@@ -31,12 +31,12 @@ export async function triggerScoring(
       `INSERT INTO form_submissions (id, tenant_id, form_id, payload)
        VALUES (?, ?, 'mortgage_chat', ?)`
     ).bind(submissionId, tenantId, payloadStr).run()
-    console.log('[triggerScoring] D1 insert complete', { submissionId, success: !!insertResult })
+    // console.log removed per governance
 
     await db.prepare(
       `UPDATE chat_sessions SET submission_id = ?, status = 'complete', updated_at = ? WHERE id = ?`
     ).bind(submissionId, Date.now(), sessionId).run()
-    console.log('[triggerScoring] session linked', { sessionId, submissionId })
+    // console.log removed per governance
 
     // Bridge: link submission to application via email
     try {
@@ -48,10 +48,10 @@ export async function triggerScoring(
           const contact: any = await db.prepare(`SELECT id FROM contacts WHERE email = ? ORDER BY last_updated_ts DESC LIMIT 1`).bind(email.toLowerCase().trim()).first()
           if (contact?.id) {
             const result = await db.prepare(`UPDATE applications SET submission_id = ? WHERE contact_id = ? AND submission_id IS NULL`).bind(submissionId, contact.id).run()
-            if ((result as any)?.meta?.changes === 0) {
+            if (result?.meta?.changes === 0) {
               console.warn('[bridge] link failed — no matching application', { sessionId, email, submissionId })
             } else {
-              console.log('[bridge] linked submission to application', { submissionId, contactId: contact.id })
+              // console.log removed per governance
             }
           }
         }
@@ -61,7 +61,7 @@ export async function triggerScoring(
     }
 
     // Enqueue for scoring
-    const queue = (env as any)?.LEAD_SCORING_QUEUE
+    const queue = env?.LEAD_SCORING_QUEUE
     if (queue && typeof queue.send === 'function') {
       const msg = {
         submissionId,
@@ -75,14 +75,14 @@ export async function triggerScoring(
         },
       }
       await queue.send(msg)
-      console.log('[triggerScoring] queued for scoring', { submissionId })
+      // console.log removed per governance
     } else {
       console.warn('[triggerScoring] LEAD_SCORING_QUEUE binding not available')
     }
   } catch (err) {
     console.error('[triggerScoring] FAILED:', err)
     try {
-      const kv = (env as any)?.TELEMETRY_KV
+      const kv = env?.TELEMETRY_KV
       if (kv && typeof kv.put === 'function') {
         await kv.put(
           `diagnostic:chat:failed:${sessionId}`,

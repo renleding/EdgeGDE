@@ -50,6 +50,7 @@ export interface Env {
   HMAC_KEY?: string
   ADMIN_API_TOKEN?: string
   ADMIN_TOKEN?: string  // Legacy name; fallback if ADMIN_API_TOKEN unset
+  SWARM_AUTH_TOKEN?: string  // Swarm ingress bearer token
   LLM_API_KEY?: string
   OPENROUTER_API_KEY?: string
   TURNSTILE_SECRET_KEY?: string
