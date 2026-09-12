@@ -1,6 +1,6 @@
 # Backup & Disaster Recovery — EdgeGDE + Cubbit
 
-**Next scheduled backup:** Sunday 3am AEST (cron: `cubbit-weekly-backup`)  
+**Next scheduled backup:** Daily 3am AEST (cron: `cubbit-daily-backup`, `0 3 * * *`)  
 **Script:** `~/.hermes/scripts/cubbit-backup.sh`  
 **Destination:** Cubbit DS3 (S3-compatible object storage)  
 **Credentials:** Stored in `~/.hermes/.env`
