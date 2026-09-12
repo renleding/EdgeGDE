@@ -6,7 +6,8 @@
  *   const env = safeEnv(c)   // or safeEnv(rawEnv)
  *
  * This is the SINGLE source of truth for binding types.
- * All `as any` casts on env access in the codebase should route through here.
+ * All env access from raw bindings should go through `safeEnv` (see below)
+ * so consuming code gets the typed `Env` interface without loose casts.
  */
 
 import type { D1Database, KVNamespace, R2Bucket, DurableObjectNamespace, Queue, VectorizeIndex } from '@cloudflare/workers-types'
@@ -67,8 +68,8 @@ export interface Env {
 
 /**
  * Cast a raw env object to the typed Env interface.
- * This is the ONLY place `as any` should appear for environment access.
- * All consuming code gets full type safety.
+ * This is the only place raw env objects are downcast; all consuming code
+ * gets full type safety through the `Env` interface.
  */
 export function safeEnv(raw: Record<string, unknown>): Env {
   return raw as unknown as Env
