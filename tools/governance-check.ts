@@ -83,10 +83,15 @@ function findTestFile(sourcePath: string): string {
   for (const c of candidates) {
     if (existsSync(c)) return c
   }
-  // Check tests/ directory mirror
+  // Check tests/ directory mirror — try BOTH legacy root layout and tests/unit layout.
+  // The repo has test files in both locations; a single path would silently drop
+  // coverage for files whose tests live in the other one.
   const rel = relative(EDGE_RUNTIME, sourcePath)
-  const mirrorPath = join(ROOT, 'apps/edge-runtime/tests', rel.replace('.ts', '.test.ts'))
-  if (existsSync(mirrorPath)) return mirrorPath
+  const testRel = rel.replace('.ts', '.test.ts')
+  const rootMirrorPath = join(ROOT, 'apps/edge-runtime/tests', testRel)
+  if (existsSync(rootMirrorPath)) return rootMirrorPath
+  const unitMirrorPath = join(ROOT, 'apps/edge-runtime/tests/unit', testRel)
+  if (existsSync(unitMirrorPath)) return unitMirrorPath
   return ''
 }
 
