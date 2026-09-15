@@ -17,6 +17,8 @@
 
 const dbId = '1d24d306-9537-4386-929c-60c9e6d882b1'
 
+import { DeterministicInput } from '../src/lib/scoring-engine'
+
 async function main() {
   const args = process.argv.slice(2)
   const tenantFlag = args.indexOf('--tenant')
@@ -142,7 +144,7 @@ async function main() {
   if (args.includes('--mode') && args[args.indexOf('--mode') + 1] === 'strict') {
     console.log(`\n⚙️  Strict Mode — verifying scoring determinism...`)
     const { computeDeterministic } = await import('../src/lib/scoring-engine')
-    const score = computeDeterministic(rebuiltState as any)
+    const score = computeDeterministic(rebuiltState as DeterministicInput)
     console.log(`   Deterministic score: ${score.score}/70`)
     console.log(`   Details: ${score.details.join(', ')}`)
 

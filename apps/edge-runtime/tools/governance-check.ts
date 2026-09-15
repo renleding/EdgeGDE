@@ -55,9 +55,9 @@ export function run(): void {
   // 3. Spot-check JSDoc on key files in src/
   if (!results.some((r: CheckResult) => r.tag === "fail")) {
     for (const f of ["src/index.ts"]) {
-      const results = checkJSDoc(f, "") as any[];
-      if (Array.isArray(results)) {
-        for (const r of results) {
+      const jsdocResults = checkJSDoc(f, "");
+      if (Array.isArray(jsdocResults)) {
+        for (const r of jsdocResults) {
           if (r.tag !== 'pass') results.push(r);
         }
       }
