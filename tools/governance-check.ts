@@ -147,8 +147,8 @@ function checkNoConsoleLog(content: string, file: string, lineRanges?: [number, 
   const details: string[] = []
   const lines = content.split('\n')
   const fileName = file.split('/').pop() || ''
-  // Skip test files and config files
-  if (fileName.endsWith('.test.ts') || fileName === 'vitest.config.ts' || file.includes('tools/')) {
+  // Skip test files, config files, and scripts (tooling, not production)
+  if (fileName.endsWith('.test.ts') || fileName === 'vitest.config.ts' || file.includes('tools/') || file.includes('scripts/')) {
     return { check: 'No console.log in production code', status: 'pass', details: [] }
   }
   for (let i = 0; i < lines.length; i++) {

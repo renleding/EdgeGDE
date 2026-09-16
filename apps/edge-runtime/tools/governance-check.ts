@@ -22,24 +22,33 @@ export type CheckResult =
 
 function checkJSDoc(targetPath: string, srcDir: string): CheckResult[] {
   const full = join(ROOT, targetPath)
-  if (!readFileSync(full).includes("/**") && !readFileSync(full).includes(" *")) return [checkFail(targetPath, "missing JSDoc")]
+  const content = readFileSync(full, "utf-8")
+  if (!content.includes("/**") && !content.includes(" *")) return [checkFail(targetPath, "missing JSDoc")]
   return [checkPass(targetPath)]
 }
 
 function checkTrailingWS(filePath: string): CheckResult[] {
-  const raw = readFileSync(filePath)
+  const raw = readFileSync(filePath, "utf-8")
   const hasTrailing = raw.match(/\s+$/)
   if (hasTrailing) return [checkFail(filePath, "trailing whitespace detected")]
   return []
 }
 
-function checkPass(file?: string) {
+function checkPass(file?: string): CheckResult {
   return { tag: "pass", file }
 }
-function checkFail(detail: string): CheckResult {
-  return { tag: "fail"; detail: detail }
+function checkFail(file: string, detail: string): CheckResult {
+  return { tag: "fail", file, detail }
 }
 
+/**
+ * Runs the governance check suite against the edge-runtime source files.
+ * Checks for:
+ * - Source file presence (entry point)
+ * - Trailing whitespace on all TypeScript files in src/
+ * - JSDoc on key exported files
+ * Outputs results to stderr for CI integration.
+ */
 export function run(): void {
   const results: CheckResult[] = []
   const tsFiles: string[] = []
@@ -55,9 +64,9 @@ export function run(): void {
   // 3. Spot-check JSDoc on key files in src/
   if (!results.some((r: CheckResult) => r.tag === "fail")) {
     for (const f of ["src/index.ts"]) {
-      const results = checkJSDoc(f, "") as any[];
-      if (Array.isArray(results)) {
-        for (const r of results) {
+      const jsdocResults = checkJSDoc(f, "");
+      if (Array.isArray(jsdocResults)) {
+        for (const r of jsdocResults) {
           if (r.tag !== 'pass') results.push(r);
         }
       }
