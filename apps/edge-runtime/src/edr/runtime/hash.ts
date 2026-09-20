@@ -15,7 +15,12 @@ import { stableStringify } from '../../lib/hash'
 // Hash Computation (pure, deterministic)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function computeLayoutHash(layout: any): Promise<string> {
+/** Layout input for hash computation — JSON-serializable object */
+export interface LayoutInput {
+  [key: string]: unknown
+}
+
+export async function computeLayoutHash(layout: LayoutInput): Promise<string> {
   const input = stableStringify(layout)
   const encoder = new TextEncoder()
   const data = encoder.encode(input)
@@ -28,10 +33,12 @@ export async function computeLayoutHash(layout: any): Promise<string> {
 // Hash Lookup (Dual-Mode: Dev / Production)
 // ═══════════════════════════════════════════════════════════════════════════
 
-declare const globalThis: any
+/** GlobalThis extension for EDR hash caching */
+declare global {
+  var EDR_LATEST_HASH: string | undefined
+}
 
-/**
- * Get the latest AST hash.
+/** Get the latest AST hash.
  *
  * DEV MODE (dev=true): reads from KV every call — no caching.
  *   Latency: ~5ms KV read per poll. Ensures publish → sentinel picks up
@@ -93,7 +100,7 @@ export async function getLatestHash(
  */
 export async function setLatestHash(
   hash: string,
-  layout: any,
+  layout: LayoutInput,
   kv: { put: (key: string, value: string) => Promise<void> },
 ): Promise<void> {
   globalThis.EDR_LATEST_HASH = hash

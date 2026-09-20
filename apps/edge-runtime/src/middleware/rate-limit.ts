@@ -9,13 +9,20 @@
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
 import { envFromContext } from '../lib/env'
+import type { KVNamespace } from '@cloudflare/workers-types'
+
+/** Rate limit entry stored in KV */
+interface RateLimitEntry {
+  count: number
+  reset: number
+}
 
 function clientIp(c: Context): string {
   return c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown'
 }
 
 async function checkKvRateLimit(
-  kv: any,
+  kv: KVNamespace,
   key: string,
   maxRequests: number,
   windowSeconds: number,
@@ -25,7 +32,7 @@ async function checkKvRateLimit(
 
   try {
     // Atomic increment + expiry
-    const current = await kv.get(key, 'json')
+    const current = await kv.get<RateLimitEntry>(key, 'json')
     if (!current || current.reset < now) {
       await kv.put(key, JSON.stringify({ count: 1, reset: now + windowSeconds }), { expirationTtl: windowSeconds + 10 })
       return { allowed: true, remaining: maxRequests - 1 }

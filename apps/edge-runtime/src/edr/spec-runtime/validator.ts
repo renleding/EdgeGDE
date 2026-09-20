@@ -26,8 +26,8 @@ export interface ValidationResult {
  * Each invariant is a function that returns null (pass) or an error string.
  */
 export function validateInvariants(
-  value: any,
-  invariantChecks: Array<(v: any) => string | null>,
+  value: unknown,
+  invariantChecks: Array<(v: unknown) => string | null>,
 ): ValidationResult {
   const errors: string[] = []
   const warnings: string[] = []
@@ -47,17 +47,23 @@ export function validateInvariants(
 }
 
 /** Check that `role` exists only inside `props`, never at top level */
-export function roleInPropsOnly(node: any): string | null {
-  if (node.role !== undefined && node.props?.role === undefined) {
-    return `role defined at top level but missing in props on ${node.type || 'unknown'} node`
+export function roleInPropsOnly(node: unknown): string | null {
+  if (node && typeof node === 'object' && 'role' in node && !('props' in node && node.props && typeof node.props === 'object' && 'role' in node.props)) {
+    const n = node as Record<string, unknown>
+    return `role defined at top level but missing in props on ${n.type || 'unknown'} node`
   }
   return null
 }
 
 /** Check that a node has type and props */
-export function hasTypeAndProps(node: any): string | null {
-  if (!node.type) return 'node missing required type field'
-  if (!node.props) return `node "${node.type}" missing required props field`
+export function hasTypeAndProps(node: unknown): string | null {
+  if (node && typeof node === 'object') {
+    const n = node as Record<string, unknown>
+    if (!n.type) return 'node missing required type field'
+    if (!n.props) return `node "${n.type}" missing required props field`
+  } else {
+    return 'node must be an object'
+  }
   return null
 }
 
@@ -76,15 +82,23 @@ export function validateThemeTokens(tokens: Record<string, string>): ValidationR
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * AST node shape for MCP collision validation
+ */
+interface MCPNode {
+  props?: Record<string, unknown>
+  children?: unknown[]
+}
+
+/**
  * Validate an AST node tree, enforcing MCP param uniqueness.
  * Throws on the first mcp-param collision found in any subtree.
  */
-export function validate(node: any): void {
+export function validate(node: MCPNode): void {
   const seen = new Set<string>()
 
-  function walk(n: any): void {
+  function walk(n: MCPNode): void {
     const key = n.props?.['mcp-param']
-    if (key) {
+    if (typeof key === 'string') {
       if (seen.has(key)) {
         throw new Error(`mcp-param collision: ${key}`)
       }
@@ -93,7 +107,7 @@ export function validate(node: any): void {
     if (Array.isArray(n.children)) {
       for (const child of n.children) {
         if (typeof child === 'object' && child !== null) {
-          walk(child)
+          walk(child as MCPNode)
         }
       }
     }

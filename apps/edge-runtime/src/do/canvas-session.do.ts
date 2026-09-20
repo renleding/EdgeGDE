@@ -1,8 +1,9 @@
-import type { CanvasDocument, Node, Mutation } from '../canvas/canvas-types'
+import type { CanvasDocument, Node, Mutation, AgentState, ProposalNodeData, WorkspaceLink } from '../canvas/canvas-types'
 import { applyMutation } from '../canvas/canvas-engine'
 import { AegisMutationGate } from '../canvas/aegis-gate'
 import { AegisPolicyGate, getPolicyGate } from '../canvas/aegis-policy-gate'
 import { guardKV } from '../lib/kv'
+import type { DurableObjectState, DurableObject } from '@cloudflare/workers-types'
 
 const SNAPSHOT_INTERVAL = 5
 const MAX_UNDO_STACK = 100
@@ -17,7 +18,7 @@ interface ClientMessage {
     | 'jump_to_timeline' | 'filter_timeline' | 'inspect_link' | 'rollback_replay'
   mutation?: Mutation
   tool?: string
-  payload?: any
+  payload?: unknown
   expectedVersion?: number
   // FRS v3
   nodeId?: string
@@ -40,10 +41,11 @@ interface ApplyResult {
 
 export class CanvasSession_DO implements DurableObject {
   readonly state_: DurableObjectState
-  readonly env_: any
+  readonly env_: Record<string, unknown>
   private doc: CanvasDocument | null = null
   private mutationCount = 0
-  private undoStack: CanvasDocument[] = []
+  private undoStack: Record<string, Node>[] = []
+  private redoStack: Record<string, Node>[] = []
   private scheduledSnapshot = false
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   /** Aegis governance gate — validates every mutation before execution */
@@ -51,94 +53,94 @@ export class CanvasSession_DO implements DurableObject {
   /** Aegis policy gate — enforces three-role separation */
   private policy: AegisPolicyGate
 
-  constructor(state: DurableObjectState, env: any) {
+  constructor(state: DurableObjectState, env: Record<string, unknown>) {
     this.state_ = state
     this.env_ = env
     this.policy = getPolicyGate()
   }
 
-  get env(): any { return this.env_ }
+  get env(): Record<string, unknown> { return this.env_ }
 
   // ═══════════════════════════════════════════════════════════════════════
   // Fetch Handler
   // ═══════════════════════════════════════════════════════════════════════
 
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url)
-    const path = url.pathname
+      const url = new URL(request.url)
+      const path = url.pathname
 
-    if (path === '/ws') {
-      const canvasId = url.searchParams.get('do') || url.searchParams.get('canvasId') || url.searchParams.get('id')
-      if (!this.doc && canvasId) {
-        const restoreRes = await this.handleRestore(canvasId)
-        if (restoreRes.status === 200) {
-          this.doc = JSON.parse(await restoreRes.text()) as CanvasDocument
+      if (path === '/ws') {
+        const canvasId = url.searchParams.get('do') || url.searchParams.get('canvasId') || url.searchParams.get('id')
+        if (!this.doc && canvasId) {
+          const restoreRes = await this.handleRestore(canvasId)
+          if (restoreRes.status === 200) {
+            this.doc = JSON.parse(await restoreRes.text()) as CanvasDocument
+          }
         }
+        return this.handleWebSocketUpgrade(request)
       }
-      return this.handleWebSocketUpgrade(request)
-    }
 
-    if (path === '/init' && request.method === 'POST') {
-      const data = await request.json() as { id: string; rootId: string; nodes: Record<string, Node>; designTokens?: unknown }
-      const { id, rootId, nodes } = data
-      return this.handleInit(id, rootId, nodes, data.designTokens)
-    }
+      if (path === '/init' && request.method === 'POST') {
+        const data = await request.json() as { id: string; rootId: string; nodes: Record<string, Node>; designTokens?: unknown }
+        const { id, rootId, nodes } = data
+        return this.handleInit(id, rootId, nodes, data.designTokens)
+      }
 
-    if (path === '/restore' && request.method === 'POST') {
-      const data = await request.json() as { canvasId: string }
-      return this.handleRestore(data.canvasId)
-    }
+      if (path === '/restore' && request.method === 'POST') {
+        const data = await request.json() as { canvasId: string }
+        return this.handleRestore(data.canvasId)
+      }
 
-    if (path === '/state') return this.handleGetState()
-    const self = this as unknown as CanvasSession_DO & { handleMcpCall: (tool: string, payload: unknown, expectedVersion: number) => Promise<Response>; handleDeploy: () => Promise<Response> }
+      if (path === '/state') return this.handleGetState()
+      const self = this as unknown as CanvasSession_DO & { handleMcpCall: (tool: string, payload: unknown, expectedVersion: number) => Promise<Response>; handleDeploy: () => Promise<Response> }
 
-    if (path === '/mutation' && request.method === 'POST') {
-      const { mutation, expectedVersion } = await request.json() as { mutation: Mutation; expectedVersion: number }
-      return this.handleMutation(mutation, expectedVersion)
-    }
+      if (path === '/mutation' && request.method === 'POST') {
+        const { mutation, expectedVersion } = await request.json() as { mutation: Mutation; expectedVersion: number }
+        return this.handleMutation(mutation, expectedVersion)
+      }
 
-    if (path === '/mutation/batch' && request.method === 'POST') {
-      const { mutations, expectedVersion } = await request.json() as { mutations: Mutation[]; expectedVersion: number }
-      return this.handleBatchMutation(mutations, expectedVersion)
-    }
+      if (path === '/mutation/batch' && request.method === 'POST') {
+        const { mutations, expectedVersion } = await request.json() as { mutations: Mutation[]; expectedVersion: number }
+        return this.handleBatchMutation(mutations, expectedVersion)
+      }
 
-    if (path === '/mcp_call' && request.method === 'POST') {
-      const { tool, payload, expectedVersion } = await request.json() as { tool: string; payload: any; expectedVersion: number }
-      return self.handleMcpCall(tool, payload, expectedVersion)
-    }
+      if (path === '/mcp_call' && request.method === 'POST') {
+        const { tool, payload, expectedVersion } = await request.json() as { tool: string; payload: unknown; expectedVersion: number }
+        return self.handleMcpCall(tool, payload, expectedVersion)
+      }
 
-    if (path === '/deploy' && request.method === 'POST') return self.handleDeploy()
+      if (path === '/deploy' && request.method === 'POST') return self.handleDeploy()
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // FRS v3 Routes
-    // ═══════════════════════════════════════════════════════════════════════
-    if (path === '/transition_agent_state' && request.method === 'POST') {
-      const { nodeId, newState, expectedVersion } = await request.json() as { nodeId: string; newState: any; expectedVersion: number }
-      return this.handleMutation({ type: 'transition_agent_state', nodeId, newState }, expectedVersion)
-    }
-    if (path === '/create_proposal' && request.method === 'POST') {
-      const { node, proposalData, expectedVersion } = await request.json() as { node: any; proposalData: any; expectedVersion: number }
-      return this.handleMutation({ type: 'create_proposal', node, proposalData }, expectedVersion)
-    }
-    if (path === '/approve_proposal' && request.method === 'POST') {
-      const { nodeId, expectedVersion } = await request.json() as { nodeId: string; expectedVersion: number }
-      return this.handleMutation({ type: 'approve_proposal', nodeId }, expectedVersion)
-    }
-    if (path === '/reject_proposal' && request.method === 'POST') {
-      const { nodeId, expectedVersion } = await request.json() as { nodeId: string; expectedVersion: number }
-      return this.handleMutation({ type: 'reject_proposal', nodeId }, expectedVersion)
-    }
-    if (path === '/rollback' && request.method === 'POST') {
-      const { targetPointer, expectedVersion } = await request.json() as { targetPointer: number; expectedVersion: number }
-      return this.handleMutation({ type: 'rollback_to_point', targetPointer }, expectedVersion)
-    }
-    if (path === '/link_workspaces' && request.method === 'POST') {
-      const { link, expectedVersion } = await request.json() as { link: any; expectedVersion: number }
-      return this.handleMutation({ type: 'link_workspaces', link }, expectedVersion)
-    }
+      // ═══════════════════════════════════════════════════════════════════════
+      // FRS v3 Routes
+      // ═══════════════════════════════════════════════════════════════════════
+      if (path === '/transition_agent_state' && request.method === 'POST') {
+        const { nodeId, newState, expectedVersion } = await request.json() as { nodeId: string; newState: AgentState; expectedVersion: number }
+        return this.handleMutation({ type: 'transition_agent_state', nodeId, newState }, expectedVersion)
+      }
+      if (path === '/create_proposal' && request.method === 'POST') {
+        const { node, proposalData, expectedVersion } = await request.json() as { node: unknown; proposalData: unknown; expectedVersion: number }
+        return this.handleMutation({ type: 'create_proposal', node: node as Node, proposalData: proposalData as import('../canvas/canvas-types').ProposalNodeData }, expectedVersion)
+      }
+      if (path === '/approve_proposal' && request.method === 'POST') {
+        const { nodeId, expectedVersion } = await request.json() as { nodeId: string; expectedVersion: number }
+        return this.handleMutation({ type: 'approve_proposal', nodeId }, expectedVersion)
+      }
+      if (path === '/reject_proposal' && request.method === 'POST') {
+        const { nodeId, expectedVersion } = await request.json() as { nodeId: string; expectedVersion: number }
+        return this.handleMutation({ type: 'reject_proposal', nodeId }, expectedVersion)
+      }
+      if (path === '/rollback' && request.method === 'POST') {
+        const { targetPointer, expectedVersion } = await request.json() as { targetPointer: number; expectedVersion: number }
+        return this.handleMutation({ type: 'rollback_to_point', targetPointer }, expectedVersion)
+      }
+      if (path === '/link_workspaces' && request.method === 'POST') {
+        const { link, expectedVersion } = await request.json() as { link: unknown; expectedVersion: number }
+        return this.handleMutation({ type: 'link_workspaces', link: link as import('../canvas/canvas-types').WorkspaceLink }, expectedVersion)
+      }
 
-    return new Response('Not found', { status: 404 })
-  }
+      return new Response('Not found', { status: 404 })
+    }
 
   // ═══════════════════════════════════════════════════════════════════════
   // WebSocket Handler
@@ -164,7 +166,7 @@ export class CanvasSession_DO implements DurableObject {
   }
 
   private handleWsMessage(msg: ClientMessage, socket: WebSocket): void {
-    const canvasActor: any = this
+    const canvasActor: CanvasSession_DO = this
     switch (msg.type) {
       case 'request_state':
         if (socket.readyState === WebSocket.OPEN) {
@@ -287,6 +289,40 @@ export class CanvasSession_DO implements DurableObject {
     } catch (e) {
 
     }
+  }
+
+  private handleMcpCallInternal(tool: string, payload: unknown, expectedVersion: number): { success: boolean; error?: string } {
+    if (!this.doc) return { success: false, error: 'Canvas not initialized' }
+    if (this.doc.version !== expectedVersion) return { success: false, error: 'Version conflict' }
+
+    // v1: system path only — known tool patterns
+    if (tool.startsWith('form_')) {
+      this.broadcast({ type: 'mcp_call_accepted', version: this.doc.version })
+      return { success: true }
+    }
+
+    return { success: false, error: `Unknown tool "${tool}" — agent resolution not supported in v1` }
+  }
+
+  private handleUndoInternal(): { success: boolean; error?: string } {
+    if (!this.doc) return { success: false, error: 'Canvas not initialized' }
+    if (this.undoStack.length === 0) return { success: false, error: 'Nothing to undo' }
+
+    // Save current state for redo
+    this.redoStack.push(JSON.parse(JSON.stringify(this.doc.nodes)))
+    // Restore previous state
+    const prevNodes = this.undoStack.pop()!
+    this.doc.nodes = prevNodes
+    this.doc.stagingPointer = Math.max(-1, this.doc.stagingPointer - 1)
+    this.doc.version++
+    this.doc.baseNodes = JSON.parse(JSON.stringify(this.doc.nodes))
+    this.broadcast({ type: 'broadcast', action: 'undo', version: this.doc.version })
+    return { success: true }
+  }
+
+  private broadcast(msg: any): void {
+    // Broadcast to all connected WebSocket clients
+    // In a real implementation, this would iterate over connected sockets
   }
 
   async alarm(): Promise<void> {

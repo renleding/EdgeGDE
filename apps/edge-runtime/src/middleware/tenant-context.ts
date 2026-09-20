@@ -1,10 +1,4 @@
-/**
- * EdgeGDE — Tenant Context Middleware
- * Resolves tenantId from trusted source and injects into Hono context.
- * Request is rejected if tenantId is missing.
- *
- * @packageDocumentation
- */
+import type { Context, Next, MiddlewareHandler } from 'hono'
 
 export interface TenantCtx {
   tenantId: string
@@ -15,7 +9,7 @@ export interface TenantCtx {
  * Tenant resolver middleware for Hono.
  * Priority: x-tenant-id header → query param tenant → default
  */
-export async function tenantResolver(c: any, next: any): Promise<void> {
+export const tenantResolver: MiddlewareHandler = async (c: Context, next: Next) => {
   // Check if already resolved by existing tenant middleware
   const existingTenant = c.get('tenant')
   if (existingTenant?.tenantId) {
@@ -30,14 +24,12 @@ export async function tenantResolver(c: any, next: any): Promise<void> {
     'au-mortgage-broker-afirmico'
 
   if (!tenantId) {
-    c.status(400)
-    return c.json({ error: 'x-tenant-id header or tenant query param required' })
+    return c.json({ error: 'x-tenant-id header or tenant query param required' }, 400)
   }
 
   // Validate — reject empty or suspicious
   if (tenantId.length < 1 || tenantId.length > 64 || /[^a-z0-9_-]/i.test(tenantId)) {
-    c.status(400)
-    return c.json({ error: 'Invalid tenant identifier' })
+    return c.json({ error: 'Invalid tenant identifier' }, 400)
   }
 
   c.set('tenantId', tenantId)
@@ -47,9 +39,9 @@ export async function tenantResolver(c: any, next: any): Promise<void> {
 /**
  * Extract tenant context from a Hono request context.
  */
-export function getTenantCtx(c: any): TenantCtx {
+export function getTenantCtx(c: Context): TenantCtx {
   return {
-    tenantId: c.get('tenantId') || c.req.query('tenant') || 'au-mortgage-broker-afirmico',
+    tenantId: c.get('tenantId') as string || c.req.query('tenant') || 'au-mortgage-broker-afirmico',
     sessionId: c.req.query('session_id') || undefined,
   }
 }
