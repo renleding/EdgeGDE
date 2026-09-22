@@ -39,6 +39,10 @@ interface ApplyResult {
 // CanvasSession_DO — Durable Object
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Durable Object managing collaborative canvas sessions.
+ * Handles document state, mutations, undo/redo, and persistence.
+ */
 export class CanvasSession_DO implements DurableObject {
   readonly state_: DurableObjectState
   readonly env_: Record<string, unknown>
