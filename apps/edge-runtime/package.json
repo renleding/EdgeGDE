@@ -31,9 +31,9 @@
   "dependencies": {
     "@edgegde/schema": "workspace:*",
     "brace-expansion": "^5.0.9",
-    "hono": "^4.13.7",
+    "hono": "^4.13.8",
     "sharp": "^0.35.4",
-    "zod": "4.4.3",
+    "zod": "4.6.5",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
@@ -48,6 +48,6 @@
     "tsx": "^4.22.3",
     "typescript": "^5.5.0",
     "vitest": "^4.1.11",
-    "wrangler": "^4.123.0"
+    "wrangler": "^4.136.3"
   }
 }

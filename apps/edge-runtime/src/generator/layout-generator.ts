@@ -22,7 +22,7 @@ export interface GeneratorConfig {
   /** Model name (defaults to deepseek/deepseek-v4-flash) */
   model?: string
   /** Custom LLM provider function (for testing) */
-  llmProvider?: (prompt: string) => Promise<any>
+  llmProvider?: (prompt: string) => Promise<LLMResponse>
 }
 
 /** Expected shape of the LLM's JSON response */
@@ -81,7 +81,7 @@ EXAMPLE OUTPUT:
 // Default LLM Provider (OpenRouter)
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function defaultLLMProvider(prompt: string, apiKey: string, model: string): Promise<any> {
+async function defaultLLMProvider(prompt: string, apiKey: string, model: string): Promise<LLMResponse> {
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -107,7 +107,7 @@ async function defaultLLMProvider(prompt: string, apiKey: string, model: string)
     throw new Error(`LLM API error: ${response.status} — ${errText}`)
   }
 
-  const data: any = await response.json()
+  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
   const content = data?.choices?.[0]?.message?.content
   if (!content) throw new Error('LLM returned empty response')
 

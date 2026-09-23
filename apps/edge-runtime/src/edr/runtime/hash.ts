@@ -47,9 +47,14 @@ declare global {
  * PRODUCTION MODE (dev=false): warm cache via globalThis (O(1)).
  *   Cold start falls back to KV once per isolate lifecycle.
  */
+interface Manifest {
+  hash: string
+  timestamp: number
+}
+
 export async function getLatestHash(
   opts?: {
-    kv?: { get: (key: string, type: 'json') => Promise<any> }
+    kv?: { get: (key: string, type: 'json') => Promise<Manifest | null> }
     dev?: boolean
     manifestKey?: string
   },
