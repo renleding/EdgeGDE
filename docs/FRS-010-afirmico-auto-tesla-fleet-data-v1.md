@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  \
-**Version:** 1.1  \
+**Version:** 1.2  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
@@ -35,6 +35,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 |---------|------|---------|
 | 1.0 | 2026-09-29 | Initial specification. Scope confirmed as MVP; polling transport; local telemetry host; 1,500-member target. |
 | 1.1 | 2026-09-29 | Corrected the alert dictionary key: `signal_name` is **not** unique (17,579 distinct across 18,436 rows; 853 names carry model-specific variants). Added F03-R04a/R04b and AC7/AC8. Expanded R-02 with verbatim Tesla sourcing and three decision options (R-02a/b/c); corrected an earlier unsupported claim that FSD state could be collected from the vehicle UI. |
+| 1.2 | 2026-09-29 | **Clean-slate reset (pre-build).** All parallel prototype work was removed by owner decision — nothing is yet built and the spec is the only artifact of record. Deleted: `apps/tesla-fleet-worker/` (agent p9 prototype), the untracked `.well-known` PEM copy, the `afirmico-tesla-fleet-vehicles` D1 database (contained schema, 0 rows), and the placement of R-08's coordination note. Resolved R-08 accordingly. Corrected F02-R02: the private key is required for **both** Vehicle Commands **and Fleet Telemetry** setup (Tesla: pairing "is required to send Vehicle Commands and setup Fleet Telemetry"), so a keypair is load-bearing if R-02b is chosen. Recorded that the private key **cannot be regenerated** — it is held in Bitwarden and is the only copy. |
 
 ---
 
@@ -64,13 +65,16 @@ exchange, telemetry config, or vehicle enumeration is possible. A client-credent
 
 ### 3.3 Local key material
 
-An EC P-256 public key exists at
+**No key material exists in the repository.** An EC P-256 public key was previously produced by a
+parallel agent session (agent p9) at
 `apps/edge-runtime/public/.well-known/appspecific/com.tesla.3p.public-key.pem` (178 bytes, valid SPKI
-header `MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...`). This file is **untracked** and was produced by a
-**parallel agent session (agent p9)**.
+header `MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...`), untracked. It has been **deleted** as part of the
+pre-build clean-slate reset (§2, v1.2). A byte-identical copy existed in the p9 prototype app, also deleted.
 
-**Gap:** The key is not committed, not routed, and the paired private key is not under
-documented custody. Concurrent work by p9 on the same path is an active collision risk (see R-08).
+**Gap:** No public key is hosted, and the key pair itself is not held in a form this project can
+regenerate. The private key is held **only** in Bitwarden Secrets and **cannot be regenerated** — the
+public key must therefore be recovered from that pairing rather than regenerated when F02 is built.
+See F02-R02 and R-08.
 
 ### 3.4 Reference data available in-repo
 
@@ -165,7 +169,7 @@ member vehicles and energy sites on demand.
 | ID | Requirement | Must/Should |
 |----|------------|-------------|
 | F02-R01 | The platform MUST serve the Tesla public key at `https://auto.afirmi.co/.well-known/appspecific/com.tesla.3p.public-key.pem` with `Content-Type: application/x-pem-file`, excluded from the SPA fallback. | Must |
-| F02-R02 | The private key MUST be held outside the repository in the secrets store and MUST never be committed. | Must |
+| F02-R02 | The private key MUST be held outside the repository in the secrets store and MUST never be committed. It is **not regenerable** — the held Bitwarden key pair is the only copy, so the public key MUST be derived from it rather than regenerated. The key pair is required for **both** Vehicle Commands **and** Fleet Telemetry setup (Tesla: pairing "is required to send Vehicle Commands and setup Fleet Telemetry"), so it is load-bearing if R-02b is chosen. | Must |
 | F02-R03 | The platform MUST register as a Tesla partner via `POST /api/1/partner_accounts` using a partner authentication token, and MUST succeed before any telemetry or vehicle call. | Must |
 | F02-R04 | The platform MUST obtain tokens via `client_credentials` for partner-scope calls and `authorization-code` (with PKCE) for member-scope calls, against the region base URL `https://fleet-api.prd.na.vn.cloud.tesla.com`. | Must |
 | F02-R05 | The platform MUST refresh and persist tokens, and MUST NOT block a scheduled collection run on a token refresh failure — the run MUST be deferred and alerted. | Must |
@@ -609,9 +613,9 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | `apps/EdgeGDE - Document DB/Tesla APP DB/alert_dictionary.csv` | Source of truth for the 18,436-alert catalog (F03) |
 | `apps/edge-runtime/wrangler.json` | D1 bindings; requires a dedicated Tesla binding (F08-R09) |
 | `apps/edge-runtime/migrations/` | Numbered migration convention for all Tesla schema (F08-R10) |
-| `apps/edge-runtime/public/.well-known/appspecific/com.tesla.3p.public-key.pem` | Tesla registration public key; currently untracked, produced by agent p9 — collision risk (F02-R01, R-08) |
-| Bitwarden Secrets — Tesla client id / client secret | Credential source; the Tesla developer app does not yet exist |
-| Cloudflare account `renleding`, worker `aged-cherry-8781` | Host for `auto.afirmi.co`; needs route separation for `/.well-known` |
+| `apps/edge-runtime/` | **Canonical home for the Tesla integration (owner decision, v1.2).** Carries the bun workspace, the D1 bindings, and the SDLC/CI path. The p9 prototype has been removed; F02/F04/F08 are built here. |
+| Bitwarden Secrets — Tesla client id / client secret / **private key** | Credential source. Tesla developer app does not yet exist (R-01). The private key **cannot be regenerated** — recover the public key from this pairing (F02-R02, R-08). |
+| Cloudflare account `renleding`, worker `aged-cherry-8781` | Serves `auto.afirmi.co` today as a catch-all SPA. **No repo config declares this or any `auto.afirmi.co` route** — the deployment is unmanaged. Route separation for `/.well-known` is required (F02-R01). |
 | https://developer.tesla.com/docs/fleet-api/billing-and-limits | Billing limit behaviour; limit raised to $100, payment method added |
 | https://developer.tesla.com/docs/fleet-api/endpoints/vehicle-endpoints | Polling endpoint contract (`vehicle_data`, `list`, `fleet_status`) |
 | https://www.teslaowners.org.au/membership | TOCA member funnel; entry point for onboarding (F01-R01) |
@@ -634,7 +638,7 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | R-05 | **No AFSL/AR authorisation yet.** AFIRMICO is not an AR; the plan is to gather data first and seek AR approval. | May constrain or rework the offer/binding flow in F07 | OPEN — separate workstream |
 | R-06 | **Consent and privacy wording not authored** (Q6, "TBA"). | Blocks F01-R02 and F01-R03 from being finalised | OPEN — Warren |
 | R-07 | **Billing limit behaviour is destructive.** Exceeding the limit suspends API access AND removes Fleet Telemetry configurations, which are **not restored** when the limit is raised. Limit is now $100. | A single runaway run could silently break members' data collection | MITIGATED by polling (no telemetry configs), but cost guardrail still required (F04-N03) |
-| R-08 | **Concurrent agent collision.** Untracked `.well-known` work exists from agent p9; the private key custody is undocumented. | Duplicate or conflicting key material could break registration | OPEN — coordinate with p9 |
+| R-08 | **Key custody and recoverability.** RESOLVED as a collision risk — the parallel p9 `.well-known` copy and prototype app were deleted in the clean-slate reset. **Remaining:** the private key is held only in Bitwarden and **cannot be regenerated**; the public key must be recovered from that pairing when F02 is built. No public key is currently hosted, so registration cannot proceed. | Blocks F02 registration | RESOLVED (collision) / OPEN (hosting, R-01) |
 | R-09 | **Postcode-to-lat/long mapping.** The group tier is postcode-segmented and the dashboard maps Australia at postcode level, but Tesla returns GPS coordinates — no mapping is defined. | Blocks F06-R03 and F09-R03 | OPEN — design decision |
 | R-10 | **Tesla rate limits are per device, per account** and shared across multiple apps on one account, but the published numeric limits were not retrievable. | Run sizing and retry policy cannot be finalised | OPEN — verify before build |
 | R-11 | **Backup and export linkage.** No backup/restore requirement is specified for the Tesla D1 database or R2 raw payloads. | Data-loss exposure | OPEN — likely a later FRS |
