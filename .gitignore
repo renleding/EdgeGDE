@@ -32,3 +32,9 @@ apps/EdgeGDE - Document DB/
 apps/state-engine/PII - Warren - ID  Documents/
 # Foreign LiveKit agents scaffold checked out into repo root (not part of EdgeGDE)
 my-agent/
+
+# Key material — never commit private keys or key pairs
+*.pem.private
+*-private-key.pem
+private-key.pem
+apps/edge-runtime/public/.well-known/appspecific/*.private.pem

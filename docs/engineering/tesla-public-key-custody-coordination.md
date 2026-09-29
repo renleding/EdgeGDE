@@ -1,5 +1,22 @@
 # Tesla Public Key — Custody and Parallel-Work Coordination
 
+> **SUPERSEDED 2026-09-29 (FRS-010 v1.2) — retained for history only.**
+>
+> The clean-slate reset removed **both** prototype workstreams this note was written to
+> reconcile. Everything recorded below about live file paths is now historical:
+> `apps/tesla-fleet-worker/` is deleted, the untracked `.well-known` PEM is deleted, and the
+> `afirmico-tesla-fleet-vehicles` D1 database (schema, 0 rows) is deleted. The open decisions
+> in §4 were answered by the owner: **§4.1 canonical owner → extend `apps/edge-runtime/`**
+> (recorded in FRS-010 §6); **§4.3 schema → keep FRS-010 F08's catalog + narrow-fact + R2
+> design** (so §3.3 is moot); **§4.4 Content-Type → deferred, rebuild correctly once the FRS is
+> agreed.** §4.2 key custody carries forward into FRS-010 **R-08 / F02-R02**, with one
+> correction: the private key is required for **both** Vehicle Commands **and Fleet Telemetry**
+> setup, not commands alone.
+>
+> Nothing has been built. FRS-010 is the artifact of record.
+
+---
+
 **Document ID:** ENG-TESLA-KEY-001  \
 **Version:** 1.0  \
 **Status:** Open — coordination required  \
