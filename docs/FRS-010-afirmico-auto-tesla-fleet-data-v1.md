@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  \
-**Version:** 1.0  \
+**Version:** 1.1  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
@@ -34,6 +34,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-09-29 | Initial specification. Scope confirmed as MVP; polling transport; local telemetry host; 1,500-member target. |
+| 1.1 | 2026-09-29 | Corrected the alert dictionary key: `signal_name` is **not** unique (17,579 distinct across 18,436 rows; 853 names carry model-specific variants). Added F03-R04a/R04b and AC7/AC8. Expanded R-02 with verbatim Tesla sourcing and three decision options (R-02a/b/c); corrected an earlier unsupported claim that FSD state could be collected from the vehicle UI. |
 
 ---
 
@@ -208,8 +209,10 @@ field, every endpoint, and every alert code — so future scope expansion is a f
 |----|------------|-------------|
 | F03-R01 | The system MUST load all 239 rows of `fleet_streaming_fields.csv` into a `tesla_field_catalog` table keyed by `field` (unique). | Must |
 | F03-R02 | `tesla_field_catalog` MUST store `category`, `type`, `vehicle_data_equivalent`, `description`, and `proto_enum_name` for every field. | Must |
-| F03-R03 | The system MUST load all 18,436 rows of `alert_dictionary.csv` into a `tesla_alert_dictionary` table keyed by `signal_name`. | Must |
+| F03-R03 | The system MUST load all 18,436 rows of `alert_dictionary.csv` into a `tesla_alert_dictionary` table keyed by the composite `(signal_name, models)`. | Must |
 | F03-R04 | `tesla_alert_dictionary` MUST store `condition`, `clear_condition`, `description`, `potential_impact`, `customer_facing_message_1`, `customer_facing_message_2`, `audiences`, and `models`. | Must |
+| F03-R04a | The system MUST NOT key the alert dictionary on `signal_name` alone. Only **17,579 of the 18,436 rows have a distinct `signal_name`**; 853 signal names carry up to 3 rows that are **not** duplicates but model-specific variants (e.g. `APP_w009_aebFault` exists once for `Cybertruck;Model 3 2017-2023;…` and once for `Model S 2012-2020;Model X 2015-2020`). A unique key on `signal_name` would silently drop 857 rows of operational safety content. | Must |
+| F03-R04b | Alert events observed on a vehicle MUST resolve to the dictionary variant matching that vehicle's model, and MUST NOT resolve to an arbitrary variant when several share a signal name. | Must |
 | F03-R05 | The system MUST maintain a `tesla_endpoint_catalog` covering the **complete** Fleet API endpoint registry, including families that are **not** enabled at MVP: Vehicle Commands, Energy Product Commands, and Enterprise management. | Must |
 | F03-R06 | Each endpoint row MUST carry a family tag and an `enabled` flag; all command, energy-command, and enterprise families MUST be seeded `enabled = 0`. | Must |
 | F03-R07 | Each field row MUST carry a `collected` flag and, when collected, its `collection_group` and `min_delta`. Fields outside the collected subset MUST be seeded `collected = 0` and retained. | Must |
@@ -236,6 +239,10 @@ AC3: Every endpoint family named above exists in tesla_endpoint_catalog with ena
 AC4: Running the loader a second time yields identical counts and an identical checksum of all catalog rows.
 AC5: A field referenced by a collection config that does not exist in tesla_field_catalog is rejected.
 AC6: The catalog load log records the source checksum for both CSV files.
+AC7: Loading the alert dictionary does not collapse the 853 signal names that carry model-specific
+     variants: SELECT COUNT(DISTINCT signal_name) = 17579 AND COUNT(*) = 18436 simultaneously.
+AC8: A vehicle alert for a Model 3 resolves to the Model 3 variant of its signal name, not to the
+     Model S/X variant that shares the same signal name.
 ```
 
 ---
@@ -308,7 +315,7 @@ telemetry, so I can price a premium.
 |----|------------|-------------|
 | F05-R01 | The system MUST derive a driver profile per vehicle per reporting period from normalised snapshots. | Must |
 | F05-R02 | The profile MUST include annualised or period distance travelled, derived from odometer deltas across snapshots. | Must |
-| F05-R03 | The profile MUST include **FSD usage as a percentage** of distance travelled. | Must |
+| F05-R03 | The profile MUST include **FSD usage as a percentage** of distance travelled. **Blocked at MVP:** no polling path returns this — see R-02. The requirement stands; the source is undecided. | Must |
 | F05-R04 | The profile SHOULD include a driving-behaviour indicator set derived from speed, acceleration, and pedal/brake observations. | Should |
 | F05-R05 | The profile MUST include charging behaviour: sessions, energy added, AC vs DC split, and charging power profile. | Must |
 | F05-R06 | The profile MUST include a home-charging indicator derived from located-at-home observations. | Must |
@@ -618,7 +625,10 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | ID | Risk / Decision | Impact | Status |
 |----|----------------|--------|--------|
 | R-01 | **Tesla developer app not yet created.** No partner registration, token, or vehicle call is possible until it exists and is approved. | Blocks all of F02 and everything downstream | OPEN — Warren |
-| R-02 | **FSD usage vs polling transport.** The requirement is FSD usage percentage (F05-R03), but `SelfDrivingMilesSinceReset` and `MilesSinceReset` have **no `vehicle_data` equivalent** in the source CSV — they are Fleet Telemetry-only, HW4-only, firmware 2025.44.25.5+. Polling cannot return them directly. | Blocks the headline FSD metric; may force Field-03 scope change or a telemetry reconsideration | OPEN — decision required |
+| R-02 | **FSD usage is unreachable by polling — no workaround exists.** The requirement is FSD usage percentage (F05-R03), but `MilesSinceReset` / `SelfDrivingMilesSinceReset` are Fleet Telemetry-only, HW4-only, firmware 2025.44.25.5+. Tesla states verbatim: *"This is the only verifiable and authoritative source of Self-Driving usage data. Reliance on any other method is unsupported, speculative, and risks producing materially inaccurate conclusions."* Independently verified: the `vehicle_data` response exposes only six groups (`charge_state`, `climate_state`, `drive_state`, `vehicle_config`, `vehicle_state`, `media_info`, `gui_settings`) and **no autopilot/FSD group**; scanning the alert dictionary for FSD/autopilot terms returns 600 rows that are all **alerts** (feature unavailable / degraded / fault), never a distance-under-FSD measure. **Decision required** — see options below. | **Blocks the headline FSD metric.** FSD is also AU subscription-only at $149/month across 1M+ km already driven, so it is a live differentiator, and a small minimal FSD-first telemetry config costs ≈$19/vehicle/year at 1 hr/day driving (vs $1,380/yr for full continuous polling). | OPEN — decision required |
+| R-02a | FSD option A — **MVP without FSD.** Ship polling; F05-R11 reports FSD usage as unavailable and flags reduced confidence. Lowest risk, no telemetry host, loses the differentiator at launch. | Launch scope | OPEN |
+| R-02b | FSD option B — **Add minimal FSD-first Fleet Telemetry** for HW4 vehicles on 2025.44.25.5+ only. Configures only `MilesSinceReset` + `SelfDrivingMilesSinceReset` (they may only `include_fields` each other, so a minimal config is legitimate and cheap), plus `battery_level` / odometer. Requires the vehicle-command HTTP proxy for signing and a public host that terminates mTLS on :443 for the OTLP/gRPC receiver. Note this **revives the mTLS hosting constraint** previously closed by choosing polling, and Fleet Telemetry configs are **not restored** if a billing limit is breached. Coverage is partial: HW4-only excludes most of the 1,500-member fleet (older Model 3/Y are HW3), and the counters reset on software update / computer replacement / factory reset, so the figure is a *since-reset* ratio, not lifetime. | Partial fleet coverage | OPEN |
+| R-02c | FSD option C — **Poll an approximate proxy now, promote to telemetry later.** Derive an FSD *engagement* indicator from polling signals already collectable (`LaneDepartureAvoidance`, `EmergencyLaneDepartureAvoidance`, `CruiseFollowDistance`, `ForwardCollisionWarning`, `SpeedLimitWarning`, `CruiseSetSpeed`, `AutomaticEmergencyBrakingOff`) plus the FSD/autopilot alert stream from `recent_alerts`. This is an *indicator*, not a distance percentage, and MUST be labelled as such — it must **not** be presented to an underwriter as "FSD usage %". | Definitional compromise | OPEN |
 | R-03 | **Member authentication path from Member Jungle undecided** (Q11). SSO, signed magic link, or separate login — all unconfirmed. | Blocks F01-R01 implementation | OPEN — Warren |
 | R-04 | **Tesla key-pairing UX undecided** (Q12) — same session as connect flow, or separate step. | Affects F01-R08 seamlessness target | OPEN — Warren |
 | R-05 | **No AFSL/AR authorisation yet.** AFIRMICO is not an AR; the plan is to gather data first and seek AR approval. | May constrain or rework the offer/binding flow in F07 | OPEN — separate workstream |
@@ -636,7 +646,7 @@ AC6: No individual data for the revoked member remains queryable after the appli
 
 | Phase | Scope |
 |-------|-------|
-| 0 | Resolve R-01 (create Tesla developer app), R-02 (FSD metric decision), R-03/R-04 (auth + pairing UX), R-06 (consent wording), R-09 (postcode mapping) |
+| 0 | Resolve R-01 (create Tesla developer app), **R-02 FSD decision (a/b/c — gates F05-R03 and whether a telemetry host is needed at all)**, R-03/R-04 (auth + pairing UX), R-06 (consent wording), R-09 (postcode mapping) |
 | 1 | FEATURE-02: public key route, partner registration, token lifecycle — the hard gate |
 | 2 | FEATURE-03: full field, endpoint, and alert catalogs loaded and verified |
 | 3 | FEATURE-08: D1 schema and migrations; R2 raw payload storage |
