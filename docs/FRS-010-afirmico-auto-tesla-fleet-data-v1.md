@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  \
-**Version:** 1.2  \
+**Version:** 1.3  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
@@ -36,6 +36,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 | 1.0 | 2026-09-29 | Initial specification. Scope confirmed as MVP; polling transport; local telemetry host; 1,500-member target. |
 | 1.1 | 2026-09-29 | Corrected the alert dictionary key: `signal_name` is **not** unique (17,579 distinct across 18,436 rows; 853 names carry model-specific variants). Added F03-R04a/R04b and AC7/AC8. Expanded R-02 with verbatim Tesla sourcing and three decision options (R-02a/b/c); corrected an earlier unsupported claim that FSD state could be collected from the vehicle UI. |
 | 1.2 | 2026-09-29 | **Clean-slate reset (pre-build).** All parallel prototype work was removed by owner decision — nothing is yet built and the spec is the only artifact of record. Deleted: `apps/tesla-fleet-worker/` (agent p9 prototype), the untracked `.well-known` PEM copy, the `afirmico-tesla-fleet-vehicles` D1 database (contained schema, 0 rows), and the placement of R-08's coordination note. Resolved R-08 accordingly. Corrected F02-R02: the private key is required for **both** Vehicle Commands **and Fleet Telemetry** setup (Tesla: pairing "is required to send Vehicle Commands and setup Fleet Telemetry"), so a keypair is load-bearing if R-02b is chosen. Recorded that the private key **cannot be regenerated** — it is held in Bitwarden and is the only copy. |
+| 1.3 | 2026-09-29 | **Corrected a factually wrong claim carried in v1.2.** v1.2 recorded that a Tesla key pair exists in Bitwarden and "cannot be regenerated". Neither is true: Bitwarden holds only the Client ID and Client Secret, and no key pair exists anywhere. The p9 public key was **orphaned** — its private half was never located in the repo, on disk, in the secrets store, or in the retained deletion snapshots (scanned for a `PRIVATE KEY` header; zero occurrences). Re-verified 2026-09-29. Corrected F02-R02, Section 3.3, R-08, and the Dependencies table. Registered the real constraint: a key pair **MUST be generated** before registration, and once registered **MUST NOT be rotated** (Tesla requires the registered public key to *remain* hosted; rotation invalidates the key on every paired vehicle and forces re-pairing). Also clarified that the key pair is required for **registration itself** (F02) — not only for Fleet Telemetry — so it is **not** a discriminator between the R-02 FSD options. |
 
 ---
 
@@ -71,10 +72,30 @@ parallel agent session (agent p9) at
 header `MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...`), untracked. It has been **deleted** as part of the
 pre-build clean-slate reset (§2, v1.2). A byte-identical copy existed in the p9 prototype app, also deleted.
 
-**Gap:** No public key is hosted, and the key pair itself is not held in a form this project can
-regenerate. The private key is held **only** in Bitwarden Secrets and **cannot be regenerated** — the
-public key must therefore be recovered from that pairing rather than regenerated when F02 is built.
-See F02-R02 and R-08.
+**Crucially, that public key was orphaned.** Its private half was never located — not in the repository,
+not on disk, not in the secrets store, and not in the pre-deletion snapshots (scanned for a `PRIVATE KEY`
+header; zero occurrences). An unpaired public key with no private half cannot sign anything and can never
+be paired with a vehicle. It is not recoverable and it is not useful.
+
+**Gap:** No public key is hosted, and **no key pair is held in any form**. A fresh EC P-256 (secp256r1) key
+pair **MUST be generated** when F02 is built:
+
+```
+openssl ecparam -name prime256v1 -genkey -noout -out private-key.pem
+openssl ec -in private-key.pem -pubout -out public-key.pem
+```
+
+The private half is stored in the secrets store and never committed; the public half is committed under
+`public/.well-known/appspecific/`.
+
+**The real constraint is rotation, not generation.** Tesla requires the registered public key to *remain*
+hosted at `/.well-known/`. Regenerating the pair **after** registration invalidates the key registered on
+every device already paired, forcing each owner to re-pair. Generate once, freeze, and never rotate without
+a deliberate re-pairing migration. See F02-R02 and R-08.
+
+Verified 2026-09-29 against three independent sources: Bitwarden Secrets (Tesla entries are Client ID and
+Client Secret only — no key pair), a filesystem scan for `*.pem` under `apps/` and `~/.hermes`, and the
+retained pre-deletion snapshots.
 
 ### 3.4 Reference data available in-repo
 
@@ -169,7 +190,7 @@ member vehicles and energy sites on demand.
 | ID | Requirement | Must/Should |
 |----|------------|-------------|
 | F02-R01 | The platform MUST serve the Tesla public key at `https://auto.afirmi.co/.well-known/appspecific/com.tesla.3p.public-key.pem` with `Content-Type: application/x-pem-file`, excluded from the SPA fallback. | Must |
-| F02-R02 | The private key MUST be held outside the repository in the secrets store and MUST never be committed. It is **not regenerable** — the held Bitwarden key pair is the only copy, so the public key MUST be derived from it rather than regenerated. The key pair is required for **both** Vehicle Commands **and** Fleet Telemetry setup (Tesla: pairing "is required to send Vehicle Commands and setup Fleet Telemetry"), so it is load-bearing if R-02b is chosen. | Must |
+| F02-R02 | The platform MUST generate an EC P-256 (secp256r1) key pair and hold it outside the repository, storing the private key in the secrets store and never committing it. **No key pair currently exists** — one MUST be generated before registration. Once the public key is registered with Tesla it MUST NOT be rotated: Tesla requires the registered key to *remain* hosted at `/.well-known/`, and rotation invalidates the key on every paired vehicle, forcing each owner to re-pair. The key pair is required for **registration itself** (F02-R03) — not only for Vehicle Commands and Fleet Telemetry — so it is **not** a discriminator between the R-02 options. | Must |
 | F02-R03 | The platform MUST register as a Tesla partner via `POST /api/1/partner_accounts` using a partner authentication token, and MUST succeed before any telemetry or vehicle call. | Must |
 | F02-R04 | The platform MUST obtain tokens via `client_credentials` for partner-scope calls and `authorization-code` (with PKCE) for member-scope calls, against the region base URL `https://fleet-api.prd.na.vn.cloud.tesla.com`. | Must |
 | F02-R05 | The platform MUST refresh and persist tokens, and MUST NOT block a scheduled collection run on a token refresh failure — the run MUST be deferred and alerted. | Must |
@@ -614,7 +635,7 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | `apps/edge-runtime/wrangler.json` | D1 bindings; requires a dedicated Tesla binding (F08-R09) |
 | `apps/edge-runtime/migrations/` | Numbered migration convention for all Tesla schema (F08-R10) |
 | `apps/edge-runtime/` | **Canonical home for the Tesla integration (owner decision, v1.2).** Carries the bun workspace, the D1 bindings, and the SDLC/CI path. The p9 prototype has been removed; F02/F04/F08 are built here. |
-| Bitwarden Secrets — Tesla client id / client secret / **private key** | Credential source. Tesla developer app does not yet exist (R-01). The private key **cannot be regenerated** — recover the public key from this pairing (F02-R02, R-08). |
+| Bitwarden Secrets — Tesla client id / client secret | Credential source. Tesla developer app does not yet exist (R-01). **No Tesla key pair is stored here** (verified 2026-09-29) — a key pair MUST be generated before registration (F02-R02). |
 | Cloudflare account `renleding`, worker `aged-cherry-8781` | Serves `auto.afirmi.co` today as a catch-all SPA. **No repo config declares this or any `auto.afirmi.co` route** — the deployment is unmanaged. Route separation for `/.well-known` is required (F02-R01). |
 | https://developer.tesla.com/docs/fleet-api/billing-and-limits | Billing limit behaviour; limit raised to $100, payment method added |
 | https://developer.tesla.com/docs/fleet-api/endpoints/vehicle-endpoints | Polling endpoint contract (`vehicle_data`, `list`, `fleet_status`) |
@@ -631,14 +652,14 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | R-01 | **Tesla developer app not yet created.** No partner registration, token, or vehicle call is possible until it exists and is approved. | Blocks all of F02 and everything downstream | OPEN — Warren |
 | R-02 | **FSD usage is unreachable by polling — no workaround exists.** The requirement is FSD usage percentage (F05-R03), but `MilesSinceReset` / `SelfDrivingMilesSinceReset` are Fleet Telemetry-only, HW4-only, firmware 2025.44.25.5+. Tesla states verbatim: *"This is the only verifiable and authoritative source of Self-Driving usage data. Reliance on any other method is unsupported, speculative, and risks producing materially inaccurate conclusions."* Independently verified: the `vehicle_data` response exposes only six groups (`charge_state`, `climate_state`, `drive_state`, `vehicle_config`, `vehicle_state`, `media_info`, `gui_settings`) and **no autopilot/FSD group**; scanning the alert dictionary for FSD/autopilot terms returns 600 rows that are all **alerts** (feature unavailable / degraded / fault), never a distance-under-FSD measure. **Decision required** — see options below. | **Blocks the headline FSD metric.** FSD is also AU subscription-only at $149/month across 1M+ km already driven, so it is a live differentiator; a minimal FSD-first telemetry config is materially cheaper than full polling (see R-02b). | OPEN — decision required |
 | R-02a | FSD option A — **MVP without FSD.** Ship polling; F05-R11 reports FSD usage as unavailable and flags reduced confidence. Lowest risk, no telemetry host, loses the differentiator at launch. | Launch scope | OPEN |
-| R-02b | FSD option B — **Add minimal FSD-first Fleet Telemetry** for HW4 vehicles on 2025.44.25.5+ only. Configures only `MilesSinceReset` + `SelfDrivingMilesSinceReset` (they may only `include_fields` each other, so a minimal config is legitimate and cheap), plus odometer/battery level. Requires the vehicle-command HTTP proxy for signing and a public host that terminates mTLS on :443 for the OTLP/gRPC receiver. **Cost** (estimated by scaling Tesla's published figures — not a quoted price, verify before committing): Tesla publishes an 18-field basic config at ~$0.00636/hour of driving and a 70-signal fleet config at ~$0.00667/hour/vehicle; a 2–3 field config with odometer `minimum_delta` set high (≥1 mi, which `SelfDrivingMilesSinceReset` requires anyway) should land in the low single-digit AUD per vehicle per year at ~1 hour/day driving. Note this **revives the mTLS hosting constraint** previously closed by choosing polling, and Fleet Telemetry configs are **not restored** if a billing limit is breached. Coverage is partial: HW4-only excludes most of the 1,500-member fleet (older Model 3/Y are HW3), and the counters reset on software update / computer replacement / factory reset, so the figure is a *since-reset* ratio, not lifetime. | Partial fleet coverage | OPEN |
+| R-02b | FSD option B — **Add minimal FSD-first Fleet Telemetry** for HW4 vehicles on 2025.44.25.5+ only. Configures only `MilesSinceReset` + `SelfDrivingMilesSinceReset` (they may only `include_fields` each other, so a minimal config is legitimate and cheap), plus odometer/battery level. Requires the vehicle-command HTTP proxy for signing and a public host that terminates mTLS on :443 for the OTLP/gRPC receiver. **Cost** (estimated by scaling Tesla's published figures — not a quoted price, verify before committing): Tesla publishes an 18-field basic config at ~$0.00636/hour of driving and a 70-signal fleet config at ~$0.00667/hour/vehicle; a 2–3 field config with odometer `minimum_delta` set high (≥1 mi, which `SelfDrivingMilesSinceReset` requires anyway) should land in the low single-digit AUD per vehicle per year at ~1 hour/day driving. The key pair itself is required for registration regardless of this choice (F02-R02) — this option adds the vehicle-command signing proxy and the mTLS host, **not** the key. Note this **revives the mTLS hosting constraint** previously closed by choosing polling, and Fleet Telemetry configs are **not restored** if a billing limit is breached. Coverage is partial: HW4-only excludes most of the 1,500-member fleet (older Model 3/Y are HW3), and the counters reset on software update / computer replacement / factory reset, so the figure is a *since-reset* ratio, not lifetime. | Partial fleet coverage | OPEN |
 | R-02c | FSD option C — **Poll an approximate proxy now, promote to telemetry later.** Derive an FSD *engagement* indicator from polling signals already collectable (`LaneDepartureAvoidance`, `EmergencyLaneDepartureAvoidance`, `CruiseFollowDistance`, `ForwardCollisionWarning`, `SpeedLimitWarning`, `CruiseSetSpeed`, `AutomaticEmergencyBrakingOff`) plus the FSD/autopilot alert stream from `recent_alerts`. This is an *indicator*, not a distance percentage, and MUST be labelled as such — it must **not** be presented to an underwriter as "FSD usage %". | Definitional compromise | OPEN |
 | R-03 | **Member authentication path from Member Jungle undecided** (Q11). SSO, signed magic link, or separate login — all unconfirmed. | Blocks F01-R01 implementation | OPEN — Warren |
 | R-04 | **Tesla key-pairing UX undecided** (Q12) — same session as connect flow, or separate step. | Affects F01-R08 seamlessness target | OPEN — Warren |
 | R-05 | **No AFSL/AR authorisation yet.** AFIRMICO is not an AR; the plan is to gather data first and seek AR approval. | May constrain or rework the offer/binding flow in F07 | OPEN — separate workstream |
 | R-06 | **Consent and privacy wording not authored** (Q6, "TBA"). | Blocks F01-R02 and F01-R03 from being finalised | OPEN — Warren |
 | R-07 | **Billing limit behaviour is destructive.** Exceeding the limit suspends API access AND removes Fleet Telemetry configurations, which are **not restored** when the limit is raised. Limit is now $100. | A single runaway run could silently break members' data collection | MITIGATED by polling (no telemetry configs), but cost guardrail still required (F04-N03) |
-| R-08 | **Key custody and recoverability.** RESOLVED as a collision risk — the parallel p9 `.well-known` copy and prototype app were deleted in the clean-slate reset. **Remaining:** the private key is held only in Bitwarden and **cannot be regenerated**; the public key must be recovered from that pairing when F02 is built. No public key is currently hosted, so registration cannot proceed. | Blocks F02 registration | RESOLVED (collision) / OPEN (hosting, R-01) |
+| R-08 | **Key custody and recoverability.** RESOLVED (v1.3). The collision risk was removed by the clean-slate reset, and the "cannot be regenerated" premise is **retracted as factually wrong** — no key pair exists. The p9 public key was orphaned (private half never located; snapshots scanned, zero `PRIVATE KEY` occurrences) and Bitwarden holds only the Client ID and Client Secret. A fresh key pair MUST be generated before registration. What remains is a **custody discipline**, not a recoverability problem: private key in the secrets store only, and once registered the key MUST NOT be rotated without a deliberate re-pairing migration. | No longer blocks F02 (hosting still gated by R-01) | RESOLVED |
 | R-09 | **Postcode-to-lat/long mapping.** The group tier is postcode-segmented and the dashboard maps Australia at postcode level, but Tesla returns GPS coordinates — no mapping is defined. | Blocks F06-R03 and F09-R03 | OPEN — design decision |
 | R-10 | **Tesla rate limits are per device, per account** and shared across multiple apps on one account, but the published numeric limits were not retrievable. | Run sizing and retry policy cannot be finalised | OPEN — verify before build |
 | R-11 | **Backup and export linkage.** No backup/restore requirement is specified for the Tesla D1 database or R2 raw payloads. | Data-loss exposure | OPEN — likely a later FRS |
