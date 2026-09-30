@@ -1,7 +1,7 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.2  \
+**Version:** 1.3  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
@@ -520,8 +520,12 @@ enough — the measured working set is ~45 MiB.
 
 ### 10.7 Candidate host evaluation — Oracle Cloud Always Free
 
-**Verdict: suitable, with one account-level change (upgrade to Pay As You Go) and one sizing
-adjustment (do not take the full allocation).**
+**Verdict: suitable.** Hardware far exceeds requirement and the platform is free within Always Free
+limits. Two caveats matter: **the Arm shape may be unobtainable on the free tier at all** (see
+Constraint 1), and **the idle-reclamation clause has no documented exemption** (see Constraint 2).
+Upgrade to Pay As You Go is **recommended** — chiefly because Oracle documents it as the route to
+capacity, and because paid tenancies escape the Arm allowance reduction. It is *not* a documented
+cure for reclamation.
 
 Hardware is far beyond requirement. Both Tesla images publish **arm64** manifests (verified via
 `docker manifest inspect`) and the arm64 `fleet-telemetry` binary was executed to confirm it runs on
@@ -529,38 +533,71 @@ Hardware is far beyond requirement. Both Tesla images publish **arm64** manifest
 
 | OCI Always Free shape | Spec | Assessment |
 |----------------------|------|------------|
-| `VM.Standard.A1.Flex` (Arm/Ampere) | **2 OCPU / 12 GB** (halved from 4/24 on 2026-06-15) | Exceeds the 1 vCPU / 512 MB–1 GB requirement many times over. Use **1 OCPU / 2 GB** — a larger allocation wastes headroom and *increases* the reclamation risk below. |
+| `VM.Standard.A1.Flex` (Arm/Ampere) | **2 OCPU / 12 GB** on Always Free (halved from 4/24 on 2026-06-15; **paid tenancies keep 4/24**) | Exceeds the 1 vCPU / 512 MB–1 GB requirement many times over. **1 OCPU / 2 GB is ample.** Allocation size does *not* affect the reclamation recheck — see Constraint 2. |
 | `VM.Standard.E2.1.Micro` (AMD) | 1/8 OCPU / 1 GB / 50 Mbps, fixed quota | Technically sufficient. Non-flex quota (no hourly budget to exhaust). Thin CPU, and still subject to idle reclamation. |
 
-#### The blocking constraint: idle reclamation
+#### Constraint 1: the Arm shape may be unobtainable
+
+Oracle's Always Free documentation states, verbatim:
+
+> If you receive an "out of host capacity" error when trying to create a Compute instance, this
+> indicates a temporary lack of Always Free shapes in your home region. Try creating the instance in
+> a different availability domain, or wait a while, then try to create the instance again. You can
+> also choose to upgrade your account to Pay as You Go or another Paid account type, which gives you
+> access to more types of Compute resources. Remember that Oracle doesn't charge for Always Free
+> resources after you upgrade, and will only charge you for resource usage above the Always Free
+> limits.
+
+So **Pay As You Go is the documented route to obtaining capacity**, not merely an optimisation.
+Sydney is a busy region and A1 capacity is in demand; provisioning on the free tier may simply fail
+with `Out of host capacity`. Oracle's troubleshooting guidance is to vary the availability domain
+(do not pin a fault domain) or retry later.
+
+#### Constraint 2: idle reclamation, with no documented exemption
 
 Oracle reclaims Always Free compute instances it deems idle. Thresholds, read from Oracle's live
-documentation (2026-09-29), verbatim:
+documentation (verified 2026-09-30), verbatim:
 
-> Oracle will deem virtual machine and bare metal compute instances as idle if, during a 7-day
-> period, the following are true:
+> **Reclamation of Idle Compute Instances**
+>
+> Idle Always Free compute instances may be reclaimed by Oracle. Oracle will deem virtual machine and
+> bare metal compute instances as idle if, during a 7-day period, the following are true:
 > - CPU utilization for the 95th percentile is less than 20%
 > - Network utilization is less than 20%
 > - Memory utilization is less than 20% (applies to A1 shapes only)
 
-Our relay workload, as measured in §10.1: **CPU 0.01% idle, memory ~45 MiB.** On a 12 GB shape that is
-**0.37% memory utilisation**. This relay is, by construction, a low-duty-cycle store-and-forward
-process for ~525 signals per vehicle per month. It is the archetype of what Oracle reclaims.
+Our relay workload, as measured in §10.1: **CPU ~0.01% of one core, memory ~45 MiB.** On a 12 GB
+shape that is **0.37% memory utilisation**. This relay is by construction a low-duty-cycle
+store-and-forward process moving ~525 signals per vehicle per month. Every threshold above is failed
+by a wide margin, and no tuning changes that — the workload is idle by design.
 
-Note the perverse incentive: **the larger the allocation, the more certainly "idle" this workload
-looks.** On a 12 GB shape the memory check is unpassable; the same process on 2 GB is 2.2%.
+**Two points that were wrong in revision 1.2 of this section and are corrected here:**
 
-#### Required change: upgrade to Pay As You Go
+1. Oracle's published reclamation notice **does not state a Pay As You Go exemption.** Revision 1.2
+   quoted such a sentence; it is not on the current page and the claim is withdrawn. PAYG is
+   recommended in this document for *capacity* (Constraint 1) and because paid tenancies are
+   unaffected by the Arm allowance reduction — **not** because it is a documented cure for
+   reclamation. Treat reclamation as unmitigated.
+2. The check is documented as running **during a 7-day period**, so the first recheck falls roughly a
+   week after provisioning. Provisioning at 1 OCPU / 2 GB does not avoid it: the memory threshold
+   applies to A1 shapes **regardless of allocation size**, so 2 GB (2.2% used) fails exactly as 12 GB
+   (0.37%) does. Allocation size is a right-sizing decision, not a reclamation mitigation.
 
-Oracle's own reclamation notice states, verbatim:
+**Practical consequence.** Design the relay to be disposable: rebuildable from the repository plus one
+secret, with telemetry ingest resuming without operator action. The liveness probe below is therefore
+the primary control, not a nice-to-have.
 
-> You can keep idle compute instances from being stopped by converting your account to Pay As You Go
-> (PAYG). With PAYG, you will not be charged as long as your usage for all OCI resources remains
-> within the Always Free limits.
+#### Boot volume: 47 GB minimum
 
-This converts the account from *Always Free* to *Pay As You Go within Always Free limits*. **Billing
-stays $0** provided usage stays inside the limits. Reclamation targets Always Free customers, so this
-removes the constraint. It does require a payment method on file.
+A platform floor, not a sizing preference — and it overrides the §10.3 recommendation of a 10–20 GB
+disk:
+
+> The minimum boot volume size for each instance is 47 GB, regardless of shape. Your account comes
+> with 200 GB of Always Free block volume storage which you use to create the boot volumes for your
+> compute instances.
+
+Provision the **47 GB minimum**; the relay holds no data (it forwards to Tier 1). A1 instances may be
+created in any availability domain **except South Korea North (Chuncheon)**.
 
 #### OCI-specific constraints to confirm at setup
 
@@ -570,6 +607,8 @@ removes the constraint. It does require a payment method on file.
 | **Allocation halving** | On 2026-06-15 Oracle cut the Arm allowance 4 OCPU/24 GB → 2 OCPU/12 GB with **no announcement**; instances were stopped until resized. Provision inside 2/12 from the start. |
 | **Outbound TCP 25** | Blocked by default. Not used by this system. |
 | **Free-tier VCN cap** | Free-tier tenancies are limited to 2 VCNs. One is required. |
+| **Boot volume floor** | Minimum boot volume is **47 GB** regardless of shape (see above) — overrides the 10–20 GB guidance in §10.3. |
+| **Availability domains** | A1 instances may be created in any availability domain except **South Korea North (Chuncheon)**. Do not pin a fault domain on create. |
 
 #### Residual risk accepted if OCI is chosen
 
@@ -583,9 +622,16 @@ mitigations, in order of value:
    regardless of host.**
 2. Oracle Notifications (Always Free, 1000 email/month) as a secondary channel.
 
-A conventional ~$5–6/month AU VPS (~$66/year) removes this risk class entirely. At the fleet sizes in
-scope the platform cost is immaterial to the business case, so this is a risk-tolerance decision, not
-a cost one.
+**This residual risk is not mitigated by Pay As You Go.** A silently stopped relay is
+indistinguishable from a fleet of parked cars, and a 6-hour telemetry cadence means the gap is not
+obvious for hours. The liveness probe is the control that makes OCI acceptable; without it, OCI
+should not be used for this workload.
+
+If that probe dependency is unwelcome, a conventional ~$5–6/month AU VPS (~$66/year) removes this risk
+class outright — a VPS gives root on a machine nobody reclaims for being idle. At the fleet sizes in
+scope the platform cost is immaterial to the business case, so this reduces to: **OCI is the lower-cost
+choice and accepts a silent-failure mode requiring external monitoring; a cheap VPS is the
+lower-risk choice for about $66/year.** That is a risk-tolerance decision, not a cost one.
 
 ## 11. Related Documents
 
