@@ -98,3 +98,18 @@ jobs:
         continue-on-error: true
       - name: Replay test (verify past missions against current code)
         run: python3 tools/replay.py run --recent 5 2>&1 || echo "Replay completed (no mission log yet expected on fresh CI)"
+
+  automation-sync:
+    # The Hermes automation that merges every PR previously lived only in
+    # ~/.hermes/scripts/ (not version controlled), so it received no review.
+    # This gate keeps automation/hermes/ honest: a file edited directly in the
+    # repo instead of at the source of truth fails here.
+    #
+    # Runs without ~/.hermes/scripts — in that case --check validates the
+    # committed files against automation/hermes/.sync-manifest instead.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Automation mirror integrity
+        run: ./automation/hermes/sync-to-repo.sh --check
