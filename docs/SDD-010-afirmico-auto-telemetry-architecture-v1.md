@@ -1,7 +1,7 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.0  \
+**Version:** 1.1  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
@@ -383,13 +383,18 @@ replaceable without touching the Worker.
    `text/plain` with byte length matching the committed file, and **openssl parses it**. Today the domain
    returns SPA HTML on that path (R-01 blocker).
 2. **mTLS pre-flight** — Tesla's `check_server_cert.sh` passes against the relay host before any config
-   is pushed.
+   is pushed. Note that fleet-telemetry rejects any client certificate whose issuer is not a Tesla CA
+   (§10.5), so this validates **our** server certificate chain only — it does not exercise vehicle auth.
 3. **Registration** — `POST /partner_accounts` succeeds; `GET /partner_accounts/public_key?domain=`
    returns the exact key.
 4. **Field-set acceptance** — config create returns no `skipped_vehicles` for a supported test vehicle, and
-   `synced = true` on poll. **This is where the 6-hour interval question is settled empirically.**
-5. **Signal economy** — after 7 days on a test vehicle, `tesla_signal_counter` is within ±20% of the
+   `synced = true` on poll. **This is where the 6-hour interval question (O-1) is settled empirically.**
+   Requires a **real paired vehicle** — a synthetic client cannot stream (§10.5).
+5. **Signal economy** — after 7 days on a real vehicle, `tesla_signal_counter` is within ±20% of the
    modelled 525/month/vehicle. A large overshoot means the interval is not being honoured.
+5a. **Ingest contract** — synthetic JSONL posted directly to `/api/telemetry/ingest` produces correct D1
+   rows, R2 objects, and signal counts. Testable **without** a vehicle; run this before step 4 so the
+   pipeline is proven before hardware is involved.
 6. **FSD derivation** — a profile over a known window matches hand-computed
    `ΔSelfDrivingMilesSinceReset / ΔMilesSinceReset`, and a forced reset marker produces a discarded window
    rather than a negative figure.
@@ -406,7 +411,7 @@ replaceable without touching the Worker.
 | ID | Item | Owner |
 |----|------|-------|
 | O-1 | **Does `interval_seconds` accept 21600 (6 h)?** Verify on a live vehicle. Fallback 3600 modelled. | Build phase |
-| O-2 | **Relay host choice** — owner to nominate the VPS; must offer a public :443 with an open inbound port and a static/public IP. | Warren |
+| O-2 | **Relay host choice** — owner to nominate. Specification now measured and recorded in §10: 1–2 shared vCPU, 512 MB–1 GB RAM, 10–20 GB SSD, Ubuntu 24.04 LTS, public inbound :443. | Warren |
 | O-3 | **Tesla developer app creation** (R-01) — gates registration; nothing streams until it exists. | Warren |
 | O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. | Build phase |
 | O-5 | **Consent wording** (R-06) — must disclose data leaves the vehicle to a US processor (Tesla) and to insurers (APP 8). | Warren |
@@ -414,7 +419,104 @@ replaceable without touching the Worker.
 
 ---
 
-## 10. Related Documents
+## 10. Relay Host Specification (measured)
+
+Sizing is **measured, not estimated**. Both Tesla images were run locally and load-tested
+(2026-09-29, `tesla/fleet-telemetry:latest`, `tesla/vehicle-command:latest`).
+
+### 10.1 Measured footprint
+
+| Metric | fleet-telemetry | vehicle-command proxy |
+|--------|----------------|----------------------|
+| Image size | 90.2 MB | 119 MB |
+| RSS, idle | 12.0 MiB | 16.8 MiB |
+| RSS, **1,500 authenticated sessions** | **26.3 MiB peak** | n/a (not connection-scale) |
+| Marginal per session | **4.18 KiB** | n/a |
+| CPU, idle | 0.01% | 0.0% |
+| CPU, cold-start burst | 1 vCPU absorbed 1,500 mTLS handshakes + WS upgrades in **3.5 s** | — |
+| Writable layer | 15.8 kB | — |
+
+Method: 1,500 concurrent sockets each completing a mutual-TLS handshake and a WebSocket upgrade
+(`HTTP/1.1 101 Switching Protocols` ×1,500), RSS sampled every 2.5 s. The first attempt without
+client certificates measured only 13.5 MiB and was **discarded as a lower bound** — the server was
+rejecting at the handshake, so it was not a valid proxy for real load.
+
+### 10.2 Minimum specification
+
+| Resource | Minimum | Recommended | Why |
+|----------|---------|-------------|-----|
+| **vCPU** | 1 shared | 2 shared | Steady-state load is negligible. The only CPU spike is the cold-start thundering herd — up to ~1,500 vehicles waking after a fleet-wide config push, or when many vehicles start their day at once. Measured: 1 vCPU absorbed 1,500 handshakes in 3.5 s. |
+| **RAM** | 512 MB | **1 GB** | Measured working set is ~45 MiB for both daemons (26 MiB + 17 MiB). The rest is OS, container runtime, and page cache. 512 MB is workable; 1 GB removes any reason to think about it. |
+| **Disk** | 10 GB SSD | 20 GB SSD | OS ~3 GB + images 210 MB + logs. Traffic volume is trivial (~525 signals/vehicle/month). **Log rotation is mandatory** — an unbounded stdout stream is the realistic way to fill this disk. |
+| **Arch** | x86_64 **or** arm64 | arm64 | Both are static Go binaries; both images are multi-arch. arm64 is typically cheaper on AU providers. |
+| **Network** | Public IPv4, unrestricted inbound **:443** | + static/public IP | Vehicles connect **inbound** to this host. It cannot sit behind a NAT or a shared app host. |
+| **Access** | root or container control | + no shell in app image | The app image is `scratch`-based (**no `sh`, no shell**). Debugging is `docker logs` / `docker exec` from the host only — there is no shell inside to attack. |
+| **Ports** | 443 (app), 22 restricted | 22 key-only, geo/allowlist-limited | 443 must be open to the internet. 22 must not be. |
+
+### 10.3 Operating system
+
+**Ubuntu 24.04 LTS.** Debian 12 or RHEL 9 are acceptable equivalents. Rationale:
+
+- Both components ship as **Docker images** (Tesla's supported distribution path), so the OS matters
+  mainly for the container runtime and long-term patch support.
+- Ubuntu 24.04 LTS is supported to 2029 and has the widest provider image availability in AU regions.
+- The app is a static Go binary — no interpreter, no package-manager dependencies at runtime. There is
+  no language-runtime version risk to manage.
+
+**Port binding.** Both the telemetry server and (if used) the proxy default to :443, a privileged port.
+Run with `--cap-add=NET_BIND_SERVICE` or drop to a high port and redirect with `iptables`/a reverse proxy.
+Do not run either as `--privileged`.
+
+**The proxy must NOT be internet-facing.** Started with `-host 0.0.0.0`, it warns verbatim:
+
+> *Do not listen on a network interface without adding client authentication. Unauthorized clients may
+> be used to create excessive traffic from your IP address to Tesla's servers, which Tesla may respond
+> to by rate limiting or blocking your connections.*
+
+It is only ever called by Tier 1, from the same host. Bind it to **`127.0.0.1`**. The only publicly
+exposed process is fleet-telemetry on :443, and it enforces `RequireAndVerifyClientCert`.
+
+### 10.4 Configuration deltas from the reference defaults
+
+| Setting | Value | Note |
+|---------|-------|------|
+| `tls.server_cert` / `tls.server_key` | Let's Encrypt cert for `telemetry.afirmi.co` | Must be the **full chain**; vehicles verify it |
+| `tls.ca_file` | **must be unset in production** | The binary already embeds Tesla's production vehicle CA. Setting `ca_file` *appends* a CA to the trust pool — a needless widening of trust. Use it only in test. |
+| `records.V` | `["logger"]` | JSONL to stdout; our wrapper batches and forwards |
+| `records.alerts` / `records.errors` / `records.connectivity` | `["logger"]` | Connectivity records are how we distinguish "vehicle asleep" from "vehicle broken" |
+| `transmit_decoded_records` | `true` | JSON instead of protobuf — avoids a protobuf dependency in the relay wrapper |
+| `namespace` | `tesla` | Prefix only; no broker in use |
+| `log_level` | `warn` in production, `info` while commissioning | Info-level logging wrote ~1.5 MB for 1,500 handshake events |
+| Kubernetes / Kafka / Kinesis / Redis | **not used** | Reachable at 1,500 vehicles with the `logger` dispatcher alone |
+
+### 10.5 Testing constraint (discovered during measurement)
+
+fleet-telemetry authenticates vehicles by deriving an identity from the **client certificate's issuer
+and Tesla OID** (`messages/identity.go`), then rejects anything else as `unauthorized certificate`.
+A synthetic client certificate therefore **cannot** complete a session, even when it passes mTLS:
+
+```text
+level=error msg=extract_sender_id_err
+  error="create_identity issuer: vehicle-sim, common_name: vehicle-sim,
+         err: unauthorized certificate"
+```
+
+Consequences for the verification plan (§8):
+
+- **Handshake and socket behaviour can be tested locally** — this is how §10.1 was measured.
+- **Vehicle record ingestion cannot.** End-to-end streaming verification requires a **real paired
+  vehicle**, so §8 item 4 and item 5 must be scheduled against one.
+- The **relay's forward path is independently testable** — its contract is JSONL, so synthetic batches
+  can be posted straight to `/api/telemetry/ingest`. This is a direct benefit of the span-port
+  boundary: the ingest contract does not depend on the vehicle.
+
+### 10.6 Provider requirements (for host selection)
+
+Any provider is fine provided it offers, in an **AU region**: public IPv4, unrestricted inbound :443, a
+full root or container-capable host (**not** a shared/managed application host), ≥512 MB RAM, ≥10 GB
+disk, and ideally a static egress IP (pending O-4). A ~$5–7/month instance is materially more than
+enough — the measured working set is ~45 MiB.
+
 
 | Artifact | Relation |
 |----------|----------|
