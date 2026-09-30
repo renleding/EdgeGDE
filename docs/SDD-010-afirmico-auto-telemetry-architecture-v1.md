@@ -1,7 +1,7 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.1  \
+**Version:** 1.2  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
@@ -411,7 +411,7 @@ replaceable without touching the Worker.
 | ID | Item | Owner |
 |----|------|-------|
 | O-1 | **Does `interval_seconds` accept 21600 (6 h)?** Verify on a live vehicle. Fallback 3600 modelled. | Build phase |
-| O-2 | **Relay host choice** — owner to nominate. Specification now measured and recorded in §10: 1–2 shared vCPU, 512 MB–1 GB RAM, 10–20 GB SSD, Ubuntu 24.04 LTS, public inbound :443. | Warren |
+| O-2 | **Relay host choice** — owner nominated **Oracle Cloud Always Free**; evaluated in §10.7 as **suitable with account upgrade to PAYG** and provisioning at **1 OCPU / 2 GB** (not the full 2/12, which worsens idle-reclamation exposure). Owner to confirm home region is AU. | Warren |
 | O-3 | **Tesla developer app creation** (R-01) — gates registration; nothing streams until it exists. | Warren |
 | O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. | Build phase |
 | O-5 | **Consent wording** (R-06) — must disclose data leaves the vehicle to a US processor (Tesla) and to insurers (APP 8). | Warren |
@@ -517,6 +517,77 @@ full root or container-capable host (**not** a shared/managed application host),
 disk, and ideally a static egress IP (pending O-4). A ~$5–7/month instance is materially more than
 enough — the measured working set is ~45 MiB.
 
+
+### 10.7 Candidate host evaluation — Oracle Cloud Always Free
+
+**Verdict: suitable, with one account-level change (upgrade to Pay As You Go) and one sizing
+adjustment (do not take the full allocation).**
+
+Hardware is far beyond requirement. Both Tesla images publish **arm64** manifests (verified via
+`docker manifest inspect`) and the arm64 `fleet-telemetry` binary was executed to confirm it runs on
+`linux/arm64`. Oracle's Always Free image list includes Ubuntu, so §10.3 is satisfied.
+
+| OCI Always Free shape | Spec | Assessment |
+|----------------------|------|------------|
+| `VM.Standard.A1.Flex` (Arm/Ampere) | **2 OCPU / 12 GB** (halved from 4/24 on 2026-06-15) | Exceeds the 1 vCPU / 512 MB–1 GB requirement many times over. Use **1 OCPU / 2 GB** — a larger allocation wastes headroom and *increases* the reclamation risk below. |
+| `VM.Standard.E2.1.Micro` (AMD) | 1/8 OCPU / 1 GB / 50 Mbps, fixed quota | Technically sufficient. Non-flex quota (no hourly budget to exhaust). Thin CPU, and still subject to idle reclamation. |
+
+#### The blocking constraint: idle reclamation
+
+Oracle reclaims Always Free compute instances it deems idle. Thresholds, read from Oracle's live
+documentation (2026-09-29), verbatim:
+
+> Oracle will deem virtual machine and bare metal compute instances as idle if, during a 7-day
+> period, the following are true:
+> - CPU utilization for the 95th percentile is less than 20%
+> - Network utilization is less than 20%
+> - Memory utilization is less than 20% (applies to A1 shapes only)
+
+Our relay workload, as measured in §10.1: **CPU 0.01% idle, memory ~45 MiB.** On a 12 GB shape that is
+**0.37% memory utilisation**. This relay is, by construction, a low-duty-cycle store-and-forward
+process for ~525 signals per vehicle per month. It is the archetype of what Oracle reclaims.
+
+Note the perverse incentive: **the larger the allocation, the more certainly "idle" this workload
+looks.** On a 12 GB shape the memory check is unpassable; the same process on 2 GB is 2.2%.
+
+#### Required change: upgrade to Pay As You Go
+
+Oracle's own reclamation notice states, verbatim:
+
+> You can keep idle compute instances from being stopped by converting your account to Pay As You Go
+> (PAYG). With PAYG, you will not be charged as long as your usage for all OCI resources remains
+> within the Always Free limits.
+
+This converts the account from *Always Free* to *Pay As You Go within Always Free limits*. **Billing
+stays $0** provided usage stays inside the limits. Reclamation targets Always Free customers, so this
+removes the constraint. It does require a payment method on file.
+
+#### OCI-specific constraints to confirm at setup
+
+| Item | Constraint |
+|------|-----------|
+| **Home region** | Always Free resources exist **only in the tenancy's home region**, which **cannot be changed after signup**. Must be an AU region (Sydney/Melbourne) for latency and data residency. Verify before provisioning. |
+| **Allocation halving** | On 2026-06-15 Oracle cut the Arm allowance 4 OCPU/24 GB → 2 OCPU/12 GB with **no announcement**; instances were stopped until resized. Provision inside 2/12 from the start. |
+| **Outbound TCP 25** | Blocked by default. Not used by this system. |
+| **Free-tier VCN cap** | Free-tier tenancies are limited to 2 VCNs. One is required. |
+
+#### Residual risk accepted if OCI is chosen
+
+The 2026-06-15 halving was applied silently and stopped running instances. The same class of change
+could recur. If the relay is stopped, telemetry simply **stops arriving** — vehicles keep their config,
+but no records reach Tier 1, producing silent gaps in insurer-relevant distance history. Two
+mitigations, in order of value:
+
+1. **External liveness probe** (independent of OCI) that alerts if no telemetry has arrived in N hours.
+   Without this, a reclaimed instance is indistinguishable from a fleet of parked cars. **Required
+   regardless of host.**
+2. Oracle Notifications (Always Free, 1000 email/month) as a secondary channel.
+
+A conventional ~$5–6/month AU VPS (~$66/year) removes this risk class entirely. At the fleet sizes in
+scope the platform cost is immaterial to the business case, so this is a risk-tolerance decision, not
+a cost one.
+
+## 11. Related Documents
 
 | Artifact | Relation |
 |----------|----------|
