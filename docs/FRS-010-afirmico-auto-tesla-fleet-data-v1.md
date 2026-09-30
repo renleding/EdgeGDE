@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  \
-**Version:** 1.3  \
+**Version:** 1.4  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
@@ -37,6 +37,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 | 1.1 | 2026-09-29 | Corrected the alert dictionary key: `signal_name` is **not** unique (17,579 distinct across 18,436 rows; 853 names carry model-specific variants). Added F03-R04a/R04b and AC7/AC8. Expanded R-02 with verbatim Tesla sourcing and three decision options (R-02a/b/c); corrected an earlier unsupported claim that FSD state could be collected from the vehicle UI. |
 | 1.2 | 2026-09-29 | **Clean-slate reset (pre-build).** All parallel prototype work was removed by owner decision — nothing is yet built and the spec is the only artifact of record. Deleted: `apps/tesla-fleet-worker/` (agent p9 prototype), the untracked `.well-known` PEM copy, the `afirmico-tesla-fleet-vehicles` D1 database (contained schema, 0 rows), and the placement of R-08's coordination note. Resolved R-08 accordingly. Corrected F02-R02: the private key is required for **both** Vehicle Commands **and Fleet Telemetry** setup (Tesla: pairing "is required to send Vehicle Commands and setup Fleet Telemetry"), so a keypair is load-bearing if R-02b is chosen. Recorded that the private key **cannot be regenerated** — it is held in Bitwarden and is the only copy. |
 | 1.3 | 2026-09-29 | **Corrected a factually wrong claim carried in v1.2.** v1.2 recorded that a Tesla key pair exists in Bitwarden and "cannot be regenerated". Neither is true: Bitwarden holds only the Client ID and Client Secret, and no key pair exists anywhere. The p9 public key was **orphaned** — its private half was never located in the repo, on disk, in the secrets store, or in the retained deletion snapshots (scanned for a `PRIVATE KEY` header; zero occurrences). Re-verified 2026-09-29. Corrected F02-R02, Section 3.3, R-08, and the Dependencies table. Registered the real constraint: a key pair **MUST be generated** before registration, and once registered **MUST NOT be rotated** (Tesla requires the registered public key to *remain* hosted; rotation invalidates the key on every paired vehicle and forces re-pairing). Also clarified that the key pair is required for **registration itself** (F02) — not only for Fleet Telemetry — so it is **not** a discriminator between the R-02 FSD options. |
+| 1.4 | 2026-09-29 | **Transport pivot: polling → Fleet Telemetry (owner decision).** The MVP now uses Tesla Fleet Telemetry as its **sole** transport, with a minimal field set (odometer, miles-since-reset, FSD miles-since-reset, battery level, located-at-home/work) and a **6-hour refresh**. This reverses §3.6 and the former Out-of-Scope exclusion. Rewrote §3.6; F04 changed from polling to telemetry ingest; F02 gained pairing, mTLS-relay and billing-limit requirements; F05 gained FSD counter-reset semantics (F05-R14). **R-02 RESOLVED** — `SelfDrivingMilesSinceReset` is a telemetry field, so F05-R03 is satisfied with no proxy or approximation; options R-02a/b/c withdrawn. **R-07 made worse** — under polling there were no telemetry configs to lose, but a billing-limit breach now de-configures every member vehicle and Tesla does not restore them; mitigation is now a launch blocker. **Cost, measured rather than estimated:** the field set yields ~525 signals/vehicle/month → $0.0035/vehicle/month → **$5.25/month for 1,500 vehicles**, fully absorbed by Tesla's $10/month account credit, so Tesla API cost is nil and total system cost is the infrastructure line. Design recorded in SDD-010. |
 
 ---
 
@@ -122,11 +123,25 @@ The Worker has no custom-domain or route binding for `auto.afirmi.co`.
 
 ### 3.6 Telemetry transport decision
 
-Per requirements interview (Q17/Q18), the **MVP polls** `vehicle_data` on a schedule
-(once per week or per month) rather than streaming via Fleet Telemetry. This **removes** the
-previously identified blocker that a `fleet-telemetry` server must terminate client-certificate mTLS
-on port 443 and therefore cannot run on Cloudflare Workers: **no telemetry server is required for MVP**.
-Q18 specifies the polling worker runs locally for now.
+**The MVP uses Tesla Fleet Telemetry as its sole transport** (owner decision, v1.4). `vehicle_data`
+polling is withdrawn: it is explicitly documented by Tesla as not recommended and expensive, and it
+cannot return FSD usage at all. Vehicles push to a self-hosted `fleet-telemetry` server on a **6-hour
+refresh**, and the vehicle sleeps between sends.
+
+This **reinstates** the previously identified hosting constraint: a `fleet-telemetry` server must
+terminate client-certificate mTLS on port 443 and is a long-lived stateful process, so it cannot run on
+Cloudflare Workers. It runs on **one small relay host** that owns no data and no business logic
+(see SDD-010). Pairing a virtual key to each vehicle is now **required**, where polling did not strictly
+need it.
+
+**Cost is dominated by field intervals, not by transport.** Signals bill on change, gated by a
+per-field `interval_seconds`, and only while the vehicle is awake. A 6-field set at a 6-hour interval
+yields ~525 signals/vehicle/month. High-frequency behaviour fields were rejected on cost grounds: the
+same platform collecting them at 60 s costs roughly 39× more.
+
+**Open:** whether `interval_seconds` accepts 21600 (6 h); the documented examples cover 1–60 s and a
+10-minute case. If rejected, the fallback is 3600 (1 h), which remains inside the account credit.
+See SDD-010 §4.1 and §9.
 
 ---
 
@@ -197,6 +212,11 @@ member vehicles and energy sites on demand.
 | F02-R06 | The platform SHOULD store the client id, client secret, partner token, and member refresh tokens as Worker secrets or in the secrets store, never in D1 in plaintext. | Should |
 | F02-R07 | The platform MUST handle Tesla application approval status as an explicit state, surfacing "app not approved" distinctly from "token invalid". | Must |
 | F02-R08 | The platform SHOULD route all fleet and vehicle calls through the single region base URL for AU (Asia-Pacific excluding China shares the NA base). | Should |
+| F02-R09 | The platform MUST pair its virtual key to each member vehicle, and MUST detect and surface the states `paired`, `removed`, and `unknown` per VIN. Pairing is user-in-the-loop via `https://tesla.com/_ak/auto.afirmi.co` and cannot be completed by the platform alone. | Must |
+| F02-R10 | The platform MUST host a `fleet-telemetry` receiver that terminates client-certificate mTLS on port 443, and MUST validate its certificate chain before any vehicle is configured. | Must |
+| F02-R11 | The platform MUST configure each vehicle's telemetry via the vehicle-command HTTP proxy, signed with the application private key, and MUST record `skipped_vehicles` reasons per VIN as distinct states (`missing_key`, `unsupported_hardware`, `unsupported_firmware`, `max_configs`). | Must |
+| F02-R12 | The platform MUST remove a vehicle's telemetry configuration on consent revocation, so collection ceases at the vehicle rather than by discarding inbound data. | Must |
+| F02-R13 | The platform MUST maintain a billing-limit safety margin at least 10× projected monthly usage, MUST wire Tesla's 80% and 100% billing alerts to the operator, and MUST provide a tested runbook to re-apply telemetry configurations after a limit breach. | Must |
 
 **Non-Functional Requirements:**
 
@@ -205,6 +225,8 @@ member vehicles and energy sites on demand.
 | F02-N01 | Partner token exchange latency | < 2 s p95 |
 | F02-N02 | Token failure surfacing | errors recorded with Tesla error code and body, never swallowed |
 | F02-N03 | Secret exposure | zero secrets in repo, logs, or D1 plaintext |
+| F02-N04 | Billing-limit resilience | a breach MUST NOT leave the fleet silently unconfigured; re-apply runbook tested |
+| F02-N05 | Relay certificate validity | expiry monitored with alerting at 30/14/7 days; mTLS fails silently at expiry |
 
 **Acceptance Criteria:**
 
@@ -272,20 +294,22 @@ AC8: A vehicle alert for a Model 3 resolves to the Model 3 variant of its signal
 
 ---
 
-### 4.4 FEATURE-04: Scheduled Vehicle Data Collection (Polling)
+### 4.4 FEATURE-04: Vehicle Telemetry Collection (Push, 6-Hour Refresh)
 
 **Priority:** P0  \
 **Effort:** Large (~6 days)
 
-**User Story:** As the operator, the platform collects Tesla vehicle and Powerwall data for every
-consented member on a weekly or monthly schedule, using the minimum field set that supports insurance
-underwriting, and logs every collection run.
+**User Story:** As the operator, the platform receives Tesla vehicle telemetry pushed by every consented
+member's vehicle on a 6-hour refresh, using the minimum field set that supports insurance underwriting,
+and logs every ingest with its signal cost.
 
 **Functional Requirements:**
 
 | ID | Requirement | Must/Should |
 |----|------------|-------------|
-| F04-R01 | The system MUST collect vehicle data by polling `GET /api/1/vehicles/{vin}/vehicle_data`, not by Fleet Telemetry streaming, at MVP. | Must |
+| F04-R01 | The system MUST collect vehicle data via Tesla **Fleet Telemetry push** to a self-hosted receiver, and MUST NOT poll `vehicle_data` at MVP. | Must |
+| F04-R01a | The collected field set MUST be limited to odometer, miles-since-reset, FSD miles-since-reset, battery level, and located-at-home/work. High-frequency behaviour fields MUST NOT be collected at MVP. | Must |
+| F04-R01b | Every collected field MUST carry an explicit `interval_seconds` no shorter than 6 hours except where Tesla imposes a tighter floor, and MUST carry an explicit `minimum_delta` where the field type supports it. | Must |
 | F04-R02 | The system MUST support a configurable collection cadence of at least weekly and monthly, set per member or globally. | Must |
 | F04-R03 | The collection field set MUST be declared explicitly and stored in configuration, not hardcoded, so cadence and field scope can change without a code release. | Must |
 | F04-R04 | The default collected set MUST be the underwriting-relevant subset drawn from `vehicle_data` groups: charge_state, climate_state, drive_state, vehicle_config, vehicle_state, and gui_settings. | Must |
@@ -297,7 +321,8 @@ underwriting, and logs every collection run.
 | F04-R10 | Each collection run MUST be recorded in a run log with: run id, cadence, start/end time, vehicles attempted, vehicles succeeded, vehicles failed, and per-vehicle error code. | Must |
 | F04-R11 | A failure on one vehicle MUST NOT abort the run for other vehicles. | Must |
 | F04-R12 | The system MUST respect Tesla rate limits and MUST NOT retry a rate-limited call more than the configured retry count. | Must |
-| F04-R13 | The system SHOULD run the collector as a locally hosted scheduled job at MVP, with the scheduler configuration held in the repo. | Should |
+| F04-R13 | The telemetry receiver MUST run on a dedicated relay host that holds no database and performs no derivation, and MUST forward records to the application for all persistence and processing. | Must |
+| F04-R16 | The system MUST count signals received per VIN per day and record the derived cost, so collection cost is a first-class, continuously observable metric rather than an invoice-time surprise. | Must |
 | F04-R14 | The system MUST skip vehicles whose member has revoked consent and no active policy. | Must |
 | F04-R15 | The system SHOULD persist the raw API response payload per vehicle per run before normalisation, so a parsing change can be replayed. | Should |
 
@@ -340,7 +365,8 @@ telemetry, so I can price a premium.
 |----|------------|-------------|
 | F05-R01 | The system MUST derive a driver profile per vehicle per reporting period from normalised snapshots. | Must |
 | F05-R02 | The profile MUST include annualised or period distance travelled, derived from odometer deltas across snapshots. | Must |
-| F05-R03 | The profile MUST include **FSD usage as a percentage** of distance travelled. **Blocked at MVP:** no polling path returns this — see R-02. The requirement stands; the source is undecided. | Must |
+| F05-R03 | The profile MUST include **FSD usage as a percentage** of distance travelled, derived as `ΔSelfDrivingMilesSinceReset / ΔMilesSinceReset` over the reporting window. **Unblocked at v1.4** — these are Fleet Telemetry fields, so selecting telemetry satisfies this requirement directly (R-02 resolved). | Must |
+| F05-R14 | The profile MUST label FSD usage as a **since-reset ratio**, never as lifetime usage, because both counters reset on software update, computer replacement, or factory reset. A decrease in either counter MUST be treated as a reset — the window is discarded and restarted from the post-reset value, and the discontinuity MUST be flagged rather than reported as negative travel. | Must |
 | F05-R04 | The profile SHOULD include a driving-behaviour indicator set derived from speed, acceleration, and pedal/brake observations. | Should |
 | F05-R05 | The profile MUST include charging behaviour: sessions, energy added, AC vs DC split, and charging power profile. | Must |
 | F05-R06 | The profile MUST include a home-charging indicator derived from located-at-home observations. | Must |
@@ -613,14 +639,16 @@ AC6: No individual data for the revoked member remains queryable after the appli
 
 - **Member-facing mobile app.** There is no TOCA member app at MVP; the platform is the connector plus an admin dashboard.
 - **Vehicle Commands, Energy Product Commands, and Enterprise management.** The endpoint families are catalogued but seeded disabled and MUST NOT be called.
-- **Fleet Telemetry streaming.** MVP polls `vehicle_data`; the `fleet-telemetry` server, mTLS on :443, Kafka/Redis dispatch, and streaming cost model are out of scope.
-- **Real-time data.** Collection is weekly or monthly, not live.
+- **`vehicle_data` polling.** Withdrawn at v1.4; Fleet Telemetry is the sole transport. No scheduled polling lane is specified.
+- **High-frequency behaviour capture.** Lateral/longitudinal acceleration, brake-pedal position, and similar high-rate fields are excluded on cost grounds — they are ~39× the cost of the selected field set.
+- **Real-time data.** Telemetry is throttled to a 6-hour refresh by design; the platform is not a live-tracking system.
+- **Kafka/Redis/streaming dispatch and any messaging fabric.** The relay forwards batched records to the application directly; no intermediate broker is specified at MVP.
 - **`media_info` / `media_detail`.** Excluded from collection.
 - **Pre-2018 Model S/X without infotainment upgrade.** Cannot be supported.
 - **AFSL/AR authorisation.** AFIRMICO does not currently hold an AR under an AFSL; obtaining that authorisation is a separate workstream. The FRS assumes data gathering precedes it.
 - **Insurer reporting requirements.** Deferred until insurers provide their specifications; only the MVP visualisation set is specified.
 - **Non-TOCA tier pricing/product design.** The tier exists (same data access, membership incentive) but its commercial design is not specified here.
-- **Telemetry hosting infrastructure.** Polling runs locally at MVP; production hosting, HA, and scaling are not specified.
+- **Telemetry hosting high availability.** The relay is a single host by design at MVP (SDD-010); failover, multi-region relay, and horizontal scaling are not specified.
 - **Payment, billing, and premium collection.** Out of scope.
 - **Multi-region.** AU only, via the NA region base URL.
 
@@ -638,7 +666,11 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | Bitwarden Secrets — Tesla client id / client secret | Credential source. Tesla developer app does not yet exist (R-01). **No Tesla key pair is stored here** (verified 2026-09-29) — a key pair MUST be generated before registration (F02-R02). |
 | Cloudflare account `renleding`, worker `aged-cherry-8781` | Serves `auto.afirmi.co` today as a catch-all SPA. **No repo config declares this or any `auto.afirmi.co` route** — the deployment is unmanaged. Route separation for `/.well-known` is required (F02-R01). |
 | https://developer.tesla.com/docs/fleet-api/billing-and-limits | Billing limit behaviour; limit raised to $100, payment method added |
-| https://developer.tesla.com/docs/fleet-api/endpoints/vehicle-endpoints | Polling endpoint contract (`vehicle_data`, `list`, `fleet_status`) |
+| https://developer.tesla.com/docs/fleet-api/fleet-telemetry | **Primary transport contract** — streaming semantics, per-field `interval_seconds`, `minimum_delta`, `include_fields` |
+| https://developer.tesla.com/docs/fleet-api/endpoints/vehicle-endpoints | Vehicle endpoint contract (`fleet_telemetry_config`, `fleet_status`, `list`) |
+| https://github.com/teslamotors/fleet-telemetry | Relay reference implementation |
+| https://github.com/teslamotors/vehicle-command | Config-signing HTTP proxy |
+| [SDD-010](./SDD-010-afirmico-auto-telemetry-architecture-v1.md) | System design for this FRS |
 | https://www.teslaowners.org.au/membership | TOCA member funnel; entry point for onboarding (F01-R01) |
 | FRS-007 / SDD-007 / IDD-007 (action ledger, budget guardrails) | Related governance pattern for audited releases and budget controls |
 | FRS-006 (lender doc ingestion) | Related D1 + R2 + ingestion conventions |
@@ -650,15 +682,15 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | ID | Risk / Decision | Impact | Status |
 |----|----------------|--------|--------|
 | R-01 | **Tesla developer app not yet created.** No partner registration, token, or vehicle call is possible until it exists and is approved. | Blocks all of F02 and everything downstream | OPEN — Warren |
-| R-02 | **FSD usage is unreachable by polling — no workaround exists.** The requirement is FSD usage percentage (F05-R03), but `MilesSinceReset` / `SelfDrivingMilesSinceReset` are Fleet Telemetry-only, HW4-only, firmware 2025.44.25.5+. Tesla states verbatim: *"This is the only verifiable and authoritative source of Self-Driving usage data. Reliance on any other method is unsupported, speculative, and risks producing materially inaccurate conclusions."* Independently verified: the `vehicle_data` response exposes only six groups (`charge_state`, `climate_state`, `drive_state`, `vehicle_config`, `vehicle_state`, `media_info`, `gui_settings`) and **no autopilot/FSD group**; scanning the alert dictionary for FSD/autopilot terms returns 600 rows that are all **alerts** (feature unavailable / degraded / fault), never a distance-under-FSD measure. **Decision required** — see options below. | **Blocks the headline FSD metric.** FSD is also AU subscription-only at $149/month across 1M+ km already driven, so it is a live differentiator; a minimal FSD-first telemetry config is materially cheaper than full polling (see R-02b). | OPEN — decision required |
-| R-02a | FSD option A — **MVP without FSD.** Ship polling; F05-R11 reports FSD usage as unavailable and flags reduced confidence. Lowest risk, no telemetry host, loses the differentiator at launch. | Launch scope | OPEN |
-| R-02b | FSD option B — **Add minimal FSD-first Fleet Telemetry** for HW4 vehicles on 2025.44.25.5+ only. Configures only `MilesSinceReset` + `SelfDrivingMilesSinceReset` (they may only `include_fields` each other, so a minimal config is legitimate and cheap), plus odometer/battery level. Requires the vehicle-command HTTP proxy for signing and a public host that terminates mTLS on :443 for the OTLP/gRPC receiver. **Cost** (estimated by scaling Tesla's published figures — not a quoted price, verify before committing): Tesla publishes an 18-field basic config at ~$0.00636/hour of driving and a 70-signal fleet config at ~$0.00667/hour/vehicle; a 2–3 field config with odometer `minimum_delta` set high (≥1 mi, which `SelfDrivingMilesSinceReset` requires anyway) should land in the low single-digit AUD per vehicle per year at ~1 hour/day driving. The key pair itself is required for registration regardless of this choice (F02-R02) — this option adds the vehicle-command signing proxy and the mTLS host, **not** the key. Note this **revives the mTLS hosting constraint** previously closed by choosing polling, and Fleet Telemetry configs are **not restored** if a billing limit is breached. Coverage is partial: HW4-only excludes most of the 1,500-member fleet (older Model 3/Y are HW3), and the counters reset on software update / computer replacement / factory reset, so the figure is a *since-reset* ratio, not lifetime. | Partial fleet coverage | OPEN |
-| R-02c | FSD option C — **Poll an approximate proxy now, promote to telemetry later.** Derive an FSD *engagement* indicator from polling signals already collectable (`LaneDepartureAvoidance`, `EmergencyLaneDepartureAvoidance`, `CruiseFollowDistance`, `ForwardCollisionWarning`, `SpeedLimitWarning`, `CruiseSetSpeed`, `AutomaticEmergencyBrakingOff`) plus the FSD/autopilot alert stream from `recent_alerts`. This is an *indicator*, not a distance percentage, and MUST be labelled as such — it must **not** be presented to an underwriter as "FSD usage %". | Definitional compromise | OPEN |
+| R-02 | **FSD usage — RESOLVED (v1.4) by choosing telemetry.** `MilesSinceReset` / `SelfDrivingMilesSinceReset` are Fleet Telemetry fields, so selecting Fleet Telemetry as the transport satisfies F05-R03 directly with the authoritative source and no approximation. Resolved as **telemetry-only**, accepting the two coverage caveats: the fields are HW4-only (excludes older Model 3/Y) and firmware 2025.44.25.5+, and both counters reset on software update, computer replacement, or factory reset, so the metric is a *since-reset* ratio rather than lifetime (see F05-R14). Non-HW4 vehicles report FSD as unavailable, not zero. | Was the headline blocker; now a coverage caveat rather than an open decision | **RESOLVED (v1.4)** |
+| R-02a | Options A (MVP without FSD), B (minimal FSD-first telemetry) and C (polled proxy indicator) — **all withdrawn at v1.4.** The owner selected Fleet Telemetry as the sole transport, which resolves the decision that generated these options. | — | WITHDRAWN (v1.4) |
+| R-02b | Superseded — **this option is now the architecture.** Retained only to show the decision path: the minimal FSD-first telemetry configuration it described is what SDD-010 implements, extended with battery level and located-at-home/work fields. The earlier cost note in this row (scaling Tesla's per-hour figures) was superseded on v1.4 by a **measured** model: ~525 signals/vehicle/month → **$5.25/month for 1,500 vehicles**, inside Tesla's $10/month account credit. | — | ADOPTED (v1.4) |
+| R-02c | Option C — **withdrawn.** It would have substituted a derived *indicator* for the real measurement and required labelling it so as never to be read as "FSD usage %". Choosing telemetry removes the need for any proxy. | — | WITHDRAWN (v1.4) |
 | R-03 | **Member authentication path from Member Jungle undecided** (Q11). SSO, signed magic link, or separate login — all unconfirmed. | Blocks F01-R01 implementation | OPEN — Warren |
 | R-04 | **Tesla key-pairing UX undecided** (Q12) — same session as connect flow, or separate step. | Affects F01-R08 seamlessness target | OPEN — Warren |
 | R-05 | **No AFSL/AR authorisation yet.** AFIRMICO is not an AR; the plan is to gather data first and seek AR approval. | May constrain or rework the offer/binding flow in F07 | OPEN — separate workstream |
 | R-06 | **Consent and privacy wording not authored** (Q6, "TBA"). | Blocks F01-R02 and F01-R03 from being finalised | OPEN — Warren |
-| R-07 | **Billing limit behaviour is destructive.** Exceeding the limit suspends API access AND removes Fleet Telemetry configurations, which are **not restored** when the limit is raised. Limit is now $100. | A single runaway run could silently break members' data collection | MITIGATED by polling (no telemetry configs), but cost guardrail still required (F04-N03) |
+| R-07 | **Billing limit behaviour is destructive — and telemetry makes it worse (v1.4).** Exceeding the limit suspends API access AND removes Fleet Telemetry configurations, which Tesla does **not** restore. Under the withdrawn polling design there were no configurations to lose; under telemetry a breach silently de-configures **every member vehicle** and recovery requires an operator re-apply run across the fleet. Limit is now $100. | **High** — fleet-wide silent collection failure with no member-visible symptom | OPEN — **launch blocker.** Mitigation required by F02-R13, F02-N04, F04-R16 |
 | R-08 | **Key custody and recoverability.** RESOLVED (v1.3). The collision risk was removed by the clean-slate reset, and the "cannot be regenerated" premise is **retracted as factually wrong** — no key pair exists. The p9 public key was orphaned (private half never located; snapshots scanned, zero `PRIVATE KEY` occurrences) and Bitwarden holds only the Client ID and Client Secret. A fresh key pair MUST be generated before registration. What remains is a **custody discipline**, not a recoverability problem: private key in the secrets store only, and once registered the key MUST NOT be rotated without a deliberate re-pairing migration. | No longer blocks F02 (hosting still gated by R-01) | RESOLVED |
 | R-09 | **Postcode-to-lat/long mapping.** The group tier is postcode-segmented and the dashboard maps Australia at postcode level, but Tesla returns GPS coordinates — no mapping is defined. | Blocks F06-R03 and F09-R03 | OPEN — design decision |
 | R-10 | **Tesla rate limits are per device, per account** and shared across multiple apps on one account, but the published numeric limits were not retrievable. | Run sizing and retry policy cannot be finalised | OPEN — verify before build |
@@ -675,7 +707,7 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | 1 | FEATURE-02: public key route, partner registration, token lifecycle — the hard gate |
 | 2 | FEATURE-03: full field, endpoint, and alert catalogs loaded and verified |
 | 3 | FEATURE-08: D1 schema and migrations; R2 raw payload storage |
-| 4 | FEATURE-04: scheduled polling collector, one vehicle, then the consented fleet |
+| 4 | FEATURE-04: telemetry relay + config push, one vehicle, then the consented fleet. **Gate: confirm `interval_seconds` accepts 6 h (SDD-010 §9 O-1).** |
 | 5 | FEATURE-05: driver profile derivation incl. FSD usage |
 | 6 | FEATURE-09: admin dashboard, Australia map, fleet and quality visualisation |
 | 7 | FEATURE-06 + FEATURE-07: group-tier aggregates and individual quote packages with secure delivery |
