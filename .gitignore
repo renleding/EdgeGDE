@@ -1,11 +1,15 @@
 node_modules/
 dist/
 .dev.vars/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 *.log
 .DS_Store
 apps/ui-builder/UIBuilder/desktop/target/
 apps/ui-builder/UIBuilder/.wrangler/
 apps/edge-runtime/.wrangler/
+apps/afirmico-tesla/.wrangler/
 *.db
 .aider*
 *.sqlite
