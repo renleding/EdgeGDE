@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  \
-**Version:** 1.5  \
+**Version:** 1.6  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
@@ -39,6 +39,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 | 1.3 | 2026-09-29 | **Corrected a factually wrong claim carried in v1.2.** v1.2 recorded that a Tesla key pair exists in Bitwarden and "cannot be regenerated". Neither is true: Bitwarden holds only the Client ID and Client Secret, and no key pair exists anywhere. The p9 public key was **orphaned** — its private half was never located in the repo, on disk, in the secrets store, or in the retained deletion snapshots (scanned for a `PRIVATE KEY` header; zero occurrences). Re-verified 2026-09-29. Corrected F02-R02, Section 3.3, R-08, and the Dependencies table. Registered the real constraint: a key pair **MUST be generated** before registration, and once registered **MUST NOT be rotated** (Tesla requires the registered public key to *remain* hosted; rotation invalidates the key on every paired vehicle and forces re-pairing). Also clarified that the key pair is required for **registration itself** (F02) — not only for Fleet Telemetry — so it is **not** a discriminator between the R-02 FSD options. |
 | 1.4 | 2026-09-29 | **Transport pivot: polling → Fleet Telemetry (owner decision).** The MVP now uses Tesla Fleet Telemetry as its **sole** transport, with a minimal field set (odometer, miles-since-reset, FSD miles-since-reset, battery level, located-at-home/work) and a **6-hour refresh**. This reverses §3.6 and the former Out-of-Scope exclusion. Rewrote §3.6; F04 changed from polling to telemetry ingest; F02 gained pairing, mTLS-relay and billing-limit requirements; F05 gained FSD counter-reset semantics (F05-R14). **R-02 RESOLVED** — `SelfDrivingMilesSinceReset` is a telemetry field, so F05-R03 is satisfied with no proxy or approximation; options R-02a/b/c withdrawn. **R-07 made worse** — under polling there were no telemetry configs to lose, but a billing-limit breach now de-configures every member vehicle and Tesla does not restore them; mitigation is now a launch blocker. **Cost, measured rather than estimated:** the field set yields ~525 signals/vehicle/month → $0.0035/vehicle/month → **$5.25/month for 1,500 vehicles**, fully absorbed by Tesla's $10/month account credit, so Tesla API cost is nil and total system cost is the infrastructure line. Design recorded in SDD-010. |
 | 1.5 | 2026-10-02 | **Hosting decision: Tier 1 is a NEW dedicated Cloudflare Worker (owner decision).** Investigated the live `auto.afirmi.co` binding and found it is a Workers **Custom Domain** (not a route) → worker `aged-cherry-8781`, a catch-all that returns one ~3,721-byte HTML document for *every* path (including the `/.well-known` key path), with **zero bindings** (no D1/KV/R2) and no declaring config in the repo. Owner ruled it is the calculator/splash worker and **must not be repurposed for Tesla**. Corrected §3.1 and §3.5, which previously implied `edgegde-calculator` would host the Tesla surface. Tier 1 is now specified as a new worker that owns the `auto.afirmi.co` hostname, which serves the Tesla key ahead of its own SPA fallback and so removes the route-separation conflict in F02-R01 by construction. No build performed — owner decision was that the key is **not** shipped ahead of the full Tier 1 work. Recorded new open item O-9 (public-key `Content-Type` contradiction: F02-R01 `application/x-pem-file` vs SDD `text/plain`). |
+| 1.6 | 2026-10-02 | **R-01 CLEARED — the Tesla app is created, approved, registered, and the member OAuth flow is live.** Four corrections of prior fact, plus the first working build. (1) **The developer application existed all along** — it was created on developer.tesla.com on 2026-09-25 (its Client ID and Secret were vaulted that day); v1.5's "app not yet created" was wrong. (2) It is **ACTIVE** and the onboarding request was approved 2026-10-02 on the **proprietary/private** path (`Open Source Contribution: No`), with grants `client-credentials` **and** `authorization-code` — the same shape F02-R04 already required, so no requirement changed. (3) **Partner registration completed 2026-10-02** via `POST /api/1/partner_accounts`; Tesla recorded the app as `AFIRMICO Auto`, `enterprise_tier: pay_as_you_go`, and the public key it stores (`047ca1f0…b483d8`) is **byte-identical to the committed PEM** — which also **settles O-9 / R-14**: Tesla's own registration fetch succeeded with `Content-Type: application/x-pem-file`. **`auto.afirmi.co` is registered; `afirmi.co` is NOT** (Tesla's key-path fetch there returns 404 — nothing else needs registering). (4) **Tier 1 F02 surface is BUILT and LIVE** in `apps/afirmico-tesla/` — public key, `/connect`, `/auth/start` (PKCE S256), `/auth/callback`, `/auth/error`, `/dashboard`, `/auth/logout`, `/healthz` — attached as Cloudflare **Routes**, so the splash page is untouched (`/` still returns the original 3,721-byte document). Added F02-R14 (registered app config is authoritative) and F02-R15 (PKCE mandatory on the authorization-code flow); added the contact address `connect@afirmico.com` to the Dependencies table. **Still open:** telemetry ingest, the D1 schema, TOCA membership gating (F01), the admin dashboard (F07), and the Oracle relay; and note that a grant recorded on a session cookie is **not yet a consent record** (F01-R02) — session state is infrastructure, not the audit trail. |
 
 ---
 
@@ -53,23 +54,58 @@ account (confirmed owner: Warren; re-verified 2026-10-02). The mapping is a catc
 `/.well-known/appspecific/com.tesla.3p.public-key.pem` all return the same ~3,721-byte HTML document.
 The worker has **no bindings at all** (no D1, KV, or R2) and **no config in this repository declares it**.
 
-**Gap:** There is no Tesla OAuth callback handler, no member portal, no consent store, no admin
-dashboard, no D1 schema for Tesla data, and no data collection of any kind. The `.well-known` public key
-path is shadowed by the SPA fallback and cannot serve the registration PEM. Because the hostname is a
-Custom Domain, the fix is not a route: one hostname is served by one worker, so the Tesla surface must be
-built into a worker that **owns the whole hostname** and serves the key ahead of its own SPA fallback.
+**Gap:** ~~There is no Tesla OAuth callback handler... and the `.well-known` public key path is shadowed
+by the SPA fallback.~~ **Superseded at v1.6.** The `/.well-known` key path, `/connect`, `/auth/*`,
+`/dashboard` and `/healthz` are now served by the dedicated worker `afirmico-tesla`
+(`apps/afirmico-tesla/`) via Cloudflare **Routes**, which take precedence over the Custom Domain. The
+key path is no longer shadowed and the splash page is unchanged. What remains absent: telemetry
+ingest, the D1 schema, the consent store, TOCA membership gating, and the admin dashboard. See §3.5
+and SDD-010 §2.
+
 `aged-cherry-8781` cannot take that role — it has no bindings and is the calculator/splash worker, which
 the owner has ruled **must not be repurposed for Tesla** (see §3.5 and SDD-010 §2).
 
 ### 3.2 Credential state
 
 Tesla Fleet API **client id and client secret** exist in Bitwarden Secrets (project accessible to
-the agent). The Tesla developer application itself has **not yet been created** on
-developer.tesla.com — the credentials were provisioned ahead of app creation.
+the agent). ~~The Tesla developer application itself has **not yet been created** on
+developer.tesla.com — the credentials were provisioned ahead of app creation.~~
 
-**Gap:** Without a created (and approved) developer application, no partner registration, token
-exchange, telemetry config, or vehicle enumeration is possible. A client-credentials exchange against
-`https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token` is expected to fail until the app exists.
+**Corrected twice at v1.6.** The developer application **was** created on developer.tesla.com on
+**2026-09-25** — the credentials were not provisioned ahead of it; they were issued by it. It is
+**ACTIVE**, and its onboarding request was **approved on 2026-10-02**.
+
+Registered application configuration (authoritative — Tesla enforces this):
+
+| Field | Value |
+|-------|-------|
+| App name | `AFIRMICO Auto` |
+| Client ID | `f03d04ed-a6b0-43b3-bda4-5c19dec5dd2b` (public; also in `wrangler.json` `vars`) |
+| Open Source Contribution | `No` — proprietary path |
+| OAuth grant types | `client-credentials`, `authorization-code` |
+| Allowed Origin(s) | `https://auto.afirmi.co` |
+| Allowed Redirect URI(s) | `https://auto.afirmi.co/auth/callback` |
+| Allowed Returned URL(s) | `https://auto.afirmi.co/dashboard` |
+| Registered domain | `auto.afirmi.co` only — **not** `afirmi.co` |
+| Partner tier (Tesla) | `pay_as_you_go` |
+| Contact | `connect@afirmico.com` |
+
+The redirect URI is a **single registered value, not a wildcard**, so it must match byte for byte and
+the token exchange must present the same value. Region is **not** free to vary either: Australia has no
+regional host of its own — APAC excluding China shares the North America base — so
+`https://fleet-api.prd.na.vn.cloud.tesla.com` is the only valid `audience` for this app (F02-R08).
+
+Partner registration **completed 2026-10-02.** Tesla's partner record for the app: name `AFIRMICO Auto`,
+`enterprise_tier: pay_as_you_go`, `account_id` `2988373b-3db3-4436-bdfb-dcd204cfd4fb`, and
+`public_key` `047ca1f0…b483d8` — **byte-identical to the committed PEM**. Registration requires the key
+to be reachable at `/.well-known/` *before* the call, which is why the hosting fix (F02-R01) had to land
+first.
+
+**Gap:** ~~Without a created (and approved) developer application, no partner registration, token
+exchange, telemetry config, or vehicle enumeration is possible.~~ **Closed at v1.6** — a
+`client_credentials` exchange against `fleet-auth.prd.vn.cloud.tesla.com` succeeds and returns a live
+token. What remains is the **telemetry** side (§3.5) and the consent audit trail: a grant held in a
+Worker session is operational state, **not** the versioned consent record F01-R02/R03 require.
 
 ### 3.3 Local key material
 
@@ -208,7 +244,7 @@ AC5: The member portal shows the exact consent text version the member agreed to
 ### 4.2 FEATURE-02: Tesla Fleet API Client (App Registration & Token Lifecycle)
 
 **Priority:** P0  \
-**Effort:** Medium (~4 days) — gated on the Tesla developer app existing
+**Effort:** Medium (~4 days) — **app created, approved and registered 2026-10-02; the key-serving, registration, partner-token and member OAuth parts are built and live in `apps/afirmico-tesla/`.** Remaining effort is the member-scope token store (F02-R05/R06) and the telemetry config path (F02-R10/R11), which is gated on the Oracle relay.
 
 **User Story:** As the operator, the platform holds a valid Tesla partner token and can enumerate
 member vehicles and energy sites on demand.
@@ -230,6 +266,8 @@ member vehicles and energy sites on demand.
 | F02-R11 | The platform MUST configure each vehicle's telemetry via the vehicle-command HTTP proxy, signed with the application private key, and MUST record `skipped_vehicles` reasons per VIN as distinct states (`missing_key`, `unsupported_hardware`, `unsupported_firmware`, `max_configs`). | Must |
 | F02-R12 | The platform MUST remove a vehicle's telemetry configuration on consent revocation, so collection ceases at the vehicle rather than by discarding inbound data. | Must |
 | F02-R13 | The platform MUST maintain a billing-limit safety margin at least 10× projected monthly usage, MUST wire Tesla's 80% and 100% billing alerts to the operator, and MUST provide a tested runbook to re-apply telemetry configurations after a limit breach. | Must |
+| F02-R14 | The registered Tesla application configuration MUST be treated as authoritative and MUST be kept in step with the deployed Worker: app name, client id, allowed origin, allowed redirect URI and returned URL are fixed by Tesla and cannot be inferred at runtime. A change to any of them MUST be made in the developer dashboard **and** in `apps/afirmico-tesla/wrangler.json` in the same change. | Must |
+| F02-R15 | The authorization-code flow MUST use PKCE (S256) with a per-attempt verifier held server-side, and MUST validate the returned `state` against a signed, expiring, single-use value bound to the initiating browser. A callback whose `state` is absent, forged, expired or not bound to the initiating browser MUST be refused without attempting a token exchange. | Must |
 
 **Non-Functional Requirements:**
 
@@ -676,7 +714,9 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | `apps/edge-runtime/wrangler.json` | D1 bindings; requires a dedicated Tesla binding (F08-R09) |
 | `apps/edge-runtime/migrations/` | Numbered migration convention for all Tesla schema (F08-R10) |
 | `apps/afirmico-tesla/` | **Home for the Tesla integration (owner decision, v1.5).** A new dedicated Worker that owns the `auto.afirmi.co` hostname. Supersedes the v1.2 decision to build inside `apps/edge-runtime/` (worker `edgegde-calculator`), which is ruled out — it is the calculator app and its D1 bindings point at document-intelligence databases. The p9 prototype (`apps/tesla-fleet-worker/`) has been removed; F02/F04/F08 are built in the new app. See SDD-010 §2 and §5. |
-| Bitwarden Secrets — Tesla client id / client secret | Credential source. Tesla developer app does not yet exist (R-01). **No Tesla key pair is stored here** (verified 2026-09-29) — a key pair MUST be generated before registration (F02-R02). |
+| Bitwarden Secrets — Tesla client id / client secret | Credential source. **App created 2026-09-25 and registered 2026-10-02 (R-01 resolved, v1.6).** Holds the client id and secret, and `TESLA_FLEET_PRIVATE_KEY` (the EC P-256 signing key, added 2026-10-02). The private key MUST NOT be rotated once registered (F02-R02). |
+| `apps/afirmico-tesla/` — Tesla app config | **Registered app configuration is authoritative (F02-R14).** App `AFIRMICO Auto`, client id `f03d04ed-a6b0-43b3-bda4-5c19dec5dd2b`, origin `https://auto.afirmi.co`, redirect `https://auto.afirmi.co/auth/callback`, returned URL `https://auto.afirmi.co/dashboard`. Contact: **`connect@afirmico.com`**. |
+| Browser-gating context (owner, 2026-10-02) | `auto.afirmi.co` will sit **behind the TOCA member site**, so in production only members reach it. This does **not** make F01-R01 optional — a member funnel must still be enforced server-side, and `/connect` is currently **ungated** pending F01. |
 | Cloudflare account `renleding`, worker `aged-cherry-8781` | Serves `auto.afirmi.co` today as a catch-all SPA, bound as a Workers **Custom Domain** (re-verified 2026-10-02; **no repo config declares it**). Has **zero bindings**, so it cannot host Tier 1 and is **ruled out for Tesla** by the owner (it is the calculator/splash worker). Tier 1 is a new dedicated worker owning the hostname — see SDD-010 §2. |
 | https://developer.tesla.com/docs/fleet-api/billing-and-limits | Billing limit behaviour; limit raised to $100, payment method added |
 | https://developer.tesla.com/docs/fleet-api/fleet-telemetry | **Primary transport contract** — streaming semantics, per-field `interval_seconds`, `minimum_delta`, `include_fields` |
@@ -694,7 +734,7 @@ AC6: No individual data for the revoked member remains queryable after the appli
 
 | ID | Risk / Decision | Impact | Status |
 |----|----------------|--------|--------|
-| R-01 | **Tesla developer app not yet created.** No partner registration, token, or vehicle call is possible until it exists and is approved. Registration also requires the public key to be hosted and reachable at `/.well-known/` (F02-R01), which today serves SPA HTML — so the Tier 1 worker must land **before** app registration. | Blocks all of F02 and everything downstream | OPEN — Warren |
+| R-01 | **Tesla developer app — RESOLVED (v1.6).** The app **was never missing**: it was created on developer.tesla.com on **2026-09-25** and is **ACTIVE**, onboarding approved 2026-10-02. Partner registration completed 2026-10-02 (`POST /api/1/partner_accounts` → `enterprise_tier: pay_as_you_go`, public key recorded byte-identical to the committed PEM), and a `client_credentials` exchange returns a live token. The prior text ("app not yet created", "Tier 1 worker must land before registration") was a **false blocker** carried from v1.5 and is retracted. The public key was reachable at `/.well-known/` before registration, so the ordering constraint was satisfied in practice. | Was the headline blocker; nothing downstream is gated on it now | **RESOLVED (v1.6)** |
 | R-02 | **FSD usage — RESOLVED (v1.4) by choosing telemetry.** `MilesSinceReset` / `SelfDrivingMilesSinceReset` are Fleet Telemetry fields, so selecting Fleet Telemetry as the transport satisfies F05-R03 directly with the authoritative source and no approximation. Resolved as **telemetry-only**, accepting the two coverage caveats: the fields are HW4-only (excludes older Model 3/Y) and firmware 2025.44.25.5+, and both counters reset on software update, computer replacement, or factory reset, so the metric is a *since-reset* ratio rather than lifetime (see F05-R14). Non-HW4 vehicles report FSD as unavailable, not zero. | Was the headline blocker; now a coverage caveat rather than an open decision | **RESOLVED (v1.4)** |
 | R-02a | Options A (MVP without FSD), B (minimal FSD-first telemetry) and C (polled proxy indicator) — **all withdrawn at v1.4.** The owner selected Fleet Telemetry as the sole transport, which resolves the decision that generated these options. | — | WITHDRAWN (v1.4) |
 | R-02b | Superseded — **this option is now the architecture.** Retained only to show the decision path: the minimal FSD-first telemetry configuration it described is what SDD-010 implements, extended with battery level and located-at-home/work fields. The earlier cost note in this row (scaling Tesla's per-hour figures) was superseded on v1.4 by a **measured** model: ~525 signals/vehicle/month → **$5.25/month for 1,500 vehicles**, inside Tesla's $10/month account credit. | — | ADOPTED (v1.4) |
@@ -709,8 +749,8 @@ AC6: No individual data for the revoked member remains queryable after the appli
 | R-10 | **Tesla rate limits are per device, per account** and shared across multiple apps on one account, but the published numeric limits were not retrievable. | Run sizing and retry policy cannot be finalised | OPEN — verify before build |
 | R-11 | **Backup and export linkage.** No backup/restore requirement is specified for the Tesla D1 database or R2 raw payloads. | Data-loss exposure | OPEN — likely a later FRS |
 | R-12 | **No PII field-level classification** in the catalog beyond Location. | Deletion completeness (F10-N01) depends on knowing exactly which fields are PII | OPEN — design decision |
-| R-13 | **Splash-page cutover.** Moving `auto.afirmi.co` from the `aged-cherry-8781` Custom Domain to the new worker changes what the public URL serves. The current splash content is not in the repo (the worker is unmanaged, and the only local snapshot of its script predates its last deploy by two days), so it cannot be diffed or preserved automatically. | Any existing member-facing use of the splash page breaks at cutover | OPEN — verify before cutover |
-| R-14 | **Public-key `Content-Type` is contradictory across the specs.** FRS F02-R01 specifies `application/x-pem-file`; SDD-010 previously specified `text/plain`. Served under the wrong type, Tesla's onboarding validator may reject the key. Also unresolved: whether F02-R01's "excluded from the SPA fallback" wording still applies now that the same worker serves both the key and the SPA (SDD-010 §2 now handles this by ordering, not exclusion). | Could block registration at the final step | OPEN — settle empirically (SDD-010 O-9) |
+| R-13 | **Splash-page cutover — deferred, not required (v1.6).** The concern was that moving `auto.afirmi.co` to the new worker would change what the public URL serves, and that the splash content is not in the repo so it could not be preserved automatically. **This no longer applies:** the Tesla surface is attached by **Route**, which takes precedence over the Custom Domain, so the splash worker still serves every path this worker does not claim. Verified live: `/` returns the original 3,721-byte document, and a byte-identical copy is now committed at `apps/afirmico-tesla/public/index.html` — the preservation gap is closed as a side effect. A full cutover only becomes necessary if the whole hostname must move to one worker, at which point the committed copy is the diffable baseline. | No member-facing breakage | **DEFERRED (v1.6)** |
+| R-14 | **Public-key `Content-Type` — RESOLVED (v1.6).** FRS F02-R01 specified `application/x-pem-file`; SDD-010 previously said `text/plain`. Settled empirically: Tesla's own registration call downloaded the key successfully with `application/x-pem-file`, and the partner record was created. F02-R01's wording stands. The related "excluded from the SPA fallback" phrasing is also settled — the worker is attached by **Route**, so the splash worker never sees the key path at all. | Was a possible registration blocker; closed by the successful registration | **RESOLVED (v1.6)** |
 
 ---
 

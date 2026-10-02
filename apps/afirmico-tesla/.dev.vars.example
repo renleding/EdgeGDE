@@ -1,0 +1,8 @@
+# Copy to .dev.vars for local development. .dev.vars is gitignored — never commit real values.
+#
+# TESLA_CLIENT_ID is a public value and arrives from `vars` in wrangler.json, so it is not repeated here.
+# The real TESLA_CLIENT_SECRET is a Worker secret and is deliberately NOT mirrored to disk; the dummy
+# below only lets the redirect/state/PKCE path run locally. A real code exchange will fail locally and
+# must be verified against the deployed Worker instead.
+TESLA_CLIENT_SECRET="local-dummy-not-a-real-secret"
+OAUTH_STATE_SECRET="dev-only-not-a-real-secret"

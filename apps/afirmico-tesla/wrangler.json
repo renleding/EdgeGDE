@@ -6,7 +6,22 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/.well-known/*", "/connect", "/healthz"]
+    "run_worker_first": [
+      "/.well-known/*",
+      "/connect",
+      "/auth/*",
+      "/dashboard",
+      "/healthz"
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_SESSIONS",
+      "id": "75ec1bb289d14620bc09672aef296593"
+    }
+  ],
+  "vars": {
+    "TESLA_CLIENT_ID": "f03d04ed-a6b0-43b3-bda4-5c19dec5dd2b"
   },
   "observability": {
     "enabled": true
@@ -18,6 +33,18 @@
     },
     {
       "pattern": "auto.afirmi.co/connect",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/auth/*",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/dashboard",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/healthz",
       "zone_name": "afirmi.co"
     }
   ]
