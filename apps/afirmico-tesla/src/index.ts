@@ -183,12 +183,34 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+/**
+ * Shared site icon (FRS-010 F01-R11).
+ *
+ * One icon for every page on the host. It is held here as a constant rather
+ * than as a file under public/ so that there is exactly one definition: an
+ * asset file plus a worker route would be two sources that can drift.
+ *
+ * /favicon.ico is the fixed location browsers request unprompted; it used to
+ * fall through to the static splash and answer with 3.7 KB of HTML and
+ * content-type text/html, so a tab showed either nothing or a broken icon.
+ */
+const FAVICON_HREF = '/favicon.svg'
+const FAVICON_CONTENT_TYPE = 'image/svg+xml'
+const FAVICON_SVG =
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="AFIRMICO Auto">` +
+  `<rect width="32" height="32" rx="6" fill="#0b5ed7"/>` +
+  `<text x="16" y="23.5" font-size="21" text-anchor="middle" fill="#ffffff" ` +
+  `font-family="Arial, Helvetica, sans-serif" font-weight="bold">A</text></svg>`
+
 function page(title: string, body: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="${FAVICON_CONTENT_TYPE}" href="${FAVICON_HREF}">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="${FAVICON_HREF}">
 <title>${title}</title>
 <style>
   *{box-sizing:border-box}
@@ -226,6 +248,31 @@ function page(title: string, body: string): string {
 </body>
 </html>`
 }
+
+/* -------------------------------------------------------------------------- */
+/* Shared site icon (F01-R11)                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The one icon for every page on the host.
+ *
+ * Registered ahead of everything else, including the routes that come before
+ * the onboarding entry below, because it must win over the static asset
+ * fallback for both /favicon.svg and /favicon.ico.
+ */
+app.get('/favicon.svg', (c) => {
+  return c.body(FAVICON_SVG, 200, {
+    'content-type': FAVICON_CONTENT_TYPE,
+    'cache-control': 'public, max-age=86400',
+  })
+})
+
+app.get('/favicon.ico', (c) => {
+  return c.body(FAVICON_SVG, 200, {
+    'content-type': FAVICON_CONTENT_TYPE,
+    'cache-control': 'public, max-age=86400',
+  })
+})
 
 /* -------------------------------------------------------------------------- */
 /* Tesla public key (F02-R01)                                                 */

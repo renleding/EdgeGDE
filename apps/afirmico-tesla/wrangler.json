@@ -13,7 +13,9 @@
       "/connect",
       "/auth/*",
       "/dashboard",
-      "/healthz"
+      "/healthz",
+      "/favicon.svg",
+      "/favicon.ico"
     ]
   },
   "kv_namespaces": [
@@ -44,6 +46,14 @@
   "routes": [
     {
       "pattern": "auto.afirmi.co/.well-known/*",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/favicon.ico",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/favicon.svg",
       "zone_name": "afirmi.co"
     },
     {
