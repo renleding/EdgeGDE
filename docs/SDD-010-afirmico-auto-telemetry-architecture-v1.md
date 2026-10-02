@@ -1,7 +1,7 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.6  \
+**Version:** 1.7  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
@@ -427,12 +427,12 @@ be replaceable without touching the Worker.
 | ID | Item | Owner |
 |----|------|-------|
 | O-1 | **Does `interval_seconds` accept 21600 (6 h)?** Verify on a live vehicle. Fallback 3600 modelled. | Build phase |
-| O-2 | **Relay host choice** — **resolved 2026-10-02.** Oracle Cloud, home region `ap-sydney-1` (verified live), provisioning at **1 OCPU / 2 GB** rather than the full 2/12 (see §10.8). Build sequence: §10.8. | Warren |
+| O-2 | **Relay host choice** — **resolved and PROVISIONED 2026-10-02.** Oracle Cloud `ap-sydney-1`; instance `relay-afirmico-tesla`, `VM.Standard.A1.Flex` **2 OCPU / 8 GB** arm64, RUNNING at `158.180.7.252` (see §10.8). Build sequence: §10.8, of which the host half is done. | Warren |
 | O-3 | **Tesla developer app creation** (R-01) — gates registration; nothing streams until it exists. Register **after** the relay is up (§10.8 step 9). | Warren |
 | O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. Partly answered by §10.8 step 4 (reserved public IP). | Build phase |
 | O-5 | **Consent wording** (R-06) — must disclose data leaves the vehicle to a US processor (Tesla) and to insurers (APP 8). | Warren |
 | O-6 | **D1_TESLA binding decision** — extend `D1_AFIRMICO` vs provision a dedicated database per F08-R09. | Build phase |
-| O-7 | **PAYG upgrade completion** — submitted 2026-10-01 02:40 UTC; tenancy still reports `payment-model: FREE_TRIAL` (verified 2026-10-02). **Gates provisioning** (§10.8 step 0). | Oracle |
+| O-7 | **PAYG upgrade completion** — **RESOLVED 2026-10-02.** Tenancy reports `payment-model: PAYG` (`start-date 2026-09-30`), so idle reclamation is removed and the paid Arm allowance applies. Previously gated §10.8 step 0; that gate is now satisfied. | Oracle — **closed** |
 | O-8 | **Admin access path** — whether OCI Bastion can target an instance in a *public* subnet, or whether Run Command / a narrowed-CIDR `:22` is the answer (§10.8 step 5). | Build phase |
 | O-9 | **Public-key `Content-Type` is contradictory across the specs.** FRS F02-R01 requires `application/x-pem-file`; this SDD previously said `text/plain`. The correct value must be settled empirically against Tesla's onboarding validator, then both documents aligned. Left unresolved rather than guessed. | Build phase |
 | O-10 | **Worker name + hostname ownership.** Worker name `afirmico-tesla` is provisional. Moving `auto.afirmi.co` from the `aged-cherry-8781` Custom Domain to the new worker changes what the public splash URL serves — confirm no member-facing dependency on the current splash content before the cutover (see §5). | Warren |
@@ -547,13 +547,14 @@ Constraint 1), and **idle reclamation applies to Always Free tenancies only** (s
 Upgrading is **recommended** because Oracle documents it as the route to capacity, because paid
 tenancies escape the Arm allowance reduction, and because it removes idle reclamation entirely.
 
-**Upgrade status, verified 2026-10-02:** submitted 2026-10-01 02:40 UTC; the tenancy still reports
-`payment-model: FREE_TRIAL` and the console shows *"Your upgrade is in progress."* **Pay As You Go is
-therefore not yet active, and every benefit above is not yet in force.** Completion is signalled by a
-confirmation email plus `Subscription Information → Plan Type` changing from *Free Tier* to *Pay As You
-Go*; the API equivalent is `payment-model` ceasing to be `FREE_TRIAL`. Oracle's stated window is
-24–48 h, with documented stalls of 5–14 days. This gates provisioning — see §10.8 step 0. Capacity
-itself is already confirmed available: **41 A1 cores and 277 GB free in `AP-SYDNEY-1-AD-1`, 0 used.**
+**Upgrade status — ACTIVE, verified 2026-10-02 (rev 1.7).** The tenancy now reports
+`payment-model: PAYG` with `start-date: 2026-09-30T...Z`. **Every benefit above is now in force**:
+idle reclamation does not apply, the paid Arm allowance governs, and the documented route to capacity is
+open. The earlier revision-1.6 text — *"the tenancy still reports `FREE_TRIAL` … therefore not yet
+active … this gates provisioning"* — described the state before completion and is **superseded**; the
+step-0 gate in §10.8 is consequently satisfied rather than standing. Capacity, re-read live at
+provisioning time: **250 A1 cores / 1,666 GB free in `AP-SYDNEY-1-AD-1`** (0 used). The `41 cores /
+277 GB` figure recorded in rev 1.6 was a narrower read and is superseded by this one.
 
 Hardware is far beyond requirement. Both Tesla images publish **arm64** manifests (verified via
 `docker manifest inspect`) and the arm64 `fleet-telemetry` binary was executed to confirm it runs on
@@ -682,10 +683,17 @@ on PAYG is the lower-cost choice with no reclamation penalty.**
 ### 10.8 Provisioning runbook — Oracle Cloud, `ap-sydney-1`
 
 **Scope.** Fresh Oracle Cloud host → relay streaming in production, as one deterministic sequence.
-This is the materialisation of `infra/telemetry-relay/deploy.md` (§5). It is **doc-only**: no OCI write
-has been performed. Every command below is authored from **verified live tenant facts** (table) plus the
-OCI CLI reference — **the commands themselves have not yet been executed**, and each should be checked
-with `--help` at run time. Nothing here is a claim of a completed step.
+This is the materialisation of `infra/telemetry-relay/deploy.md` (§5).
+
+**Execution status (rev 1.7) — the host-provisioning half has been EXECUTED.** Steps 0–5 below were
+carried out on 2026-10-02 and the resulting instance is live; the facts table and OCIDs are therefore
+*observed output*, not intended input. What remains **unexecuted** is everything that puts the relay on
+the host: the container deploy (fleet-telemetry + vehicle-command), the certificate material, the Tesla
+`fleet_telemetry_config` creation (F02-R10/R11), and the `--help` checks that rev 1.6 asked for. **No
+Tesla telemetry config exists, so no vehicle is streaming and :443 answers nothing.**
+
+The step numbering below is retained as authored. Read it as a record of a sequence whose first half is
+done, not as an unrun plan.
 
 #### Verified tenant facts (read-only inspection, 2026-10-02)
 
@@ -694,14 +702,15 @@ with `--help` at run time. Nothing here is a claim of a completed step.
 | Home region | `ap-sydney-1` (key `SYD`) — **immutable, set at signup** |
 | Availability domains | **one**: `wWrd:AP-SYDNEY-1-AD-1` (Sydney is single-AD) |
 | Tenancy | `renleding` (description `TENLS-6209`) |
-| Account state | `payment-model: FREE_TRIAL` — **PAYG upgrade pending** (O-7) |
-| A1 capacity | **41 cores / 277 GB free** in AD-1, 0 used → no `Out of host capacity` wall |
+| Account state | `payment-model: PAYG`, `start-date 2026-09-30` — **active** (O-7 resolved) |
+| A1 capacity | **250 cores / 1,666 GB free** in AD-1, 0 used → no `Out of host capacity` wall |
 | Existing VCN | `vcn-20261001-1101` · `10.0.0.0/16` · IGW + default route present — **reused** |
 | Existing subnet | `subnet-20261001-1059` · `10.0.0.0/24` · public IPs allowed — **reused** |
-| Security list | default list; ingress currently **TCP 22 from `0.0.0.0/0`** and world ICMP |
-| Shape | `VM.Standard.A1.Flex` — **1 OCPU / 2 GB** (not the full 2/12) |
-| Image | `Canonical-Ubuntu-24.04-aarch64-2026.09.18-0` |
+| Security list | **hardened (rev 1.7)**: ingress is `443/tcp` (fleet-telemetry mTLS) + `22/tcp` **from the operator `/32` only** + ICMP type-3/code-4 (PMTU — must not be removed). The original `22` from `0.0.0.0/0` has been removed |
+| Shape | `VM.Standard.A1.Flex` — **2 OCPU / 8 GB**, launched (arm64). Probed live at **6% memory used** (507 MB / 7,915 MB); the ~45 MiB relay working set needs a fraction of that |
+| Image | Ubuntu 24.04 **aarch64** (arm64 confirmed against `VM.Standard.A1.Flex` before launch) |
 | Boot volume | 47 GB floor, **no snapshot** (relay persists nothing) |
+| Instance | `relay-afirmico-tesla` · **RUNNING** · public IP `158.180.7.252` · created 2026-10-02T13:15:06Z |
 
 Verified OCIDs, so the runbook needs no console lookups:
 
@@ -723,11 +732,10 @@ oci organizations subscription list --compartment-id "$TENANCY" \
   --query 'data.items[0].{"model":"payment-model"}'
 ```
 
-**Do not proceed unless `model` is no longer `FREE_TRIAL`.** Every benefit in §10.7 — reclamation
-exemption, the paid Arm allowance, the documented route to capacity — is contingent on this. Creating the
-instance first is not fatal, but it straddles the transition and muddies both the tenancy's state and the
-cost record. Completion is signalled by the confirmation email and `Subscription Information → Plan Type`
-flipping to *Pay As You Go*. **If the upgrade is still pending, stop here and wait** (O-7).
+**GATE SATISFIED (rev 1.7, 2026-10-02).** The subscription reports `payment-model: PAYG`, so the
+condition this step refuses on no longer holds and the sequence proceeded. Retained as a gate description
+because it records *why* the step existed; on a fresh tenancy it still applies verbatim — **if the
+upgrade is pending, stop here and wait.**
 
 #### Step 1 — Decide the admin access path *before* creating the instance
 
