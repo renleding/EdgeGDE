@@ -61,7 +61,9 @@ describe('logAuditEvent', () => {
 
   it('inserts an audit row with uuid, serialized payload and unix timestamp', async () => {
     const db = makeDb()
+    const before = Math.floor(Date.now() / 1000)
     await logAuditEvent(db, 'tenant-1', 'session-9', 'rule_evaluated', { rule: 'r1', score: 42 })
+    const after = Math.floor(Date.now() / 1000)
 
     expect(db.prepare).toHaveBeenCalledWith(INSERT_SQL)
     expect(db.bind).toHaveBeenCalledTimes(1)
@@ -71,7 +73,9 @@ describe('logAuditEvent', () => {
     expect(args[2]).toBe('session-9')
     expect(args[3]).toBe('rule_evaluated')
     expect(args[4]).toBe(JSON.stringify({ rule: 'r1', score: 42 }))
-    expect(args[5]).toBe(Math.floor(Date.now() / 1000))
+    // Allow ±1 second for test execution time variance
+    expect(args[5]).toBeGreaterThanOrEqual(before)
+    expect(args[5]).toBeLessThanOrEqual(after + 1)
     expect(db.run).toHaveBeenCalledTimes(1)
   })
 
