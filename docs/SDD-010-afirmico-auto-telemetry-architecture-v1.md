@@ -1,7 +1,7 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.8  \
+**Version:** 1.9  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
@@ -19,6 +19,17 @@ data flows between them.
 **This SDD supersedes the polling transport.** FRS-010 §3.6 chose polling on the basis that it avoided a
 mTLS telemetry host entirely. The owner has since selected Fleet Telemetry as the sole transport and a
 minimal **kms + FSD-kms** field set with a 6-hour refresh. Section 1.1 records what that changes.
+
+**Revision note (rev 1.9, 2026-10-02).** **Corrected an ingest route path that would have broken the first
+production batch.** This document named the ingest endpoint `/api/telemetry/ingest` in six places. The
+deployed Worker serves **`/ingest/telemetry`** — the reverse — so a relay wired against this document would
+have received a `404` on every POST, at the one point where the failure is hardest to diagnose: the vehicle
+is streaming, the host is healthy, and nothing arrives. Found by diffing the document against the routes in
+`apps/afirmico-tesla/wrangler.json` rather than by reading either alone. All six occurrences now read
+`/ingest/telemetry`, and the box-drawing row was repadded to preserve its 81-character border.
+**Docs-only; the Worker was already correct and is unchanged.** Related: `infra/telemetry-relay/` (§5) is
+specified but **does not exist in the repository** — the component that would POST to this endpoint is
+unbuilt, so the pipeline currently terminates on the relay host with no forwarder attached.
 
 **Revision note (rev 1.8, 2026-10-02).** Wording correction; no design change. The `vehicle-command`
 component on the relay is a **configuration signer only** (F02-R11, amended). It signs the
@@ -62,7 +73,7 @@ consumer needs. Field interval selection, not transport selection, is the cost l
 │      com.tesla.3p.public-key.pem                                              │
 │    /auth/callback                       Tesla OAuth code exchange            │
 │    /admin/*                             operator dashboard (role-gated)       │
-│    /api/telemetry/ingest                relay → D1/R2 (shared-secret auth)    │
+│    /ingest/telemetry                    relay → D1/R2 (shared-secret auth)    │
 │    /api/insurer/package/{id}            time-limited CSV download             │
 │                                                                               │
 │  D1  tesla_* tables        F08 schema (catalog + narrow fact + raw ref)       │
@@ -151,7 +162,7 @@ Vehicle  ──mTLS──▶  fleet-telemetry (:443)
                      logger dispatcher → JSONL
                        │  buffered, flushed every 5 min OR 1 MB
                        ▼
-Tier1    POST /api/telemetry/ingest   (shared secret)
+Tier1    POST /ingest/telemetry   (shared secret)
           1. validate batch shape + VIN against enrolled set
           2. write raw JSONL blob → R2   key: raw/YYYY/MM/DD/{run_id}-{seq}.jsonl
           3. normalise → narrow fact rows (F08-R01) into D1
@@ -339,7 +350,7 @@ apps/afirmico-tesla/                        ← NEW worker, dedicated to Tesla (
       auth.ts                                token lifecycle (client_credentials + PKCE)
       register.ts                            partner registration + public_key verify
       configure.ts                           fleet_telemetry_config create/delete/get
-      ingest.ts                              /api/telemetry/ingest → R2 + D1
+      ingest.ts                              /ingest/telemetry → R2 + D1
       derive.ts                              deterministic profile derivation
       release.ts                             packaged CSV + signed download URLs
       revoke.ts                              de-configure + purge
@@ -357,7 +368,7 @@ separate app also keeps the calculator's D1 databases untouched and gives the Te
 infra/telemetry-relay/                      ← NEW, separate deploy unit
   README.md                                 host, ports, mTLS, cert renewal
   server_config.json                        fleet-telemetry config (JSONL + connectivity)
-  relay.ts | relay.py                       batch + POST to /api/telemetry/ingest
+  relay.ts | relay.py                       batch + POST to /ingest/telemetry
   check_server_cert.sh                      Tesla's validator (mTLS pre-flight)
   deploy.md                                 runbook: fresh host → streaming in prod
 ```
@@ -420,7 +431,7 @@ be replaceable without touching the Worker.
    Requires a **real paired vehicle** — a synthetic client cannot stream (§10.5).
 5. **Signal economy** — after 7 days on a real vehicle, `tesla_signal_counter` is within ±20% of the
    modelled 525/month/vehicle. A large overshoot means the interval is not being honoured.
-5a. **Ingest contract** — synthetic JSONL posted directly to `/api/telemetry/ingest` produces correct D1
+5a. **Ingest contract** — synthetic JSONL posted directly to `/ingest/telemetry` produces correct D1
    rows, R2 objects, and signal counts. Testable **without** a vehicle; run this before step 4 so the
    pipeline is proven before hardware is involved.
 6. **FSD derivation** — a profile over a known window matches hand-computed
@@ -550,7 +561,7 @@ Consequences for the verification plan (§8):
 - **Vehicle record ingestion cannot.** End-to-end streaming verification requires a **real paired
   vehicle**, so §8 item 4 and item 5 must be scheduled against one.
 - The **relay's forward path is independently testable** — its contract is JSONL, so synthetic batches
-  can be posted straight to `/api/telemetry/ingest`. This is a direct benefit of the span-port
+  can be posted straight to `/ingest/telemetry`. This is a direct benefit of the span-port
   boundary: the ingest contract does not depend on the vehicle.
 
 ### 10.6 Provider requirements (for host selection)
