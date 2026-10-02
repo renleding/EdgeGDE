@@ -149,6 +149,13 @@ jobs:
         working-directory: apps/afirmico-tesla
         run: bun run verify:schema
 
+      - name: Verify store code against the schema
+        # verify:schema proves the SQL is valid; this proves src/store.ts agrees
+        # with it. A column renamed in one and not the other typechecks cleanly
+        # and fails only when a member tries to connect.
+        working-directory: apps/afirmico-tesla
+        run: bun run verify:store
+
       - name: Typecheck
         working-directory: apps/afirmico-tesla
         run: bun run typecheck

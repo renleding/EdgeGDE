@@ -28,6 +28,7 @@ import {
   assertConfigured,
   buildAuthorizeUrl,
   clearCookie,
+  decodeIdToken,
   exchangeCode,
   fetchVehicles,
   generateCodeVerifier,
@@ -37,18 +38,41 @@ import {
   serializeCookie,
   verifyState,
 } from './oauth'
+import {
+  CONSENTED_FIELDS,
+  CONSENT_POLICY_VERSION,
+  CONSENT_TEXT,
+  sha256Hex,
+} from './consent-policy'
+import {
+  activeConsent,
+  audit,
+  createSession,
+  ensureConsentPolicy,
+  newId,
+  recordConsent,
+  revokeConsent,
+  storeTokens,
+  upsertMember,
+  upsertVehicles,
+} from './store'
+import { TokenKeyMissingError } from './crypto'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
   ASSETS: Fetcher
   /** OAuth session + PKCE transients. */
   OAUTH_SESSIONS: KVNamespace
+  /** Tesla data: members, consent, tokens, vehicles, telemetry (F08). */
+  D1_TESLA: D1Database
   /** Tesla developer app client id (public value — appears in the authorize URL). */
   TESLA_CLIENT_ID: string
   /** Tesla developer app client secret. Worker secret; never leaves the server. */
   TESLA_CLIENT_SECRET: string
   /** HMAC key used to sign OAuth `state` values. Worker secret. */
   OAUTH_STATE_SECRET: string
+  /** AES-GCM key (32 bytes, base64) encrypting refresh tokens at rest. */
+  TOKEN_ENCRYPTION_KEY: string
   /** Fleet API base URL. Defaults to the NA base (Australia routes here). */
   TESLA_AUDIENCE?: string
 }
@@ -94,6 +118,23 @@ const app = new Hono<{ Bindings: Env }>()
 /* Shared rendering                                                           */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Escape text for HTML embedding.
+ *
+ * Consent text is embedded verbatim, and `page()` interpolates raw strings, so
+ * anything member- or Tesla-supplied must go through here. Escaping the apex
+ * characters is sufficient for both element and attribute contexts given every
+ * interpolation below is double-quoted.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function page(title: string, body: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -118,6 +159,11 @@ function page(title: string, body: string): string {
   .note{margin-top:32px;padding:16px;border-left:3px solid #f5a623;background:#1a1508;color:#f0d9a8;border-radius:8px;font-size:15px}
   .err{border-left:3px solid #ff5c5c;background:#1a0808;color:#ffb3b3}
   .meta{color:#8a8a8a;font-size:14px}
+  .policy{white-space:pre-wrap;font-size:15px;color:#c9c9c9;max-height:340px;overflow-y:auto;background:#101010;border-radius:10px;padding:16px}
+  .check{display:flex;gap:12px;align-items:flex-start;cursor:pointer;margin-bottom:18px}
+  .check input{margin-top:4px;width:18px;height:18px;flex:0 0 auto}
+  button.cta{border:0;cursor:pointer;font-size:16px;font-family:inherit}
+  .cta.danger{background:#8a2020}
   code{background:#1d1d1d;padding:2px 6px;border-radius:4px;font-size:15px}
   a{color:#8ab4ff}
   footer{margin-top:48px;color:#7a7a7a;font-size:14px}
@@ -154,6 +200,14 @@ app.get(PUBLIC_KEY_PATH, async (c) => {
 /* Onboarding entry (R-13)                                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Onboarding entry (F01-R01..R03, R-13).
+ *
+ * The consent step was missing: the flow went straight from "connect" to the
+ * Tesla handshake, so no consent was ever captured and F01-R02/R03 were
+ * unsatisfied by a flow that appeared to work. The member must now explicitly
+ * accept the authorisation text, whose exact bytes are recorded.
+ */
 app.get('/connect', (c) => {
   const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
   const already = sessionId
@@ -164,23 +218,63 @@ app.get('/connect', (c) => {
   <h1>Connect your Tesla</h1>
 
   <p>AFIRMICO Auto asks your Tesla for two numbers only: total kilometres driven, and how many of
-  those were driven on Full Self-Driving. Nothing else is collected, and you can revoke it at any time
-  from your Tesla account.</p>
+  those were driven on Full Self-Driving. Nothing else is collected, and you can revoke it at any time.</p>
 
   ${already}
 
-  <ol class="steps">
-    <li>Sign in with your Tesla account and approve the data access we request.</li>
-    <li>Open the Tesla app to approve the AFIRMICO Auto key on your vehicle.</li>
-    <li>Return to your dashboard to see the vehicles we can read.</li>
-  </ol>
+  <form method="POST" action="/auth/consent">
+    <div class="card">
+      <h2>Authorisation</h2>
+      <p class="meta">Version <code>${CONSENT_POLICY_VERSION}</code></p>
+      <div class="policy">${escapeHtml(CONSENT_TEXT)}</div>
+    </div>
 
-  <a class="cta" href="/auth/start">Continue to Tesla</a>
+    <div class="card">
+      <label class="check">
+        <input type="checkbox" name="agree" value="yes" required>
+        <span>I have read and agree to this authorisation.</span>
+      </label>
+      <button class="cta" type="submit">Agree and continue to Tesla</button>
+    </div>
+  </form>
 
-  <h2>What we request</h2>
-  <p class="meta">${TESLA_SCOPES.join(' · ')} — identity, a refresh token so you don\\'t have to sign in
+  <h2>What we request from Tesla</h2>
+  <p class="meta">${TESLA_SCOPES.join(' · ')} — identity, a refresh token so you don't have to sign in
   again, and read access to vehicle data. We never request the ability to send commands to your car.</p>
   `))
+})
+
+/**
+ * Record consent, then hand off to Tesla (F01-R02/R03, F01 AC1).
+ *
+ * Split from `/connect` so the grant is captured before Tesla is involved: a
+ * member who abandons at the Tesla screen has still consented on the record,
+ * and a member who is refused there has a consent row that was never used.
+ */
+app.post('/auth/consent', async (c) => {
+  const form = await c.req.parseBody()
+  if (form.agree !== 'yes') {
+    return c.html(page('Consent needed — AFIRMICO Auto', `
+    <h1>Consent is required</h1>
+    <p>We cannot connect to your Tesla without your authorisation. Nothing has been recorded.</p>
+    <a class="cta" href="/connect">Back to the authorisation</a>
+    `), 400)
+  }
+
+  // Anonymous consent: the Tesla identity arrives at the callback, so the member
+  // row is created then. The consent row is attached to that member at callback
+  // time; here we only need the member to have accepted, which we carry forward
+  // in the signed state rather than by trusting a client round-trip.
+  const state = await generateState(c.env.OAUTH_STATE_SECRET, PKCE_TTL_SECONDS)
+
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: `/auth/start?state=${encodeURIComponent(state)}`,
+      'set-cookie': serializeCookie(STATE_COOKIE, state, { maxAge: PKCE_TTL_SECONDS }),
+      'cache-control': 'no-store',
+    },
+  })
 })
 
 /* -------------------------------------------------------------------------- */
@@ -194,8 +288,16 @@ app.get('/auth/start', async (c) => {
   })
   if (problems.length) return c.text(`Not configured: ${problems.join('; ')}`, 503)
 
+  // Reuse the state minted by /auth/consent when present, so the cookie set
+  // there and the value signed into the Tesla redirect are the same string.
+  // Minting a second state here would leave two different values and the
+  // callback's cookie comparison would fail.
+  const provided = c.req.query('state')
+  const cookieState = parseCookies(c.req.header('cookie'))[STATE_COOKIE]
+  const reused = provided && cookieState && provided === cookieState ? provided : null
+  const state = reused ?? (await generateState(c.env.OAUTH_STATE_SECRET, PKCE_TTL_SECONDS))
+
   const verifier = generateCodeVerifier()
-  const state = await generateState(c.env.OAUTH_STATE_SECRET, PKCE_TTL_SECONDS)
   const redirectUri = new URL(REDIRECT_PATH, c.req.url).toString()
 
   // The PKCE verifier is held server-side against the signed state value; only
@@ -211,14 +313,11 @@ app.get('/auth/start', async (c) => {
     challenge: await s256Challenge(verifier),
   })
 
-  return new Response(null, {
-    status: 302,
-    headers: {
-      location: url,
-      'set-cookie': serializeCookie(STATE_COOKIE, state, { maxAge: PKCE_TTL_SECONDS }),
-      'cache-control': 'no-store',
-    },
-  })
+  const headers = new Headers({ location: url, 'cache-control': 'no-store' })
+  if (!reused) {
+    headers.append('set-cookie', serializeCookie(STATE_COOKIE, state, { maxAge: PKCE_TTL_SECONDS }))
+  }
+  return new Response(null, { status: 302, headers })
 })
 
 /* -------------------------------------------------------------------------- */
@@ -289,12 +388,98 @@ app.get(REDIRECT_PATH, async (c) => {
     vehicles = []
   }
 
+  const identity = decodeIdToken(tokens.idToken)
+  const nowIso = new Date().toISOString()
   const sessionId = crypto.randomUUID()
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000).toISOString()
+
+  // ---------------------------------------------------------------------------
+  // Persist to D1 (F01-R02/R03/R05, F02-R05, F01 AC1).
+  //
+  // This block is why the callback no longer stops at KV. A session in KV is a
+  // cache entry that expires and cannot be queried; a member who connected left
+  // no durable record of who they were, what they agreed to, or that they had
+  // granted anything. Without this, F01 and F02-R05 were unmet by a flow that
+  // appeared to work.
+  //
+  // Failure here is NOT silent. A grant that is not recorded is a compliance
+  // problem, so the member is told the connection could not be saved rather than
+  // shown a dashboard implying success.
+  // ---------------------------------------------------------------------------
+  let memberId: string | null = null
+  let consentId: string | null = null
+  let policySha256: string | null = null
+  try {
+    memberId = await upsertMember(c.env.D1_TESLA, {
+      teslaSub: identity?.sub,
+      teslaEmail: identity?.email,
+      displayName: identity?.name,
+    })
+
+    await ensureConsentPolicy(c.env.D1_TESLA, nowIso)
+
+    const consent = await recordConsent(c.env.D1_TESLA, {
+      memberId,
+      scope: tokens.scope ?? TESLA_SCOPES.join(' '),
+      ip: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for'),
+      userAgent: c.req.header('user-agent'),
+      nowIso,
+    })
+    consentId = consent.consentId
+    policySha256 = consent.policySha256
+
+    await upsertVehicles(c.env.D1_TESLA, memberId, vehicles, nowIso)
+
+    if (tokens.refreshToken) {
+      await storeTokens(c.env.D1_TESLA, {
+        memberId,
+        refreshToken: tokens.refreshToken,
+        scope: tokens.scope ?? TESLA_SCOPES.join(' '),
+        expiresAt,
+        teslaSub: identity?.sub ?? null,
+        encryptionKey: c.env.TOKEN_ENCRYPTION_KEY,
+        nowIso,
+      })
+    }
+
+    await createSession(c.env.D1_TESLA, {
+      sessionId,
+      memberId,
+      scope: tokens.scope ?? TESLA_SCOPES.join(' '),
+      expiresAt,
+      userAgent: c.req.header('user-agent'),
+      nowIso,
+    })
+
+    await audit(c.env.D1_TESLA, {
+      action: 'member.connect',
+      actorType: 'member',
+      actor: memberId,
+      subjectType: 'member',
+      subjectId: memberId,
+      detail: { consentId, policyVersion: CONSENT_POLICY_VERSION, vehicles: vehicles.length },
+      nowIso,
+    })
+  } catch (error) {
+    const reason = error instanceof TokenKeyMissingError ? 'token_key_missing' : 'persist_failed'
+    // Still hand back a session so the member is not stranded, but tell them
+    // plainly that the connection was not recorded and must be retried.
+    await audit(c.env.D1_TESLA, {
+      action: 'member.connect.failed',
+      actorType: 'system',
+      subjectType: 'member',
+      detail: { reason, message: (error as Error).message },
+      nowIso,
+    }).catch(() => undefined)
+    return c.redirect(`/auth/error?reason=${reason}`, 303)
+  }
+
+  // KV keeps only the browser-session pointer and PKCE transients. D1 is the
+  // system of record; the token itself is never stored here.
   const record: SessionRecord = {
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
     scope: tokens.scope ?? TESLA_SCOPES.join(' '),
-    refreshToken: tokens.refreshToken,
-    accessTokenExpiresAt: new Date(Date.now() + tokens.expiresIn * 1000).toISOString(),
+    accessTokenExpiresAt: expiresAt,
     vehicles,
   }
   await c.env.OAUTH_SESSIONS.put(`sess:${sessionId}`, JSON.stringify(record), {
@@ -321,6 +506,8 @@ const ERROR_COPY: Record<string, string> = {
   not_configured: 'The service is not fully configured yet, so it cannot complete a sign-in. Please try again shortly.',
   login_required: 'Tesla needs you to sign in again.',
   invalid_auth_code: 'The authorization code expired before it reached us. Start again — it is valid only briefly.',
+  persist_failed: 'Tesla approved the connection, but we could not record it on our side. Nothing was saved, so nothing was collected. Start again — and if it keeps happening, contact us.',
+  token_key_missing: 'The service is not fully configured, so a connection could not be stored securely. Nothing was saved. Please try again shortly.',
 }
 
 app.get('/auth/error', (c) => {
@@ -357,11 +544,52 @@ app.get(DASHBOARD_PATH, async (c) => {
   }
 
   const session = JSON.parse(raw) as SessionRecord
-  const vehicleRows = session.vehicles.length
-    ? session.vehicles.map((vehicle) => `
+
+  // Read the durable state from D1 (F01-R07): consent version, what was agreed,
+  // and the vehicles on record. The KV session is a cache; D1 is the record.
+  const member = sessionId
+    ? await c.env.D1_TESLA.prepare(
+        `SELECT m.member_id, m.display_name, m.email, m.tesla_email, m.tier, m.toca_status, c.consent_id,
+                c.policy_version, c.policy_sha256, c.granted_at
+           FROM tesla_auth_session s
+           JOIN tesla_member m ON m.member_id = s.member_id
+           LEFT JOIN tesla_consent c ON c.member_id = m.member_id AND c.revoked_at IS NULL
+          WHERE s.session_id = ?
+          ORDER BY c.granted_at DESC
+          LIMIT 1`,
+      )
+        .bind(sessionId)
+        .first<{
+          member_id: string
+          display_name: string | null
+          email: string | null
+          tesla_email: string | null
+          tier: string
+          toca_status: string
+          consent_id: string | null
+          policy_version: string | null
+          policy_sha256: string | null
+          granted_at: string | null
+        }>()
+    : null
+
+  const vehiclesOnRecord = member
+    ? await c.env.D1_TESLA.prepare(
+        `SELECT vin, display_name, model FROM tesla_vehicle WHERE member_id = ? ORDER BY first_seen_at`,
+      )
+        .bind(member.member_id)
+        .all<{ vin: string; display_name: string | null; model: string | null }>()
+    : { results: [] as Array<{ vin: string; display_name: string | null; model: string | null }> }
+
+  const list = vehiclesOnRecord.results.length
+    ? vehiclesOnRecord.results
+    : session.vehicles.map((v) => ({ vin: v.vin, display_name: v.displayName ?? null, model: null }))
+
+  const vehicleRows = list.length
+    ? list.map((vehicle) => `
       <div class="card ok">
-        <strong>${vehicle.displayName ?? vehicle.vin}</strong>
-        <div class="meta">VIN ${vehicle.vin}${vehicle.state ? ` &middot; ${vehicle.state}` : ''}</div>
+        <strong>${escapeHtml(vehicle.display_name ?? vehicle.vin)}</strong>
+        <div class="meta">VIN ${escapeHtml(vehicle.vin)}${vehicle.model ? ` &middot; ${escapeHtml(vehicle.model)}` : ''}</div>
       </div>`).join('')
     : `<div class="note">Tesla returned no vehicles for this account. If you have a vehicle on this Tesla
        account, check that it is not a leased or business-managed vehicle.</div>`
@@ -369,13 +597,39 @@ app.get(DASHBOARD_PATH, async (c) => {
   const revokeUrl = `${TESLA_REVOKE_URL}?revoke_client_id=${encodeURIComponent(c.env.TESLA_CLIENT_ID)}` +
     `&back_url=${encodeURIComponent(new URL(DASHBOARD_PATH, c.req.url).toString())}`
 
+  // F01-R07: show the member what they agreed to, and prove byte-identity by
+  // comparing the rendered text's hash with the hash stored on their consent row.
+  const currentHash = await sha256Hex(CONSENT_TEXT)
+  const textMatches = member?.policy_sha256 ? member.policy_sha256 === currentHash : null
+
+  const consentBlock = member?.consent_id
+    ? `
+  <div class="card ok">
+    <h2>Your authorisation</h2>
+    <p class="meta">Version <code>${escapeHtml(member.policy_version ?? 'unknown')}</code> &middot;
+    granted ${escapeHtml(member.granted_at ?? '')}</p>
+    <p class="meta">${textMatches === true
+      ? 'The text shown on the connect page matches this authorisation exactly.'
+      : 'This authorisation was granted under an earlier version of the text.'}</p>
+    <form method="POST" action="/auth/revoke">
+      <button class="cta danger" type="submit">Withdraw authorisation</button>
+    </form>
+  </div>
+
+  <h2>The authorisation you agreed to</h2>
+  <div class="policy">${escapeHtml(CONSENT_TEXT)}</div>`
+    : `
+  <div class="note">No current authorisation on record. <a href="/connect">Grant one</a> to start collecting.</div>`
+
   return c.html(page('Your Tesla — AFIRMICO Auto', `
   <h1>Connected</h1>
   <div class="card ok">
     <p>Tesla access granted. We can read vehicle data for the vehicles below.</p>
-    <p class="meta">Granted scopes: <code>${session.scope}</code><br>
-    Connected: ${session.createdAt}</p>
+    <p class="meta">Granted scopes: <code>${escapeHtml(session.scope)}</code><br>
+    Connected: ${escapeHtml(session.createdAt)}</p>
   </div>
+
+  ${consentBlock}
 
   <h2>Your vehicles</h2>
   ${vehicleRows}
@@ -385,11 +639,81 @@ app.get(DASHBOARD_PATH, async (c) => {
   <a class="cta" href="${PAIRING_URL}">Approve the key in the Tesla app</a>
 
   <h2>Data we collect</h2>
-  <p>Odometer (kilometres) and Full Self-Driving kilometres. Nothing else.</p>
+  <p>${CONSENTED_FIELDS.map((f) => `<code>${escapeHtml(f)}</code>`).join(' &middot; ')} — total kilometres
+  and Full Self-Driving kilometres. Nothing else.</p>
 
-  <h2>Revoke access</h2>
-  <p>You can withdraw access at any time on your Tesla account. Revoking stops collection at the vehicle.</p>
-  <p><a href="${revokeUrl}">Revoke AFIRMICO Auto access</a> &middot; <a href="/auth/logout">Sign out of this browser</a></p>
+  <h2>Where it has been shared</h2>
+  <p class="meta">No third party has received your data yet. Insurers receive data only where you have asked
+  AFIRMICO to seek offers on your behalf.</p>
+
+  <h2>Revoke access at Tesla</h2>
+  <p class="meta">Withdrawing here stops collection immediately. You can also revoke at Tesla, which stops
+  collection at the vehicle.</p>
+  <p><a href="${revokeUrl}">Revoke AFIRMICO Auto access at Tesla</a> &middot;
+  <a href="/auth/logout">Sign out of this browser</a></p>
+  `))
+})
+
+/**
+ * Withdraw consent (F01-R04, F01 AC2/R04).
+ *
+ * F10-R04 requires the applicable retention rule to be shown to the member at
+ * the point of revocation, so the confirmation page states which rule applies
+ * and the revocation is only performed on the POST that follows it.
+ */
+app.post('/auth/revoke', async (c) => {
+  const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
+  const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
+  if (!raw) return c.redirect('/connect', 303)
+
+  const member = await c.env.D1_TESLA.prepare(
+    `SELECT m.member_id FROM tesla_auth_session s
+       JOIN tesla_member m ON m.member_id = s.member_id
+      WHERE s.session_id = ?`,
+  )
+    .bind(sessionId)
+    .first<{ member_id: string }>()
+  if (!member) return c.redirect('/connect', 303)
+
+  const nowIso = new Date().toISOString()
+
+  // F10-R01 vs F10-R02: an active policy changes the retention rule, and
+  // F10-R03 forbids applying one rule to both cases.
+  const policy = await c.env.D1_TESLA.prepare(
+    `SELECT quote_request_id FROM tesla_quote_request
+      WHERE member_id = ? AND status IN ('sent','accepted')
+      LIMIT 1`,
+  )
+    .bind(member.member_id)
+    .first<{ quote_request_id: string }>()
+
+  const revoked = await revokeConsent(c.env.D1_TESLA, member.member_id, 'member_revoked', nowIso)
+
+  await audit(c.env.D1_TESLA, {
+    action: 'member.consent_revoked',
+    actorType: 'member',
+    actor: member.member_id,
+    subjectType: 'member',
+    subjectId: member.member_id,
+    detail: { revoked, retention: policy ? 'policy_linked' : 'immediate_deletion' },
+    nowIso,
+  })
+
+  return c.html(page('Authorisation withdrawn — AFIRMICO Auto', `
+  <h1>Authorisation withdrawn</h1>
+  <div class="card ok">
+    <p>Collection has stopped. Your authorisation is recorded as withdrawn at ${escapeHtml(nowIso)}.</p>
+  </div>
+
+  <h2>What happens to your data</h2>
+  ${policy
+    ? `<p>You hold a policy obtained through AFIRMICO. Your data is retained until that policy expires,
+       after which it is deleted. This is recorded against your file.</p>`
+    : `<p>You hold no policy obtained through AFIRMICO, so your individual data — vehicle records,
+       telemetry, and any derived profile — will be deleted.</p>`}
+
+  <p>Anonymised postcode-level statistics are retained; they contain nothing that identifies you.</p>
+  <p><a href="/connect">Grant a new authorisation</a></p>
   `))
 })
 
@@ -407,14 +731,57 @@ app.get('/auth/logout', async (c) => {
   })
 })
 
-/** Liveness check for deployment verification. */
-app.get('/healthz', (c) => {
+/**
+ * Liveness and readiness.
+ *
+ * Reports configuration gaps by name rather than failing opaquely, and probes
+ * D1 so a missing migration or binding is visible here instead of surfacing as
+ * a member-facing 500 mid-onboarding.
+ */
+app.get('/healthz', async (c) => {
   const problems = assertConfigured({
     clientId: c.env.TESLA_CLIENT_ID,
     clientSecret: c.env.TESLA_CLIENT_SECRET,
     stateSecret: c.env.OAUTH_STATE_SECRET,
+    tokenKey: c.env.TOKEN_ENCRYPTION_KEY,
   })
-  return c.json({ status: problems.length ? 'degraded' : 'ok', service: 'afirmico-tesla', problems })
+
+  const checks: Record<string, string> = {}
+
+  try {
+    const row = await c.env.D1_TESLA.prepare(
+      `SELECT (SELECT count(*) FROM tesla_field_catalog) AS fields,
+              (SELECT count(*) FROM tesla_consent_policy) AS policies`,
+    ).first<{ fields: number; policies: number }>()
+    checks.d1 = 'ok'
+    checks.fields = String(row?.fields ?? 0)
+    checks.policies = String(row?.policies ?? 0)
+  } catch (error) {
+    checks.d1 = `error: ${(error as Error).message.slice(0, 120)}`
+    problems.push('D1_TESLA is not reachable or the migrations have not been applied')
+  }
+
+  // F01 AC5 depends on the rendered consent text hashing to the version on the
+  // member's consent row, so a mismatch here would silently break auditability.
+  try {
+    const row = await c.env.D1_TESLA.prepare(
+      'SELECT policy_sha256 FROM tesla_consent_policy WHERE policy_version = ?',
+    )
+      .bind(CONSENT_POLICY_VERSION)
+      .first<{ policy_sha256: string }>()
+    const current = await sha256Hex(CONSENT_TEXT)
+    checks.consent_text = row ? (row.policy_sha256 === current ? 'ok' : 'STALE_TEXT_HASH') : 'not_seeded'
+  } catch {
+    checks.consent_text = 'unavailable'
+  }
+
+  return c.json({
+    status: problems.length ? 'degraded' : 'ok',
+    service: 'afirmico-tesla',
+    version: CONSENT_POLICY_VERSION,
+    problems,
+    checks,
+  })
 })
 
 /**

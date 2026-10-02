@@ -111,6 +111,7 @@ const CONFIG_LABELS = {
   clientId: 'TESLA_CLIENT_ID',
   clientSecret: 'TESLA_CLIENT_SECRET',
   stateSecret: 'OAUTH_STATE_SECRET',
+  tokenKey: 'TOKEN_ENCRYPTION_KEY',
 } as const
 
 export type ConfigField = keyof typeof CONFIG_LABELS
@@ -224,6 +225,8 @@ export interface TeslaTokens {
   refreshToken?: string
   expiresIn: number
   scope?: string
+  /** ID token (JWT) — carries the member's stable Tesla `sub` claim. */
+  idToken?: string
 }
 
 interface TokenResponse {
@@ -231,6 +234,7 @@ interface TokenResponse {
   refresh_token?: string
   expires_in?: number
   scope?: string
+  id_token?: string
   error?: string
   error_description?: string
 }
@@ -242,6 +246,43 @@ function toTokens(body: TokenResponse): TeslaTokens {
     refreshToken: body.refresh_token,
     expiresIn: typeof body.expires_in === 'number' ? body.expires_in : 28800,
     scope: body.scope,
+    idToken: body.id_token,
+  }
+}
+
+/**
+ * Decode the `id_token` payload (F01-R05).
+ *
+ * The signature is NOT verified here, and that is deliberate rather than an
+ * oversight: this token was received over TLS in the direct response to our own
+ * server-side code exchange, authenticated with the client secret. It was not
+ * passed through the browser, so there is no untrusted hop for a forger to
+ * exploit. Verifying it against Tesla's JWKS would be belt-and-braces; what
+ * would be wrong is trusting an id_token that arrived from the client.
+ *
+ * Returns null rather than throwing: a decode failure must not lose the grant.
+ */
+export function decodeIdToken(idToken: string | undefined): {
+  sub?: string
+  email?: string
+  name?: string
+} | null {
+  if (!idToken) return null
+  const parts = idToken.split('.')
+  if (parts.length !== 3) return null
+  try {
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))) as {
+      sub?: unknown
+      email?: unknown
+      name?: unknown
+    }
+    return {
+      sub: typeof payload.sub === 'string' ? payload.sub : undefined,
+      email: typeof payload.email === 'string' ? payload.email : undefined,
+      name: typeof payload.name === 'string' ? payload.name : undefined,
+    }
+  } catch {
+    return null
   }
 }
 
