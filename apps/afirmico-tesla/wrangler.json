@@ -2,7 +2,9 @@
   "name": "afirmico-tesla",
   "main": "src/index.ts",
   "compatibility_date": "2025-05-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -62,6 +64,14 @@
     },
     {
       "pattern": "auto.afirmi.co/ingest/*",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/quote/*",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/download/*",
       "zone_name": "afirmi.co"
     }
   ]

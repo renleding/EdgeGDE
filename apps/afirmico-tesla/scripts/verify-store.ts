@@ -508,6 +508,132 @@ async function main() {
   check('constant-time compare rejects a length mismatch', timingSafeEqual('abc123', 'abc1234'), 'false')
   check('constant-time compare rejects empty', timingSafeEqual('', 'x'), 'false')
 
+  /* ---- F07: quote package + consent-based release ----------------------- */
+  console.log('\nQuote package and release (F07)')
+  const {
+    buildQuotePackage, issueDownloadToken, redeemDownloadToken,
+    releaseEligibility, activePolicyHold, PACKAGE_VERSION, ReleaseBlocked,
+  } = await import('../src/release')
+
+  const releaseMember = await upsertMember(d1, {
+    teslaSub: 'release-sub-1', teslaEmail: 'r@example.com', displayName: 'Release Tester',
+  })
+  await d1.prepare('UPDATE tesla_member SET mobile = ?, postcode = ? WHERE member_id = ?')
+    .bind('0400000000', '2335', releaseMember).run()
+  await upsertVehicles(d1, releaseMember, [
+    { vin: 'VIN-RELEASE-000001', displayName: 'Release Car' },
+  ], '2026-10-01T00:00:00.000Z')
+  await recordConsent(d1, { memberId: releaseMember, scope: 'openid', nowIso: '2026-10-01T00:00:01.000Z' })
+
+  check('eligibility requires live consent', (await releaseEligibility(d1, releaseMember)).eligible, 'true')
+
+  const period = { periodStart: '2026-09-01T00:00:00.000Z', periodEnd: '2026-10-01T00:00:00.000Z' }
+  const pkg = await buildQuotePackage(d1, {
+    memberId: releaseMember, vin: 'VIN-RELEASE-000001',
+    ...period, nowIso: '2026-10-02T00:00:00.000Z', requestedBy: 'underwriter:test',
+  })
+  check('package built', pkg.rowCount, 1)
+  check('package carries FSD availability', pkg.csv.includes('unavailable'), 'true')
+  check('package version pinned', pkg.csv.includes(PACKAGE_VERSION), 'true')
+  check('member PII present in package (F07-R01)', pkg.csv.includes('0400000000') && pkg.csv.includes('2335'), 'true')
+  check('package hash recorded', pkg.sha256.length, 64)
+
+  // F07-R03/F07-N01: attributable audit row.
+  check('release has an audit row',
+    (db.query("SELECT count(*) c FROM tesla_audit_event WHERE action = 'release_created' AND subject_id = ?").get(pkg.releaseId) as { c: number }).c, 1)
+
+  // F07-R05/R06: time-limited single-recipient link.
+  const dlTok = await issueDownloadToken(d1, {
+    releaseId: pkg.releaseId, issuedTo: 'insurer:test', ttlSeconds: 3600, nowIso: '2026-10-02T00:00:00.000Z',
+  })
+  check('token is not stored in plaintext', 
+    (db.query('SELECT count(*) c FROM tesla_download_token WHERE token_hash = ?').get(dlTok.token) as { c: number }).c, 0)
+  check('token expiry set', dlTok.expiresAt, '2026-10-02T01:00:00.000Z')
+
+  const load = async () => pkg.csv
+  const redeemed = await redeemDownloadToken(d1, {
+    token: dlTok.token, nowIso: '2026-10-02T00:10:00.000Z', ipHash: 'h', userAgent: 'ua', loadArtifact: load,
+  })
+  check('valid token redeems', redeemed.ok, 'true')
+  check('download logged (F07-R06)',
+    (db.query("SELECT count(*) c FROM tesla_release_access WHERE release_id = ? AND action = 'download'").get(pkg.releaseId) as { c: number }).c, 1)
+
+  const replay = await redeemDownloadToken(d1, {
+    token: dlTok.token, nowIso: '2026-10-02T00:11:00.000Z', ipHash: 'h', userAgent: 'ua', loadArtifact: load,
+  })
+  check('single-use token refuses replay', replay.reason, 'already_used')
+
+  const expired = await issueDownloadToken(d1, {
+    releaseId: pkg.releaseId, issuedTo: 'insurer:test', ttlSeconds: 60, nowIso: '2026-10-02T00:00:00.000Z',
+  })
+  const late = await redeemDownloadToken(d1, {
+    token: expired.token, nowIso: '2026-10-02T02:00:00.000Z', ipHash: 'h', userAgent: 'ua', loadArtifact: load,
+  })
+  check('expired token refused (F07-N02)', late.reason, 'expired')
+
+  // F07-N03: a link minted while consent was live must stop working on revocation.
+  const revokedTok = await issueDownloadToken(d1, {
+    releaseId: pkg.releaseId, issuedTo: 'insurer:test', ttlSeconds: 86400, nowIso: '2026-10-02T00:00:00.000Z',
+  })
+  await revokeConsent(d1, releaseMember, 'member_revoked', '2026-10-02T00:30:00.000Z')
+  const afterRevoke = await redeemDownloadToken(d1, {
+    token: revokedTok.token, nowIso: '2026-10-02T00:31:00.000Z', ipHash: 'h', userAgent: 'ua', loadArtifact: load,
+  })
+  check('revocation blocks an already-issued link (F07-N03)', afterRevoke.reason, 'consent_revoked')
+
+  const blocked = await buildQuotePackage(d1, {
+    memberId: releaseMember, vin: 'VIN-RELEASE-000001',
+    ...period, nowIso: '2026-10-02T00:32:00.000Z', requestedBy: 'underwriter:test',
+  }).then(() => null).catch((e) => e)
+  check('no release without live consent (F07-R02)', blocked instanceof ReleaseBlocked ? blocked.reason : 'NOT BLOCKED', 'no_live_consent')
+
+  /* ---- F07-R10: policy hold ------------------------------------------- */
+  console.log('\nPolicy hold (F07-R10, F07-N04)')
+  await recordConsent(d1, { memberId: releaseMember, scope: 'openid', nowIso: '2026-10-02T01:00:00.000Z' })
+
+  const noPolicy = await activePolicyHold(d1, releaseMember, '2026-10-15T00:00:00.000Z')
+  check('no hold without a policy', noPolicy.held, 'false')
+
+  await d1.prepare(
+    `INSERT INTO tesla_policy (policy_id, member_id, vin, insurer_ref, insurer_name, policy_number,
+       cover_start, cover_end, status, bound_at, created_at, updated_at)
+     VALUES (?, ?, ?, 'INS-T', 'Test Insurer', 'P-1', '2026-10-01T00:00:00.000Z', '2027-10-01T00:00:00.000Z', 'active',
+             '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')`,
+  ).bind(newId(), releaseMember, 'VIN-RELEASE-000001').run()
+  const held = await activePolicyHold(d1, releaseMember, '2026-10-15T00:00:00.000Z')
+  check('active policy holds collection (F07-R10)', held.held, 'true')
+  check('hold reports cover end', held.coverEnd, '2027-10-01T00:00:00.000Z')
+
+  const afterExpiry = await activePolicyHold(d1, releaseMember, '2027-11-01T00:00:00.000Z')
+  check('expired policy no longer holds', afterExpiry.held, 'false')
+
+  // One active policy per vehicle: a second would double-count in F06 aggregates.
+  const dup = (() => {
+    try {
+      db.query(
+        `INSERT INTO tesla_policy (policy_id, member_id, vin, insurer_ref, insurer_name, policy_number,
+           cover_start, cover_end, status, bound_at, created_at, updated_at)
+         VALUES (?, ?, ?, 'INS-U', 'Other', 'P-2', '2026-10-01T00:00:00.000Z', '2027-10-01T00:00:00.000Z', 'active',
+                 '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')`,
+      ).run(newId(), releaseMember, 'VIN-RELEASE-000001')
+      return 'accepted'
+    } catch { return 'refused' }
+  })()
+  check('two active policies on one VIN impossible', dup, 'refused')
+
+  // cover_end before cover_start is a data-entry error, not a valid policy.
+  const badCover = (() => {
+    try {
+      db.query(
+        `INSERT INTO tesla_policy (policy_id, member_id, vin, insurer_ref, cover_start, cover_end, status, bound_at, created_at, updated_at)
+         VALUES (?, ?, 'VIN-RELEASE-000001', 'INS-X', '2027-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'active',
+                 '2027-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z')`,
+      ).run(newId(), releaseMember)
+      return 'accepted'
+    } catch { return 'refused' }
+  })()
+  check('policy with reversed cover period refused', badCover, 'refused')
+
   console.log()
   console.log(`passed ${pass}, failed ${fail}`)
   process.exit(fail === 0 ? 0 : 1)

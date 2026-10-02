@@ -62,6 +62,14 @@ import {
 } from './store'
 import { TokenKeyMissingError } from './crypto'
 import {
+  PACKAGE_VERSION,
+  ReleaseBlocked,
+  activePolicyHold,
+  buildQuotePackage,
+  issueDownloadToken,
+  redeemDownloadToken,
+} from './release'
+import {
   costReport,
   extractDatums,
   finishIngestRun,
@@ -129,6 +137,15 @@ const DASHBOARD_PATH = '/dashboard'
 
 /** PKCE verifier lifetime: the member has 10 minutes to complete consent. */
 const PKCE_TTL_SECONDS = 600
+
+/**
+ * Download-link lifetime for a released package (F07-R05/R06).
+ *
+ * Short by design: the link is single-use, so the window only has to be long
+ * enough for the recipient to fetch it. A long-lived link is an uncontrolled copy
+ * of a member's personal data sitting in an inbox.
+ */
+const DOWNLOAD_TTL_SECONDS = 60 * 60
 
 /** Session lifetime. Refresh tokens outlive this and are refreshed server-side. */
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 90
@@ -952,6 +969,336 @@ app.post('/ingest/telemetry', async (c) => {
     errors,
     monthToDate: { signals: cost.signals, costUsd: cost.costUsd },
   })
+})
+
+/**
+ * Quote package request (F07-R01).
+ *
+ * The member asks for a quote; this builds the package and mints a single-use,
+ * time-limited link. Called by the member's own dashboard, so the member is
+ * resolved from the session and never from the request body — otherwise anyone
+ * could request anyone's PII by changing an id.
+ */
+app.post('/quote/request', async (c) => {
+  const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
+  const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
+  if (!raw) return c.redirect('/connect', 303)
+
+  const form = await c.req.parseBody()
+  const vin = typeof form.vin === 'string' ? form.vin : ''
+  const periodStart = typeof form.period_start === 'string' ? form.period_start : ''
+  const periodEnd = typeof form.period_end === 'string' ? form.period_end : ''
+  if (!vin || !periodStart || !periodEnd) return c.text('vin, period_start and period_end are required', 400)
+
+  const member = await c.env.D1_TESLA.prepare(
+    'SELECT member_id FROM tesla_auth_session WHERE session_id = ?',
+  )
+    .bind(sessionId)
+    .first<{ member_id: string }>()
+  if (!member) return c.redirect('/connect', 303)
+
+  const nowIso = new Date().toISOString()
+  try {
+    const pkg = await buildQuotePackage(c.env.D1_TESLA, {
+      memberId: member.member_id,
+      vin,
+      periodStart,
+      periodEnd,
+      nowIso,
+      requestedBy: `member:${member.member_id}`,
+    })
+
+    // F07-R05/R15: the artifact is stored in R2 and the link is handed out; data
+    // is never emailed as an attachment and never returned inline to a browser.
+    const key = `releases/${pkg.releaseId}.csv`
+    await c.env.RAW_PAYLOADS.put(key, pkg.csv, {
+      httpMetadata: { contentType: 'text/csv; charset=utf-8' },
+    })
+    await c.env.D1_TESLA.prepare('UPDATE tesla_release SET r2_key = ? WHERE release_id = ?')
+      .bind(key, pkg.releaseId)
+      .run()
+
+    const link = await issueDownloadToken(c.env.D1_TESLA, {
+      releaseId: pkg.releaseId,
+      issuedTo: `member:${member.member_id}`,
+      ttlSeconds: DOWNLOAD_TTL_SECONDS,
+      nowIso,
+    })
+
+    await audit(c.env.D1_TESLA, {
+      nowIso,
+      actor: member.member_id,
+      actorType: 'member',
+      action: 'quote_package_requested',
+      subjectType: 'tesla_release',
+      subjectId: pkg.releaseId,
+      detail: { vin, sha256: pkg.sha256 },
+    })
+
+    return c.html(page('Quote package ready — AFIRMICO Auto', `
+    <h1>Your package is ready</h1>
+    <div class="card ok">
+      <p><strong>Package version:</strong> ${escapeHtml(PACKAGE_VERSION)}</p>
+      <p><strong>Integrity (SHA-256):</strong> <code>${escapeHtml(pkg.sha256)}</code></p>
+      <p class="meta">This link works once and expires in ${Math.round(DOWNLOAD_TTL_SECONDS / 60)} minutes.
+      It is the only copy; downloading it is logged.</p>
+      <a class="cta" href="/download/${escapeHtml(link.token)}">Download your package</a>
+    </div>
+    `))
+  } catch (error) {
+    if (error instanceof ReleaseBlocked) {
+      // F07-R02: block, and say why. A refused release that reads as a system
+      // error invites the member to retry forever.
+      const hold = await activePolicyHold(c.env.D1_TESLA, member.member_id, nowIso)
+      const extra = hold.held
+        ? `<p>Your data cannot be released because a consent is required. Note: your policy runs to
+           <strong>${escapeHtml(hold.coverEnd ?? '')}</strong>, and terminating collection before then
+           would invalidate it (F07-R10).</p>`
+        : ''
+      return c.html(page('Release blocked — AFIRMICO Auto', `
+      <h1>We can't release your data</h1>
+      <div class="card">
+        <p>The reason recorded is <code>${escapeHtml(error.reason)}</code>.</p>
+        ${extra}
+        <p>Reconnect and accept the authorisation to enable release.</p>
+        <a class="cta" href="/connect">Review authorisation</a>
+      </div>
+      `), 409)
+    }
+    console.error('quote package failed', error)
+    return c.text('Could not build the quote package.', 500)
+  }
+})
+
+/**
+ * Tokenised download (F07-R05, F07-R06).
+ *
+ * The token is the credential, and every attempt — successful or not — is logged,
+ * because an attempted download of a member's data is itself an event worth
+ * recording.
+ */
+app.get('/download/:token', async (c) => {
+  const token = c.req.param('token')
+  const nowIso = new Date().toISOString()
+  const ip = c.req.header('cf-connecting-ip') ?? ''
+  const ua = c.req.header('user-agent') ?? null
+
+  const result = await redeemDownloadToken(c.env.D1_TESLA, {
+    token,
+    nowIso,
+    // Hashed, never raw: an IP is personal data and a download log is not a
+    // reason to retain one in the clear.
+    ipHash: ip ? await sha256Hex(ip) : null,
+    userAgent: ua,
+    loadArtifact: async (releaseId) => {
+      const row = await c.env.D1_TESLA.prepare('SELECT r2_key FROM tesla_release WHERE release_id = ?')
+        .bind(releaseId)
+        .first<{ r2_key: string | null }>()
+      if (!row?.r2_key) return null
+      const object = await c.env.RAW_PAYLOADS.get(row.r2_key)
+      return object ? await object.text() : null
+    },
+  })
+
+  if (!result.ok) {
+    return c.html(page('Link unavailable — AFIRMICO Auto', `
+    <h1>This link is no longer usable</h1>
+    <div class="card">
+      <p>Reason: <code>${escapeHtml(result.reason)}</code>.</p>
+      <p class="meta">Links are single-use and time-limited, and stop working if the member revokes
+      their authorisation.</p>
+      <a class="cta" href="/dashboard">Back to your dashboard</a>
+    </div>
+    `), 410)
+  }
+
+  return new Response(result.csv ?? '', {
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      // Never cached: a cached data export is an uncontrolled copy.
+      'cache-control': 'no-store, no-cache, must-revalidate, private',
+      'content-disposition': `attachment; filename="afirmico-quote-${result.releaseId}.csv"`,
+    },
+  })
+})
+
+/**
+ * Record an insurer's quote response (F07-R07, F07-R08).
+ *
+ * Authenticated by the shared ingest secret, because this is a system-to-system
+ * call from an insurer integration rather than a member action.
+ */
+app.post('/quote/response', async (c) => {
+  const provided = c.req.header('x-ingest-secret') ?? ''
+  const expected = c.env.INGEST_SHARED_SECRET ?? ''
+  if (!expected || !timingSafeEqual(provided, expected)) {
+    return c.json({ error: 'unauthorized' }, 401)
+  }
+
+  const body = await c.req.json<{
+    quote_request_id?: string
+    insurer_ref?: string
+    insurer_name?: string
+    premium_amount?: number
+    excess_amount?: number
+    cover_type?: string
+    terms?: unknown
+    release_id?: string
+  }>()
+
+  if (!body.quote_request_id || !body.insurer_ref) {
+    return c.json({ error: 'quote_request_id and insurer_ref are required' }, 400)
+  }
+
+  const nowIso = new Date().toISOString()
+  const responseId = newId()
+  const request = await c.env.D1_TESLA.prepare(
+    'SELECT quote_request_id, member_id FROM tesla_quote_request WHERE quote_request_id = ?',
+  )
+    .bind(body.quote_request_id)
+    .first<{ quote_request_id: string; member_id: string }>()
+  if (!request) return c.json({ error: 'unknown quote_request_id' }, 404)
+
+  await c.env.D1_TESLA.batch([
+    c.env.D1_TESLA.prepare(
+      `INSERT INTO tesla_quote_response
+         (response_id, quote_request_id, insurer_ref, insurer_name, premium_amount,
+          premium_currency, excess_amount, cover_type, terms_json, status, received_at, release_id)
+       VALUES (?, ?, ?, ?, ?, 'AUD', ?, ?, ?, 'received', ?, ?)`,
+    ).bind(
+      responseId,
+      body.quote_request_id,
+      body.insurer_ref,
+      body.insurer_name ?? null,
+      body.premium_amount ?? null,
+      body.excess_amount ?? null,
+      body.cover_type ?? null,
+      body.terms ? JSON.stringify(body.terms) : null,
+      nowIso,
+      body.release_id ?? null,
+    ),
+    c.env.D1_TESLA.prepare(
+      `INSERT INTO tesla_audit_event
+         (event_id, occurred_at, actor, actor_type, action, subject_type, subject_id, detail_json)
+       VALUES (?, ?, ?, 'system', 'quote_response_received', 'tesla_quote_response', ?, ?)`,
+    ).bind(
+      newId(),
+      nowIso,
+      `insurer:${body.insurer_ref}`,
+      responseId,
+      JSON.stringify({ quote_request_id: body.quote_request_id, premium: body.premium_amount ?? null }),
+    ),
+  ])
+
+  return c.json({ ok: true, response_id: responseId })
+})
+
+/**
+ * Member accepts or declines a quote (F07-R08).
+ *
+ * The decision writes both the response status and the policy binding in one
+ * batch, so a member can never hold an accepted quote with no policy recorded —
+ * the state that would leave their cover unverifiable.
+ */
+app.post('/quote/decide', async (c) => {
+  const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
+  const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
+  if (!raw) return c.redirect('/connect', 303)
+
+  const member = await c.env.D1_TESLA.prepare(
+    'SELECT member_id FROM tesla_auth_session WHERE session_id = ?',
+  )
+    .bind(sessionId)
+    .first<{ member_id: string }>()
+  if (!member) return c.redirect('/connect', 303)
+
+  const form = await c.req.parseBody()
+  const responseId = typeof form.response_id === 'string' ? form.response_id : ''
+  const decision = typeof form.decision === 'string' ? form.decision : ''
+  if (!responseId || !['accept', 'decline'].includes(decision)) {
+    return c.text('response_id and decision (accept|decline) are required', 400)
+  }
+
+  const response = await c.env.D1_TESLA.prepare(
+    `SELECT r.response_id, r.quote_request_id, r.insurer_ref, r.insurer_name, r.cover_type, r.release_id,
+            q.member_id, q.vin
+       FROM tesla_quote_response r
+       JOIN tesla_quote_request q ON q.quote_request_id = r.quote_request_id
+      WHERE r.response_id = ?`,
+  )
+    .bind(responseId)
+    .first<{
+      response_id: string
+      quote_request_id: string
+      insurer_ref: string
+      insurer_name: string | null
+      cover_type: string | null
+      release_id: string | null
+      member_id: string
+      vin: string
+    }>()
+  if (!response) return c.text('unknown response_id', 404)
+  // A member may only decide on their own quote; without this check any session
+  // could accept or decline another member's offer.
+  if (response.member_id !== member.member_id) return c.text('not your quote', 403)
+
+  const nowIso = new Date().toISOString()
+  const accept = decision === 'accept'
+
+  if (!accept) {
+    await c.env.D1_TESLA.prepare(
+      `UPDATE tesla_quote_response SET status = 'declined', decided_at = ?, decision_reason = 'member_declined'
+        WHERE response_id = ?`,
+    )
+      .bind(nowIso, responseId)
+      .run()
+    await audit(c.env.D1_TESLA, {
+      nowIso, actor: member.member_id, actorType: 'member',
+      action: 'quote_declined', subjectType: 'tesla_quote_response', subjectId: responseId,
+    })
+    return c.redirect(DASHBOARD_PATH, 303)
+  }
+
+  // Cover is annual at MVP; the insurer of record owns the actual period and this
+  // is our record of the binding (F07-R09). Recorded explicitly so F07-R10 has a
+  // date to check rather than an assumption.
+  const coverStart = nowIso
+  const coverEnd = new Date(Date.parse(nowIso) + 365 * 24 * 60 * 60 * 1000).toISOString()
+  const policyId = newId()
+
+  await c.env.D1_TESLA.batch([
+    c.env.D1_TESLA.prepare(
+      `UPDATE tesla_quote_response SET status = 'accepted', decided_at = ?, decision_reason = 'member_accepted'
+        WHERE response_id = ?`,
+    ).bind(nowIso, responseId),
+    c.env.D1_TESLA.prepare(
+      `UPDATE tesla_quote_request SET status = 'accepted', decided_at = ? WHERE quote_request_id = ?`,
+    ).bind(nowIso, response.quote_request_id),
+    c.env.D1_TESLA.prepare(
+      `INSERT INTO tesla_policy
+         (policy_id, member_id, vin, response_id, insurer_ref, insurer_name, cover_start, cover_end,
+          status, bound_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+    ).bind(
+      policyId, response.member_id, response.vin, responseId, response.insurer_ref,
+      response.insurer_name, coverStart, coverEnd, nowIso, nowIso, nowIso,
+    ),
+    c.env.D1_TESLA.prepare(
+      `INSERT INTO tesla_audit_event
+         (event_id, occurred_at, actor, actor_type, action, subject_type, subject_id, detail_json)
+       VALUES (?, ?, ?, 'member', 'quote_accepted', 'tesla_policy', ?, ?)`,
+    ).bind(
+      newId(), nowIso, member.member_id, policyId,
+      JSON.stringify({
+        insurer_ref: response.insurer_ref,
+        quote_request_id: response.quote_request_id,
+        release_id: response.release_id,
+        cover_end: coverEnd,
+      }),
+    ),
+  ])
+
+  return c.redirect(DASHBOARD_PATH, 303)
 })
 
 /**
