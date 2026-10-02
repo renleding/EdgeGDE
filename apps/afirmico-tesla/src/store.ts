@@ -10,7 +10,7 @@
  * millisecond and a monotonic-looking id makes audit reading far easier.
  */
 
-import { CONSENT_POLICY_VERSION, CONSENT_PURPOSES, CONSENT_TEXT, sha256Hex } from './consent-policy'
+import { CONSENTED_FIELDS, CONSENT_POLICY_VERSION, CONSENT_PURPOSES, CONSENT_TEXT, sha256Hex } from './consent-policy'
 import { sealToken, type SealedToken } from './crypto'
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
@@ -266,7 +266,7 @@ export async function recordConsent(
       JSON.stringify(CONSENT_PURPOSES),
       nowIso,
       policySha256,
-      JSON.stringify(['Odometer', 'MilesSinceReset', 'SelfDrivingMilesSinceReset']),
+      JSON.stringify(CONSENTED_FIELDS),
       JSON.stringify([]),
       await hashIp(params.ip),
       params.userAgent ?? null,

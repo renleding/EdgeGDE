@@ -32,7 +32,7 @@ import {
   upsertVehicles,
 } from '../src/store'
 import { openToken } from '../src/crypto'
-import { CONSENT_POLICY_VERSION, CONSENT_TEXT, sha256Hex } from '../src/consent-policy'
+import { CONSENT_POLICY_VERSION, CONSENTED_FIELDS, CONSENT_TEXT, sha256Hex } from '../src/consent-policy'
 
 const MIGRATIONS = join(import.meta.dir, '..', 'migrations')
 
@@ -114,7 +114,11 @@ async function main() {
   const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort()
   console.log(`Applying ${files.length} migrations to in-memory SQLite`)
   for (const file of files) {
-    db.exec(readFileSync(join(MIGRATIONS, file), 'utf8'))
+    // Strip a UTF-8 BOM: generated migration files can carry one, and a leading
+    // U+FEFF makes SQLite reject the statement with a syntax error whose message
+    // points at the first token, not at the invisible byte.
+    const sql = readFileSync(join(MIGRATIONS, file), 'utf8').replace(/^\uFEFF/, '')
+    db.exec(sql)
   }
   console.log()
 
@@ -185,7 +189,29 @@ async function main() {
   const rawIpLeaked = JSON.stringify(consentRow).includes('203.0.113.42')
   check('raw IP never stored', rawIpLeaked, 'false')
   check('ip_hash is a sha256', /^[0-9a-f]{64}$/.test(String(consentRow.ip_hash)), 'true')
-  check('field set recorded', JSON.parse(String(consentRow.collected_fields)).length, 3)
+  check('field set recorded', JSON.parse(String(consentRow.collected_fields)).length, 14)
+
+  // F01 AC6 (Must): the catalog's collected set and CONSENTED_FIELDS are two
+  // independent representations of the same decision. R-10 was raised because
+  // nothing compared them — the disclosure said two numbers, the catalog said
+  // fourteen, and every gate passed. This is the gate that was missing.
+  const catalogCollected = (
+    db.query('SELECT field_key FROM tesla_field_catalog WHERE collected = 1 ORDER BY field_key').all() as Array<{
+      field_key: string
+    }>
+  ).map((r) => r.field_key)
+  const declared = [...CONSENTED_FIELDS].sort()
+  check('catalog collected count', catalogCollected.length, declared.length)
+  check('catalog collected set == CONSENTED_FIELDS (F01 AC6)', catalogCollected.join(','), declared.join(','))
+
+  // The row written above records the set under the CURRENT policy version, so it
+  // must agree too — otherwise a member who consented today holds a consent row
+  // describing a different set from the one being collected.
+  check(
+    'consent row field set == CONSENTED_FIELDS',
+    JSON.parse(String(consentRow.collected_fields)).sort().join(','),
+    declared.join(','),
+  )
 
   // F01 AC5: the stored text must be reproducible and hash-identical.
   const policyRow = db
