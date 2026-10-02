@@ -194,3 +194,47 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # ═══ DEPLOY ═══
+      # Until this step existed, nothing in .github/workflows deployed this
+      # worker: merges to main applied the migrations and left the code stale
+      # until someone ran `wrangler deploy` by hand. That is why the v1.17
+      # consent text and the /connect rewording both merged but were not live.
+      #
+      # It lives in this job, not a new one, because it must run AFTER the
+      # migrations: the worker's /healthz compares the rendered consent text
+      # against the policy row, so deploying ahead of the seed reports
+      # STALE_TEXT_HASH for the gap between the two. One job, ordered, so there
+      # is no race between two workflows both triggered by a push to main.
+      - name: Deploy afirmico-tesla (production)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: apps/afirmico-tesla
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify deployment is live
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          # Readiness, not liveness: /healthz reports the policy version and any
+          # config gaps by name, so a deploy that shipped broken config fails
+          # here rather than at a member's first click. /healthz is served
+          # no-store, so this reads the deployment that just landed.
+          #
+          # Only the surface this workflow deploys is asserted. Ingest is not
+          # reachable in production yet (the Oracle relay carries no services),
+          # so it is deliberately not probed — a probe for it would fail the
+          # deploy for a reason this workflow cannot fix.
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -s --max-time 10 https://auto.afirmi.co/healthz || true)
+            if echo "$body" | grep -q '"status":"ok"'; then
+              echo "$body"
+              echo "afirmico-tesla is live and healthy"
+              exit 0
+            fi
+            echo "attempt $attempt: not healthy yet — $body"
+            sleep 10
+          done
+          echo "afirmico-tesla did not report healthy after deploy"
+          exit 1
+
