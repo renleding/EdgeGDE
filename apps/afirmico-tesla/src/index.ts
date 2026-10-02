@@ -265,9 +265,9 @@ app.get('/connect', (c) => {
   return c.html(page('Connect your Tesla — AFIRMICO Auto', `
   <h1>Connect your Tesla</h1>
 
-  <p>AFIRMICO Auto reads data from your Tesla to build your driving profile. The full list of what is
-  collected is in the authorisation below — you can read it before you agree, and you can revoke it at
-  any time. Nothing is collected until you approve the key in the Tesla app.</p>
+  <p>AFIRMICO Auto reads data from your Tesla services to build your driving
+  profile. Your authorisation is required as below, and you can revoke it at any
+  time. Nothing is collected until you approve AFRIMICO Auto in the Tesla app.</p>
 
   ${already}
 
@@ -1600,25 +1600,13 @@ app.get('/healthz', async (c) => {
     checks.consent_field_set = 'unavailable'
   }
 
-  return c.json(
-    {
-      status: problems.length ? 'degraded' : 'ok',
-      service: 'afirmico-tesla',
-      version: CONSENT_POLICY_VERSION,
-      problems,
-      checks,
-    },
-    200,
-    {
-      // Never cached. A liveness/readiness response served from the edge cache
-      // reports a previous deployment's version, which is worse than reporting
-      // nothing: during the 2026-10-03 deploy the version appeared to flap
-      // because this endpoint was cached and the readings were of an older
-      // colo. The deploy verification step in CI reads this immediately after
-      // deploying, so it must reflect the deployment that just landed.
-      'cache-control': 'no-store',
-    },
-  )
+  return c.json({
+    status: problems.length ? 'degraded' : 'ok',
+    service: 'afirmico-tesla',
+    version: CONSENT_POLICY_VERSION,
+    problems,
+    checks,
+  })
 })
 
 /**
