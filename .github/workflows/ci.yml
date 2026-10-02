@@ -183,7 +183,9 @@ jobs:
           for q in \
             "SELECT count(*) FROM tesla_field_catalog" \
             "SELECT count(*) FROM tesla_alert_catalog" \
-            "SELECT count(*) FROM tesla_endpoint_catalog"
+            "SELECT count(*) FROM tesla_endpoint_catalog" \
+            "SELECT policy_version, policy_sha256 FROM tesla_consent_policy WHERE superseded_at IS NULL" \
+            "SELECT count(*) FROM tesla_field_catalog WHERE collected = 1"
           do
             echo "--- $q"
             npx wrangler d1 execute afirmico-tesla --remote --command "$q"

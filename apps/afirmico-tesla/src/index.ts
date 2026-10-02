@@ -265,8 +265,9 @@ app.get('/connect', (c) => {
   return c.html(page('Connect your Tesla — AFIRMICO Auto', `
   <h1>Connect your Tesla</h1>
 
-  <p>AFIRMICO Auto asks your Tesla for two numbers only: total kilometres driven, and how many of
-  those were driven on Full Self-Driving. Nothing else is collected, and you can revoke it at any time.</p>
+  <p>AFIRMICO Auto reads data from your Tesla to build your driving profile. The full list of what is
+  collected is in the authorisation below — you can read it before you agree, and you can revoke it at
+  any time. Nothing is collected until you approve the key in the Tesla app.</p>
 
   ${already}
 
@@ -285,10 +286,6 @@ app.get('/connect', (c) => {
       <button class="cta" type="submit">Agree and continue to Tesla</button>
     </div>
   </form>
-
-  <h2>What we request from Tesla</h2>
-  <p class="meta">${TESLA_SCOPES.join(' · ')} — identity, a refresh token so you don't have to sign in
-  again, and read access to vehicle data. We never request the ability to send commands to your car.</p>
   `))
 })
 
@@ -707,8 +704,11 @@ app.get(DASHBOARD_PATH, async (c) => {
   <a class="cta" href="${PAIRING_URL}">Approve the key in the Tesla app</a>
 
   <h2>Data we collect</h2>
-  <p>${CONSENTED_FIELDS.map((f) => `<code>${escapeHtml(f)}</code>`).join(' &middot; ')} — total kilometres
-  and Full Self-Driving kilometres. Nothing else.</p>
+  <p>${CONSENTED_FIELDS.map((f) => `<code>${escapeHtml(f)}</code>`).join(' &middot; ')}</p>
+  <p class="meta">Your authorisation covers any field your vehicle reports on the data stream AFIRMICO has
+  enabled, so this set may change without you re-authorising. This is what is being collected today. The
+  distance and Full Self-Driving distance figures are the only numbers shared with insurers as driver
+  data. <a href="/details">Ask for the current field list</a> at any time.</p>
 
   <h2>Where it has been shared</h2>
   <p class="meta">No third party has received your data yet. Insurers receive data only where you have asked
@@ -1572,6 +1572,32 @@ app.get('/healthz', async (c) => {
     checks.consent_text = row ? (row.policy_sha256 === current ? 'ok' : 'STALE_TEXT_HASH') : 'not_seeded'
   } catch {
     checks.consent_text = 'unavailable'
+  }
+
+  // F01 AC6: the catalog's collected set and CONSENTED_FIELDS are two independent
+  // representations of the same decision. R-10 is exactly what happens when
+  // nothing compares them — the disclosure said two numbers, the catalog said
+  // fourteen, and both gates passed. Asserted in the build (verify-store.ts) and
+  // reported here so the drift is visible in production, not only in CI.
+  try {
+    const rows = await c.env.D1_TESLA.prepare(
+      'SELECT field_key FROM tesla_field_catalog WHERE collected = 1 ORDER BY field_key',
+    ).all<{ field_key: string }>()
+    const catalog = rows.results
+      .map((r) => r.field_key)
+      .sort()
+      .join(',')
+    const declared = [...CONSENTED_FIELDS].sort().join(',')
+    checks.collected_fields = String(rows.results.length)
+    checks.consent_field_set =
+      catalog === declared
+        ? 'ok'
+        : `MISMATCH catalog=${rows.results.length} declared=${CONSENTED_FIELDS.length}`
+    if (catalog !== declared) {
+      problems.push('F01 AC6: the catalog collected set and CONSENTED_FIELDS disagree')
+    }
+  } catch {
+    checks.consent_field_set = 'unavailable'
   }
 
   return c.json({
