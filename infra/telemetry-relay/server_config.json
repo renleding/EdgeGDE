@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "fleet-telemetry server config for AFIRMICO Auto (SDD-010 section 10.4).",
+    "Config deltas from the Tesla reference defaults are deliberate, not cosmetic:",
+    "  - tls.ca_file is UNSET: the binary already embeds Tesla's production vehicle CA.",
+    "    Setting it APPENDS to the trust pool, needlessly widening trust.",
+    "  - records.V is the only record type carrying vehicle data. alerts/errors/",
+    "    connectivity go to the same logger so 'vehicle asleep' is distinguishable",
+    "    from 'vehicle broken'.",
+    "  - transmit_decoded_records true emits JSON, so the forwarder needs no protobuf.",
+    "  - json_log_enable true is REQUIRED: the forwarder parses JSONL, not text.",
+    "  - logger.verbose true is REQUIRED. It sets includeTypes in the transformer,",
+    "    which wraps each value with its type ({doubleValue: 10}). With verbose=false",
+    "    an invalid signal is emitted as the STRING \"<invalid>\", which Tier 1 would",
+    "    store as valid text -- a declined signal silently becoming a measurement.",
+    "  - log_level warn: info-level logging wrote ~1.5 MB for 1500 handshake events."
+  ],
+
+  "host": "0.0.0.0",
+  "port": 443,
+
+  "log_level": "warn",
+  "json_log_enable": true,
+
+  "namespace": "tesla",
+  "reliable_ack": false,
+  "transmit_decoded_records": true,
+
+  "logger": {
+    "verbose": true
+  },
+
+  "records": {
+    "V": ["logger"],
+    "alerts": ["logger"],
+    "errors": ["logger"],
+    "connectivity": ["logger"]
+  },
+
+  "tls": {
+    "server_cert": "/certs/fullchain.pem",
+    "server_key": "/certs/privkey.pem"
+  },
+
+  "rate_limit": {
+    "enabled": true,
+    "message_limit": 1000
+  },
+
+  "monitoring": {
+    "prometheus_metrics_port": 9090
+  }
+}
