@@ -1,0 +1,24 @@
+{
+  "name": "afirmico-tesla",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/.well-known/*", "/connect", "/healthz"]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "auto.afirmi.co/.well-known/*",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/connect",
+      "zone_name": "afirmi.co"
+    }
+  ]
+}

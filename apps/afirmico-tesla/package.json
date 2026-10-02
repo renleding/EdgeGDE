@@ -1,0 +1,22 @@
+{
+  "name": "@afirmico/tesla",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AFIRMICO Auto — Tesla Fleet API surface (Tier 1). Serves the Tesla partner public key and the member onboarding entry point.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "^4.13.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260525.1",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.136.3"
+  }
+}
