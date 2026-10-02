@@ -82,7 +82,14 @@ echo "Structure"
 # detail of AUTOINCREMENT/stat, not something the FRS specifies.
 EXPECTED_TABLES=$(grep -ch '^CREATE TABLE' migrations/*.sql | paste -sd+ - | bc)
 check "tables created"            "$(q "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")" "$EXPECTED_TABLES"
-check "triggers created"          "$(q "SELECT count(*) FROM sqlite_master WHERE type='trigger'")" 4
+# Guard triggers are DERIVED from the migration files, not pinned to a number.
+# The hardcoded `4` here was already stale once (migration 0007/0008 add two), and
+# a count that is edited to match reality proves nothing — it just moves the point
+# at which someone forgets to edit it. What matters is that every trigger declared
+# in the migrations actually got created, so a CREATE TRIGGER that silently failed
+# (or was dropped while resolving a duplicate) is caught.
+want_triggers=$(grep -hc '^CREATE TRIGGER' migrations/*.sql 2>/dev/null | paste -sd+ - | bc)
+check "triggers created"          "$(q "SELECT count(*) FROM sqlite_master WHERE type='trigger'")" "$want_triggers"
 check "foreign keys declared"     "$(q "SELECT count(*) FROM pragma_foreign_key_list('tesla_telemetry_fact')")" 3
 check "migrations applied"        "${#MIGRATIONS[@]}" "$(ls migrations/*.sql | wc -l | tr -d ' ')"
 
