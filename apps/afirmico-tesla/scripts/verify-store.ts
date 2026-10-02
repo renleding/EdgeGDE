@@ -687,6 +687,172 @@ async function main() {
   check('0800 would be corrupted if coerced to a number',
     normalisePostcodeAu('0800') === String(Number('0800')) ? 'CORRUPTED' : 'preserved', 'preserved')
 
+  /* ---- F06: group-level analytics -------------------------------------- */
+  console.log('\nGroup analytics (F06)')
+  const { buildGroupExport, scanForPii, AGGREGATION_VERSION } = await import('../src/analytics')
+
+  // Two members in 2335, one in 0800 (the single-member cohort F06-R04 requires to be
+  // published). gxPii deliberately has NO postcode: excluded from cells, and counted.
+  const gx1 = await upsertMember(d1, { teslaSub: 'gx-1', teslaEmail: 'g1@example.com', displayName: 'G One' })
+  const gx2 = await upsertMember(d1, { teslaSub: 'gx-2', teslaEmail: 'g2@example.com', displayName: 'G Two' })
+  const gx3 = await upsertMember(d1, { teslaSub: 'gx-3', teslaEmail: 'g3@example.com', displayName: 'G Three' })
+  const gxPii = await upsertMember(d1, { teslaSub: 'gx-4', teslaEmail: 'leak@example.com', displayName: 'Leaky Person' })
+
+  await d1.prepare("UPDATE tesla_member SET postcode = '2335' WHERE member_id IN (?, ?)").bind(gx1, gx2).run()
+  await d1.prepare("UPDATE tesla_member SET postcode = '0800' WHERE member_id = ?").bind(gx3).run()
+
+  // NOTE on segmentation: `upsertVehicles` writes only vin/display_name/timestamps, so
+  // tesla_vehicle.model is NULL here exactly as it is in production. The model must
+  // therefore come from the once-tier snapshot (CarType) — which is the path every
+  // real export takes, and the path the first version of analytics.ts got wrong by
+  // silently labelling everything 'Unknown'.
+  for (const [member, vin, carType] of [
+    [gx1, '5YJ3E1EA73F000001', 'CarTypeModel3'],
+    [gx2, '5YJ3E1EA73F000002', 'CarTypeModel3'],
+    [gx3, '5YJ3E1EA7LF000003', 'CarTypeModelY'],
+    [gxPii, '5YJ3E1EA7LF000004', 'CarTypeModel3'],
+  ] as const) {
+    await upsertVehicles(d1, member, [{ vin, displayName: vin }], '2026-10-01T00:00:00.000Z')
+    // Written exactly as telemetry.ts writes a once-tier field.
+    await d1.prepare(
+      `INSERT INTO tesla_vehicle_snapshot (vin, field_key, value_text, value_kind, observed_at)
+       VALUES (?, 'CarType', ?, 'text', '2026-09-01T00:00:00.000Z')
+       ON CONFLICT (vin, field_key) DO UPDATE SET value_text = excluded.value_text`,
+    ).bind(vin, carType).run()
+  }
+
+  // Two profiles for gx1 so the "latest per vehicle" rule is actually exercised.
+  const profileRows: Array<[string, string, string, number, number, number | null, string]> = [
+    [gx1, '5YJ3E1EA73F000001', '2026-09-01T00:00:00.000Z', 10000, 1000, 400, 'measured'],
+    [gx1, '5YJ3E1EA73F000001', '2026-09-15T00:00:00.000Z', 12000, 1200, 480, 'measured'],
+    [gx2, '5YJ3E1EA73F000002', '2026-09-01T00:00:00.000Z', 20000, 2000, 1000, 'partial'],
+    [gx3, '5YJ3E1EA7LF000003', '2026-09-01T00:00:00.000Z', 5000, 500, null, 'unavailable'],
+    // gxPii has a profile but NO postcode, so it is genuinely a member that cannot be
+    // placed in a cell. Without this profile the exclusion count would be 0 and the
+    // F06-R09 assertion below would pass vacuously.
+    [gxPii, '5YJ3E1EA7LF000004', '2026-09-01T00:00:00.000Z', 7000, 700, 280, 'measured'],
+  ]
+  for (const [member, vin, start, odo, dist, fsd, avail] of profileRows) {
+    await d1.prepare(
+      `INSERT INTO tesla_driver_profile
+         (profile_id, member_id, vin, period_start, period_end, odometer_km, distance_km,
+          fsd_km, fsd_availability, fsd_note, counter_reset_count, derivation_version, derived_at)
+       VALUES (?, ?, ?, ?, '2026-10-01T00:00:00.000Z', ?, ?, ?, ?, NULL, 0, '1.0.0', ?)`,
+    ).bind(`prof_${vin}_${start}`, member, vin, start, odo, dist, fsd, avail, start).run()
+  }
+
+  // F06-AC6: seed a run + batch + fact so the generation run is genuinely traceable.
+  // This is the chain that did NOT work before migration 0010 — the batch row had no
+  // run_id, so a fact could reach its payload but never the run.
+  const gxRunId = 'run_gx_trace_0001'
+  await d1.prepare(
+    `INSERT INTO tesla_ingest_run (run_id, cadence, started_at, status, updated_at)
+     VALUES (?, 'push', '2026-09-01T00:00:00.000Z', 'complete', '2026-09-01T00:01:00.000Z')`,
+  ).bind(gxRunId).run()
+  await d1.prepare(
+    `INSERT INTO tesla_telemetry_batch (batch_id, vin, received_at, r2_key, payload_sha256, run_id)
+     VALUES ('bat_gx_0001', '5YJ3E1EA73F000001', '2026-09-01T00:00:05.000Z', 'k', 'h', ?)`,
+  ).bind(gxRunId).run()
+  await d1.prepare(
+    `INSERT INTO tesla_telemetry_fact
+       (fact_id, vin, field_key, observed_at, received_at, value_int, value_kind, collection_tier, batch_id, is_resend)
+     VALUES ('fact_gx_0001', '5YJ3E1EA73F000001', 'Odometer', '2026-09-01T00:00:05.000Z',
+             '2026-09-01T00:00:06.000Z', 12000, 'int', 'event', 'bat_gx_0001', 0)`,
+  ).run()
+
+  const gx = await buildGroupExport(d1, {
+    periodStart: '2026-09-01T00:00:00.000Z',
+    periodEnd: '2026-10-01T00:00:00.000Z',
+    requestedBy: 'insurer:acme',
+    nowIso: '2026-10-02T00:00:00.000Z',
+  })
+
+  check('vehicle count is per vehicle, not per profile', gx.vehicleCount, 3)
+  check('single-member cohort published (F06-R04)',
+    gx.rows.find((r) => r.postcode === '0800')?.vehicle_count, 1)
+  check('exclusions reported rather than silently dropped (F06-R09)',
+    gx.membersExcludedNoPostcode, 1)
+
+  // F06-R03: the segment must be a real model resolved from the snapshot, not
+  // 'Unknown' — the defect this rewrite exists to fix.
+  check('model resolved from the once-tier snapshot (F06-R03)',
+    gx.rows.every((r) => r.model !== 'Unknown'), 'true')
+  check('segment source records provenance', gx.rows[0]?.segment_source, 'snapshot')
+  check('model year derived from the VIN', gx.rows.find((r) => r.postcode === '0800')?.model_year, 2020)
+  check('year-only segmentation is reported as VIN-derived (not as a resolved model)',
+    gx.caveats.some((c) => c.code === 'model_year_derived'), 'true')
+  check('no unresolved segments in this dataset',
+    gx.caveats.some((c) => c.code === 'segment_unresolved'), 'false')
+
+  const cell2335 = gx.rows.find((r) => r.postcode === '2335')
+  check('2335 and 0800 are separate cells', gx.rowCount >= 2, 'true')
+  check('avg odometer uses latest profile per vehicle', cell2335?.avg_odometer_km, 16000)
+  check('avg distance uses latest profile per vehicle', cell2335?.avg_period_distance_km, 1600)
+  // gx1 480/1200 = 0.40 measured, gx2 1000/2000 = 0.50 partial -> 0.45
+  check('avg FSD share is a fraction, not a percentage', cell2335?.avg_fsd_share, 0.45)
+  check('partial derivations disclosed, not blended silently', cell2335?.fsd_partial_vehicles, 1)
+  check('coverage reported alongside the figure (F06-R09)', cell2335?.fsd_contributing_vehicles, 2)
+
+  const cell0800 = gx.rows.find((r) => r.postcode === '0800')
+  check('unavailable FSD is not averaged as zero (F06-R05)', cell0800?.avg_fsd_share, 'null')
+  check('unavailable FSD contributes 0 vehicles, not 1', cell0800?.fsd_contributing_vehicles, 0)
+  check('single-member cell is warned about (F06-R08)',
+    gx.smallCells.some((c) => c.postcode === '0800' && c.vehicleCount === 1), 'true')
+
+  // F06-AC6 — the traceability that migration 0010 fixes.
+  check('collection run resolved from facts -> batch -> run (F06-AC6)',
+    gx.collectionRunIds.join(','), gxRunId)
+  const trace = await d1.prepare(
+    `SELECT r.run_id FROM tesla_telemetry_fact f
+       JOIN tesla_telemetry_batch b ON b.batch_id = f.batch_id
+       JOIN tesla_ingest_run r ON r.run_id = b.run_id
+      WHERE f.fact_id = 'fact_gx_0001'`,
+  ).first<{ run_id: string }>()
+  check('the full fact -> run chain is joinable in SQL', trace?.run_id, gxRunId)
+
+  check('charging absence is stated as a caveat (F06-R05)',
+    gx.caveats.some((c) => c.code === 'charging_not_collected'), 'true')
+
+  // F06-N01: the automated scan, against real values from the source data.
+  const leaks = scanForPii(gx.csv, [
+    'Leaky Person', 'leak@example.com', '5YJ3E1EA73F000001', '5YJ3E1EA7LF000004',
+    'gx-1', '0412345678',
+  ])
+  check('PII scan finds nothing in the export (F06-N01, AC1)', leaks.join(','), '')
+  check('scan CAN fail (guards against a vacuous scan)',
+    scanForPii(`${gx.csv}Leaky Person\r\n`, ['Leaky Person']).length, 1)
+  check('no VIN appears anywhere in the export', gx.csv.includes('5YJ3E1EA7'), 'false')
+
+  // F06-R06/N03: reproducibility across two runs on the same dataset.
+  const gxAgain = await buildGroupExport(d1, {
+    periodStart: '2026-09-01T00:00:00.000Z',
+    periodEnd: '2026-10-01T00:00:00.000Z',
+    requestedBy: 'insurer:acme',
+    nowIso: '2026-10-02T00:05:00.000Z',
+  })
+  check('re-running the same export yields identical bytes (F06-N03, AC4)', gxAgain.csv, gx.csv)
+  check('...and the same hash', gxAgain.sha256, gx.sha256)
+
+  // F06-R07: logged with query definition, recipient, timestamp, runs and caveats.
+  const log = db.query(
+    `SELECT query_json, requested_by, requested_at, artifact_sha256, small_cell_count,
+            collection_run_ids, caveats_json, aggregation_version
+       FROM tesla_group_export WHERE export_id = ?`,
+  ).get(gx.exportId) as {
+    query_json: string; requested_by: string; requested_at: string; artifact_sha256: string
+    small_cell_count: number; collection_run_ids: string | null; caveats_json: string | null
+    aggregation_version: string
+  } | null
+  check('export logged with recipient (F06-R07, AC5)', log?.requested_by, 'insurer:acme')
+  check('export logged with timestamp', log?.requested_at, '2026-10-02T00:00:00.000Z')
+  check('export log carries the query definition', log?.query_json.includes('period_start'), 'true')
+  check('export log hash matches the delivered bytes', log?.artifact_sha256, gx.sha256)
+  check('warning count persisted, not just printed', log?.small_cell_count, gx.smallCells.length)
+  check('generation runs persisted with the export (F06-AC6)',
+    JSON.parse(log?.collection_run_ids ?? '[]').includes(gxRunId), 'true')
+  check('caveats persisted with the export', JSON.parse(log?.caveats_json ?? '[]').length > 0, 'true')
+  check('aggregation version pinned (F06-R06)', AGGREGATION_VERSION, '2.0.0')
+
   console.log()
   console.log(`passed ${pass}, failed ${fail}`)
   process.exit(fail === 0 ? 0 : 1)
