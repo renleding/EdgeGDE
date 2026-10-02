@@ -55,26 +55,36 @@ done
 echo
 
 # --- apply -----------------------------------------------------------------
-if ! sqlite3 "$DB" <<'SQL' >/dev/null 2>&1
+# Applied in filename order over EVERY migration, discovered rather than listed.
+# The previous hardcoded list stopped at 0004, so 0005-0007 were silently never
+# applied here and the checks below ran against a stale schema — a gate that
+# passes while testing the wrong thing.
+MIGRATIONS=()
+while IFS= read -r m; do MIGRATIONS+=("$m"); done < <(ls migrations/*.sql | sort)
+
+if ! sqlite3 "$DB" <<SQL >/dev/null 2>&1
 PRAGMA foreign_keys=ON;
-.read migrations/0001_create_tesla_schema.sql
-.read migrations/0002_seed_tesla_catalog.sql
-.read migrations/0003_seed_tesla_alerts.sql
-.read migrations/0004_seed_tesla_endpoints.sql
+$(for m in "${MIGRATIONS[@]}"; do echo ".read $m"; done)
 SQL
 then
   echo "  FATAL: migrations failed to apply"
-  sqlite3 "$DB" <<'SQL' 2>&1 | head -5
+  sqlite3 "$DB" <<SQL 2>&1 | head -5
 PRAGMA foreign_keys=ON;
-.read migrations/0001_create_tesla_schema.sql
+$(for m in "${MIGRATIONS[@]}"; do echo ".read $m"; done)
 SQL
   exit 99
 fi
 
 echo "Structure"
-check "tables created"            "$(q "SELECT count(*) FROM sqlite_master WHERE type='table'")" 28
+# Expected table count is derived from the migration SQL, not hardcoded, so
+# adding a table cannot leave this assertion quietly out of date. Internal
+# sqlite_* tables are excluded because their presence is an implementation
+# detail of AUTOINCREMENT/stat, not something the FRS specifies.
+EXPECTED_TABLES=$(grep -ch '^CREATE TABLE' migrations/*.sql | paste -sd+ - | bc)
+check "tables created"            "$(q "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")" "$EXPECTED_TABLES"
 check "triggers created"          "$(q "SELECT count(*) FROM sqlite_master WHERE type='trigger'")" 4
 check "foreign keys declared"     "$(q "SELECT count(*) FROM pragma_foreign_key_list('tesla_telemetry_fact')")" 3
+check "migrations applied"        "${#MIGRATIONS[@]}" "$(ls migrations/*.sql | wc -l | tr -d ' ')"
 
 echo
 echo "F03 acceptance criteria"
