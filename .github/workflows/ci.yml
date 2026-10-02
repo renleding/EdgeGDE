@@ -113,3 +113,75 @@ jobs:
       - uses: actions/checkout@v4
       - name: Automation mirror integrity
         run: ./automation/hermes/sync-to-repo.sh --check
+
+  tesla-schema:
+    # FRS-010 F08. Validates the Tesla D1 migrations and, on main, applies them.
+    #
+    # Two distinct things are checked, and they cannot be collapsed into one:
+    #
+    #   verify-schema.sh  applies all four files to a throwaway SQLite database
+    #                     and asserts the FRS's own acceptance criteria. PR-safe,
+    #                     no credentials, no network.
+    #   migrations apply  runs against the real D1 database. Only on main, because
+    #                     it mutates production state.
+    #
+    # Migration application is CI-only per AGENTS.md: never from an agent pane.
+    # The database `afirmico-tesla` already exists in the account, so the apply
+    # step does not need to create it — it only applies pending migrations.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # sqlite3 is preinstalled on ubuntu-latest; the verify script depends on it.
+      - name: Verify sqlite3 available
+        run: sqlite3 --version
+
+      - name: Install dependencies
+        working-directory: apps/afirmico-tesla
+        run: bun install --frozen-lockfile
+
+      - name: Verify Tesla schema against FRS-010 acceptance criteria
+        working-directory: apps/afirmico-tesla
+        run: bun run verify:schema
+
+      - name: Typecheck
+        working-directory: apps/afirmico-tesla
+        run: bun run typecheck
+
+      - name: Unit tests
+        working-directory: apps/afirmico-tesla
+        run: bun run test
+
+      # ── Below this line: production mutations. Main only. ──
+      - name: Apply D1 migrations (production)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: apps/afirmico-tesla
+        run: npx wrangler d1 migrations apply afirmico-tesla --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Confirm catalogs loaded
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: apps/afirmico-tesla
+        run: |
+          # A silently-empty catalog is the failure mode that matters: the seeds
+          # are the whole point of the migration, and an apply that reports
+          # success while inserting nothing is undetectable from the exit code.
+          for q in \
+            "SELECT count(*) FROM tesla_field_catalog" \
+            "SELECT count(*) FROM tesla_alert_catalog" \
+            "SELECT count(*) FROM tesla_endpoint_catalog"
+          do
+            echo "--- $q"
+            npx wrangler d1 execute afirmico-tesla --remote --command "$q"
+          done
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+

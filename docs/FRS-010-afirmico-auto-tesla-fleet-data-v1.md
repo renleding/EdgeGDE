@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  \
-**Version:** 1.6  \
+**Version:** 1.7  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
@@ -39,6 +39,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 | 1.3 | 2026-09-29 | **Corrected a factually wrong claim carried in v1.2.** v1.2 recorded that a Tesla key pair exists in Bitwarden and "cannot be regenerated". Neither is true: Bitwarden holds only the Client ID and Client Secret, and no key pair exists anywhere. The p9 public key was **orphaned** — its private half was never located in the repo, on disk, in the secrets store, or in the retained deletion snapshots (scanned for a `PRIVATE KEY` header; zero occurrences). Re-verified 2026-09-29. Corrected F02-R02, Section 3.3, R-08, and the Dependencies table. Registered the real constraint: a key pair **MUST be generated** before registration, and once registered **MUST NOT be rotated** (Tesla requires the registered public key to *remain* hosted; rotation invalidates the key on every paired vehicle and forces re-pairing). Also clarified that the key pair is required for **registration itself** (F02) — not only for Fleet Telemetry — so it is **not** a discriminator between the R-02 FSD options. |
 | 1.4 | 2026-09-29 | **Transport pivot: polling → Fleet Telemetry (owner decision).** The MVP now uses Tesla Fleet Telemetry as its **sole** transport, with a minimal field set (odometer, miles-since-reset, FSD miles-since-reset, battery level, located-at-home/work) and a **6-hour refresh**. This reverses §3.6 and the former Out-of-Scope exclusion. Rewrote §3.6; F04 changed from polling to telemetry ingest; F02 gained pairing, mTLS-relay and billing-limit requirements; F05 gained FSD counter-reset semantics (F05-R14). **R-02 RESOLVED** — `SelfDrivingMilesSinceReset` is a telemetry field, so F05-R03 is satisfied with no proxy or approximation; options R-02a/b/c withdrawn. **R-07 made worse** — under polling there were no telemetry configs to lose, but a billing-limit breach now de-configures every member vehicle and Tesla does not restore them; mitigation is now a launch blocker. **Cost, measured rather than estimated:** the field set yields ~525 signals/vehicle/month → $0.0035/vehicle/month → **$5.25/month for 1,500 vehicles**, fully absorbed by Tesla's $10/month account credit, so Tesla API cost is nil and total system cost is the infrastructure line. Design recorded in SDD-010. |
 | 1.5 | 2026-10-02 | **Hosting decision: Tier 1 is a NEW dedicated Cloudflare Worker (owner decision).** Investigated the live `auto.afirmi.co` binding and found it is a Workers **Custom Domain** (not a route) → worker `aged-cherry-8781`, a catch-all that returns one ~3,721-byte HTML document for *every* path (including the `/.well-known` key path), with **zero bindings** (no D1/KV/R2) and no declaring config in the repo. Owner ruled it is the calculator/splash worker and **must not be repurposed for Tesla**. Corrected §3.1 and §3.5, which previously implied `edgegde-calculator` would host the Tesla surface. Tier 1 is now specified as a new worker that owns the `auto.afirmi.co` hostname, which serves the Tesla key ahead of its own SPA fallback and so removes the route-separation conflict in F02-R01 by construction. No build performed — owner decision was that the key is **not** shipped ahead of the full Tier 1 work. Recorded new open item O-9 (public-key `Content-Type` contradiction: F02-R01 `application/x-pem-file` vs SDD `text/plain`). |
+| 1.7 | 2026-10-02 | **Data storage model built (F08) and the catalog corrected from 239 to 272 fields.** Two changes of substance. (1) **The field universe was under-counted.** F03/F08 specified the catalog as the 239 rows of `fleet_streaming_fields.csv`, but that CSV is not the authoritative source — Tesla's own `vehicle_data.proto` (teslamotors/fleet-telemetry) defines **272** Field entries. The 33 absent from the CSV include whole firmware-2026.32 additions (`GpsAccuracyMeters`, `NominalFullPackEnergyKwh`, `SoftwareUpdateInProgress`, `RemoteStartActive`, and others) plus `ScheduledDepartureTime` and `LifetimeEnergyGainedRegen`, whose absence from the CSV appears to be a documentation gap rather than a deliberate exclusion. Had we shipped the CSV alone, the first vehicle reporting any of them would have forced a migration — exactly what F03-R07 exists to prevent. The catalog is now the proto universe: 272 rows, 14 collected, 258 retained with `collected = 0`. F03-N01, F03 AC1, F08-R05 and F08 AC7 updated accordingly. (2) **The F08 schema is implemented** — 28 tables, 4 guard triggers, all four catalogs seeded, verified by `scripts/verify-schema.sh` (32/32 checks, exit code = failures). Corrections made while implementing: the alert catalog is keyed on the composite `(signal_name, models)` per F03-R04a, not on `signal_name`; `tesla_afirmico_site` and the fact-side energy snapshot were **withdrawn** because F02-R09 seeds the app with `energy_device_data` and `energy_cmds` **not** requested, so Powerwall data cannot be collected by this integration (F08-R07 is marked deferred, not dropped); there is one raw-payload table, not two; and the fact table rejects rows for uncollected fields or the wrong collection tier in the database rather than trusting application code (new F08-R13). **Not applied** — no D1 binding exists yet and migrations are CI-only, so these files are inert until the binding and the CI apply step land together. |
 | 1.6 | 2026-10-02 | **R-01 CLEARED — the Tesla app is created, approved, registered, and the member OAuth flow is live.** Four corrections of prior fact, plus the first working build. (1) **The developer application existed all along** — it was created on developer.tesla.com on 2026-09-25 (its Client ID and Secret were vaulted that day); v1.5's "app not yet created" was wrong. (2) It is **ACTIVE** and the onboarding request was approved 2026-10-02 on the **proprietary/private** path (`Open Source Contribution: No`), with grants `client-credentials` **and** `authorization-code` — the same shape F02-R04 already required, so no requirement changed. (3) **Partner registration completed 2026-10-02** via `POST /api/1/partner_accounts`; Tesla recorded the app as `AFIRMICO Auto`, `enterprise_tier: pay_as_you_go`, and the public key it stores (`047ca1f0…b483d8`) is **byte-identical to the committed PEM** — which also **settles O-9 / R-14**: Tesla's own registration fetch succeeded with `Content-Type: application/x-pem-file`. **`auto.afirmi.co` is registered; `afirmi.co` is NOT** (Tesla's key-path fetch there returns 404 — nothing else needs registering). (4) **Tier 1 F02 surface is BUILT and LIVE** in `apps/afirmico-tesla/` — public key, `/connect`, `/auth/start` (PKCE S256), `/auth/callback`, `/auth/error`, `/dashboard`, `/auth/logout`, `/healthz` — attached as Cloudflare **Routes**, so the splash page is untouched (`/` still returns the original 3,721-byte document). Added F02-R14 (registered app config is authoritative) and F02-R15 (PKCE mandatory on the authorization-code flow); added the contact address `connect@afirmico.com` to the Dependencies table. **Still open:** telemetry ingest, the D1 schema, TOCA membership gating (F01), the admin dashboard (F07), and the Oracle relay; and note that a grant recorded on a session cookie is **not yet a consent record** (F01-R02) — session state is infrastructure, not the audit trail. |
 
 ---
@@ -323,15 +324,16 @@ field, every endpoint, and every alert code — so future scope expansion is a f
 
 | ID | Requirement | Target |
 |----|------------|--------|
-| F03-N01 | Field catalog completeness | exactly 239 rows, zero silent drops |
-| F03-N02 | Alert catalog completeness | exactly 18,436 rows, zero silent drops |
+| F03-N01 | Field catalog completeness | **272 rows** (proto universe), zero silent drops; the 239-row CSV is a subset and is fully represented within it |
+| F03-N02 | Alert catalog completeness | exactly 18,436 rows, zero silent drops; 17,579 distinct signal names retained simultaneously (853 names carry model-specific variants) |
 | F03-N03 | Catalog load idempotency | running the loader twice produces zero row delta and zero content delta |
 | F03-N04 | Catalog query latency | indexed lookup by field name < 20 ms |
 
 **Acceptance Criteria:**
 
 ```text
-AC1: SELECT COUNT(*) FROM tesla_field_catalog = 239; and the row count equals the CSV row count.
+AC1: SELECT COUNT(*) FROM tesla_field_catalog = 272; the 239 CSV rows are all present, and the 33
+     proto-only fields are catalogued rather than dropped.
 AC2: SELECT COUNT(*) FROM tesla_alert_dictionary = 18436; and the row count equals the CSV row count.
 AC3: Every endpoint family named above exists in tesla_endpoint_catalog with enabled = 0 at first seed.
 AC4: Running the loader a second time yields identical counts and an identical checksum of all catalog rows.
@@ -548,8 +550,7 @@ AC7: The release audit row names the exact consent version that authorised the r
 ### 4.8 FEATURE-08: Data Storage Model
 
 **Priority:** P0  \
-**Effort:** Medium (~4 days)
-
+**Effort:** Medium (~4 days) — schema and all four catalogs built and verified 2026-10-02 (`apps/afirmico-tesla/migrations/`: 28 tables, 4 guard triggers, 32/32 acceptance checks passing). Not yet applied — the D1 binding and the CI apply step are still to be wired.
 **User Story:** As the operator, the platform stores the complete field registry and the collected
 subset efficiently, without a 239-column wide fact row and without D1 bloat, and can replay raw data
 if a normalisation bug is found.
@@ -558,18 +559,19 @@ if a normalisation bug is found.
 
 | ID | Requirement | Must/Should |
 |----|------------|-------------|
-| F08-R01 | The system MUST store vehicle telemetry as **narrow** fact rows (`vin`, `collected_at`, `field_key`, typed value columns) rather than one wide column per Fleet API field. | Must |
+| F08-R01 | The system MUST store vehicle telemetry as **narrow** fact rows (`vin`, `observed_at`, `field_key`, typed value columns) rather than one wide column per Fleet API field. Exactly one value column is populated per row, and the row records which one via `value_kind`, so an unsupported signal is storable as a fact (`value_kind = 'invalid'`) rather than being indistinguishable from missing data. | Must |
 | F08-R02 | The narrow fact table MUST be keyed by vehicle and collection timestamp, and MUST be indexed to support per-vehicle time-range queries. | Must |
 | F08-R03 | The system MUST store raw API payloads for each collection run in R2, referenced by key from D1, and MUST NOT store raw payloads inline in D1. | Must |
 | F08-R04 | The system MUST store enum-valued fields as their enum name alongside the numeric value where Tesla returns both. | Must |
-| F08-R05 | The system MUST retain the full 239-field catalog and the full endpoint catalog in D1 regardless of what is collected, per FEATURE-03. | Must |
+| F08-R05 | The system MUST retain the complete Fleet Telemetry catalog and the full endpoint catalog in D1 regardless of what is collected, per FEATURE-03. The catalog is the **272-field proto universe**, not only the 239 rows of `fleet_streaming_fields.csv`: the CSV omits 33 fields the proto defines, so the CSV alone would force a migration when a vehicle first reports one of them. | Must |
 | F08-R06 | The system MUST store a vehicle record per VIN linked to its member, carrying configuration fields needed for rating. | Must |
-| F08-R07 | The system MUST store a distinct energy-site record and energy snapshot series for members with a Powerwall. | Must |
+| F08-R07 | The system MUST store a distinct energy-site record and energy snapshot series for members with a Powerwall. **DEFERRED (v1.7):** F02-R09 seeds the app with `energy_device_data` and `energy_cmds` **not** requested, so this integration cannot collect Powerwall data. The tables are withheld rather than created empty; adding them when the scopes are requested is a new migration, not a change to the fact model (the catalog-driven design absorbs new field families without altering existing tables). | Must (deferred) |
 | F08-R08 | The system MUST store alert events observed on a vehicle, joined to the alert dictionary by `signal_name`, so alert severity and customer-facing text resolve without duplication. | Must |
 | F08-R09 | The system MUST use a dedicated Tesla D1 database binding, separate from document-intelligence tables. | Must |
 | F08-R10 | All Tesla D1 schema changes MUST land as numbered migrations applied by CI, never applied ad hoc from a local session. | Must |
 | F08-R11 | The system SHOULD partition or age out high-volume telemetry tables on a defined retention boundary while retaining derived profiles. | Should |
 | F08-R12 | The system SHOULD store data-access audit rows append-only. | Should |
+| F08-R13 | A field's **collection tier** MUST determine its storage location, and the mapping MUST be enforced in the database rather than only in application code: `event` and `on_change` fields are stored as fact rows, `once` fields in the vehicle snapshot, and a fact row for a field marked `collected = 0` MUST be rejected. | Must |
 
 **Non-Functional Requirements:**
 
@@ -588,8 +590,11 @@ AC1: A collection run writes narrow fact rows; the fact table has no column name
 AC2: Raw payloads for a run are retrievable from R2 by the key recorded in D1.
 AC3: The Tesla schema is created by a numbered migration and CI applies it; no ad-hoc local apply occurs.
 AC4: An alert observed on a vehicle resolves to its dictionary row with severity and customer text.
-AC5: A fact row referencing an unknown field_key is rejected.
+AC5: A fact row referencing an unknown field_key is rejected; likewise a fact row for a field whose
+     collected flag is 0, and a snapshot row for a field whose collection_tier is not 'once'.
 AC6: The Tesla tables live in a binding distinct from the document-intelligence tables.
+AC7: SELECT count(*) FROM tesla_field_catalog = 272 (the proto universe), of which 14 are collected and
+     258 retained as collected = 0. Widening the collected set changes no table definition.
 ```
 
 ---

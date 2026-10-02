@@ -25,6 +25,24 @@ verified after every deploy.
 Moving the whole hostname to this worker is the eventual target (SDD-010 §2), but that requires the
 member portal, consent store and D1 schema to exist first.
 
+## Data model
+
+`migrations/` holds the FRS-010 F08 schema: 28 tables, 4 guard triggers and the four catalogs
+(272 fields, 18,436 alerts, 107 endpoints, 247 enum values). See `migrations/README.md` for the
+storage design.
+
+The one thing to know: **the catalog holds every field Tesla can send; the collected subset is a
+flag.** `tesla_field_catalog` carries all 272 fields of `vehicle_data.proto`, of which 14 are marked
+`collected = 1`. Widening what we collect later means flipping a flag and re-seeding, not altering a
+table — which is why the fact table is narrow rather than one column per field.
+
+```bash
+bun run verify:schema      # applies all migrations to a throwaway SQLite db, asserts FRS ACs
+```
+
+These migrations are **inert until applied**: no D1 binding exists yet, and repo policy is
+CI-only migration application. The binding and the CI apply step have to land together.
+
 ## Required configuration
 
 Registered on developer.tesla.com and **authoritative** — Tesla validates these, so they cannot be

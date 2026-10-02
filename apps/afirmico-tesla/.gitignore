@@ -1,0 +1,14 @@
+# Local dev / build state.
+.wrangler/
+.dev.vars
+
+# NOTE: no seed file is excluded here. All four migrations are committed so that
+# `wrangler d1 migrations apply` has the complete ordered set and a fresh clone
+# can run `bun run verify:schema` with no extra steps.
+#
+# This was briefly the other way round: the 7.5 MB alert seed was gitignored on
+# the theory it was reproducible from the source CSV. That was wrong twice — the
+# source CSV lives under `apps/EdgeGDE - Document DB/`, which is itself
+# gitignored, so CI could not regenerate it; and a gitignored 0003 would simply
+# be skipped by the migration runner, leaving the alert catalog empty in
+# production with no error. Correctness beats repository size.
