@@ -61,6 +61,7 @@ import {
   vehicleExists,
 } from './store'
 import { TokenKeyMissingError } from './crypto'
+import { InvalidDetail, memberDetailGaps, saveMemberDetails } from './onboarding'
 import {
   PACKAGE_VERSION,
   ReleaseBlocked,
@@ -643,6 +644,24 @@ app.get(DASHBOARD_PATH, async (c) => {
   const revokeUrl = `${TESLA_REVOKE_URL}?revoke_client_id=${encodeURIComponent(c.env.TESLA_CLIENT_ID)}` +
     `&back_url=${encodeURIComponent(new URL(DASHBOARD_PATH, c.req.url).toString())}`
 
+  // F01-R05: surface the gap rather than letting it fail later. Without this the
+  // member discovers their profile is incomplete only when a release is blocked or
+  // an insurer package arrives with a blank where their contact details should be.
+  const gaps = member ? await memberDetailGaps(c.env.D1_TESLA, member.member_id) : []
+  const detailsPrompt = gaps.length
+    ? `
+  <div class="note">
+    <strong>Two details still needed.</strong>
+    Tesla does not provide your mobile number or postcode, so we have to ask.
+    Without them we cannot segment regional statistics, and your quote package would
+    carry a blank where the insurer expects contact details.
+    <div style="margin-top:12px"><a class="cta" href="/details">Add your details</a></div>
+  </div>`
+    : `
+  <div class="card ok">
+    <p class="meta">Contact details on record. <a href="/details">Change them</a></p>
+  </div>`
+
   // F01-R07: show the member what they agreed to, and prove byte-identity by
   // comparing the rendered text's hash with the hash stored on their consent row.
   const currentHash = await sha256Hex(CONSENT_TEXT)
@@ -679,6 +698,8 @@ app.get(DASHBOARD_PATH, async (c) => {
 
   <h2>Your vehicles</h2>
   ${vehicleRows}
+
+  ${detailsPrompt}
 
   <h2>Next step</h2>
   <p>Approve the AFIRMICO Auto key on your vehicle in the Tesla app to start receiving data.</p>
@@ -969,6 +990,119 @@ app.post('/ingest/telemetry', async (c) => {
     errors,
     monthToDate: { signals: cost.signals, costUsd: cost.costUsd },
   })
+})
+
+/**
+ * The details form, shared by the GET and the validation-failure path.
+ *
+ * Re-renders with the member's own submitted values on failure: clearing the form
+ * on a typo makes the member retype both fields, and the field that was fine is
+ * the one they are least likely to check.
+ */
+function detailsForm(mobile: string | null, postcode: string | null, error: string | null): string {
+  return page('Your details — AFIRMICO Auto', `
+  <h1>Your contact details</h1>
+  <p>We need two things Tesla does not provide. They are used to prepare your quote and to
+  group anonymous statistics by region — never to locate your vehicle.</p>
+  ${error ? `<div class="note" role="alert"><strong>${escapeHtml(error)}</strong></div>` : ''}
+  <form method="POST" action="/details" class="card">
+    <label for="mobile">Mobile number</label>
+    <input id="mobile" name="mobile" type="tel" inputmode="tel" autocomplete="tel"
+           value="${escapeHtml(mobile ?? '')}" placeholder="0412 345 678" required>
+    <label for="postcode">Residential postcode</label>
+    <input id="postcode" name="postcode" type="text" inputmode="numeric" autocomplete="postal-code"
+           pattern="\\d{4}" maxlength="4" value="${escapeHtml(postcode ?? '')}"
+           placeholder="2335" required>
+    <p class="meta">Both are required together. Your postcode is kept exactly as entered — a
+    leading zero is part of it.</p>
+    <button class="cta" type="submit">Save details</button>
+  </form>
+  `)
+}
+
+/**
+ * Member details form (F01-R05).
+ *
+ * This step exists because the Tesla handshake cannot supply it: Tesla returns a
+ * subject, an email and a name, and none of those is a mobile or a postcode. Until
+ * these are captured the insurer package ships a blank where the insurer expects
+ * contact details, and F06 group aggregates cannot segment on postcode at all.
+ */
+app.get('/details', async (c) => {
+  const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
+  const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
+  if (!raw) return c.redirect('/connect', 303)
+
+  const member = await c.env.D1_TESLA.prepare(
+    `SELECT m.member_id, m.mobile, m.postcode
+       FROM tesla_auth_session s
+       JOIN tesla_member m ON m.member_id = s.member_id
+      WHERE s.session_id = ?`,
+  )
+    .bind(sessionId)
+    .first<{ member_id: string; mobile: string | null; postcode: string | null }>()
+  if (!member) return c.redirect('/connect', 303)
+
+  return c.html(detailsForm(member.mobile, member.postcode, null))
+})
+
+/**
+ * Save member details (F01-R05).
+ *
+ * Rejects both fields together rather than storing half: a profile with a postcode
+ * and no mobile is the state that makes the release path ambiguous, and the member
+ * would have no way to tell it had not worked.
+ */
+app.post('/details', async (c) => {
+  const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
+  const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
+  if (!raw) return c.redirect('/connect', 303)
+
+  const member = await c.env.D1_TESLA.prepare(
+    'SELECT member_id FROM tesla_auth_session WHERE session_id = ?',
+  )
+    .bind(sessionId)
+    .first<{ member_id: string }>()
+  if (!member) return c.redirect('/connect', 303)
+
+  const form = await c.req.parseBody()
+  const mobile = typeof form.mobile === 'string' ? form.mobile : ''
+  const postcode = typeof form.postcode === 'string' ? form.postcode : ''
+  const nowIso = new Date().toISOString()
+
+  try {
+    const saved = await saveMemberDetails(c.env.D1_TESLA, {
+      memberId: member.member_id,
+      mobile,
+      postcode,
+      nowIso,
+    })
+
+    if (saved.changed) {
+      await audit(c.env.D1_TESLA, {
+        nowIso,
+        actor: member.member_id,
+        actorType: 'member',
+        action: 'member_details_updated',
+        subjectType: 'tesla_member',
+        subjectId: member.member_id,
+        // Only the fact of the change, never the values: an audit row is not a
+        // second place personal data has to be protected.
+        detail: { fields: ['mobile', 'postcode'] },
+      })
+    }
+
+    return c.redirect(DASHBOARD_PATH, 303)
+  } catch (error) {
+    if (error instanceof InvalidDetail) {
+      const message = error.field === 'mobile'
+        ? 'That does not look like an Australian mobile number. Use 04xx xxx xxx or +61 4xx xxx xxx.'
+        : 'That does not look like an Australian postcode. It should be four digits, for example 2335 or 0800.'
+      return c.html(detailsForm(mobile, postcode, message), 400)
+    }
+    console.error('saving member details failed', error)
+    return c.text('Could not save your details.', 500)
+  }
 })
 
 /**

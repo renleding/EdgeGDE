@@ -634,6 +634,59 @@ async function main() {
   })()
   check('policy with reversed cover period refused', badCover, 'refused')
 
+  /* ---- F01-R05: member details ----------------------------------------- */
+  console.log('\nMember details (F01-R05)')
+  const { saveMemberDetails, memberDetailGaps, InvalidDetail, normalisePostcodeAu } =
+    await import('../src/onboarding')
+
+  const detailsMember = await upsertMember(d1, {
+    teslaSub: 'details-sub-1', teslaEmail: 'd@example.com', displayName: 'Details Tester',
+  })
+
+  check('a fresh member is missing both details',
+    (await memberDetailGaps(d1, detailsMember)).join(','), 'mobile,postcode')
+
+  const savedDetails = await saveMemberDetails(d1, {
+    memberId: detailsMember, mobile: '0412 345 678', postcode: '0800',
+    nowIso: '2026-10-02T00:00:00.000Z',
+  })
+  check('mobile stored canonical', savedDetails.mobile, '+61412345678')
+  check('leading-zero postcode preserved', savedDetails.postcode, '0800')
+  check('gaps closed after saving', (await memberDetailGaps(d1, detailsMember)).length, 0)
+
+  // The stored value, read back through the same type the release path reads.
+  const stored = db.query('SELECT mobile, postcode FROM tesla_member WHERE member_id = ?')
+    .get(detailsMember) as { mobile: string; postcode: string }
+  check('postcode survives the round trip as text', stored.postcode, '0800')
+  check('postcode did not become a number', typeof stored.postcode, 'string')
+
+  const noChange = await saveMemberDetails(d1, {
+    memberId: detailsMember, mobile: '+61 412 345 678', postcode: '0800',
+    nowIso: '2026-10-02T00:01:00.000Z',
+  })
+  check('re-submitting the same details is not a change', noChange.changed, 'false')
+
+  const badMobile = await saveMemberDetails(d1, {
+    memberId: detailsMember, mobile: '0512345678', postcode: '0800',
+  }).then(() => null).catch((e) => e)
+  check('a non-mobile prefix is refused',
+    badMobile instanceof InvalidDetail ? badMobile.field : 'NOT REFUSED', 'mobile')
+
+  const badPostcode = await saveMemberDetails(d1, {
+    memberId: detailsMember, mobile: '0412345678', postcode: '0100',
+  }).then(() => null).catch((e) => e)
+  check('an unallocated postcode is refused',
+    badPostcode instanceof InvalidDetail ? badPostcode.field : 'NOT REFUSED', 'postcode')
+
+  // A refused save must not have partially written the good field.
+  const afterRefusal = db.query('SELECT mobile, postcode FROM tesla_member WHERE member_id = ?')
+    .get(detailsMember) as { mobile: string; postcode: string }
+  check('a refused save leaves both fields untouched',
+    `${afterRefusal.mobile}|${afterRefusal.postcode}`, '+61412345678|0800')
+
+  check('0800 would be corrupted if coerced to a number',
+    normalisePostcodeAu('0800') === String(Number('0800')) ? 'CORRUPTED' : 'preserved', 'preserved')
+
   console.log()
   console.log(`passed ${pass}, failed ${fail}`)
   process.exit(fail === 0 ? 0 : 1)

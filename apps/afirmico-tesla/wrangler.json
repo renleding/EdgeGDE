@@ -73,6 +73,10 @@
     {
       "pattern": "auto.afirmi.co/download/*",
       "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/details",
+      "zone_name": "afirmi.co"
     }
   ]
 }
