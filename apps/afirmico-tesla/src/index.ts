@@ -1600,13 +1600,25 @@ app.get('/healthz', async (c) => {
     checks.consent_field_set = 'unavailable'
   }
 
-  return c.json({
-    status: problems.length ? 'degraded' : 'ok',
-    service: 'afirmico-tesla',
-    version: CONSENT_POLICY_VERSION,
-    problems,
-    checks,
-  })
+  return c.json(
+    {
+      status: problems.length ? 'degraded' : 'ok',
+      service: 'afirmico-tesla',
+      version: CONSENT_POLICY_VERSION,
+      problems,
+      checks,
+    },
+    200,
+    {
+      // Never cached. A liveness/readiness response served from the edge cache
+      // reports a previous deployment's version, which is worse than reporting
+      // nothing: during the 2026-10-03 deploy the version appeared to flap
+      // because this endpoint was cached and the readings were of an older
+      // colo. The deploy verification step in CI reads this immediately after
+      // deploying, so it must reflect the deployment that just landed.
+      'cache-control': 'no-store',
+    },
+  )
 })
 
 /**
