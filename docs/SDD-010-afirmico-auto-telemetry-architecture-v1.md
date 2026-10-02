@@ -1,10 +1,10 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.4  \
+**Version:** 1.5  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
-**Date:** 2026-09-30  \
+**Date:** 2026-10-02  \
 **FRS Reference:** [FRS-010](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md)  \
 **Source:** Requirements interview + architecture review (owner decisions 2026-09-29)
 
@@ -411,11 +411,13 @@ replaceable without touching the Worker.
 | ID | Item | Owner |
 |----|------|-------|
 | O-1 | **Does `interval_seconds` accept 21600 (6 h)?** Verify on a live vehicle. Fallback 3600 modelled. | Build phase |
-| O-2 | **Relay host choice** — owner nominated **Oracle Cloud Always Free**; evaluated in §10.7 as **suitable with account upgrade to PAYG** and provisioning at **1 OCPU / 2 GB** (not the full 2/12, which worsens idle-reclamation exposure). Owner to confirm home region is AU. | Warren |
-| O-3 | **Tesla developer app creation** (R-01) — gates registration; nothing streams until it exists. | Warren |
-| O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. | Build phase |
+| O-2 | **Relay host choice** — **resolved 2026-10-02.** Oracle Cloud, home region `ap-sydney-1` (verified live), provisioning at **1 OCPU / 2 GB** rather than the full 2/12 (see §10.8). Build sequence: §10.8. | Warren |
+| O-3 | **Tesla developer app creation** (R-01) — gates registration; nothing streams until it exists. Register **after** the relay is up (§10.8 step 9). | Warren |
+| O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. Partly answered by §10.8 step 4 (reserved public IP). | Build phase |
 | O-5 | **Consent wording** (R-06) — must disclose data leaves the vehicle to a US processor (Tesla) and to insurers (APP 8). | Warren |
 | O-6 | **D1_TESLA binding decision** — extend `D1_AFIRMICO` vs provision a dedicated database per F08-R09. | Build phase |
+| O-7 | **PAYG upgrade completion** — submitted 2026-10-01 02:40 UTC; tenancy still reports `payment-model: FREE_TRIAL` (verified 2026-10-02). **Gates provisioning** (§10.8 step 0). | Oracle |
+| O-8 | **Admin access path** — whether OCI Bastion can target an instance in a *public* subnet, or whether Run Command / a narrowed-CIDR `:22` is the answer (§10.8 step 5). | Build phase |
 
 ---
 
@@ -526,6 +528,14 @@ load-bearing rather than optional: **the Arm shape may be unobtainable on the fr
 Constraint 1), and **idle reclamation applies to Always Free tenancies only** (see Constraint 2).
 Upgrading is **recommended** because Oracle documents it as the route to capacity, because paid
 tenancies escape the Arm allowance reduction, and because it removes idle reclamation entirely.
+
+**Upgrade status, verified 2026-10-02:** submitted 2026-10-01 02:40 UTC; the tenancy still reports
+`payment-model: FREE_TRIAL` and the console shows *"Your upgrade is in progress."* **Pay As You Go is
+therefore not yet active, and every benefit above is not yet in force.** Completion is signalled by a
+confirmation email plus `Subscription Information → Plan Type` changing from *Free Tier* to *Pay As You
+Go*; the API equivalent is `payment-model` ceasing to be `FREE_TRIAL`. Oracle's stated window is
+24–48 h, with documented stalls of 5–14 days. This gates provisioning — see §10.8 step 0. Capacity
+itself is already confirmed available: **41 A1 cores and 277 GB free in `AP-SYDNEY-1-AD-1`, 0 used.**
 
 Hardware is far beyond requirement. Both Tesla images publish **arm64** manifests (verified via
 `docker manifest inspect`) and the arm64 `fleet-telemetry` binary was executed to confirm it runs on
@@ -650,6 +660,244 @@ A conventional ~$5–6/month AU VPS (~$66/year) remains a legitimate alternative
 framing of it as buying freedom from a *silent-reclamation* failure mode is withdrawn: on PAYG that
 failure mode does not exist. The remaining difference is cost and operational familiarity, and **OCI
 on PAYG is the lower-cost choice with no reclamation penalty.**
+
+### 10.8 Provisioning runbook — Oracle Cloud, `ap-sydney-1`
+
+**Scope.** Fresh Oracle Cloud host → relay streaming in production, as one deterministic sequence.
+This is the materialisation of `infra/telemetry-relay/deploy.md` (§5). It is **doc-only**: no OCI write
+has been performed. Every command below is authored from **verified live tenant facts** (table) plus the
+OCI CLI reference — **the commands themselves have not yet been executed**, and each should be checked
+with `--help` at run time. Nothing here is a claim of a completed step.
+
+#### Verified tenant facts (read-only inspection, 2026-10-02)
+
+| Item | Verified value |
+|------|----------------|
+| Home region | `ap-sydney-1` (key `SYD`) — **immutable, set at signup** |
+| Availability domains | **one**: `wWrd:AP-SYDNEY-1-AD-1` (Sydney is single-AD) |
+| Tenancy | `renleding` (description `TENLS-6209`) |
+| Account state | `payment-model: FREE_TRIAL` — **PAYG upgrade pending** (O-7) |
+| A1 capacity | **41 cores / 277 GB free** in AD-1, 0 used → no `Out of host capacity` wall |
+| Existing VCN | `vcn-20261001-1101` · `10.0.0.0/16` · IGW + default route present — **reused** |
+| Existing subnet | `subnet-20261001-1059` · `10.0.0.0/24` · public IPs allowed — **reused** |
+| Security list | default list; ingress currently **TCP 22 from `0.0.0.0/0`** and world ICMP |
+| Shape | `VM.Standard.A1.Flex` — **1 OCPU / 2 GB** (not the full 2/12) |
+| Image | `Canonical-Ubuntu-24.04-aarch64-2026.09.18-0` |
+| Boot volume | 47 GB floor, **no snapshot** (relay persists nothing) |
+
+Verified OCIDs, so the runbook needs no console lookups:
+
+```text
+TENANCY   ocid1.tenancy.oc1..aaaaaaaajqsc5jlbueuszzeqaixfptdyzugl5m4mnnke25edomekyhras5wq
+AD        wWrd:AP-SYDNEY-1-AD-1
+VCN       ocid1.vcn.oc1.ap-sydney-1.amaaaaaamygtbziab27ksipjpj6pdr4cidtv26pdxe3d3lfpirmgc6eaysza
+SUBNET    ocid1.subnet.oc1.ap-sydney-1.aaaaaaaa72bkr6mnudogzr5kpd6mae2xj2ahytherfocqh3iiynsjzto2xca
+SECLIST   ocid1.securitylist.oc1.ap-sydney-1.aaaaaaaa4rt5vrnw6bqlmxddvl2txjvw5whlgsec2fw67ql3ywa7bsvqjdja
+IGW       ocid1.internetgateway.oc1.ap-sydney-1.aaaaaaaarhlu7l6uk7phvqupygvsj3ln7t33tzqrx73rlrh6i3ldbebdnaoq
+ROUTETBL  ocid1.routetable.oc1.ap-sydney-1.aaaaaaaaw3c35ujy4xlplib7vjrnq6nb3ht3mly5vppyxeeic3mipyifwj5q
+IMAGE     ocid1.image.oc1.ap-sydney-1.aaaaaaaabtl4ncr2wrha5krfzl3etb66rpegvolpjgudr7nzvkkojpx33spa
+```
+
+#### Step 0 — Gate: confirm Pay As You Go is active
+
+```bash
+oci organizations subscription list --compartment-id "$TENANCY" \
+  --query 'data.items[0].{"model":"payment-model"}'
+```
+
+**Do not proceed unless `model` is no longer `FREE_TRIAL`.** Every benefit in §10.7 — reclamation
+exemption, the paid Arm allowance, the documented route to capacity — is contingent on this. Creating the
+instance first is not fatal, but it straddles the transition and muddies both the tenancy's state and the
+cost record. Completion is signalled by the confirmation email and `Subscription Information → Plan Type`
+flipping to *Pay As You Go*. **If the upgrade is still pending, stop here and wait** (O-7).
+
+#### Step 1 — Decide the admin access path *before* creating the instance
+
+The relay must be reachable on `:443` from the internet. SSH must not be. §10.2 already states the
+requirement ("22 must not be open"); this step is how the operator still gets in.
+
+| Option | How it works | Assessment |
+|--------|--------------|------------|
+| **OCI Run Command** | Agent-executed command, **no inbound port at all** | **Preferred.** Needs only the Oracle Cloud Agent (default on Ubuntu images) + a service-gateway/NAT route. Zero network exposure, fully auditable. |
+| OCI Bastion (managed SSH) | Time-limited (30–180 min) session via a bastion public endpoint | Strong second choice; requires the Bastion plugin *running* on the target and a route to the Oracle Services Network. **Whether the target may sit in a *public* subnet is unconfirmed (O-8)** — verify before relying on it. |
+| Narrowed-CIDR `:22` | `22` from the operator's `/32` only, removed after bootstrap | Least preferred, but a legitimate bootstrap fallback when Run Command is unavailable. Must be **removed**, not left in place. |
+
+The runbook assumes **Run Command**, so the instance is created with **no public IP** initially and no
+world-open `22`. If Run Command turns out to be unavailable, fall back to a `/32`-scoped `22` and remove
+the rule at the end of step 5.
+
+#### Step 2 — Tighten the security list
+
+Ingress becomes **exactly** what the design needs — nothing more. Write the intended rule set to a file
+so the change is reviewable and idempotent, then apply it:
+
+```json
+[
+  { "protocol": "6", "source": "0.0.0.0/0", "sourceType": "CIDR_BLOCK", "isStateless": false,
+    "description": "Tesla fleet telemetry (mTLS) + ACME HTTP-01 fallback",
+    "tcpOptions": { "destinationPortRange": { "min": 443, "max": 443 } } },
+  { "protocol": "1", "source": "0.0.0.0/0", "sourceType": "CIDR_BLOCK", "isStateless": false,
+    "description": "Path MTU discovery - do NOT remove",
+    "icmpOptions": { "type": 3, "code": 4 } },
+  { "protocol": "1", "source": "10.0.0.0/16", "sourceType": "CIDR_BLOCK", "isStateless": false,
+    "icmpOptions": { "type": 3 } }
+]
+```
+
+```bash
+oci network security-list update --security-list-id "$SECLIST" \
+  --ingress-security-rules file://ingress-rules.json
+```
+
+Two deliberate removals: **TCP 22 from `0.0.0.0/0`**, and world-wide ICMP. The ICMP type 3 / code 4 rule
+is retained — removing it silently breaks path-MTU discovery and causes large transfers to hang. Egress
+stays `all` (the relay must reach Tier 1 and Tesla).
+
+**Host firewall is a second gate.** Oracle's Ubuntu images ship `iptables` rules that permit `:22` and
+little else, so a security-list change alone is not enough:
+
+```bash
+# on the host, after the container is up
+sudo iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+This is the single most commonly missed step on OCI — the port is open in the cloud and still unreachable.
+Verify externally (step 8) rather than trusting either layer alone.
+
+#### Step 3 — Reserve a static public IP
+
+Reserved (not ephemeral), so the address survives instance replacement — which also settles the O-4
+outbound-IP question in our favour if Tesla requires a static IP:
+
+```bash
+oci network public-ip create --compartment-id "$TENANCY" \
+  --lifetime RESERVED --display-name afirmico-relay-ip
+```
+
+#### Step 4 — Launch the instance
+
+Created with `--assign-public-ip false`; the reserved IP is attached to the private IP afterwards
+(step 4b), because `instance launch` cannot attach a pre-existing reserved IP in one call.
+
+```bash
+oci compute instance launch --compartment-id "$TENANCY" \
+  --availability-domain "$AD" \
+  --shape VM.Standard.A1.Flex --shape-config '{"ocpus":1,"memoryInGBs":2}' \
+  --image-id "$IMAGE" \
+  --display-name afirmico-relay \
+  --boot-volume-size-in-gbs 47 \
+  --subnet-id "$SUBNET" \
+  --assign-public-ip false \
+  --ssh-authorized-keys-file ~/.ssh/afirmico_relay.pub
+```
+
+**Do not pin a fault domain** (Oracle's guidance on constrained capacity). Then attach the reserved IP to
+the primary private IP:
+
+```bash
+oci compute instance list-vnics --instance-id "$INSTANCE" \
+  --query 'data[0].{"privateIp":"private-ip","vnic":"id"}'   # note the PRIVATE IP ocid
+oci network public-ip create --compartment-id "$TENANCY" \
+  --lifetime RESERVED --private-ip-id "$PRIVATE_IP"
+```
+
+#### Step 5 — Base host setup
+
+Applied via Run Command (or SSH). Ubuntu 24.04 LTS (§10.3); arm64 images, so `docker` must come from
+Docker's arm64 repo — Oracle's default `docker.io` package is old and Compose v2 is absent.
+
+```bash
+sudo apt-get update && sudo apt-get install -y ca-certificates curl chrony unattended-upgrades
+# Docker Engine + Compose plugin from the official arm64 repo
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+docker compose version && docker run --rm --platform linux/arm64 hello-world
+```
+
+**Time sync is a correctness requirement, not hygiene** — client-certificate validation rejects on clock
+skew. Confirm `chronyc tracking` shows a synced, low-offset source. Also set the Docker log driver to
+`json-file` with `max-size`/`max-file` limits: §10.2 flags an unbounded stdout stream as the realistic way
+to fill the disk, and both Tesla images log to stdout.
+
+#### Step 6 — DNS and certificate
+
+`telemetry.afirmi.co` → the reserved IP. The certificate **must be the full chain** (§10.4) because
+vehicles verify the server:
+
+```bash
+sudo certbot certonly --standalone -d telemetry.afirmi.co   # :80 must be free while this runs
+```
+
+Renewal is a **launch-critical monitor**, not routine ops: per §7, an expired cert fails *silently* from
+the vehicle's side — vehicles simply stop connecting. Wire renewal to reload the container and alert.
+
+#### Step 7 — Bring up the relay
+
+```bash
+docker pull tesla/fleet-telemetry:latest
+docker pull tesla/vehicle-command:latest
+docker run -d --name fleet-telemetry --restart unless-stopped \
+  --cap-add=NET_BIND_SERVICE \
+  -p 443:443 \
+  -v /etc/letsencrypt/live/telemetry.afirmi.co:/certs:ro \
+  -v /opt/afirmico/server_config.json:/config/server_config.json:ro \
+  --log-opt max-size=10m --log-opt max-file=3 \
+  tesla/fleet-telemetry:latest --config /config/server_config.json
+```
+
+Config values come from §10.4 verbatim — in particular `tls.ca_file` **unset** in production, and the
+vehicle-command proxy launched with `-host 127.0.0.1` (§10.4; the proxy must never be internet-facing).
+The images are `scratch`-based: there is no shell inside, so debugging is `docker logs` only.
+
+#### Step 8 — Verify from outside the host
+
+Not from the host itself — a loopback test proves nothing about the two firewall layers:
+
+```bash
+openssl s_client -connect telemetry.afirmi.co:443 -servername telemetry.afirmi.co </dev/null
+```
+
+Expected and **correct** results: the server chain validates, and then the session is **rejected** for
+lacking a Tesla-issued client certificate. A connection that instead succeeds with any client cert is a
+security failure — it would mean `RequireAndVerifyClientCert` is not in force. Then run Tesla's own
+`check_server_cert.sh` (§8 item 2), which validates our chain only.
+
+#### Step 9 — Only now, the Tesla app (R-01)
+
+Sequence matters and is not arbitrary: Tesla fetches our public key from
+`/.well-known/appspecific/com.tesla.3p.public-key.pem`, and that path is served by Tier 1 — which today
+returns SPA HTML (§8 item 1, still failing). So the order is: **Tier 1 serves the key → relay verified →
+developer app created → partner registration → vehicle pairing → config push → first records.** Registering
+first produces a partner account whose key fetch fails, and Tesla does not restore telemetry configs after
+a billing breach (§7, FRS R-07).
+
+#### Step 10 — Cost and liveness controls
+
+```bash
+oci budgets budget create --compartment-id "$TENANCY" \
+  --display-name afirmico-payg-alert \
+  --amount 0.01 --reset-period MONTHLY \
+  --targets '[{"type":"COMPARTMENT","values":["'"$TENANCY"'"]}]'
+```
+
+On PAYG, exceeding Always Free limits **bills** rather than failing (§10.7), so a $0.01 alert makes any
+unintended paid consumption immediately visible, then attach a notification. Separately, the **external
+liveness probe** (§10.7 residual risk, "required regardless of host") must be live before the first vehicle
+pairs — with a 6-hour cadence a stopped relay is otherwise indistinguishable from a fleet of parked cars.
+
+#### Disposal (deliberate, and cheap by design)
+
+The relay is a disposable span port (§2 boundary rule), so removal is a bounded, auditable sequence:
+terminate the instance → release the reserved IP → delete the security-list ingress rules → reuse or delete
+the VCN. Rebuild is "repository + one secret", and re-pairing is **not** required for vehicles whose
+telemetry config still points at the same hostname — though the server certificate is per-hostname, so a
+replacement host must serve the same certificate.
+
+---
 
 ## 11. Related Documents
 
