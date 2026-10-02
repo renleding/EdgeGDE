@@ -141,6 +141,14 @@ Output is deterministic — `SOURCE_DATE_EPOCH_ISO` pins the recorded load time,
 unchanged sources produces byte-identical SQL (verified). A regenerated seed that differs is a real
 change, reviewable as a diff.
 
+**Regenerating the alert seed must respect D1's statement limit.** D1 caps a single SQL statement at
+**100,000 bytes**; local SQLite allows ~1 GB. The first version of `0003` batched 500 rows per INSERT,
+which produced ~309 KB statements — it applied cleanly against SQLite (verify-schema was green, 32/32)
+and died in production with `statement too long: SQLITE_TOOBIG [code: 7500]`. Row-count batching is
+unsafe here because alert prose varies in width by more than 10×. `build-alerts.py` now packs by
+**byte budget** and asserts the result before writing, and `verify-schema.sh` checks every migration
+against the cap **before** applying. A green local apply is not evidence of D1 compatibility.
+
 ## Verifying
 
 ```bash

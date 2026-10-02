@@ -2,15 +2,19 @@
 """
 Generate the seed SQL for the alert dictionary (18,436 rows).
 
-Why this is marked LARGE_ASSET
-------------------------------
-The generated file is ~8 MB. Committing it directly would bloat every clone and
-every CI checkout for data that is fully reproducible from a source file we
-already hold plus a documented command. FRS-010 F03-N01/N02 require the catalog
-to be complete and its completeness provable, not that the bytes sit in git.
+D1 statement-size limit (the reason this batches by BYTES, not rows)
+-------------------------------------------------------------------
+Cloudflare D1 caps a single SQL statement at 100,000 bytes
+(https://developers.cloudflare.com/d1/platform/limits/). Local SQLite allows
+~1 GB, so a migration can apply cleanly against SQLite and still die in
+production with `statement too long: SQLITE_TOOBIG [code: 7500]`.
 
-So: regenerate on demand, and record the source checksum in `tesla_catalog_load`
-so a running database can always prove which source it was loaded from.
+That happened. The first version of this file batched 500 rows per INSERT,
+which produced ~309 KB statements: `verify-schema.sh` was green (32/32) and the
+D1 apply failed. Batching by row count was the mistake — alert rows vary in
+width by more than 10x because several columns carry long prose. The budget is
+now bytes with a hard target well under the cap, plus a generator-side assert
+so the failure cannot come back silently.
 
 Keying (FRS-010 F03-R04a)
 -------------------------
@@ -32,7 +36,11 @@ import os
 import sys
 from pathlib import Path
 
-BATCH = 500
+# D1 hard limit is 100,000 bytes per statement. Stay well inside it: the
+# statement also has to survive whatever transport adds, and a migration that
+# only just fits is a migration that breaks on the next row-width change.
+D1_MAX_STATEMENT_BYTES = 100_000
+STATEMENT_BUDGET_BYTES = 60_000
 
 
 def sql_str(value: str | None) -> str:
@@ -48,10 +56,17 @@ def main() -> int:
     ap.add_argument("--csv", required=True, type=Path)
     ap.add_argument("--out", type=Path,
                     default=here / "migrations" / "0003_seed_tesla_alerts.sql")
+    ap.add_argument("--budget", type=int, default=STATEMENT_BUDGET_BYTES,
+                    help=f"target bytes per INSERT statement "
+                         f"(D1 hard cap is {D1_MAX_STATEMENT_BYTES:,})")
     args = ap.parse_args()
 
     if not args.csv.exists():
         print(f"error: csv not found: {args.csv}", file=sys.stderr)
+        return 2
+    if args.budget >= D1_MAX_STATEMENT_BYTES:
+        print(f"error: --budget must stay under D1's "
+              f"{D1_MAX_STATEMENT_BYTES:,}-byte statement cap", file=sys.stderr)
         return 2
 
     raw = args.csv.read_bytes()
@@ -75,6 +90,12 @@ def main() -> int:
         "-- Keyed on the composite (signal_name, models), never signal_name alone:",
         "-- 853 signal names carry up to three model-specific variants whose text",
         "-- genuinely differs (FRS-010 F03-R04a).",
+        "--",
+        "-- Statements are batched to stay under D1's 100,000-byte per-statement",
+        "-- limit. Row-count batching is NOT safe here: alert prose varies in width",
+        "-- by more than 10x, so 500 rows can exceed 300 KB. Local SQLite permits",
+        "-- ~1 GB per statement, so this file can only be validated against a",
+        "-- byte budget, never by 'it applied locally'.",
         "--",
         "-- Idempotent: DELETE + INSERT, so a re-run yields an identical row set.",
         "",
@@ -107,10 +128,35 @@ def main() -> int:
 
     header = ("INSERT OR IGNORE INTO tesla_alert_catalog ("
               + ", ".join(cols) + ", source_row) VALUES")
-    for start in range(0, len(values), BATCH):
-        chunk = values[start:start + BATCH]
+    header_len = len(header) + 1
+
+    # Greedy byte-budget packing: accumulate tuples until adding the next one
+    # would push the statement past the budget, then emit.
+    batches: list[list[str]] = []
+    cur: list[str] = []
+    cur_bytes = header_len
+    for v in values:
+        v_bytes = len(v) + 3          # ",\n" separator plus terminator slack
+        if cur and cur_bytes + v_bytes > args.budget:
+            batches.append(cur)
+            cur, cur_bytes = [], header_len
+        cur.append(v)
+        cur_bytes += v_bytes
+    if cur:
+        batches.append(cur)
+
+    biggest = 0
+    for chunk in batches:
+        body = ",\n".join(chunk) + ";"
+        stmt_len = header_len + len(body)
+        biggest = max(biggest, stmt_len)
+        if stmt_len >= D1_MAX_STATEMENT_BYTES:
+            print(f"error: generated a {stmt_len:,}-byte statement, over D1's "
+                  f"{D1_MAX_STATEMENT_BYTES:,}-byte cap (lower --budget)",
+                  file=sys.stderr)
+            return 3
         out.append(header)
-        out.append(",\n".join(chunk) + ";")
+        out.append(body)
         out.append("")
 
     out.append("INSERT OR REPLACE INTO tesla_catalog_load (catalog_name, source_name,")
@@ -118,7 +164,7 @@ def main() -> int:
     out.append("  ('alert', 'alert_dictionary.csv', {sha}, {src}, {loaded}, {ts}, {ver});".format(
         sha=sql_str(sha), src=len(rows), loaded=len(values),
         ts=sql_str(os.environ.get("SOURCE_DATE_EPOCH_ISO", "2026-10-02T00:00:00Z")),
-        ver=sql_str("build-alerts.py/1.0.0"),
+        ver=sql_str("build-alerts.py/1.1.0"),
     ))
     out.append("")
 
@@ -131,6 +177,9 @@ def main() -> int:
     print(f"distinct signals {distinct}")
     print(f"skipped dupes    {dupes}")
     print(f"source sha256    {sha[:16]}...")
+    print(f"INSERT stmts     {len(batches)}  (budget {args.budget:,} B)")
+    print(f"largest stmt     {biggest:,} B  ({biggest / D1_MAX_STATEMENT_BYTES * 100:.0f}% "
+          f"of D1's {D1_MAX_STATEMENT_BYTES:,}-byte cap)")
     print(f"size             {args.out.stat().st_size / 1024 / 1024:.1f} MB")
     print(f"wrote {args.out}")
 

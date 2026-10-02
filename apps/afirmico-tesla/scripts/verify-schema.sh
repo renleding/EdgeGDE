@@ -30,6 +30,30 @@ q() { sqlite3 -noheader "$DB" "$1" 2>/dev/null | tr -d '[:space:]'; }
 echo "Tesla schema verification (FRS-010)"
 echo
 
+# --- D1 platform limits (checked BEFORE applying) ---------------------------
+# Local SQLite allows ~1 GB per statement; D1 caps a statement at 100,000 bytes.
+# A migration can therefore apply cleanly here and die in production with
+# `statement too long: SQLITE_TOOBIG [code: 7500]` — which is exactly what
+# happened on 2026-10-02. This check is the gate that was missing, and it runs
+# first so the failure is reported as a limit violation, not a mysterious
+# downstream error.
+echo "D1 platform limits"
+D1_MAX_STATEMENT=100000
+for f in migrations/*.sql; do
+  name=$(basename "$f")
+  maxb=$(awk 'BEGIN{RS=";\n"; m=0} {if (length($0)+1>m) m=length($0)+1} END{print m}' "$f")
+  nstmt=$(awk 'BEGIN{RS=";\n"; c=0} /[^[:space:]]/ {c++} END{print c}' "$f")
+  if [[ "$maxb" -gt "$D1_MAX_STATEMENT" ]]; then
+    printf '  FAIL  %-34s %4s stmts  max %8s B exceeds %s\n' "$name" "$nstmt" "$maxb" "$D1_MAX_STATEMENT"
+    fail=$((fail + 1))
+  else
+    printf '  ok    %-34s %4s stmts  max %8s B (%s%% of cap)\n' \
+      "$name" "$nstmt" "$maxb" "$((maxb * 100 / D1_MAX_STATEMENT))"
+    pass=$((pass + 1))
+  fi
+done
+echo
+
 # --- apply -----------------------------------------------------------------
 if ! sqlite3 "$DB" <<'SQL' >/dev/null 2>&1
 PRAGMA foreign_keys=ON;
