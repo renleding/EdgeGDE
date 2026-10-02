@@ -1,7 +1,7 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.5  \
+**Version:** 1.6  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
@@ -48,9 +48,9 @@ consumer needs. Field interval selection, not transport selection, is the cost l
 ```text
 ┌─ TIER 1 · Cloudflare (stateless, scale-to-zero, zero always-on cost) ──────────┐
 │                                                                               │
-│  Worker  edgegde-calculator        (single worker, existing app)              │
+│  Worker  afirmico-tesla     (NEW dedicated worker — not the calculator app)   │
 │    /                                    SPA: splash + member portal           │
-│    /.well-known/appspecific/            Tesla public key (text/plain)         │
+│    /.well-known/appspecific/            Tesla public key (MIME per F02-R01)   │
 │      com.tesla.3p.public-key.pem                                              │
 │    /auth/callback                       Tesla OAuth code exchange            │
 │    /admin/*                             operator dashboard (role-gated)       │
@@ -95,6 +95,16 @@ in Tier 1. This keeps the relay replaceable in minutes and keeps a single writer
 
 **Boundary rule.** All Tesla API *calls* (config create, token exchange, fleet_status) originate in Tier 1
 and go out through the proxy on Tier 2. The relay never initiates a Tesla call of its own.
+
+**Tier 1 is a NEW, dedicated worker (owner decision 2026-10-02).** `auto.afirmi.co` is currently bound as a
+Workers **Custom Domain** — not a route — to `aged-cherry-8781`, a catch-all splash/calculator worker with
+**zero bindings** that answers every path with the same HTML document. It cannot serve Tier 1 (no D1, no R2)
+and must not be repurposed. Tier 1 is therefore built as a new worker, `afirmico-tesla`, which **owns the
+entire `auto.afirmi.co` hostname** via its own Custom Domain. That also removes the route-separation problem
+in F02-R01 by construction: the key path and the SPA are served by the same worker, with the `/.well-known`
+handler registered ahead of the SPA fallback (the repo already does this for `/.well-known/mcp.json`, see
+`apps/edge-runtime/src/index.ts`). Reusing `edgegde-calculator` is explicitly **rejected**: it is the
+calculator app, and its D1 bindings point at document-intelligence databases.
 
 ---
 
@@ -302,10 +312,10 @@ Reuses the F08 shape; the collected subset is 6 fields:
 ## 5. File Structure
 
 ```text
-apps/edge-runtime/                          ← canonical home (existing app, bun, CI-wired)
+apps/afirmico-tesla/                        ← NEW worker, dedicated to Tesla (owner decision 2026-10-02)
   public/
     .well-known/appspecific/
-      com.tesla.3p.public-key.pem            committed PUBLIC key (text/plain)
+      com.tesla.3p.public-key.pem            committed PUBLIC key (MIME per F02-R01)
   migrations/
     00NN_create_tesla_catalog.sql            F03: 239 + 18,436 + endpoint catalog
     00NN_create_tesla_telemetry.sql          config, connection, signal counter, virtual key
@@ -322,8 +332,14 @@ apps/edge-runtime/                          ← canonical home (existing app, bu
       release.ts                             packaged CSV + signed download URLs
       revoke.ts                              de-configure + purge
     admin/                                   dashboard + map
-  wrangler.json                              + D1_TESLA binding, + R2_TESLA, + cron
+  wrangler.json                              name=afirmico-tesla; D1_TESLA, R2_TESLA, cron,
+                                             routes/custom_domain auto.afirmi.co
 ```
+
+**Why a new top-level app, not a folder in `apps/edge-runtime/`.** The hostname split is the reason: one
+hostname can only be served by one worker, and `auto.afirmi.co` must serve the Tesla key before the SPA. A
+separate app also keeps the calculator's D1 databases untouched and gives the Tesla integration its own
+`name` in `wrangler.json`, its own deploy target, and its own D1/R2 bindings — matching F08-R09.
 
 ```text
 infra/telemetry-relay/                      ← NEW, separate deploy unit
@@ -334,8 +350,8 @@ infra/telemetry-relay/                      ← NEW, separate deploy unit
   deploy.md                                 runbook: fresh host → streaming in prod
 ```
 
-The relay is deliberately outside `apps/edge-runtime/` because it deploys to a different target and must be
-replaceable without touching the Worker.
+The relay is deliberately outside `apps/afirmico-tesla/` because it deploys to a different target and must
+be replaceable without touching the Worker.
 
 ---
 
@@ -380,8 +396,8 @@ replaceable without touching the Worker.
 ## 8. Verification Strategy
 
 1. **Public key pre-flight** — `GET /.well-known/appspecific/com.tesla.3p.public-key.pem` returns
-   `text/plain` with byte length matching the committed file, and **openssl parses it**. Today the domain
-   returns SPA HTML on that path (R-01 blocker).
+   the PEM (MIME per F02-R01) with byte length matching the committed file, and **openssl parses it**.
+   Today the domain returns SPA HTML on that path (R-01 blocker).
 2. **mTLS pre-flight** — Tesla's `check_server_cert.sh` passes against the relay host before any config
    is pushed. Note that fleet-telemetry rejects any client certificate whose issuer is not a Tesla CA
    (§10.5), so this validates **our** server certificate chain only — it does not exercise vehicle auth.
@@ -418,6 +434,8 @@ replaceable without touching the Worker.
 | O-6 | **D1_TESLA binding decision** — extend `D1_AFIRMICO` vs provision a dedicated database per F08-R09. | Build phase |
 | O-7 | **PAYG upgrade completion** — submitted 2026-10-01 02:40 UTC; tenancy still reports `payment-model: FREE_TRIAL` (verified 2026-10-02). **Gates provisioning** (§10.8 step 0). | Oracle |
 | O-8 | **Admin access path** — whether OCI Bastion can target an instance in a *public* subnet, or whether Run Command / a narrowed-CIDR `:22` is the answer (§10.8 step 5). | Build phase |
+| O-9 | **Public-key `Content-Type` is contradictory across the specs.** FRS F02-R01 requires `application/x-pem-file`; this SDD previously said `text/plain`. The correct value must be settled empirically against Tesla's onboarding validator, then both documents aligned. Left unresolved rather than guessed. | Build phase |
+| O-10 | **Worker name + hostname ownership.** Worker name `afirmico-tesla` is provisional. Moving `auto.afirmi.co` from the `aged-cherry-8781` Custom Domain to the new worker changes what the public splash URL serves — confirm no member-facing dependency on the current splash content before the cutover (see §5). | Warren |
 
 ---
 
