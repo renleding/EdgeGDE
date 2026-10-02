@@ -1,7 +1,7 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.7  \
+**Version:** 1.8  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
@@ -19,6 +19,14 @@ data flows between them.
 **This SDD supersedes the polling transport.** FRS-010 §3.6 chose polling on the basis that it avoided a
 mTLS telemetry host entirely. The owner has since selected Fleet Telemetry as the sole transport and a
 minimal **kms + FSD-kms** field set with a 6-hour refresh. Section 1.1 records what that changes.
+
+**Revision note (rev 1.8, 2026-10-02).** Wording correction; no design change. The `vehicle-command`
+component on the relay is a **configuration signer only** (F02-R11, amended). It signs the
+`fleet_telemetry_config` JWS with the application private key; **no vehicle command is ever sent to a member
+vehicle**, and the `vehicle_command` endpoint family is seeded disabled (72 endpoints) and asserted so in
+CI. Earlier revisions labelled this component only by its upstream repository name, which read as though
+AFIRMICO operated a vehicle-command gateway. See §10.3 for why the signer is required even when no command
+is ever issued.
 
 ### 1.1 What the telemetry pivot changes
 
@@ -74,8 +82,9 @@ consumer needs. Field interval selection, not transport selection, is the cost l
 │    • output: JSONL via the `logger` dispatcher                                │
 │    • stateless: holds no database, does no derivation                         │
 │                                                                               │
-│  vehicle-command HTTP proxy                                                   │
-│    • signs fleet_telemetry_config JWS with the private key                    │
+│  tesla-http-proxy (from teslamotors/vehicle-command)                          │
+│    • CONFIG SIGNER ONLY — signs the fleet_telemetry_config JWS                │
+│    • NO vehicle commands sent (72 command endpoints disabled)                 │
 │    • one outbound IP → Tesla partner allowlist                                │
 │                                                                               │
 │  Both share ONE private key. Both restartable from repo + secret.             │
@@ -94,7 +103,10 @@ It owns no business logic, no schema, and no persistence. Any enrichment, valida
 in Tier 1. This keeps the relay replaceable in minutes and keeps a single writer for the D1 schema.
 
 **Boundary rule.** All Tesla API *calls* (config create, token exchange, fleet_status) originate in Tier 1
-and go out through the proxy on Tier 2. The relay never initiates a Tesla call of its own.
+and go out through the proxy on Tier 2. The relay never initiates a Tesla call of its own. The proxy is
+hosted **solely as a configuration signer**: it signs the `fleet_telemetry_config` JWS with the
+application private key (F02-R11). **No vehicle command is ever sent to a member vehicle** — the
+`vehicle_command` endpoint family is seeded disabled and CI fails if it is enabled.
 
 **Tier 1 is a NEW, dedicated worker (owner decision 2026-10-02).** `auto.afirmi.co` is currently bound as a
 Workers **Custom Domain** — not a route — to `aged-cherry-8781`, a catch-all splash/calculator worker with
@@ -471,7 +483,7 @@ rejecting at the handshake, so it was not a valid proxy for real load.
 | **Arch** | x86_64 **or** arm64 | arm64 | Both are static Go binaries; both images are multi-arch. arm64 is typically cheaper on AU providers. |
 | **Network** | Public IPv4, unrestricted inbound **:443** | + static/public IP | Vehicles connect **inbound** to this host. It cannot sit behind a NAT or a shared app host. |
 | **Access** | root or container control | + no shell in app image | The app image is `scratch`-based (**no `sh`, no shell**). Debugging is `docker logs` / `docker exec` from the host only — there is no shell inside to attack. |
-| **Ports** | 443 (app), 22 restricted | 22 key-only, geo/allowlist-limited | 443 must be open to the internet. 22 must not be. |
+| **Ports** | 443 (telemetry only), 22 restricted | 22 key-only, geo/allowlist-limited | 443 must be open to the internet — vehicles dial *in*. 22 must not be. The config-signing proxy binds **loopback only** and takes no public port. |
 
 ### 10.3 Operating system
 
@@ -483,7 +495,8 @@ rejecting at the handshake, so it was not a valid proxy for real load.
 - The app is a static Go binary — no interpreter, no package-manager dependencies at runtime. There is
   no language-runtime version risk to manage.
 
-**Port binding.** Both the telemetry server and (if used) the proxy default to :443, a privileged port.
+**Port binding.** The telemetry server binds :443, a privileged port. (The config-signing proxy binds
+loopback only — it takes no public port, see below.)
 Run with `--cap-add=NET_BIND_SERVICE` or drop to a high port and redirect with `iptables`/a reverse proxy.
 Do not run either as `--privileged`.
 
@@ -495,6 +508,16 @@ Do not run either as `--privileged`.
 
 It is only ever called by Tier 1, from the same host. Bind it to **`127.0.0.1`**. The only publicly
 exposed process is fleet-telemetry on :443, and it enforces `RequireAndVerifyClientCert`.
+
+**Why the signer exists when no command is ever sent.** The component is named after the repository it
+ships in, not after the only job we give it. `tesla-http-proxy` does two separable things: it signs and
+forwards **vehicle commands**, and it signs the **`fleet_telemetry_config` JWS**. AFIRMICO uses the second
+only — the command role is unused and no command reaches a vehicle (F02-R11). It is still required,
+because Tesla's endpoint contract states the recommended path for `fleet_telemetry_config` is through this
+proxy, and calling `fleet_telemetry_config_jws` directly requires a **Schnorr signature over NIST P-256
+with SHA-256** — which Workers WebCrypto cannot produce, so a signer would run on the relay regardless.
+The relay is where it belongs: the private key lives there, and its outbound IP is stable for the Tesla
+partner allowlist.
 
 ### 10.4 Configuration deltas from the reference defaults
 
@@ -688,7 +711,7 @@ This is the materialisation of `infra/telemetry-relay/deploy.md` (§5).
 **Execution status (rev 1.7) — the host-provisioning half has been EXECUTED.** Steps 0–5 below were
 carried out on 2026-10-02 and the resulting instance is live; the facts table and OCIDs are therefore
 *observed output*, not intended input. What remains **unexecuted** is everything that puts the relay on
-the host: the container deploy (fleet-telemetry + vehicle-command), the certificate material, the Tesla
+the host: the container deploy (fleet-telemetry + the config-signing proxy), the certificate material, the Tesla
 `fleet_telemetry_config` creation (F02-R10/R11), and the `--help` checks that rev 1.6 asked for. **No
 Tesla telemetry config exists, so no vehicle is streaming and :443 answers nothing.**
 
@@ -876,7 +899,9 @@ docker run -d --name fleet-telemetry --restart unless-stopped \
 ```
 
 Config values come from §10.4 verbatim — in particular `tls.ca_file` **unset** in production, and the
-vehicle-command proxy launched with `-host 127.0.0.1` (§10.4; the proxy must never be internet-facing).
+`tesla-http-proxy` launched with `-host 127.0.0.1` (§10.4; the proxy must never be internet-facing). It
+runs as a **configuration signer only** (F02-R11) — it signs the `fleet_telemetry_config` JWS, and no
+vehicle command is sent. It has no part in the inbound vehicle-data path; that is fleet-telemetry's alone.
 The images are `scratch`-based: there is no shell inside, so debugging is `docker logs` only.
 
 #### Step 8 — Verify from outside the host
@@ -937,4 +962,4 @@ replacement host must serve the same certificate.
 | https://developer.tesla.com/docs/fleet-api/fleet-telemetry | Transport, interval, and `include_fields` semantics |
 | https://developer.tesla.com/docs/fleet-api/billing-and-limits | Pricing, billing-limit behaviour, rate limits |
 | https://github.com/teslamotors/fleet-telemetry | Relay reference implementation |
-| https://github.com/teslamotors/vehicle-command | Config-signing proxy |
+| https://github.com/teslamotors/vehicle-command | `tesla-http-proxy` — config-JWS signer only (F02-R11); no vehicle commands are sent |
