@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AFIRMICO Auto — Tesla Fleet API surface (Tier 1). Serves the Tesla partner public key and the member onboarding entry point.",
+  "description": "AFIRMICO Auto — Tesla Fleet API surface (Tier 1). Serves the Tesla partner public key, the member onboarding entry point and the D1 storage model.",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:schema": "bash scripts/verify-schema.sh",
+    "catalog:fields": "python3 scripts/build-catalog.py --proto \"${TESLA_PROTO:-$HOME/.cache/tesla/vehicle_data.proto}\" --csv \"${TESLA_FIELDS_CSV:-../../apps/EdgeGDE - Document DB/Tesla APP DB/fleet_streaming_fields.csv}\"",
+    "catalog:alerts": "python3 scripts/build-alerts.py --csv \"${TESLA_ALERTS_CSV:-../../apps/EdgeGDE - Document DB/Tesla APP DB/alert_dictionary.csv}\"",
+    "catalog:endpoints": "python3 scripts/build-endpoints.py --docs \"${TESLA_DOCS:-$HOME/.cache/tesla/docs}\""
   },
   "dependencies": {
     "hono": "^4.13.8"

@@ -20,6 +20,13 @@
       "id": "75ec1bb289d14620bc09672aef296593"
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "D1_TESLA",
+      "database_name": "afirmico-tesla",
+      "database_id": "ccd77d51-3518-45a1-bd0c-2bfe3951e74d"
+    }
+  ],
   "vars": {
     "TESLA_CLIENT_ID": "f03d04ed-a6b0-43b3-bda4-5c19dec5dd2b"
   },

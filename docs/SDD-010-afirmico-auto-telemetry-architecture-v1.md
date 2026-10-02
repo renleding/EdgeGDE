@@ -251,47 +251,47 @@ further — this is a Tesla-imposed floor, and it also means the FSD field costs
 (1 h), which costs ~$6.60/mo fleet — still inside the credit. **Verify against a live vehicle before
 committing the config** (see §7).
 
-### 4.2 D1 tables (additions to the F08 schema)
+### 4.2 D1 tables
 
-```sql
--- F08 already defines: tesla_field_catalog, tesla_endpoint_catalog,
--- tesla_alert_dictionary, tesla_vehicle, tesla_energy_site,
--- narrow telemetry fact table, run log, data-access audit.
+**The F08 schema is implemented** in `apps/afirmico-tesla/migrations/` and that migration is
+authoritative for table and column names. Verified by `bun run verify:schema`
+(28 tables, 4 guard triggers, 32 acceptance checks). This section records only the reasoning behind
+the parts that were decided here; it is not a second copy of the DDL.
 
-CREATE TABLE tesla_telemetry_config (
-  vin                 TEXT PRIMARY KEY,
-  config_hash         TEXT NOT NULL,       -- sha256 of the signed JWS
-  fields_json         TEXT NOT NULL,       -- the exact field set + intervals applied
-  synced              INTEGER NOT NULL DEFAULT 0,
-  limit_reached       INTEGER NOT NULL DEFAULT 0,
-  skipped_reason      TEXT,                -- missing_key|unsupported_hardware|
-                                           -- unsupported_firmware|max_configs
-  applied_at          TEXT,
-  last_checked_at     TEXT
-);
-
-CREATE TABLE tesla_vehicle_connection (
-  vin           TEXT NOT NULL,
-  state         TEXT NOT NULL,             -- online|offline|unknown
-  observed_at   TEXT NOT NULL,
-  PRIMARY KEY (vin, observed_at)
-);
-
-CREATE TABLE tesla_signal_counter (
-  vin       TEXT NOT NULL,
-  day       TEXT NOT NULL,                 -- YYYY-MM-DD UTC
-  signals   INTEGER NOT NULL DEFAULT 0,
-  est_cost  REAL    NOT NULL DEFAULT 0,    -- signals * (1/150000)
-  PRIMARY KEY (vin, day)
-);
-
-CREATE TABLE tesla_virtual_key (
-  vin           TEXT PRIMARY KEY,
-  paired_at     TEXT,
-  removed_at    TEXT,                      -- from Locks-screen removal detection
-  state         TEXT NOT NULL              -- paired|removed|unknown
-);
+```text
+0001_create_tesla_schema.sql       28 tables, 4 triggers, indexes, constraints
+0002_seed_tesla_catalog.sql        272 fields + 247 enum values + load ledger
+0003_seed_tesla_alerts.sql         18,436 alerts  (generated; gitignored)
+0004_seed_tesla_endpoints.sql      107 endpoints across 8 families
 ```
+
+**Four deliberate divergences from the pre-implementation sketch. Each was wrong in a way worth
+recording, because the sketch was plausible and the correction is not obvious.**
+
+| Sketch | Implemented | Why |
+|---|---|---|
+| `tesla_alert_dictionary` keyed on `signal_name` | `tesla_alert_catalog` keyed on `(signal_name, models)` | F03-R04a. 853 signal names carry model-specific variants (17,579 distinct names across 18,436 rows). Keying on the name alone either drops variants or picks one arbitrarily. |
+| `tesla_energy_site` + energy snapshot | **withdrawn** | F02-R09 seeds the app with `energy_device_data` and `energy_cmds` **not** requested, so Powerwall data cannot be collected. Creating empty tables for data the integration cannot obtain implies a capability that does not exist. F08-R07 is marked deferred. |
+| `tesla_telemetry_config.vin` as PRIMARY KEY | `config_id` surrogate key, `vin` indexed | A vehicle accepts **3** fleet telemetry configs (U5). `vin` as the primary key makes the second config unrepresentable, and that constraint only surfaces in production when a member adds a second app. |
+| `tesla_vehicle_connection`, `tesla_virtual_key` | `tesla_state_change`, `tesla_vehicle_key` | Connection state arrives as telemetry transitions, so it is a state-change row rather than a polled snapshot; `tesla_vehicle_connection` would have needed its own sampling loop for data telemetry already provides. |
+
+`tesla_signal_counter` is implemented as sketched (per-VIN per-day signal counts with an estimated
+cost), plus `tesla_billing_guard` for the limit/margin tracking that R-07 needs — a breach is
+destructive (it strips every telemetry config and Tesla does not restore them), so it is recorded
+rather than inferred.
+
+Two additions not in the sketch, both enforcing correctness in the database instead of in the Worker:
+
+- `trg_tesla_fact_requires_collected_field` — rejects a fact row for a field whose catalog
+  `collected = 0`. Without it, shipping a new field in the Worker before seeding the catalog writes
+  data the platform cannot describe, and nothing reports the drift.
+- `trg_tesla_snapshot_requires_once_field` — keeps `once`-tier attributes out of the fact table and
+  event fields out of the snapshot, so the two storage paths cannot diverge.
+
+**Storage economics of the tier split.** A 6-hourly push of the launch set on 1,500 vehicles writes
+`event`/`on_change` rows continuously, but `CarType`, `Version` and `EfficiencyPackage` are written
+**once per vehicle** rather than once per push (~4,380 rows/vehicle/year avoided). That is the
+difference between ~6.6M and ~35M rows/year at fleet scale, on a database whose free tier is 5 GB.
 
 `tesla_signal_counter` is what makes F04-N03 ("cost is a first-class run metric") achievable. Without it the
 platform cannot see its own spend until Tesla's invoice arrives.
