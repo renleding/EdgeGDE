@@ -65,6 +65,10 @@ function makeD1(db: InstanceType<typeof Database>) {
     bind(...args: unknown[]) {
       return new Stmt(this.sql, args)
     }
+    /** Exposed so the adapter's batch() can execute it. */
+    _run() {
+      return db.query(this.sql).run(...(this.args as never[]))
+    }
     async first<T>() {
       const row = db.query(this.sql).get(...(this.args as never[]))
       return (row ?? null) as T | null
@@ -73,13 +77,31 @@ function makeD1(db: InstanceType<typeof Database>) {
       return { results: db.query(this.sql).all(...(this.args as never[])) as T[] }
     }
     async run() {
-      const info = db.query(this.sql).run(...(this.args as never[]))
+      const info = this._run()
       return { meta: { changes: Number(info.changes ?? 0), last_row_id: Number(info.lastInsertRowid ?? 0) } }
     }
   }
   return {
     prepare: (sql: string) => new Stmt(sql),
     exec: async (sql: string) => db.exec(sql),
+    /**
+     * D1 executes a batch as one implicit transaction. Mirroring that here
+     * matters: persistDatums relies on all-or-nothing so a partial payload
+     * cannot leave a gap a later derivation would read as zero travel.
+     */
+    batch: async (statements: Stmt[]) => {
+      db.exec('BEGIN')
+      try {
+        const results = statements.map((s) => s._run())
+        db.exec('COMMIT')
+        return results.map((info) => ({
+          meta: { changes: Number(info.changes ?? 0), last_row_id: Number(info.lastInsertRowid ?? 0) },
+        }))
+      } catch (error) {
+        db.exec('ROLLBACK')
+        throw error
+      }
+    },
   } as unknown as D1Database
 }
 
@@ -314,6 +336,177 @@ async function main() {
     threw = `rejected: ${(e as Error).message}`
   }
   check('once-only field accepted', threw, 'no')
+
+  /* ---- ingest: consent gate (F04-R14, F04 AC5) -------------------------- */
+  console.log('\nIngest consent gate (F04-R14)')
+  const { memberMayBeCollected, vehicleExists, timingSafeEqual, recordRejections } = await import('../src/store')
+  const { normalise, persistDatums, extractDatums, recordSignals, costReport, startIngestRun, finishIngestRun, resolveTiers } =
+    await import('../src/telemetry')
+
+  check('unknown VIN refused', await vehicleExists(d1, 'VIN-DOES-NOT-EXIST'), 'false')
+  check('known VIN recognised', await vehicleExists(d1, 'VIN0000000000001'), 'true')
+
+  // The re-grant above made consent active again, so this vehicle may be collected.
+  check('consented vehicle may be collected', await memberMayBeCollected(d1, 'VIN0000000000001'), 'true')
+
+  await revokeConsent(d1, memberId, 'member_revoked', '2026-10-02T16:00:00.000Z')
+  check('revoked member is not collected', await memberMayBeCollected(d1, 'VIN0000000000001'), 'false')
+
+  await recordConsent(d1, { memberId, scope: 'openid', nowIso: '2026-10-02T17:00:00.000Z' })
+  check('re-consented member collected again', await memberMayBeCollected(d1, 'VIN0000000000001'), 'true')
+
+  /* ---- ingest: the real path ------------------------------------------- */
+  console.log('\nIngest: real payload through the real schema (F04 AC1)')
+  const runId = await startIngestRun(d1, { cadence: 'push', nowIso: '2026-10-03T00:00:00.000Z' })
+
+  const payload = {
+    vin: 'VIN0000000000001',
+    data: [
+      { key: 'Odometer', value: { doubleValue: 16093.4 }, createdAt: '2026-10-03T00:00:00.000Z' },
+      { key: 'MilesSinceReset', value: { doubleValue: 1000 }, createdAt: '2026-10-03T00:00:00.000Z' },
+      { key: 'SelfDrivingMilesSinceReset', value: { doubleValue: 400 }, createdAt: '2026-10-03T00:00:00.000Z' },
+      // once-tier: must land in the snapshot table, never the fact table.
+      { key: 'CarType', value: { stringValue: 'model3' }, createdAt: '2026-10-03T00:00:00.000Z' },
+      // catalogued but NOT collected (consented scope excludes it).
+      { key: 'Soc', value: { intValue: 72 }, createdAt: '2026-10-03T00:00:00.000Z' },
+      // not catalogued at all.
+      { key: 'SomeFutureFirmwareField', value: { intValue: 1 }, createdAt: '2026-10-03T00:00:00.000Z' },
+      // reported as unavailable by the vehicle.
+      { key: 'Odometer', value: { invalid: true }, createdAt: '2026-10-03T00:00:00.000Z' },
+    ],
+  }
+
+  const extracted = extractDatums(payload)
+  check('datums extracted', extracted.length, 7)
+
+  const tiers = await resolveTiers(d1, extracted.map((e) => e.datum.key))
+  const normalized = normalise(extracted, tiers, '2026-10-03T00:00:00.000Z')
+  check('collected datums accepted', normalized.normalised.length, 5)
+  check('uncatalogued dropped', normalized.skippedUnknown, 1)
+  check('uncollected dropped', normalized.skippedUncollected, 1)
+  check('invalid counted, not dropped', normalized.invalidValues, 1)
+
+  const batchId = newId()
+  await d1.prepare(
+    `INSERT INTO tesla_telemetry_batch (batch_id, vin, received_at, payload_bytes, r2_key, payload_sha256, datum_count, is_resend, content_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'application/json')`,
+  ).bind(batchId, 'VIN0000000000001', '2026-10-03T00:00:00.000Z', 100, 'k', 'sha', 7).run()
+
+  const written = await persistDatums(d1, {
+    batchId, vin: 'VIN0000000000001', datums: normalized.normalised, receivedAt: '2026-10-03T00:00:00.000Z',
+  })
+  check('facts written (duplicate Odometer collapsed)', written.factsWritten, 3)
+  check('once field went to snapshot', written.snapshotsWritten, 1)
+
+  const snapshotRows = db.query("SELECT field_key FROM tesla_vehicle_snapshot WHERE vin = 'VIN0000000000001'").all() as Array<{ field_key: string }>
+  check('snapshot holds only CarType', snapshotRows.map((r) => r.field_key).join(','), 'CarType')
+  check('no Soc fact stored',
+    (db.query("SELECT count(*) c FROM tesla_telemetry_fact WHERE field_key = 'Soc'").get() as { c: number }).c, 0)
+  check('no uncatalogued fact stored',
+    (db.query("SELECT count(*) c FROM tesla_telemetry_fact WHERE field_key = 'SomeFutureFirmwareField'").get() as { c: number }).c, 0)
+
+  // The valid Odometer reading won the dedupe, so the invalid marker for the same
+  // instant is correctly absent — a real reading must not be replaced by
+  // "unavailable". Prove invalid persistence separately with an invalid-only field.
+  const invalidOnly = db.query("SELECT count(*) c FROM tesla_telemetry_fact WHERE field_key = 'Odometer' AND value_kind = 'invalid'").get() as { c: number }
+  check('valid reading beats invalid at same instant', invalidOnly.c, 0)
+
+  await persistDatums(d1, {
+    batchId,
+    vin: 'VIN0000000000001',
+    receivedAt: '2026-10-03T00:00:00.000Z',
+    datums: [
+      { fieldKey: 'PinToDriveEnabled', observedAt: '2026-10-03T00:00:00.000Z', valueKind: 'invalid', valueReal: null, valueInt: null, valueText: null, valueBool: null, valueJson: null, tier: 'event' },
+    ],
+  })
+  const invalidRow = db.query("SELECT value_kind FROM tesla_telemetry_fact WHERE field_key = 'PinToDriveEnabled'").get() as { value_kind: string } | null
+  check('invalid datum persisted as evidence', invalidRow?.value_kind, 'invalid')
+
+  /* ---- ingest: cost + run log (F04-R16, F04 AC6) ------------------------ */
+  console.log('\nCost and run log (F04-R16, F04 AC6)')
+  await recordSignals(d1, { vin: 'VIN0000000000001', datumCount: 7, nowIso: '2026-10-03T00:00:00.000Z' })
+  await recordSignals(d1, { vin: 'VIN0000000000001', datumCount: 3, nowIso: '2026-10-03T06:00:00.000Z' })
+  const cost = await costReport(d1, '2026-10')
+  check('signals accumulate per day', cost.signals, 10)
+  check('cost derived from signals', cost.costUsd.toFixed(8), (10 / 150000).toFixed(8))
+
+  await recordRejections(d1, {
+    runId, vin: 'VIN0000000000001', fieldKeys: ['Soc'], reason: 'not_collected',
+    observedAt: '2026-10-03T00:00:00.000Z', createdAt: '2026-10-03T00:00:00.000Z',
+  })
+  check('rejection recorded with reason',
+    (db.query("SELECT count(*) c FROM tesla_ingest_rejection WHERE reason = 'not_collected'").get() as { c: number }).c, 1)
+
+  await finishIngestRun(d1, runId, {
+    nowIso: '2026-10-03T00:00:05.000Z', attempted: 1, succeeded: 1, failed: 0, errors: [], costUsd: cost.costUsd,
+  })
+  const run = db.query('SELECT status, cost_usd, finished_at FROM tesla_ingest_run WHERE run_id = ?').get(runId) as { status: string; cost_usd: number; finished_at: string }
+  check('run marked complete', run.status, 'complete')
+  check('run carries cost (F04 AC6)', run.cost_usd > 0, 'true')
+
+  // F04-R11 / AC2: a run with one failure and one success is partial, not failed.
+  const run2 = await startIngestRun(d1, { cadence: 'push', nowIso: '2026-10-03T01:00:00.000Z' })
+  await finishIngestRun(d1, run2, {
+    nowIso: '2026-10-03T01:00:01.000Z', attempted: 2, succeeded: 1, failed: 1,
+    errors: [{ vin: 'VIN0000000000002', code: 'persist_failed' }], costUsd: 0,
+  })
+  check('partial run degraded correctly (F04 AC2)',
+    (db.query('SELECT status FROM tesla_ingest_run WHERE run_id = ?').get(run2) as { status: string }).status, 'partial')
+  // A run where everything failed is failed, not partial.
+  const run3 = await startIngestRun(d1, { cadence: 'push', nowIso: '2026-10-03T02:00:00.000Z' })
+  await finishIngestRun(d1, run3, {
+    nowIso: '2026-10-03T02:00:01.000Z', attempted: 2, succeeded: 0, failed: 2,
+    errors: [{ vin: 'a', code: 'x' }, { vin: 'b', code: 'y' }], costUsd: 0,
+  })
+  check('all-failed run marked failed',
+    (db.query('SELECT status FROM tesla_ingest_run WHERE run_id = ?').get(run3) as { status: string }).status, 'failed')
+
+  /* ---- derivation end-to-end (F05 AC1, AC2, AC5) ------------------------ */
+  console.log('\nDerivation end-to-end (F05)')
+  const { deriveProfile, loadFacts, saveProfile, DERIVATION_FIELDS } = await import('../src/derive')
+
+  await persistDatums(d1, {
+    batchId,
+    vin: 'VIN0000000000001',
+    receivedAt: '2026-11-01T00:00:00.000Z',
+    datums: [
+      { fieldKey: 'MilesSinceReset', observedAt: '2026-11-01T00:00:00.000Z', valueKind: 'real', valueReal: 2000, valueInt: null, valueText: null, valueBool: null, valueJson: null, tier: 'event' },
+      { fieldKey: 'SelfDrivingMilesSinceReset', observedAt: '2026-11-01T00:00:00.000Z', valueKind: 'real', valueReal: 800, valueInt: null, valueText: null, valueBool: null, valueJson: null, tier: 'event' },
+    ],
+  })
+
+  const facts = await loadFacts(d1, {
+    vin: 'VIN0000000000001', from: '2026-10-01T00:00:00.000Z', to: '2026-12-01T00:00:00.000Z',
+    fieldKeys: [...DERIVATION_FIELDS],
+  })
+  check('loadFacts returns typed numeric facts only', facts.length > 0, 'true')
+
+  const profile = deriveProfile({
+    periodStart: '2026-10-01T00:00:00.000Z', periodEnd: '2026-12-01T00:00:00.000Z', facts,
+  })
+  // 1000 -> 2000 miles total, 400 -> 800 on FSD: a 0.40 share.
+  check('FSD share derived (F05 AC2)', profile.fsdPercent?.toFixed(4), '0.4000')
+  check('FSD labelled measured', profile.fsdAvailability, 'measured')
+  check('distance converted to km', Math.round(profile.distanceKm ?? 0), Math.round(1000 * 1.609344))
+  check('source range recorded (F05 AC5)', `${profile.sourceFactMin}|${profile.sourceFactMax}`.length > 10, 'true')
+
+  const profileId = await saveProfile(d1, { memberId, vin: 'VIN0000000000001', profile, nowIso: '2026-12-01T00:00:00.000Z' })
+  const saved = db.query('SELECT distance_km, fsd_availability, derivation_version FROM tesla_driver_profile WHERE profile_id = ?').get(profileId) as { distance_km: number; fsd_availability: string; derivation_version: string }
+  check('profile persisted', saved.fsd_availability, 'measured')
+  check('derivation version stored (F05-R12)', saved.derivation_version, '1.0.0')
+
+  /* ---- raw payload archive (F04 AC7) ----------------------------------- */
+  console.log('\nRaw payload retrievability (F04-R15, F04 AC7)')
+  const batchRow = db.query('SELECT r2_key, payload_sha256, datum_count FROM tesla_telemetry_batch WHERE batch_id = ?').get(batchId) as { r2_key: string; payload_sha256: string; datum_count: number }
+  check('batch row records the R2 key', batchRow.r2_key.length > 0, 'true')
+  check('batch row records a hash for replay verification', batchRow.payload_sha256.length > 0, 'true')
+
+  /* ---- secret comparison ----------------------------------------------- */
+  console.log('\nRelay authentication')
+  check('constant-time compare accepts a match', timingSafeEqual('abc123', 'abc123'), 'true')
+  check('constant-time compare rejects a near miss', timingSafeEqual('abc123', 'abc124'), 'false')
+  check('constant-time compare rejects a length mismatch', timingSafeEqual('abc123', 'abc1234'), 'false')
+  check('constant-time compare rejects empty', timingSafeEqual('', 'x'), 'false')
 
   console.log()
   console.log(`passed ${pass}, failed ${fail}`)

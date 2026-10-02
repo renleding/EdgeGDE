@@ -45,6 +45,112 @@ export interface MemberIdentity {
 }
 
 /**
+ * Whether a vehicle is known to us (F04 ingest gate).
+ *
+ * A payload for an unknown VIN is not an ingest error — it means a telemetry
+ * configuration points at a vehicle whose member never completed onboarding, or
+ * revoked and re-registered under a different Tesla account. Worth recording,
+ * because an unconfigured vehicle streaming into us is exactly the silent leak
+ * this gate catches.
+ */
+export async function vehicleExists(db: D1Database, vin: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 AS present FROM tesla_vehicle WHERE vin = ?')
+    .bind(vin)
+    .first<{ present: number }>()
+  return Boolean(row)
+}
+
+/**
+ * Consent gate for ingest (F04-R14, F04 AC5).
+ *
+ * Collection is permitted only where the member has an unrevoked consent. The
+ * "and no active policy" half of F04-R14 governs *retention*, not collection: a
+ * member holding a live policy who has revoked consent still stops being
+ * collected, because consent — not the policy — is what authorises reading the
+ * vehicle. Conflating the two would mean quietly reading a vehicle after its
+ * owner withdrew permission, which is the one thing the consent model exists to
+ * prevent.
+ */
+export async function memberMayBeCollected(db: D1Database, vin: string): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS permitted
+         FROM tesla_vehicle v
+         JOIN tesla_member m ON m.member_id = v.member_id
+         JOIN tesla_consent c ON c.member_id = m.member_id AND c.revoked_at IS NULL
+        WHERE v.vin = ?
+        LIMIT 1`,
+    )
+    .bind(vin)
+    .first<{ permitted: number }>()
+  return Boolean(row)
+}
+
+/**
+ * Record why datums were not stored (F04-R16 observability).
+ *
+ * Without this, "the consented subset is working correctly" and "the relay is
+ * sending field names we have never catalogued" look identical from outside —
+ * both are simply missing rows.
+ */
+export async function recordRejections(
+  db: D1Database,
+  options: {
+    runId: string
+    vin: string | null
+    fieldKeys: string[]
+    reason: 'unknown_field' | 'not_collected' | 'invalid_value' | 'bad_vin'
+    observedAt: string | null
+    createdAt: string
+  },
+): Promise<number> {
+  const unique = [...new Set(options.fieldKeys)]
+  if (!unique.length) return 0
+
+  await db.batch(
+    unique.map((fieldKey) =>
+      db
+        .prepare(
+          `INSERT INTO tesla_ingest_rejection
+             (rejection_id, run_id, vin, field_key, reason, value_kind, observed_at, created_at)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+        )
+        .bind(
+          newId(),
+          options.runId,
+          options.vin,
+          fieldKey,
+          options.reason,
+          options.observedAt,
+          options.createdAt,
+        ),
+    ),
+  )
+  return unique.length
+}
+
+/**
+ * Constant-time string comparison for the relay's shared secret.
+ *
+ * A byte-by-byte early-exit comparison leaks the secret's prefix through timing,
+ * which over enough requests is enough to recover it.
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder()
+  const left = enc.encode(a)
+  const right = enc.encode(b)
+  // Fold over a fixed number of iterations regardless of length, so the early
+  // exit that would otherwise leak length never happens.
+  let diff = left.length ^ right.length
+  const max = Math.max(left.length, right.length)
+  for (let i = 0; i < max; i++) {
+    diff |= (left[i] ?? 0) ^ (right[i] ?? 0)
+  }
+  return diff === 0
+}
+
+/**
  * Find or create the member behind a Tesla identity.
  *
  * Keyed on `tesla_sub`, not email: email can change on the Tesla account and is

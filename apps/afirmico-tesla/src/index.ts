@@ -49,14 +49,28 @@ import {
   audit,
   createSession,
   ensureConsentPolicy,
+  memberMayBeCollected,
   newId,
   recordConsent,
+  recordRejections,
   revokeConsent,
   storeTokens,
+  timingSafeEqual,
   upsertMember,
   upsertVehicles,
+  vehicleExists,
 } from './store'
 import { TokenKeyMissingError } from './crypto'
+import {
+  costReport,
+  extractDatums,
+  finishIngestRun,
+  normalise,
+  persistDatums,
+  recordSignals,
+  resolveTiers,
+  startIngestRun,
+} from './telemetry'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
@@ -65,6 +79,21 @@ export interface Env {
   OAUTH_SESSIONS: KVNamespace
   /** Tesla data: members, consent, tokens, vehicles, telemetry (F08). */
   D1_TESLA: D1Database
+  /**
+   * Raw relay payloads (F04-R15, F04 AC7). Storing the bytes before
+   * normalisation is what makes a parsing change replayable: without it, a
+   * mis-parsed field is unrecoverable once the fact rows are wrong.
+   */
+  RAW_PAYLOADS: R2Bucket
+  /**
+   * Shared secret the relay presents on ingest (F04-R13).
+   *
+   * The relay is a span port with no database, so it cannot authenticate per
+   * member; this authenticates the *relay* and the payload's VIN carries the
+   * member identity. Without it the ingest endpoint is an open write into the
+   * telemetry fact stream.
+   */
+  INGEST_SHARED_SECRET?: string
   /** Tesla developer app client id (public value — appears in the authorize URL). */
   TESLA_CLIENT_ID: string
   /** Tesla developer app client secret. Worker secret; never leaves the server. */
@@ -728,6 +757,200 @@ app.get('/auth/logout', async (c) => {
       'set-cookie': clearCookie(SESSION_COOKIE),
       'cache-control': 'no-store',
     },
+  })
+})
+
+/**
+ * Telemetry ingest (F04-R01, F04-R13, F04 AC1-AC7).
+ *
+ * Called by the Oracle relay, which terminates Tesla's mTLS on :443 and forwards
+ * the raw bytes. The relay holds no database and performs no derivation — every
+ * decision below is made here, so the relay stays a span port and a compromise of
+ * it yields no member data at rest.
+ *
+ * Failure policy: this endpoint returns 200 for any payload it *understood*,
+ * including one where every datum was rejected, because a non-2xx makes the relay
+ * retry a payload that will fail identically. It returns 4xx/5xx only when it
+ * could not safely process the payload at all — and it never partially applies a
+ * batch, so a retry is always safe.
+ */
+app.post('/ingest/telemetry', async (c) => {
+  const nowIso = new Date().toISOString()
+
+  // --- authenticate the relay ---------------------------------------------
+  const secret = c.env.INGEST_SHARED_SECRET
+  if (!secret) {
+    return c.json({ ok: false, error: 'ingest_not_configured' }, 503)
+  }
+  const presented = c.req.header('x-ingest-secret') ?? ''
+  if (!timingSafeEqual(presented, secret)) {
+    return c.json({ ok: false, error: 'unauthorized' }, 401)
+  }
+
+  // --- read the body once; R2 needs the bytes, parsing needs the text ------
+  const raw = await c.req.text()
+  if (raw.length > 512 * 1024) {
+    return c.json({ ok: false, error: 'payload_too_large' }, 413)
+  }
+
+  let body: unknown
+  try {
+    body = JSON.parse(raw)
+  } catch {
+    // Unparseable input is the relay's bug or corruption; a retry cannot help.
+    return c.json({ ok: false, error: 'malformed_json' }, 400)
+  }
+
+  const extracted = extractDatums(body)
+  if (!extracted.length) {
+    return c.json({ ok: true, datumsAccepted: 0, note: 'no datums in payload' })
+  }
+
+  const runId = await startIngestRun(c.env.D1_TESLA, { cadence: 'push', nowIso })
+
+  // --- raw payload first, so a later parse failure is still replayable -----
+  const sha256 = await sha256Hex(raw)
+  const batchId = newId()
+  const vin = extracted.find((e) => e.vin)?.vin ?? null
+  const r2Key = `telemetry/${nowIso.slice(0, 10)}/${vin ?? 'unknown'}/${batchId}.json`
+
+  let r2Stored = true
+  try {
+    await c.env.RAW_PAYLOADS.put(r2Key, raw, {
+      httpMetadata: { contentType: c.req.header('content-type') ?? 'application/json' },
+      customMetadata: { sha256, vin: vin ?? '', runId },
+    })
+  } catch (error) {
+    // A payload we cannot archive is still worth processing, but the loss of
+    // replayability must be visible rather than silent.
+    r2Stored = false
+    console.error('raw payload archive failed', (error as Error).message)
+  }
+
+  await c.env.D1_TESLA.prepare(
+    `INSERT INTO tesla_telemetry_batch
+       (batch_id, vin, received_at, payload_bytes, r2_key, payload_sha256,
+        datum_count, is_resend, content_type)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+  )
+    .bind(
+      batchId,
+      vin,
+      nowIso,
+      raw.length,
+      r2Stored ? r2Key : '',
+      sha256,
+      extracted.length,
+      c.req.header('content-type') ?? 'application/json',
+    )
+    .run()
+
+  // --- resolve tiers, normalise, persist ----------------------------------
+  const tiers = await resolveTiers(c.env.D1_TESLA, extracted.map((e) => e.datum.key))
+  const { normalised, skippedUnknown, skippedUncollected, invalidValues } = normalise(
+    extracted,
+    tiers,
+    nowIso,
+  )
+
+  const errors: Array<{ vin: string; code: string }> = []
+  let written = { factsWritten: 0, snapshotsWritten: 0 }
+
+  // Consent gate (F04-R14, F04 AC5). A revoked member with no active policy must
+  // not have data collected — and the check is here rather than only at the
+  // relay because the relay has no database to check against.
+  const permitted = vin ? await memberMayBeCollected(c.env.D1_TESLA, vin) : false
+
+  if (!vin) {
+    errors.push({ vin: 'unknown', code: 'missing_vin' })
+  } else if (!(await vehicleExists(c.env.D1_TESLA, vin))) {
+    // A vehicle Tesla knows about but we have never seen means a member granted
+    // consent on a different Tesla account, or a stale telemetry config.
+    errors.push({ vin, code: 'unknown_vehicle' })
+    await recordRejections(c.env.D1_TESLA, {
+      runId,
+      vin,
+      fieldKeys: normalised.map((d) => d.fieldKey),
+      reason: 'bad_vin',
+      observedAt: nowIso,
+      createdAt: nowIso,
+    })
+  } else if (!permitted) {
+    errors.push({ vin, code: 'consent_revoked' })
+  } else {
+    try {
+      written = await persistDatums(c.env.D1_TESLA, {
+        batchId,
+        vin,
+        datums: normalised,
+        receivedAt: nowIso,
+      })
+      await recordSignals(c.env.D1_TESLA, { vin, datumCount: extracted.length, nowIso })
+    } catch (error) {
+      // One vehicle's failure must not lose the run (F04-R11).
+      errors.push({ vin, code: `persist_failed: ${(error as Error).message.slice(0, 80)}` })
+    }
+  }
+
+  // Record what was refused and why, so "collection is correctly narrow" is
+  // distinguishable from "collection is broken".
+  if (skippedUnknown) {
+    await recordRejections(c.env.D1_TESLA, {
+      runId,
+      vin,
+      fieldKeys: extracted.filter((e) => !tiers.has(e.datum.key)).map((e) => e.datum.key),
+      reason: 'unknown_field',
+      observedAt: nowIso,
+      createdAt: nowIso,
+    })
+  }
+  if (skippedUncollected) {
+    await recordRejections(c.env.D1_TESLA, {
+      runId,
+      vin,
+      fieldKeys: extracted
+        .filter((e) => tiers.get(e.datum.key)?.collected === 0)
+        .map((e) => e.datum.key),
+      reason: 'not_collected',
+      observedAt: nowIso,
+      createdAt: nowIso,
+    })
+  }
+  if (invalidValues) {
+    await recordRejections(c.env.D1_TESLA, {
+      runId,
+      vin,
+      fieldKeys: normalised.filter((d) => d.valueKind === 'invalid').map((d) => d.fieldKey),
+      reason: 'invalid_value',
+      observedAt: nowIso,
+      createdAt: nowIso,
+    })
+  }
+
+  const cost = await costReport(c.env.D1_TESLA, nowIso.slice(0, 7))
+  await finishIngestRun(c.env.D1_TESLA, runId, {
+    nowIso,
+    attempted: vin ? 1 : 0,
+    succeeded: written.factsWritten + written.snapshotsWritten > 0 ? 1 : 0,
+    failed: errors.length,
+    errors,
+    costUsd: cost.costUsd,
+  })
+
+  return c.json({
+    ok: true,
+    runId,
+    batchId,
+    vin,
+    rawArchived: r2Stored,
+    datumsAccepted: normalised.length,
+    factsWritten: written.factsWritten,
+    snapshotsWritten: written.snapshotsWritten,
+    skippedUnknown,
+    skippedUncollected,
+    invalidValues,
+    errors,
+    monthToDate: { signals: cost.signals, costUsd: cost.costUsd },
   })
 })
 

@@ -27,6 +27,12 @@
       "database_id": "ccd77d51-3518-45a1-bd0c-2bfe3951e74d"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "RAW_PAYLOADS",
+      "bucket_name": "afirmico-tesla-raw"
+    }
+  ],
   "vars": {
     "TESLA_CLIENT_ID": "f03d04ed-a6b0-43b3-bda4-5c19dec5dd2b"
   },
@@ -52,6 +58,10 @@
     },
     {
       "pattern": "auto.afirmi.co/healthz",
+      "zone_name": "afirmi.co"
+    },
+    {
+      "pattern": "auto.afirmi.co/ingest/*",
       "zone_name": "afirmi.co"
     }
   ]
