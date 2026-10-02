@@ -62,6 +62,7 @@ import {
 } from './store'
 import { TokenKeyMissingError } from './crypto'
 import { InvalidDetail, memberDetailGaps, saveMemberDetails } from './onboarding'
+import { AGGREGATION_VERSION, buildGroupExport } from './analytics'
 import {
   PACKAGE_VERSION,
   ReleaseBlocked,
@@ -868,8 +869,8 @@ app.post('/ingest/telemetry', async (c) => {
   await c.env.D1_TESLA.prepare(
     `INSERT INTO tesla_telemetry_batch
        (batch_id, vin, received_at, payload_bytes, r2_key, payload_sha256,
-        datum_count, is_resend, content_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        datum_count, is_resend, content_type, run_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
   )
     .bind(
       batchId,
@@ -880,6 +881,11 @@ app.post('/ingest/telemetry', async (c) => {
       sha256,
       extracted.length,
       c.req.header('content-type') ?? 'application/json',
+      // F06-AC6: the run this batch belongs to. Without it a fact could reach its raw
+      // payload but not the run that ingested it, so "which run produced this figure"
+      // had no answer. Recorded here because the batch is already the join between
+      // payload and facts, and the value never changes after insert.
+      runId,
     )
     .run()
 
@@ -1433,6 +1439,95 @@ app.post('/quote/decide', async (c) => {
   ])
 
   return c.redirect(DASHBOARD_PATH, 303)
+})
+
+/**
+ * Group-level anonymised export (F06-R01/R07).
+ *
+ * Restricted to the operator. F06-R01 publishes postcode-level aggregates that
+ * describe members in aggregate, and F06-R08 can flag a cohort of one — so this is
+ * not a member-reachable route. Authentication is the shared operator secret; a real
+ * admin identity is F09's job and is not built.
+ *
+ * The response carries the CSV plus the small-cell warnings, because F06-R08 requires
+ * the operator to be **warned** when a cohort is small enough to be re-identifiable.
+ * A warning that only reaches a log is not a warning.
+ */
+app.post('/analytics/group-export', async (c) => {
+  const provided = c.req.header('x-ingest-secret') ?? ''
+  const expected = c.env.INGEST_SHARED_SECRET ?? ''
+  if (!expected || !timingSafeEqual(provided, expected)) {
+    return c.json({ error: 'unauthorized' }, 401)
+  }
+
+  const body = await c.req.json<{
+    period_start?: string
+    period_end?: string
+    postcode?: string | null
+    requested_by?: string
+    format?: string
+  }>()
+
+  if (!body.period_start || !body.period_end) {
+    return c.json({ error: 'period_start and period_end are required' }, 400)
+  }
+  if (body.postcode && !/^\d{4}$/.test(body.postcode)) {
+    return c.json({ error: 'postcode must be four digits' }, 400)
+  }
+
+  const nowIso = new Date().toISOString()
+  const requestedBy = body.requested_by?.trim() || 'unknown'
+
+  try {
+    const result = await buildGroupExport(c.env.D1_TESLA, {
+      periodStart: body.period_start,
+      periodEnd: body.period_end,
+      postcode: body.postcode ?? null,
+      requestedBy,
+      nowIso,
+    })
+
+    // F06-R06: keep the delivered bytes so a figure can be reconciled later. Stored
+    // under the export id, which is derived from the content hash — so an identical
+    // re-run is idempotent rather than creating a second copy.
+    await c.env.RAW_PAYLOADS.put(`group-exports/${result.exportId}.csv`, result.csv, {
+      httpMetadata: { contentType: 'text/csv; charset=utf-8' },
+    })
+    await c.env.D1_TESLA.prepare('UPDATE tesla_group_export SET r2_key = ? WHERE export_id = ?')
+      .bind(`group-exports/${result.exportId}.csv`, result.exportId)
+      .run()
+
+    if (body.format === 'json') {
+      return c.json({
+        export_id: result.exportId,
+        sha256: result.sha256,
+        row_count: result.rowCount,
+        vehicle_count: result.vehicleCount,
+        aggregation_version: AGGREGATION_VERSION,
+        members_excluded_no_postcode: result.membersExcludedNoPostcode,
+        small_cells: result.smallCells,
+        rows: result.rows,
+      })
+    }
+
+    // The warning travels with the artifact, in a header the operator's tooling can
+    // read, so a small cohort cannot be missed by someone who only opens the file.
+    return new Response(result.csv, {
+      headers: {
+        'content-type': 'text/csv; charset=utf-8',
+        'cache-control': 'no-store, no-cache, must-revalidate, private',
+        'content-disposition': `attachment; filename="afirmico-group-${result.exportId}.csv"`,
+        'x-export-id': result.exportId,
+        'x-export-sha256': result.sha256,
+        'x-export-aggregation-version': AGGREGATION_VERSION,
+        'x-export-small-cells': String(result.smallCells.length),
+        'x-export-excluded-no-postcode': String(result.membersExcludedNoPostcode),
+      },
+    })
+  } catch (error) {
+    console.error('group export failed', error)
+    return c.json({ error: 'group export failed' }, 500)
+  }
 })
 
 /**
