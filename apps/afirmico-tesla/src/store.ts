@@ -13,6 +13,9 @@
 import { CONSENTED_FIELDS, CONSENT_POLICY_VERSION, CONSENT_PURPOSES, CONSENT_TEXT, sha256Hex } from './consent-policy'
 import { sealToken, type SealedToken } from './crypto'
 
+/** Provisioned relay host (FRS-010 F02-R10). */
+export const DEFAULT_TELEMETRY_HOST = 'telemetry.afirmi.co'
+
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
 /**
@@ -463,4 +466,106 @@ export async function createSession(
       params.userAgent ?? null,
     )
     .run()
+}
+
+/**
+ * Read the collected field set from the catalog (F02-R11, F04-R01a).
+ *
+ * Read rather than hard-coded, deliberately: `collected = 1` is the single
+ * authority for what is sent to vehicles, and a config builder holding its own
+ * copy of the list is how the artifact and the requirement drift apart (the
+ * divergence R-15 recorded). Missing columns are tolerated so a seeded catalog
+ * that predates a column does not break configuration.
+ */
+export async function collectedFields(db: D1Database): Promise<
+  { field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null }[]
+> {
+  const res = await db
+    .prepare(
+      `SELECT field_key, collection_tier, min_delta
+         FROM tesla_field_catalog
+        WHERE collected = 1
+        ORDER BY field_key`,
+    )
+    .all<{ field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null }>()
+  return res.results ?? []
+}
+
+/** The relay hostname + port Tesla is pointed at (F02-R10). */
+export async function telemetryTarget(db: D1Database): Promise<{ hostname: string; port: number }> {
+  // Read from the existing config rows when present, so a hostname change is a
+  // data change rather than a code change; fall back to the provisioned relay.
+  const row = await db
+    .prepare(
+      `SELECT hostname, port FROM tesla_telemetry_config
+        WHERE state = 'active' ORDER BY created_at DESC LIMIT 1`,
+    )
+    .first<{ hostname: string; port: number }>()
+  return row ?? { hostname: DEFAULT_TELEMETRY_HOST, port: 443 }
+}
+
+/** Upsert a telemetry config row. `config_id` is derived, so re-runs are idempotent. */
+export async function upsertTelemetryConfig(
+  db: D1Database,
+  rec: {
+    config_id: string
+    vin: string
+    state: string
+    skip_reason?: string | null
+    sync_interval: string
+    hostname: string
+    port: number
+    fields_json: string
+    config_version: number
+    applied_at: string | null
+    verified_at: string | null
+    last_error: string | null
+    created_at: string
+  },
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO tesla_telemetry_config
+         (config_id, vin, state, skip_reason, sync_interval, hostname, port,
+          fields_json, config_version, applied_at, verified_at, last_error, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (config_id) DO UPDATE SET
+         state = excluded.state,
+         skip_reason = excluded.skip_reason,
+         applied_at = excluded.applied_at,
+         verified_at = excluded.verified_at,
+         last_error = excluded.last_error`,
+    )
+    .bind(
+      rec.config_id, rec.vin, rec.state, rec.skip_reason ?? null, rec.sync_interval,
+      rec.hostname, rec.port, rec.fields_json, rec.config_version,
+      rec.applied_at, rec.verified_at, rec.last_error, rec.created_at,
+    )
+    .run()
+}
+
+/** Mark a config row dropped because the member revoked (F02-R12). */
+export async function markConfigRemoved(
+  db: D1Database,
+  vin: string,
+  nowIso = new Date().toISOString(),
+): Promise<number> {
+  const res = await db
+    .prepare(
+      `UPDATE tesla_telemetry_config
+          SET state = 'removed', verified_at = ?
+        WHERE vin = ? AND state IN ('active','pending','failed','skipped')`,
+    )
+    .bind(nowIso, vin)
+    .run()
+  return res.meta.changes ?? 0
+}
+
+/** VINs belonging to a member, for revocation-time teardown (F02-R12). */
+export async function vinsForMember(db: D1Database, memberId: string): Promise<string[]> {
+  const res = await db
+    .prepare('SELECT vin FROM tesla_vehicle WHERE member_id = ?')
+    .bind(memberId)
+    .all<{ vin: string }>()
+  return (res.results ?? []).map((r) => r.vin)
 }
