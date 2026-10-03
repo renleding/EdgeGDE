@@ -195,6 +195,29 @@ function checkJSDoc(content: string, file: string): CheckResult {
   }
 }
 
+/**
+ * Trailing whitespace, reported per line.
+ *
+ * A single boolean "trailing whitespace detected" tells a contributor that a
+ * 400-line file has a problem somewhere and nothing more. Reporting the line
+ * numbers turns a scavenger hunt into a one-line fix. Warning, not failure:
+ * whitespace is hygiene, and it should not block a deploy on its own.
+ */
+function checkTrailingWhitespace(content: string, file: string): CheckResult {
+  const details: string[] = []
+  const lines = content.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (/[ \t]+$/.test(lines[i])) {
+      details.push(`${file}:${i + 1}: trailing whitespace`)
+    }
+  }
+  return {
+    check: 'No trailing whitespace',
+    status: details.length === 0 ? 'pass' : 'warn',
+    details: details.length > 0 ? details.slice(0, 10) : [],
+  }
+}
+
 function checkFileSize(file: string): CheckResult {
   const stats = statSync(file)
   const MAX_LINES = 2000
@@ -263,6 +286,7 @@ function runAllChecks(): GovernanceReport {
       const lineRanges = getChangedLineRanges(fullPath)
       results.push(checkNoAsAny(content, relPath, lineRanges))
       results.push(checkNoConsoleLog(content, relPath, lineRanges))
+      results.push(checkTrailingWhitespace(content, relPath))
       results.push(checkFileSize(fullPath))
       if (!filePath.endsWith('.test.ts')) {
         results.push(checkJSDoc(content, relPath))

@@ -171,6 +171,18 @@ jobs:
           echo "Rollback: bash scripts/rollback.sh production"
           exit 1
 
+      - name: Post-deploy content assertion
+        # The health check above proves the Worker answered. It cannot tell
+        # whether the right thing was RENDERED — a deploy that shipped the
+        # wrong logo, or dropped page chrome, passed it. This asserts the
+        # served content itself.
+        #
+        # Targets the afirmico-tesla host directly. env.WORKER refers to a
+        # different worker (edgegde-calculator) and must not be used here.
+        run: bash apps/afirmico-tesla/scripts/verify-deployed-content.sh
+        env:
+          BASE_URL: https://auto.afirmi.co
+
       - name: Record deployment
         run: |
           mkdir -p .deploy-log
