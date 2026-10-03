@@ -7,7 +7,7 @@ Cloudflare Worker that owns the Tesla-facing paths on `auto.afirmi.co`.
 | Path | Purpose |
 |------|---------|
 | `/.well-known/appspecific/com.tesla.3p.public-key.pem` | Serves the Tesla partner public key. Tesla fetches this to verify domain ownership (FRS-010 F02-R01). |
-| `/connect` | Member onboarding entry point. Explains what is collected and starts the Tesla sign-in. |
+| `/toca-connect` | Member onboarding entry point. Explains what the authorisation covers and starts the Tesla sign-in (F01-R13). `/connect` 301s here. |
 | `/auth/start` | Builds the Tesla `/authorize` URL with PKCE (S256) and a signed `state`, then redirects. |
 | `/auth/callback` | Tesla's registered redirect URI. Verifies `state`, exchanges the code, enumerates vehicles, opens a session. |
 | `/auth/error` | Human-readable explanation of a refused or failed sign-in. |
@@ -136,4 +136,4 @@ duplicating the key as a string.
 ## Not built yet
 
 Telemetry ingest, the D1 schema, the consent store (F01-R02/R03 — a session is **not** a consent
-record), TOCA membership gating, and the admin dashboard. `/connect` is currently **ungated**.
+record), TOCA membership gating, and the admin dashboard. `/toca-connect` is currently **ungated**.
