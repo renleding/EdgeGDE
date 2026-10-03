@@ -38,6 +38,7 @@ import {
   serializeCookie,
   verifyState,
 } from './oauth'
+import { adminApp } from './admin'
 import {
   CONSENTED_FIELDS,
   CONSENT_POLICY_VERSION,
@@ -1976,5 +1977,7 @@ app.notFound(async (c) => {
   )
   return new Response(splash.body, { status: 404, headers: splash.headers })
 })
+
+app.route('/admin', adminApp)
 
 export default app
