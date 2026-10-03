@@ -81,6 +81,7 @@ import {
   resolveTiers,
   startIngestRun,
 } from './telemetry'
+import { MIN_MARGIN_RATIO, evaluateBillingGuard, monthWindow } from './billing'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
@@ -114,6 +115,16 @@ export interface Env {
   TOKEN_ENCRYPTION_KEY: string
   /** Fleet API base URL. Defaults to the NA base (Australia routes here). */
   TESLA_AUDIENCE?: string
+  /**
+   * Tesla billing limit, in USD, as configured in the developer dashboard
+   * (F02-R13).
+   *
+   * Deliberately optional and deliberately not defaulted: an unset limit is
+   * reported by `/healthz` as `unconfigured` rather than assumed generous. A
+   * breach strips every telemetry config and Tesla does not restore them, so
+   * "we never set a limit" and "we have 10x headroom" must not look alike.
+   */
+  TESLA_BILLING_LIMIT_USD?: string
 }
 
 /** Path Tesla fetches to verify domain ownership (F02-R01). */
@@ -1645,6 +1656,48 @@ app.get('/healthz', async (c) => {
     }
   } catch {
     checks.consent_field_set = 'unavailable'
+  }
+
+  // F02-R13 / R-07: a Tesla billing breach strips every telemetry config and
+  // Tesla does not restore them, so this check is the earliest Tier 1 can see it
+  // coming. The limit is read from config rather than defaulted: an unset limit
+  // is reported as unconfigured, never as healthy, because "no limit" and "plenty
+  // of headroom" are not the same claim.
+  try {
+    const limitRaw = c.env.TESLA_BILLING_LIMIT_USD
+    const limitUsd = limitRaw === undefined || limitRaw === '' ? null : Number(limitRaw)
+    const nowIso = new Date().toISOString()
+    const { month, daysElapsed, daysInMonth } = monthWindow(nowIso)
+    const report = await costReport(c.env.D1_TESLA, month)
+    const guard = evaluateBillingGuard({
+      signalsMtd: report.signals,
+      daysElapsed,
+      daysInMonth,
+      limitUsd: limitUsd !== null && Number.isFinite(limitUsd) ? limitUsd : null,
+    })
+
+    checks.billing_margin = guard.configured
+      ? guard.marginRatio === null
+        ? 'no_usage_yet'
+        : `${guard.marginRatio}x${guard.marginOk ? '' : ' BELOW_MIN'}`
+      : 'unconfigured'
+    checks.billing_projected_usd = guard.projectedMonthUsd.toFixed(4)
+    checks.billing_consumed = guard.consumedFraction === null ? 'n/a' : guard.consumedFraction.toFixed(3)
+
+    if (!guard.configured) {
+      problems.push('F02-R13: TESLA_BILLING_LIMIT_USD is not set — the 10x safety margin cannot be verified')
+    } else if (guard.marginRatio !== null && !guard.marginOk) {
+      problems.push(
+        `F02-R13: billing margin ${guard.marginRatio}x is below the required ${MIN_MARGIN_RATIO}x (projected $${guard.projectedMonthUsd.toFixed(2)}/mo)`,
+      )
+    }
+    if (guard.alertBreach) {
+      problems.push('R-07: billing limit BREACHED — Tesla configs are stripped and not restored; run the re-apply runbook')
+    } else if (guard.alertWarn) {
+      problems.push('F02-R13: billing limit is at or above 80% consumed')
+    }
+  } catch (error) {
+    checks.billing_margin = `error: ${(error as Error).message.slice(0, 120)}`
   }
 
   return c.json({
