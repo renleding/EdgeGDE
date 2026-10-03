@@ -7,16 +7,7 @@
   ],
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS",
-    "run_worker_first": [
-      "/.well-known/*",
-      "/connect",
-      "/auth/*",
-      "/dashboard",
-      "/healthz",
-      "/favicon.svg",
-      "/favicon.ico"
-    ]
+    "binding": "ASSETS"
   },
   "kv_namespaces": [
     {
@@ -45,51 +36,7 @@
   },
   "routes": [
     {
-      "pattern": "auto.afirmi.co/.well-known/*",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/favicon.ico",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/favicon.svg",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/connect",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/auth/*",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/dashboard",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/healthz",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/ingest/*",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/quote/*",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/download/*",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/details",
-      "zone_name": "afirmi.co"
-    },
-    {
-      "pattern": "auto.afirmi.co/analytics/*",
+      "pattern": "auto.afirmi.co/*",
       "zone_name": "afirmi.co"
     }
   ]
