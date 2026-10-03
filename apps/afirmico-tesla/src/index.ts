@@ -1657,9 +1657,21 @@ app.get('/healthz', async (c) => {
 })
 
 /**
- * Anything else under the attached routes is passed back to the origin, which
- * keeps the existing splash site serving normally.
+ * Anything not handled above is served the splash out of this worker's own
+ * asset layer (F01-R12).
+ *
+ * This used to proxy the request back to "the origin" so the older splash site
+ * could keep answering. That is no longer right: afirmico-tesla holds the whole
+ * host now, so proxying an unmatched path either recurses into this same worker
+ * or reaches the retired catch-all worker that served the splash with its own
+ * inline icon. Serving the one repository copy keeps the icon identical on
+ * every path.
  */
-app.notFound((c) => fetch(c.req.raw))
+app.notFound(async (c) => {
+  const splash = await c.env.ASSETS.fetch(
+    new Request(new URL('/', c.req.url), { headers: c.req.raw.headers }),
+  )
+  return new Response(splash.body, { status: 404, headers: splash.headers })
+})
 
 export default app
