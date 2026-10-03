@@ -57,8 +57,13 @@ import {
   storeTokens,
   timingSafeEqual,
   upsertMember,
+  upsertTelemetryConfig,
   upsertVehicles,
   vehicleExists,
+  vinsForMember,
+  collectedFields,
+  markConfigRemoved,
+  telemetryTarget,
 } from './store'
 import { TokenKeyMissingError } from './crypto'
 import { InvalidDetail, memberDetailGaps, saveMemberDetails } from './onboarding'
@@ -81,6 +86,14 @@ import {
   resolveTiers,
   startIngestRun,
 } from './telemetry'
+import {
+  buildTelemetryConfig,
+  buildConfigRecord,
+  mapSkipReason,
+  proxyConfigured,
+  validateConfigInput,
+  type CollectedField,
+} from './vehicle-config'
 import { MIN_MARGIN_RATIO, evaluateBillingGuard, monthWindow } from './billing'
 
 export interface Env {
@@ -115,6 +128,22 @@ export interface Env {
   TOKEN_ENCRYPTION_KEY: string
   /** Fleet API base URL. Defaults to the NA base (Australia routes here). */
   TESLA_AUDIENCE?: string
+  /**
+   * Base URL of `tesla-http-proxy` (F02-R11), used SOLELY as the configuration
+   * signer: it holds the application private key and signs the config JWS.
+   *
+   * Optional and deliberately not defaulted. Absent means telemetry
+   * configuration cannot be sent, and the code records `pending` with
+   * `proxy_not_configured` rather than pretending a config was applied.
+   */
+  TESLA_PROXY_URL?: string
+  /**
+   * The CA certificate chain Tesla must trust, as PEM *contents* (F02-R11,
+   * SDD-010 §4.1). Tesla requires the bytes inline, not a path — a path is
+   * accepted locally and rejected only by Tesla, which is how the relay failed
+   * on its first run. A Worker secret so the chain renews without a code change.
+   */
+  TELEMETRY_CA_PEM?: string
   /**
    * Tesla billing limit, in USD, as configured in the developer dashboard
    * (F02-R13).
@@ -832,13 +861,45 @@ app.post('/auth/revoke', async (c) => {
 
   const revoked = await revokeConsent(c.env.D1_TESLA, member.member_id, 'member_revoked', nowIso)
 
+  // F02-R12: removal must be aimed at the vehicle. Revoking the member and
+  // discarding inbound data would leave the car transmitting — Tesla keeps
+  // billing for signals we no longer want, and the vehicle keeps sending. The
+  // member-facing text below has always claimed "collection has stopped"; this
+  // is what makes that true at the source rather than at our boundary.
+  const vins = await vinsForMember(c.env.D1_TESLA, member.member_id)
+  const removals = await Promise.all(
+    vins.map(async (vin) => {
+      const removed = await markConfigRemoved(c.env.D1_TESLA, vin, nowIso)
+      const ok = await removeVehicleConfig(c.env, vin)
+      await audit(c.env.D1_TESLA, {
+        action: 'telemetry.config_removed',
+        actorType: 'member',
+        actor: member.member_id,
+        subjectType: 'vehicle',
+        subjectId: vin,
+        // `recorded` and `sent` are recorded separately on purpose: the row can
+        // be marked removed while the delete to Tesla did not go out (no proxy
+        // configured). Collapsing them would report a teardown that did not
+        // happen, which is the one failure mode this requirement exists to stop.
+        detail: { rows_marked: removed, delete_sent: ok.sent, error: ok.error ?? null },
+        nowIso,
+      })
+      return { vin, rows: removed, sent: ok.sent }
+    }),
+  )
+
   await audit(c.env.D1_TESLA, {
     action: 'member.consent_revoked',
     actorType: 'member',
     actor: member.member_id,
     subjectType: 'member',
     subjectId: member.member_id,
-    detail: { revoked, retention: policy ? 'policy_linked' : 'immediate_deletion' },
+    detail: {
+      revoked,
+      retention: policy ? 'policy_linked' : 'immediate_deletion',
+      vehicles_removed: removals.filter((r) => r.rows > 0).length,
+      deletes_sent: removals.filter((r) => r.sent).length,
+    },
     nowIso,
   })
 
@@ -1603,6 +1664,178 @@ app.post('/analytics/group-export', async (c) => {
     console.error('group export failed', error)
     return c.json({ error: 'group export failed' }, 500)
   }
+})
+
+/* -------------------------------------------------------------------------- */
+/* Telemetry configuration transport (F02-R11, F02-R12)                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The CA Tesla must trust, as certificate *contents* (F02-R11, SDD-010 §4.1).
+ *
+ * Tesla requires the chain inline in the config, not a path — a path string is
+ * accepted by our own code and rejected only remotely, which is exactly how the
+ * relay failed on its first run. Held as a Worker secret so the chain can be
+ * renewed without a code change.
+ */
+function telemetryCa(env: Env): string {
+  return env.TELEMETRY_CA_PEM ?? ''
+}
+
+/**
+ * Where a signed config or delete is POSTed.
+ *
+ * `TESLA_PROXY_URL` points at `tesla-http-proxy` from `teslamotors/vehicle-command`,
+ * used SOLELY as the configuration signer: it signs the JWS with the application
+ * private key (the key never reaches this Worker) and forwards to Tesla
+ * (F02-R11). */
+function proxyBase(env: Env): string | null {
+  return proxyConfigured(env) ? (env.TESLA_PROXY_URL as string).replace(/\/+$/, '') : null
+}
+
+/**
+ * Send a telemetry configuration for one VIN.
+ *
+ * Returns `{ sent: false, error }` rather than throwing whenever the proxy is
+ * absent or Tesla rejects the call, because the caller must record the outcome
+ * per VIN and continue with the rest of the fleet — one vehicle with a missing
+ * key must not stop the others being configured (F02-R11's per-VIN skip states).
+ */
+async function sendVehicleConfig(
+  env: Env,
+  vin: string,
+  nowIso: string,
+): Promise<{ sent: boolean; state: 'active' | 'pending' | 'skipped' | 'failed'; skipReason?: string; error?: string }> {
+  const base = proxyBase(env)
+  if (!base) {
+    // Honest state: recorded, not applied. Claiming `active` here would be the
+    // silent-false-success class this platform has already been bitten by.
+    return { sent: false, state: 'pending', error: 'proxy_not_configured' }
+  }
+
+  const fields = (await collectedFields(env.D1_TESLA)) as CollectedField[]
+  const target = await telemetryTarget(env.D1_TESLA)
+  const input = {
+    vins: [vin],
+    hostname: target.hostname,
+    port: target.port,
+    ca: telemetryCa(env),
+    fields,
+  }
+
+  // Caller bugs must not be recorded against the vehicle — a config with no CA
+  // is our error, and surfacing it as a Tesla-side failure would blame the car.
+  const problems = validateConfigInput(input)
+  if (problems.length) return { sent: false, state: 'failed', error: `invalid_config:${problems.join(',')}` }
+
+  try {
+    const res = await fetch(`${base}/api/1/vehicles/fleet_telemetry_config`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-tesla-vin': vin },
+      body: JSON.stringify(buildTelemetryConfig(input)),
+    })
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+
+    // Per-VIN outcomes nest under `skipped_vehicles`; map each to its own state.
+    const skipped = Array.isArray(body.skipped_vehicles) ? (body.skipped_vehicles as Record<string, unknown>[]) : []
+    const mine = skipped.find((s) => s && (s.vin === vin || s.VIN === vin))
+    if (mine) {
+      const reason = (mine.reason ?? mine.skip_reason ?? mine.error) as unknown
+      const mapped = mapSkipReason(reason) ?? String(reason ?? 'unknown')
+      return { sent: true, state: 'skipped', skipReason: mapped }
+    }
+    if (!res.ok) return { sent: false, state: 'failed', error: `http_${res.status}` }
+    return { sent: true, state: 'active' }
+  } catch (error) {
+    return { sent: false, state: 'failed', error: `transport:${(error as Error).message}` }
+  }
+}
+
+/**
+ * Remove a vehicle's telemetry configuration (F02-R12).
+ *
+ * The delete is aimed at the vehicle so collection ceases at the source. As with
+ * the send, an absent proxy is reported as `sent: false` with a reason — the
+ * caller records that separately from the row state, so a teardown that did not
+ * reach Tesla is never reported as complete.
+ */
+async function removeVehicleConfig(env: Env, vin: string): Promise<{ sent: boolean; error?: string }> {
+  const base = proxyBase(env)
+  if (!base) return { sent: false, error: 'proxy_not_configured' }
+  try {
+    const res = await fetch(`${base}/api/1/vehicles/${encodeURIComponent(vin)}/fleet_telemetry_config`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) return { sent: false, error: `http_${res.status}` }
+    return { sent: true }
+  } catch (error) {
+    return { sent: false, error: `transport:${(error as Error).message}` }
+  }
+}
+
+/**
+ * Operator endpoint: configure (or re-apply) telemetry for the fleet (F02-R11).
+ *
+ * This is the re-apply half of the F02-R13 runbook — after a billing breach
+ * strips every config, this is what puts them back. It is deliberately idempotent
+ * (row `config_id` is derived, and Tesla treats a repeat config as an update), so
+ * running it twice is harmless and running it after a breach is the whole point.
+ *
+ * Guarded by the same shared secret as ingest: it is an authenticated operator
+ * action, not a public one, and it must never be reachable by a member.
+ */
+app.post('/admin/telemetry/apply', async (c) => {
+  const secret = c.env.INGEST_SHARED_SECRET
+  if (!secret) return c.json({ ok: false, error: 'not_configured' }, 503)
+  if (!timingSafeEqual(c.req.header('x-ingest-secret') ?? '', secret)) {
+    return c.json({ ok: false, error: 'unauthorized' }, 401)
+  }
+
+  const nowIso = new Date().toISOString()
+
+  // Optional `vin` narrows to one vehicle; default is every paired vehicle.
+  const body = (await c.req.json().catch(() => ({}))) as { vin?: string }
+  const rows = body.vin
+    ? await c.env.D1_TESLA.prepare('SELECT vin FROM tesla_vehicle WHERE vin = ?').bind(body.vin).all<{ vin: string }>()
+    : await c.env.D1_TESLA.prepare('SELECT vin FROM tesla_vehicle ORDER BY vin').all<{ vin: string }>()
+  const vins = (rows.results ?? []).map((r) => r.vin)
+
+  const results: { vin: string; state: string; skip_reason?: string; error?: string }[] = []
+  for (const vin of vins) {
+    const outcome = await sendVehicleConfig(c.env, vin, nowIso)
+    const rec = buildConfigRecord({
+      vin,
+      hostname: (await telemetryTarget(c.env.D1_TESLA)).hostname,
+      port: 443,
+      fields: (await collectedFields(c.env.D1_TESLA)) as CollectedField[],
+      now: nowIso,
+    })
+    await upsertTelemetryConfig(c.env.D1_TESLA, {
+      ...rec,
+      state: outcome.state,
+      skip_reason: outcome.skipReason ?? null,
+      applied_at: outcome.state === 'active' ? nowIso : null,
+      last_error: outcome.error ?? null,
+    })
+    await audit(c.env.D1_TESLA, {
+      action: 'telemetry.config_applied',
+      actorType: 'admin',
+      subjectType: 'vehicle',
+      subjectId: vin,
+      detail: { state: outcome.state, skip_reason: outcome.skipReason ?? null, error: outcome.error ?? null },
+      nowIso,
+    })
+    results.push({ vin, state: outcome.state, skip_reason: outcome.skipReason, error: outcome.error })
+  }
+
+  // `proxy_configured` is reported so an operator reading this response can tell
+  // "no vehicles" apart from "no transport" — both produce an empty fleet result.
+  return c.json({
+    ok: true,
+    proxy_configured: proxyConfigured(c.env),
+    vehicles: vins.length,
+    results,
+  })
 })
 
 /**
