@@ -56,10 +56,19 @@ breach cannot be undone by paying; it has to be repaired.
 
 ## Re-apply procedure
 
-> **Dependency:** steps 4–6 require the `fleet_telemetry_config` send path
-> (F02-R11), which is **not yet built**. Until it is, a breach can be detected
-> but not automatically repaired. Do not go live with vehicles paired until this
-> runbook has been executed at least once against a real vehicle.
+> **Dependency (status as of FRS-010 v1.26):** steps 4–6 require the
+> `fleet_telemetry_config` send path (F02-R11). **This is now built** —
+> `POST /admin/telemetry/apply` on the worker, guarded by the ingest shared
+> secret, idempotent, fleet-wide by default and single-VIN with
+> `{"vin":"..."}`. What is still missing is the **proxy transport**: the
+> endpoint reports `proxy_configured: false` and records each config `pending`
+> with `proxy_not_configured` until `TESLA_PROXY_URL` and `TELEMETRY_CA_PEM`
+> are set. So a breach can be re-applied **in one call** once the proxy is
+> deployed — but until then the repair is still by hand, and this runbook has
+> not been executed against a real vehicle. Do not read the endpoint's
+> `ok: true` as "configs restored": it means the request was authorised and
+> processed. Check `results[].state` for `active`; `pending` with
+> `proxy_not_configured` means nothing was sent.
 
 **1. Stop the bleeding.** Raise the Tesla developer-dashboard billing limit so
 the breach cannot recur during repair. Set it to at least 10x the projected
