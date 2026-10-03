@@ -1,5 +1,5 @@
 /**
- * Tests for the /connect summary paragraph (FRS-010 F01-R10).
+ * Tests for the /toca-connect summary paragraph (FRS-010 F01-R10, F01-R13).
  *
  * The paragraph is page chrome, not the agreed text, so the F01 AC5 hash pin in
  * consent.test.ts does not cover it. That is exactly how it drifted: the
@@ -20,13 +20,20 @@ const indexPath = fileURLToPath(new URL('../src/index.ts', import.meta.url))
 const source = readFileSync(indexPath, 'utf8')
 const flat = source.replace(/\s+/g, ' ')
 
-describe('/connect summary paragraph (F01-R10)', () => {
-  it('states the owner-supplied wording', () => {
+describe('/toca-connect summary paragraph (F01-R10)', () => {
+  it('states the wording in force', () => {
     expect(flat).toContain(
-      'AFIRMICO Auto reads data from your Tesla services to build your driving profile. ' +
-        'Your authorisation is required as below, and you can revoke it at any time. ' +
+      'Your authorisation is required as below, and you can revoke it at any time. ' +
         'Nothing is collected until you approve AFRIMICO Auto in the Tesla app.',
     )
+  })
+
+  it('does not open by describing what the data is used to build (v1.24)', () => {
+    // Removed at the owner's instruction. The promise of a "driving profile" is
+    // a purpose statement, and the purposes in the authorisation are broader
+    // than profile-building — so the intro must not lead with one of them.
+    expect(flat).not.toContain('reads data from your Tesla services')
+    expect(flat).not.toContain('build your driving profile')
   })
 
   it('refers to Tesla services, not the vehicle alone', () => {

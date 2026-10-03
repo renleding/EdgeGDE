@@ -47,14 +47,16 @@ describe('F01-R11 shared site icon', () => {
     }
     // Registered ahead of the first page handler so nothing can shadow them.
     const firstIcon = Math.min(...ICON_PATHS.map((p) => src.indexOf(`app.get('${p}'`)))
-    const firstOther = src.indexOf("app.get('/connect'")
+    // '/toca-connect' is the first page handler (F01-R13); '/connect' is now a
+    // bare redirect, so it is not the thing the icons must precede.
+    const firstOther = src.indexOf("app.get('/toca-connect'")
     expect(firstIcon).toBeGreaterThan(-1)
     expect(firstIcon).toBeLessThan(firstOther)
   })
 
   it('gives every worker-rendered page the same icon links', () => {
     // page() is the only chrome the worker renders, so fixing it once is what
-    // makes /connect, /dashboard, /auth/* and the error pages agree. The links
+    // makes /toca-connect, /dashboard, /auth/* and the error pages agree. The links
     // interpolate the shared constants rather than repeating the literal href,
     // which is the stronger form of "one definition".
     const pageFn = src.slice(src.indexOf('function page('))

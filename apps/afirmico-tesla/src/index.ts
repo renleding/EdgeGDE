@@ -307,14 +307,32 @@ app.get(PUBLIC_KEY_PATH, async (c) => {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * The old onboarding path, kept as a redirect (F01-R13).
+ *
+ * The page was at `/connect` before it moved under the TOCA framing. Anything
+ * still pointing at the old path — a bookmark, a link already published inside
+ * the member site — must not 404, because a member hitting a dead end during
+ * onboarding has no way to tell it apart from a broken platform.
+ *
+ * 301, not a temporary redirect: the move is permanent, and the cached redirect
+ * saves a round trip for every stale link. `app.get` only, so a POST to the old
+ * path is not silently accepted.
+ */
+app.get('/connect', (c) => c.redirect('/toca-connect', 301))
+
+/**
  * Onboarding entry (F01-R01..R03, R-13).
  *
  * The consent step was missing: the flow went straight from "connect" to the
  * Tesla handshake, so no consent was ever captured and F01-R02/R03 were
  * unsatisfied by a flow that appeared to work. The member must now explicitly
  * accept the authorisation text, whose exact bytes are recorded.
+ *
+ * Path is `/toca-connect` (F01-R13): the member reaches this page from inside
+ * the TOCA member site, so the name says which membership the connection
+ * belongs to.
  */
-app.get('/connect', (c) => {
+app.get('/toca-connect', (c) => {
   const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
   const already = sessionId
     ? `<div class="card ok"><strong>Already connected.</strong> <a href="${DASHBOARD_PATH}">View your dashboard</a></div>`
@@ -323,8 +341,7 @@ app.get('/connect', (c) => {
   return c.html(page('Connect your Tesla — AFIRMICO Auto', `
   <h1>Connect your Tesla</h1>
 
-  <p>AFIRMICO Auto reads data from your Tesla services to build your driving
-  profile. Your authorisation is required as below, and you can revoke it at any
+  <p>Your authorisation is required as below, and you can revoke it at any
   time. Nothing is collected until you approve AFRIMICO Auto in the Tesla app.</p>
 
   ${already}
@@ -360,7 +377,7 @@ app.post('/auth/consent', async (c) => {
     return c.html(page('Consent needed — AFIRMICO Auto', `
     <h1>Consent is required</h1>
     <p>We cannot connect to your Tesla without your authorisation. Nothing has been recorded.</p>
-    <a class="cta" href="/connect">Back to the authorisation</a>
+    <a class="cta" href="/toca-connect">Back to the authorisation</a>
     `), 400)
   }
 
@@ -624,7 +641,7 @@ app.get('/auth/error', (c) => {
     <p><strong>${explanation}</strong></p>
     <p class="meta">Reason: <code>${reason}</code>${detail ? ` &middot; ${detail}` : ''}</p>
   </div>
-  <p><a href="/auth/start">Try again</a> or return to the <a href="/connect">connect page</a>.</p>
+  <p><a href="/auth/start">Try again</a> or return to the <a href="/toca-connect">connect page</a>.</p>
   <p class="meta">Nothing was stored and no data has been collected.</p>
   `), 400)
 })
@@ -642,7 +659,7 @@ app.get(DASHBOARD_PATH, async (c) => {
     <h1>Not connected yet</h1>
     <p>No Tesla account is linked to this browser session. Connecting takes about a minute and does not
     collect anything until your vehicle starts reporting.</p>
-    <a class="cta" href="/connect">Connect your Tesla</a>
+    <a class="cta" href="/toca-connect">Connect your Tesla</a>
     `))
   }
 
@@ -740,7 +757,7 @@ app.get(DASHBOARD_PATH, async (c) => {
   <h2>The authorisation you agreed to</h2>
   <div class="policy">${escapeHtml(CONSENT_TEXT)}</div>`
     : `
-  <div class="note">No current authorisation on record. <a href="/connect">Grant one</a> to start collecting.</div>`
+  <div class="note">No current authorisation on record. <a href="/toca-connect">Grant one</a> to start collecting.</div>`
 
   return c.html(page('Your Tesla — AFIRMICO Auto', `
   <h1>Connected</h1>
@@ -790,7 +807,7 @@ app.get(DASHBOARD_PATH, async (c) => {
 app.post('/auth/revoke', async (c) => {
   const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
   const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
-  if (!raw) return c.redirect('/connect', 303)
+  if (!raw) return c.redirect('/toca-connect', 303)
 
   const member = await c.env.D1_TESLA.prepare(
     `SELECT m.member_id FROM tesla_auth_session s
@@ -799,7 +816,7 @@ app.post('/auth/revoke', async (c) => {
   )
     .bind(sessionId)
     .first<{ member_id: string }>()
-  if (!member) return c.redirect('/connect', 303)
+  if (!member) return c.redirect('/toca-connect', 303)
 
   const nowIso = new Date().toISOString()
 
@@ -839,7 +856,7 @@ app.post('/auth/revoke', async (c) => {
        telemetry, and any derived profile — will be deleted.</p>`}
 
   <p>Anonymised postcode-level statistics are retained; they contain nothing that identifies you.</p>
-  <p><a href="/connect">Grant a new authorisation</a></p>
+  <p><a href="/toca-connect">Grant a new authorisation</a></p>
   `))
 })
 
@@ -850,7 +867,7 @@ app.get('/auth/logout', async (c) => {
   return new Response(null, {
     status: 303,
     headers: {
-      location: '/connect',
+      location: '/toca-connect',
       'set-cookie': clearCookie(SESSION_COOKIE),
       'cache-control': 'no-store',
     },
@@ -1095,7 +1112,7 @@ function detailsForm(mobile: string | null, postcode: string | null, error: stri
 app.get('/details', async (c) => {
   const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
   const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
-  if (!raw) return c.redirect('/connect', 303)
+  if (!raw) return c.redirect('/toca-connect', 303)
 
   const member = await c.env.D1_TESLA.prepare(
     `SELECT m.member_id, m.mobile, m.postcode
@@ -1105,7 +1122,7 @@ app.get('/details', async (c) => {
   )
     .bind(sessionId)
     .first<{ member_id: string; mobile: string | null; postcode: string | null }>()
-  if (!member) return c.redirect('/connect', 303)
+  if (!member) return c.redirect('/toca-connect', 303)
 
   return c.html(detailsForm(member.mobile, member.postcode, null))
 })
@@ -1120,14 +1137,14 @@ app.get('/details', async (c) => {
 app.post('/details', async (c) => {
   const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
   const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
-  if (!raw) return c.redirect('/connect', 303)
+  if (!raw) return c.redirect('/toca-connect', 303)
 
   const member = await c.env.D1_TESLA.prepare(
     'SELECT member_id FROM tesla_auth_session WHERE session_id = ?',
   )
     .bind(sessionId)
     .first<{ member_id: string }>()
-  if (!member) return c.redirect('/connect', 303)
+  if (!member) return c.redirect('/toca-connect', 303)
 
   const form = await c.req.parseBody()
   const mobile = typeof form.mobile === 'string' ? form.mobile : ''
@@ -1180,7 +1197,7 @@ app.post('/details', async (c) => {
 app.post('/quote/request', async (c) => {
   const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
   const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
-  if (!raw) return c.redirect('/connect', 303)
+  if (!raw) return c.redirect('/toca-connect', 303)
 
   const form = await c.req.parseBody()
   const vin = typeof form.vin === 'string' ? form.vin : ''
@@ -1193,7 +1210,7 @@ app.post('/quote/request', async (c) => {
   )
     .bind(sessionId)
     .first<{ member_id: string }>()
-  if (!member) return c.redirect('/connect', 303)
+  if (!member) return c.redirect('/toca-connect', 303)
 
   const nowIso = new Date().toISOString()
   try {
@@ -1259,7 +1276,7 @@ app.post('/quote/request', async (c) => {
         <p>The reason recorded is <code>${escapeHtml(error.reason)}</code>.</p>
         ${extra}
         <p>Reconnect and accept the authorisation to enable release.</p>
-        <a class="cta" href="/connect">Review authorisation</a>
+        <a class="cta" href="/toca-connect">Review authorisation</a>
       </div>
       `), 409)
     }
@@ -1401,14 +1418,14 @@ app.post('/quote/response', async (c) => {
 app.post('/quote/decide', async (c) => {
   const sessionId = parseCookies(c.req.header('cookie'))[SESSION_COOKIE]
   const raw = sessionId ? await c.env.OAUTH_SESSIONS.get(`sess:${sessionId}`) : null
-  if (!raw) return c.redirect('/connect', 303)
+  if (!raw) return c.redirect('/toca-connect', 303)
 
   const member = await c.env.D1_TESLA.prepare(
     'SELECT member_id FROM tesla_auth_session WHERE session_id = ?',
   )
     .bind(sessionId)
     .first<{ member_id: string }>()
-  if (!member) return c.redirect('/connect', 303)
+  if (!member) return c.redirect('/toca-connect', 303)
 
   const form = await c.req.parseBody()
   const responseId = typeof form.response_id === 'string' ? form.response_id : ''
