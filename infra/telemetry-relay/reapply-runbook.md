@@ -60,12 +60,13 @@ breach cannot be undone by paying; it has to be repaired.
 > `fleet_telemetry_config` send path (F02-R11). **This is now built** —
 > `POST /admin/telemetry/apply` on the worker, guarded by the ingest shared
 > secret, idempotent, fleet-wide by default and single-VIN with
-> `{"vin":"..."}`. What is still missing is the **proxy transport**: the
+> `{"vin":"..."}`. What is still missing is the **signer transport**: the
 > endpoint reports `proxy_configured: false` and records each config `pending`
 > with `proxy_not_configured` until `TESLA_PROXY_URL` and `TELEMETRY_CA_PEM`
-> are set. So a breach can be re-applied **in one call** once the proxy is
-> deployed — but until then the repair is still by hand, and this runbook has
-> not been executed against a real vehicle. Do not read the endpoint's
+> are set. So a breach can be re-applied **in one call** once the signer host
+> (SDD-010 §2 Tier 2b) is deployed and reachable — but until then the repair is
+> still by hand, and this runbook has not been executed against a real vehicle.
+> Do not read the endpoint's
 > `ok: true` as "configs restored": it means the request was authorised and
 > processed. Check `results[].state` for `active`; `pending` with
 > `proxy_not_configured` means nothing was sent.
@@ -100,8 +101,8 @@ SELECT v.vin, c.state, c.config_version
 Rows with `state = 'removed'` or no row at all are the ones to re-apply.
 
 **4. Re-apply.** Use the endpoint that now exists (F02-R11) — it signs through
-`tesla-http-proxy` as a configuration signer and is idempotent, so running it
-twice is harmless:
+`tesla-http-proxy` as a configuration signer (its own host, SDD-010 §2 Tier 2b)
+and is idempotent, so running it twice is harmless:
 
 ```bash
 # Whole fleet.
@@ -121,7 +122,7 @@ authorised and processed — not that Tesla accepted anything.
 | Response | Meaning | Action |
 |---|---|---|
 | `state: "active"` | Tesla accepted; takes effect on the vehicle's next backend connection | Continue to step 5 |
-| `state: "pending"`, `error: "proxy_not_configured"` | **Nothing was sent.** `TESLA_PROXY_URL` is unset | Deploy the proxy (see the note above), then re-run |
+| `state: "pending"`, `error: "proxy_not_configured"` | **Nothing was sent.** `TESLA_PROXY_URL` is unset | Deploy the signer (see the note above), then re-run |
 | `state: "skipped"`, `skip_reason: "missing_key"` | The member has not added the virtual key | Member action; cannot be fixed from here |
 | `state: "skipped"`, `skip_reason: "max_configs"` | Vehicle is at Tesla's config ceiling from another app | Member must remove one; permanently unconfigurable until then |
 | `state: "failed"`, `error: "invalid_config:*"` | Our bug, not the vehicle's | Fix the cause; do not record it against the VIN |
