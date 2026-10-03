@@ -258,6 +258,7 @@ function page(title: string, body: string): string {
   body{margin:0;background:#090909;color:#fff;font-family:Arial,Helvetica,sans-serif;line-height:1.6}
   .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
   .logo{font-size:28px;font-weight:700;letter-spacing:1px}
+  .partner-mark{display:block;margin:0 0 22px;width:150px;height:auto}
   h1{font-size:44px;line-height:1.15;margin:32px 0 16px}
   h2{font-size:20px;margin:32px 0 8px}
   p{color:#d5d5d5;font-size:18px}
@@ -282,6 +283,7 @@ function page(title: string, body: string): string {
 </head>
 <body>
 <div class="wrap">
+  <img class="partner-mark" src="/toca-logo.png" alt="Tesla Owners Club Australia">
   <div class="logo">AFIRMICO Auto</div>
   ${body}
   <footer>AFIRMICO Auto | EV Data | Home Energy Statistics | Benefit Optimisation</footer>
