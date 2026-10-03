@@ -1,12 +1,14 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.9  \
+**Version:** 1.10  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
 **FRS Reference:** [FRS-010](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md)  \
 **Source:** Requirements interview + architecture review (owner decisions 2026-09-29)
+
+**Revision note (v1.10, 2026-10-03).** §4.1's example configuration listed a six-field set (`Odometer`, `MilesSinceReset`, `SelfDrivingMilesSinceReset`, `BatteryLevel`, `LocatedAtHome`, `LocatedAtWork`) carried over from the superseded polling design. It contradicted FRS-010 §3.7 and F04-R01a, which are authoritative: `BatteryLevel`, `LocatedAtHome` and `LocatedAtWork` are not in the collected set, and eleven further `once`/`on_change` fields are. §4.1 now shows the real set. §4.1 defines an artifact that is sent to vehicles, so an example that disagrees with the requirement is not cosmetic — it is the document a future implementer would copy. The field list lives in one place (FRS-010 §3.7); this document mirrors it rather than restating the justification.
 
 ---
 
@@ -250,12 +252,20 @@ leave the vehicle streaming, which is both a privacy failure and a continuing Te
     "port": 443,
     "ca": "<full LE certificate chain — contents, not a path>",
     "fields": {
-      "Odometer":                   { "interval_seconds": 21600, "minimum_delta": 1 },
-      "MilesSinceReset":            { "interval_seconds": 21600 },
-      "SelfDrivingMilesSinceReset": { "interval_seconds": 21600, "minimum_delta": 1 },
-      "BatteryLevel":               { "interval_seconds": 21600, "minimum_delta": 1 },
-      "LocatedAtHome":              { "interval_seconds": 21600 },
-      "LocatedAtWork":              { "interval_seconds": 21600 }
+      "Odometer":                        { "interval_seconds": 21600, "minimum_delta": 1 },
+      "MilesSinceReset":                 { "interval_seconds": 21600 },
+      "SelfDrivingMilesSinceReset":      { "interval_seconds": 21600, "minimum_delta": 1 },
+      "CarType":                         { "interval_seconds": 21600 },
+      "Version":                         { "interval_seconds": 21600 },
+      "EfficiencyPackage":               { "interval_seconds": 21600 },
+      "AutomaticBlindSpotCamera":        { "interval_seconds": 21600, "minimum_delta": 1 },
+      "SpeedLimitMode":                  { "interval_seconds": 21600, "minimum_delta": 1 },
+      "SpeedLimitWarning":               { "interval_seconds": 21600, "minimum_delta": 1 },
+      "SentryMode":                      { "interval_seconds": 21600, "minimum_delta": 1 },
+      "AutomaticEmergencyBrakingOff":    { "interval_seconds": 21600, "minimum_delta": 1 },
+      "BlindSpotCollisionWarningChime":  { "interval_seconds": 21600, "minimum_delta": 1 },
+      "EmergencyLaneDepartureAvoidance": { "interval_seconds": 21600, "minimum_delta": 1 },
+      "PinToDriveEnabled":               { "interval_seconds": 21600, "minimum_delta": 1 }
     }
   }
 }

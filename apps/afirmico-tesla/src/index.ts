@@ -1651,7 +1651,7 @@ app.get('/healthz', async (c) => {
 
   // F01 AC6: the catalog's collected set and CONSENTED_FIELDS are two independent
   // representations of the same decision. R-10 is exactly what happens when
-  // nothing compares them — the disclosure said two numbers, the catalog said
+  // nothing compares them — the catalog and CONSENTED_FIELDS said
   // fourteen, and both gates passed. Asserted in the build (verify-store.ts) and
   // reported here so the drift is visible in production, not only in CI.
   try {
