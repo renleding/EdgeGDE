@@ -179,6 +179,10 @@ jobs:
         #
         # Targets the afirmico-tesla host directly. env.WORKER refers to a
         # different worker (edgegde-calculator) and must not be used here.
+        #
+        # working-directory is overridden explicitly: this job defaults to
+        # apps/edge-runtime, so a repo-relative path would not resolve.
+        working-directory: ${{ github.workspace }}
         run: bash apps/afirmico-tesla/scripts/verify-deployed-content.sh
         env:
           BASE_URL: https://auto.afirmi.co
