@@ -220,6 +220,11 @@ vehicles retrying against a dead host.
 - **R-07 (launch blocker).** A Tesla billing breach strips every telemetry config and
   Tesla does not restore them. The relay is the wrong place to detect this — it is
   Tier 1's `/healthz` and the billing alerts (F02-R13) that must catch it. Requires a
-  tested re-apply runbook before go-live.
+  tested re-apply runbook before go-live. **Detection is now built (FRS-010 v1.23):**
+  `/healthz` reports `billing_margin` / `billing_projected_usd` / `billing_consumed`
+  from the 10x margin check in `apps/afirmico-tesla/src/billing.ts`. The re-apply
+  procedure is `reapply-runbook.md` beside this file — **steps 4-6 of it need the
+  F02-R11 per-vehicle re-apply path, which does not exist yet**, so a breach can be
+  detected but only repaired by hand. Still a launch blocker.
 - **O-8.** Admin access path to the host. Currently SSH from one operator IP; no
   bastion decision has been made.
