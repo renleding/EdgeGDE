@@ -1,12 +1,38 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.10  \
+**Version:** 1.11  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-10-02  \
 **FRS Reference:** [FRS-010](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md)  \
 **Source:** Requirements interview + architecture review (owner decisions 2026-09-29)
+
+**Revision note (v1.11, 2026-10-03).** **The config signer moves to its own host, and a wrong claim
+about the private key is removed.** §2 previously drew `tesla-http-proxy` *inside* the relay box and
+stated "**Both share ONE private key**". That sentence was wrong twice over. First, `fleet-telemetry`
+does not need the application private key at all — it terminates vehicle mTLS with its own Let's Encrypt
+server certificate; only the signer holds the application key. Second, co-locating them contradicts both
+Tesla's guidance and our own threat model: Tesla's `fleet-telemetry` security notes state the
+configuration-signing key "should be kept offline" and "should be kept in an HSM", and §10.3 already
+required the signer never be internet-facing — while the relay is the one component that *must* be public.
+Co-location therefore put the irreplaceable key behind the same network boundary as the internet-facing
+port for no functional gain, since the signer needs no inbound port. The signer is now drawn as **Tier 2b
+on a separate host** with zero inbound ports; the relay boxes state it holds no key. **Found while
+answering the owner's challenge to cite a source for the arrangement** — three research passes over
+Tesla's own documentation (dev-docs Fleet Telemetry page, `fleet-telemetry` README, `vehicle-command`
+README) found no source requiring co-location, and Tesla's only related guidance points the other way. A
+second fabrication was removed at the same time: §10.3 and §10.6 cited a "Tesla partner allowlist" as a
+reason for the signer's location. No Tesla source states such an allowlist is required, so that rationale
+is withdrawn and the requirement is left as the open item it always was (§9 O-4). Two open items are
+added: **O-5** (how Tier 1 reaches a signer with no inbound port) and **O-6** (signer host provisioning).
+Two stale sibling counts were corrected in passing, both the same class of defect v1.10 fixed in §4.1:
+§1.1 and §4.3 still said **6 fields** where the authoritative set (FRS-010 §3.7, F04-R01a) is **14**, and
+the cost line above §1.1 is now labelled with its provenance — it was derived at v1.4 against the 6-field
+set and has **not** been re-derived against the 14-field set, so it must not be quoted as current. That
+re-derivation is tracked in FRS-010 §3.7 and needs a live vehicle. Docs-only; no code, schema, or deployed
+behaviour changes, and the *decision* it corrects — signer on a separate host — was already recorded on
+2026-10-03.
 
 **Revision note (v1.10, 2026-10-03).** §4.1's example configuration listed a six-field set (`Odometer`, `MilesSinceReset`, `SelfDrivingMilesSinceReset`, `BatteryLevel`, `LocatedAtHome`, `LocatedAtWork`) carried over from the superseded polling design. It contradicted FRS-010 §3.7 and F04-R01a, which are authoritative: `BatteryLevel`, `LocatedAtHome` and `LocatedAtWork` are not in the collected set, and eleven further `once`/`on_change` fields are. §4.1 now shows the real set. §4.1 defines an artifact that is sent to vehicles, so an example that disagrees with the requirement is not cosmetic — it is the document a future implementer would copy. The field list lives in one place (FRS-010 §3.7); this document mirrors it rather than restating the justification.
 
@@ -34,7 +60,7 @@ specified but **does not exist in the repository** — the component that would 
 unbuilt, so the pipeline currently terminates on the relay host with no forwarder attached.
 
 **Revision note (rev 1.8, 2026-10-02).** Wording correction; no design change. The `vehicle-command`
-component on the relay is a **configuration signer only** (F02-R11, amended). It signs the
+component is a **configuration signer only** (F02-R11, amended). It signs the
 `fleet_telemetry_config` JWS with the application private key; **no vehicle command is ever sent to a member
 vehicle**, and the `vehicle_command` endpoint family is seeded disabled (72 endpoints) and asserted so in
 CI. Earlier revisions labelled this component only by its upstream repository name, which read as though
@@ -50,12 +76,16 @@ is ever issued.
 | Pairing | Not strictly required for register | **Required** — virtual key must be paired per vehicle |
 | Vehicle wake | Deliberate wake per poll | No wakes; vehicle pushes when awake |
 | FSD usage | **Blocked** (R-02) | **Resolved** — `SelfDrivingMilesSinceReset` is telemetry-only |
-| Fields | `vehicle_data` groups (~120) | Explicit field set — **6 fields** |
+| Fields | `vehicle_data` groups (~120) | Explicit field set — **14 fields** (FRS-010 §3.7, F04-R01a) |
 | Billing risk | Billing limit removes configs? No configs exist | **A breach removes configs and Tesla does not restore them** |
 | Firmware floor | `vehicle_data` broadly available | 2023.20.6+; FSD fields need 2025.44.25.5+ **and HW4** |
 
-**Cost consequence (measured, not estimated):** the field set below produces ~525 signals/vehicle/month
-→ **$0.0035/vehicle/month → $5.25/month for a 1,500-vehicle fleet**, against a $10/month account credit.
+**Cost consequence (modelled at v1.4 against the then-6-field set, NOT yet re-derived for the 14-field
+set — see FRS-010 R-02/R-15 and §3.7):** ~525 signals/vehicle/month → **$0.0035/vehicle/month →
+$5.25/month for a 1,500-vehicle fleet**, against a $10/month account credit. The current figure is driven
+by the three `event`-tier fields; the eight `on_change` ADAS fields bill only on change and the three
+`once` fields are sent once per vehicle, so the revision is expected to move this modestly, but it must be
+re-measured against a live vehicle before it is quoted.
 Tesla API cost is fully absorbed by the credit; total system cost is the infrastructure line ($10.53/mo).
 
 Rejected against this: the same platform collecting high-frequency behaviour fields (`LateralAcceleration`,
@@ -88,19 +118,13 @@ consumer needs. Field interval selection, not transport selection, is the cost l
                                     │ HTTPS POST (shared secret)
                                     │ batched JSONL, 5-minute flush
                                     │
-┌─ TIER 2 · Telemetry relay (single small VPS, AU) ────────────────────────────┐
+┌─ TIER 2 · Telemetry relay (public host, AU) ─────────────────────────────────┐
 │                                                                               │
 │  fleet-telemetry (Go, teslamotors reference impl)                             │
 │    • terminates vehicle client-cert mTLS on :443                              │
 │    • output: JSONL via the `logger` dispatcher                                │
 │    • stateless: holds no database, does no derivation                         │
-│                                                                               │
-│  tesla-http-proxy (from teslamotors/vehicle-command)                          │
-│    • CONFIG SIGNER ONLY — signs the fleet_telemetry_config JWS                │
-│    • NO vehicle commands sent (72 command endpoints disabled)                 │
-│    • one outbound IP → Tesla partner allowlist                                │
-│                                                                               │
-│  Both share ONE private key. Both restartable from repo + secret.             │
+│    • holds NO application private key — it CANNOT sign anything               │
 └───────────────────────────────────────────────────────────────────────────────┘
                                     ▲
                                     │ vehicle pushes when awake
@@ -109,6 +133,15 @@ consumer needs. Field interval selection, not transport selection, is the cost l
                         │  Member Tesla vehicle │
                         │  (virtual key paired) │
                         └───────────────────────┘
+
+┌─ TIER 2b · Config signer (SEPARATE host · ZERO inbound ports) ────────────────┐
+│                                                                               │
+│  tesla-http-proxy (from teslamotors/vehicle-command)                          │
+│    • CONFIG SIGNER ONLY — signs the fleet_telemetry_config JWS                │
+│    • NO vehicle commands sent (72 command endpoints disabled)                 │
+│    • holds the ONE application private key — its only location                │
+│    • NOT in the vehicle data path; reached by Tier 1 outbound, never dialled  │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Boundary rule.** The relay is a *span port*: it terminates mTLS, converts protobuf to JSON, and forwards.
@@ -116,10 +149,20 @@ It owns no business logic, no schema, and no persistence. Any enrichment, valida
 in Tier 1. This keeps the relay replaceable in minutes and keeps a single writer for the D1 schema.
 
 **Boundary rule.** All Tesla API *calls* (config create, token exchange, fleet_status) originate in Tier 1
-and go out through the proxy on Tier 2. The relay never initiates a Tesla call of its own. The proxy is
-hosted **solely as a configuration signer**: it signs the `fleet_telemetry_config` JWS with the
-application private key (F02-R11). **No vehicle command is ever sent to a member vehicle** — the
-`vehicle_command` endpoint family is seeded disabled and CI fails if it is enabled.
+and go out through the signer. The relay never initiates a Tesla call of its own. The signer is **its own
+host (Tier 2b)** and is used **solely as a configuration signer**: it signs the `fleet_telemetry_config`
+JWS with the application private key (F02-R11). **No vehicle command is ever sent to a member vehicle** —
+the `vehicle_command` endpoint family is seeded disabled and CI fails if it is enabled.
+
+**Why the signer is a separate host.** The relay is the only component that must be *public* — vehicles
+dial **in** to it on :443, so it is the one process with an internet-facing attack surface. The signer is
+the only component that holds the **application private key**, whose compromise is total (§6.1). Putting
+both on one host would place the irreplaceable key behind the same network boundary as the publicly
+reachable port for no functional gain: the signer needs no inbound port at all, and Tesla recommends the
+configuration-signing key be kept offline and in an HSM — the opposite of co-location. Splitting them also
+keeps each host disposable: the relay can be rebuilt from repo + cert without the key, and the key host
+carries no vehicle traffic. This supersedes the earlier co-located arrangement (rev 1.11 correction; the
+revision note above records the wording that was retired and why).
 
 **Tier 1 is a NEW, dedicated worker (owner decision 2026-10-02).** `auto.afirmi.co` is currently bound as a
 Workers **Custom Domain** — not a route — to `aged-cherry-8781`, a catch-all splash/calculator worker with
@@ -138,11 +181,11 @@ calculator app, and its D1 bindings point at document-intelligence databases.
 ### 3.1 FEATURE-02 — Registration and configuration (one-time, per vehicle)
 
 ```text
-1.  Tier1 → proxy   POST /api/1/partner_accounts   (partner token, domain=auto.afirmi.co)
+1.  Tier1 → signer  POST /api/1/partner_accounts   (partner token, domain=auto.afirmi.co)
                     → requires public key already hosted at /.well-known (F02-R01)
 2.  Member          https://tesla.com/_ak/auto.afirmi.co  → adds virtual key via Tesla app
                     → key-pairing is user-in-the-loop; cannot be automated
-3.  Tier1 → proxy   POST /api/1/vehicles/fleet_telemetry_config  (JWS signed by private key)
+3.  Tier1 → signer  POST /api/1/vehicles/fleet_telemetry_config  (JWS signed by private key)
                     → skipped_vehicles returns missing_key | unsupported_hardware |
                       unsupported_firmware | max_configs  → recorded per VIN
 4.  Vehicle         adopts config on next backend connection
@@ -331,7 +374,7 @@ platform cannot see its own spend until Tesla's invoice arrives.
 
 ### 4.3 Narrow fact rows
 
-Reuses the F08 shape; the collected subset is 6 fields:
+Reuses the F08 shape; the collected subset is 14 fields (FRS-010 §3.7):
 
 ```text
 (vin, collected_at, field_key, value_real, value_int, value_text, value_bool, source_batch_id)
@@ -462,7 +505,9 @@ be replaceable without touching the Worker.
 | O-1 | **Does `interval_seconds` accept 21600 (6 h)?** Verify on a live vehicle. Fallback 3600 modelled. | Build phase |
 | O-2 | **Relay host choice** — **resolved and PROVISIONED 2026-10-02.** Oracle Cloud `ap-sydney-1`; instance `relay-afirmico-tesla`, `VM.Standard.A1.Flex` **2 OCPU / 8 GB** arm64, RUNNING at `158.180.7.252` (see §10.8). Build sequence: §10.8, of which the host half is done. | Warren |
 | O-3 | **Tesla developer app creation** (R-01) — gates registration; nothing streams until it exists. Register **after** the relay is up (§10.8 step 9). | Warren |
-| O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. Partly answered by §10.8 step 4 (reserved public IP). | Build phase |
+| O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. **Not asserted anywhere after rev 1.11:** the earlier wording cited this as the reason the signer sits on the relay, which was an unverified premise stated as fact. No Tesla source found during that review requires an allowlisted egress IP. If it does turn out to be required, it constrains the signer host (Tier 2b), not the relay. §10.8 step 4 already reserves a public IP. | Build phase |
+| O-5 | **How Tier 1 reaches the signer (Tier 2b).** The signer has no inbound port and the Worker must call it over the network (`TESLA_PROXY_URL`). Options: a private network between the two OCI hosts, a pinned mTLS tunnel, or a public endpoint restricted at the firewall to Cloudflare egress ranges plus an application-layer secret. Must be decided before the signer is deployed; whichever is chosen, the signer is never left open to the internet (§10.3). | Build phase |
+| O-6 | **Signer host provisioning.** A second, smaller instance (no inbound ports, smallest available shape) in the same AU region as the relay. Not yet provisioned; the private key has no host today, so F02-R11 can only reach `pending`/`proxy_not_configured`. | Build phase |
 | O-5 | **Consent wording** (R-06) — must disclose data leaves the vehicle to a US processor (Tesla) and to insurers (APP 8). | Warren |
 | O-6 | **D1_TESLA binding decision** — extend `D1_AFIRMICO` vs provision a dedicated database per F08-R09. | Build phase |
 | O-7 | **PAYG upgrade completion** — **RESOLVED 2026-10-02.** Tenancy reports `payment-model: PAYG` (`start-date 2026-09-30`), so idle reclamation is removed and the paid Arm allowance applies. Previously gated §10.8 step 0; that gate is now satisfied. | Oracle — **closed** |
@@ -504,7 +549,7 @@ rejecting at the handshake, so it was not a valid proxy for real load.
 | **Arch** | x86_64 **or** arm64 | arm64 | Both are static Go binaries; both images are multi-arch. arm64 is typically cheaper on AU providers. |
 | **Network** | Public IPv4, unrestricted inbound **:443** | + static/public IP | Vehicles connect **inbound** to this host. It cannot sit behind a NAT or a shared app host. |
 | **Access** | root or container control | + no shell in app image | The app image is `scratch`-based (**no `sh`, no shell**). Debugging is `docker logs` / `docker exec` from the host only — there is no shell inside to attack. |
-| **Ports** | 443 (telemetry only), 22 restricted | 22 key-only, geo/allowlist-limited | 443 must be open to the internet — vehicles dial *in*. 22 must not be. The config-signing proxy binds **loopback only** and takes no public port. |
+| **Ports** | 443 (telemetry only), 22 restricted | 22 key-only, geo/allowlist-limited | 443 must be open to the internet — vehicles dial *in*. 22 must not be. The config signer (Tier 2b, its own host) takes **no inbound port at all**. |
 
 ### 10.3 Operating system
 
@@ -516,19 +561,20 @@ rejecting at the handshake, so it was not a valid proxy for real load.
 - The app is a static Go binary — no interpreter, no package-manager dependencies at runtime. There is
   no language-runtime version risk to manage.
 
-**Port binding.** The telemetry server binds :443, a privileged port. (The config-signing proxy binds
-loopback only — it takes no public port, see below.)
+**Port binding.** The telemetry server binds :443, a privileged port.
 Run with `--cap-add=NET_BIND_SERVICE` or drop to a high port and redirect with `iptables`/a reverse proxy.
 Do not run either as `--privileged`.
 
-**The proxy must NOT be internet-facing.** Started with `-host 0.0.0.0`, it warns verbatim:
+**The signer must NOT be internet-facing.** Started with `-host 0.0.0.0`, it warns verbatim:
 
 > *Do not listen on a network interface without adding client authentication. Unauthorized clients may
 > be used to create excessive traffic from your IP address to Tesla's servers, which Tesla may respond
 > to by rate limiting or blocking your connections.*
 
-It is only ever called by Tier 1, from the same host. Bind it to **`127.0.0.1`**. The only publicly
-exposed process is fleet-telemetry on :443, and it enforces `RequireAndVerifyClientCert`.
+It is reached by Tier 1 only, and it runs on its **own host with no inbound port published** (§2). Bind
+it to a private interface (`127.0.0.1` if Tier 1 reaches it through a local tunnel, otherwise the
+private address; see §9 O-5). The only publicly exposed process is fleet-telemetry on :443, and it
+enforces `RequireAndVerifyClientCert`.
 
 **Why the signer exists when no command is ever sent.** The component is named after the repository it
 ships in, not after the only job we give it. `tesla-http-proxy` does two separable things: it signs and
@@ -536,9 +582,10 @@ forwards **vehicle commands**, and it signs the **`fleet_telemetry_config` JWS**
 only — the command role is unused and no command reaches a vehicle (F02-R11). It is still required,
 because Tesla's endpoint contract states the recommended path for `fleet_telemetry_config` is through this
 proxy, and calling `fleet_telemetry_config_jws` directly requires a **Schnorr signature over NIST P-256
-with SHA-256** — which Workers WebCrypto cannot produce, so a signer would run on the relay regardless.
-The relay is where it belongs: the private key lives there, and its outbound IP is stable for the Tesla
-partner allowlist.
+with SHA-256** — which Workers WebCrypto cannot produce, so a signer must run on a host we control
+regardless of where that host sits. It sits on **its own host (Tier 2b)**, not the relay: the signer needs
+no inbound port, the relay must be public, and co-locating them would put the irreplaceable key behind the
+same boundary as the internet-facing port. See §2 and §9 O-5.
 
 ### 10.4 Configuration deltas from the reference defaults
 
@@ -578,8 +625,9 @@ Consequences for the verification plan (§8):
 
 Any provider is fine provided it offers, in an **AU region**: public IPv4, unrestricted inbound :443, a
 full root or container-capable host (**not** a shared/managed application host), ≥512 MB RAM, ≥10 GB
-disk, and ideally a static egress IP (pending O-4). A ~$5–7/month instance is materially more than
-enough — the measured working set is ~45 MiB.
+disk. A ~$5–7/month instance is materially more than enough — the measured working set is ~45 MiB.
+The signer host (§2, Tier 2b) needs no inbound port and can be the smallest instance available; its only
+requirement is that Tier 1 can reach it, which is what §9 O-5 resolves.
 
 
 ### 10.7 Candidate host evaluation — Oracle Cloud Always Free
@@ -732,7 +780,7 @@ This is the materialisation of `infra/telemetry-relay/deploy.md` (§5).
 **Execution status (rev 1.7) — the host-provisioning half has been EXECUTED.** Steps 0–5 below were
 carried out on 2026-10-02 and the resulting instance is live; the facts table and OCIDs are therefore
 *observed output*, not intended input. What remains **unexecuted** is everything that puts the relay on
-the host: the container deploy (fleet-telemetry + the config-signing proxy), the certificate material, the Tesla
+the host: the container deploy (fleet-telemetry), the certificate material, the Tesla
 `fleet_telemetry_config` creation (F02-R10/R11), and the `--help` checks that rev 1.6 asked for. **No
 Tesla telemetry config exists, so no vehicle is streaming and :443 answers nothing.**
 
@@ -919,11 +967,14 @@ docker run -d --name fleet-telemetry --restart unless-stopped \
   tesla/fleet-telemetry:latest --config /config/server_config.json
 ```
 
-Config values come from §10.4 verbatim — in particular `tls.ca_file` **unset** in production, and the
-`tesla-http-proxy` launched with `-host 127.0.0.1` (§10.4; the proxy must never be internet-facing). It
-runs as a **configuration signer only** (F02-R11) — it signs the `fleet_telemetry_config` JWS, and no
-vehicle command is sent. It has no part in the inbound vehicle-data path; that is fleet-telemetry's alone.
-The images are `scratch`-based: there is no shell inside, so debugging is `docker logs` only.
+Config values come from §10.4 verbatim — in particular `tls.ca_file` **unset** in production. The images
+are `scratch`-based: there is no shell inside, so debugging is `docker logs` only.
+
+This step brings up **fleet-telemetry only**. The `tesla-http-proxy` config signer is **NOT** deployed
+here — it runs on its own host with no inbound port (§2, Tier 2b; §9 O-5), used **solely as a
+configuration signer** (F02-R11) to sign the `fleet_telemetry_config` JWS. It has no part in the inbound
+vehicle-data path; that is fleet-telemetry's alone. The relay host never holds the application private
+key, so this host remains disposable from repo + certificate alone.
 
 #### Step 8 — Verify from outside the host
 
