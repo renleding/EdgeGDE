@@ -99,24 +99,39 @@ SELECT v.vin, c.state, c.config_version
 
 Rows with `state = 'removed'` or no row at all are the ones to re-apply.
 
-**4. Re-apply per vehicle.** Through `tesla-http-proxy` as a configuration
-signer (F02-R11) — sign the `fleet_telemetry_config` JWS with the application
-private key and POST it. The exact config sent is stored verbatim in
-`tesla_telemetry_config.fields_json`; re-send that, not a freshly assembled one,
-so a re-apply cannot silently widen the collected field set:
+**4. Re-apply.** Use the endpoint that now exists (F02-R11) — it signs through
+`tesla-http-proxy` as a configuration signer and is idempotent, so running it
+twice is harmless:
 
 ```bash
-# Re-send the stored config for one VIN. fields_json is authoritative.
-curl -sS -X POST "$TESLA_AUDIENCE/api/1/vehicles/$VIN/fleet_telemetry_config" \
-  -H "Authorization: Bearer $PARTNER_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data-binary @<(sqlite3 -json ... "SELECT fields_json FROM tesla_telemetry_config WHERE vin='$VIN'")
+# Whole fleet.
+curl -sS -X POST "https://auto.afirmi.co/admin/telemetry/apply" \
+  -H "x-ingest-secret: $INGEST_SHARED_SECRET" \
+  -H 'content-type: application/json' -d '{}'
+
+# Or one vehicle.
+curl -sS -X POST "https://auto.afirmi.co/admin/telemetry/apply" \
+  -H "x-ingest-secret: $INGEST_SHARED_SECRET" \
+  -H 'content-type: application/json' -d '{"vin":"$VIN"}'
 ```
 
-On success set `state='active'`, `applied_at=now`, and bump `config_version`.
-On `skipped_vehicles`, record the per-VIN reason as a distinct state
-(`missing_key`, `unsupported_hardware`, `unsupported_firmware`, `max_configs`) —
-do not collapse these into a single "failed".
+**Read `results[].state`, never `ok`.** `ok: true` means the request was
+authorised and processed — not that Tesla accepted anything.
+
+| Response | Meaning | Action |
+|---|---|---|
+| `state: "active"` | Tesla accepted; takes effect on the vehicle's next backend connection | Continue to step 5 |
+| `state: "pending"`, `error: "proxy_not_configured"` | **Nothing was sent.** `TESLA_PROXY_URL` is unset | Deploy the proxy (see the note above), then re-run |
+| `state: "skipped"`, `skip_reason: "missing_key"` | The member has not added the virtual key | Member action; cannot be fixed from here |
+| `state: "skipped"`, `skip_reason: "max_configs"` | Vehicle is at Tesla's config ceiling from another app | Member must remove one; permanently unconfigurable until then |
+| `state: "failed"`, `error: "invalid_config:*"` | Our bug, not the vehicle's | Fix the cause; do not record it against the VIN |
+
+The config is assembled from the catalog's `collected = 1` set, and the exact
+bytes sent per vehicle are stored in `tesla_telemetry_config.fields_json`, so a
+re-apply cannot silently widen the collected field set.
+
+On `skipped_vehicles`, the four reasons stay distinct states — do not collapse
+them into one "failed".
 
 **5. Verify each vehicle is streaming.** Do not trust the POST's 200. Confirm
 records actually arrive:
