@@ -15,38 +15,38 @@
     "    store as valid text -- a declined signal silently becoming a measurement.",
     "  - log_level warn: info-level logging wrote ~1.5 MB for 1500 handshake events."
   ],
-
   "host": "0.0.0.0",
   "port": 443,
-
   "log_level": "warn",
   "json_log_enable": true,
-
   "namespace": "tesla",
   "reliable_ack": false,
   "transmit_decoded_records": true,
-
   "logger": {
     "verbose": true
   },
-
   "records": {
-    "V": ["logger"],
-    "alerts": ["logger"],
-    "errors": ["logger"],
-    "connectivity": ["logger"]
+    "V": [
+      "logger"
+    ],
+    "alerts": [
+      "logger"
+    ],
+    "errors": [
+      "logger"
+    ],
+    "connectivity": [
+      "logger"
+    ]
   },
-
   "tls": {
     "server_cert": "/certs/fullchain.pem",
     "server_key": "/certs/privkey.pem"
   },
-
   "rate_limit": {
     "enabled": true,
     "message_limit": 1000
   },
-
   "monitoring": {
     "prometheus_metrics_port": 9090
   }
