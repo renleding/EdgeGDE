@@ -1,0 +1,19 @@
+{
+  "name": "afirmico-ineos-qld",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "ineos.afirmi.co/*",
+      "zone_name": "afirmi.co"
+    }
+  ]
+}

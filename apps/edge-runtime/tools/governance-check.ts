@@ -29,9 +29,15 @@ function checkJSDoc(targetPath: string, srcDir: string): CheckResult[] {
 
 function checkTrailingWS(filePath: string): CheckResult[] {
   const raw = readFileSync(filePath, "utf-8")
-  const hasTrailing = raw.match(/\s+$/)
-  if (hasTrailing) return [checkFail(filePath, "trailing whitespace detected")]
-  return []
+  const lines = raw.split("\n")
+  const failures: CheckResult[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line.match(/[ \t]+$/)) {
+      failures.push(checkFail(filePath, `trailing whitespace on line ${i + 1}`))
+    }
+  }
+  return failures
 }
 
 function checkPass(file?: string): CheckResult {
@@ -49,13 +55,19 @@ function checkFail(file: string, detail: string): CheckResult {
  * - JSDoc on key exported files
  * Outputs results to stderr for CI integration.
  */
+import { statSync } from "node:fs"
+
 export function run(): void {
   const results: CheckResult[] = []
   const tsFiles: string[] = []
-  for (const child of readdirSync("src")) { if (!child.startsWith(".")) tsFiles.push(child) }
+  for (const child of readdirSync("src")) {
+    if (child.startsWith(".")) continue
+    const full = join(ROOT, "src", child)
+    if (statSync(full).isFile() && child.endsWith(".ts")) tsFiles.push(child)
+  }
 
   // 1. Presence check on known entry point
-  try { readFileSync(join(ROOT, "src", "index.ts")); results.push(checkPass("src/index.ts")) } catch _e {}
+  try { readFileSync(join(ROOT, "src", "index.ts")); results.push(checkPass("src/index.ts")) } catch {}
   // 2. Every TypeScript source file for trailing whitespace
   for (const f of tsFiles) {
     const fp = join(ROOT, "src", f)
@@ -75,8 +87,12 @@ export function run(): void {
 
   // Final summary to stderr so it composes cleanly in CI output
   let f0 = 0, f1 = 0, f2 = 0
-  for (const r of results) { if (r.tag === "fail") f1++; else if (r.tag === "warn") f2++ }
+  for (const r of results) {
+    if (r.tag === "fail") { f1++; console.error(`  FAIL: ${r.file} - ${r.detail}`) }
+    else if (r.tag === "warn") { f2++; console.error(`  WARN: ${r.file} - ${r.detail}`) }
+  }
   console.error(`governance-check | ${results.length} files | ${f1} failures ${f2} warnings`)
 }
 
 run()
+const x = 1;   

@@ -208,6 +208,162 @@ adminApp.use('/*', async (c: Context<{ Bindings: AdminEnv }>, next: Next) => {
 /* HTML pages                                                                 */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Renders the connections table showing per-member Tesla connections
+ * with their vehicle details, virtual key pairing status, and consent history.
+ * Supports filtering by status (active/inactive/all) and search.
+ */
+async function renderActiveConnections(
+  db: D1Database,
+  search?: string,
+  status?: 'active' | 'inactive' | 'all'
+): Promise<string> {
+  const conditions: string[] = []
+  const params: unknown[] = []
+
+  // Search condition
+  if (search) {
+    const term = `%${search}%`
+    conditions.push(
+      `(m.member_id LIKE ? OR m.tesla_email LIKE ? OR v.vin LIKE ? OR v.display_name LIKE ? OR v.model LIKE ? OR vk.key_state LIKE ?)`
+    )
+    const termParam = `%${search}%`
+    params.push(termParam, termParam, termParam, termParam, termParam, termParam)
+  }
+
+  // Status filter
+  if (status === 'active') {
+    conditions.push(`(c.revoked_at IS NULL)`)
+  } else if (status === 'inactive') {
+    conditions.push(`(c.revoked_at IS NOT NULL OR c.consent_id IS NULL)`)
+  }
+  // 'all' = no status filter
+
+  const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
+
+  // Main query: member + vehicle + key + consent history
+  // This returns one row per consent record, so a member with multiple consents
+  // gets multiple rows (history)
+  const connections = await db.prepare(
+    `SELECT 
+       m.member_id, m.tesla_email, m.created_at as member_since,
+       v.vin, v.display_name, v.model, v.last_seen_at,
+       vk.key_state, vk.paired_at,
+       c.consent_id, c.policy_version, c.granted_at, c.revoked_at, c.revoke_reason,
+       c.collected_fields, c.recipients, c.ip_hash, c.user_agent
+     FROM tesla_member m
+     LEFT JOIN tesla_vehicle v ON v.member_id = m.member_id
+     LEFT JOIN tesla_vehicle_key vk ON vk.vin = v.vin
+     LEFT JOIN tesla_consent c ON c.member_id = m.member_id
+     ${whereClause}
+     ORDER BY m.created_at DESC, c.granted_at DESC`
+  ).bind(...params).all<Record<string, unknown>>()
+
+  if (connections.results?.length === 0) {
+    return '<div class="empty">No connections found.</div>'
+  }
+
+  // Group by member_id to show consent history per member
+  const memberGroups = new Map<string, typeof connections.results>()
+  for (const row of connections.results!) {
+    const key = row.member_id as string
+    if (!memberGroups.has(key)) memberGroups.set(key, [])
+    memberGroups.get(key)!.push(row)
+  }
+
+  // Status filter UI
+  const statusOptions = ['all', 'active', 'inactive']
+  const statusLabels = { all: 'All', active: 'Active', inactive: 'Inactive' }
+  const statusFilter = `
+    <form method="GET" action="/admin/overview" style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input type="text" name="search" placeholder="Search member_id, email, VIN, vehicle, model, key state…"
+             value="${escapeHtml(search ?? '')}"
+             style="flex:1;min-width:280px;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;font-size:14px">
+      <select name="status" style="padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;font-size:14px">
+        ${['all', 'active', 'inactive'].map(s => `<option value="${s}" ${status === s || (!status && s === 'all') ? 'selected' : ''}>${{all: 'All', active: 'Active', inactive: 'Inactive'}[s]}</option>`).join('')}
+      </select>
+      <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Filter</button>
+      ${search || status ? `<a href="/admin/overview" style="padding:10px 18px;border:1px solid #444;border-radius:8px;color:#9ecbff;text-decoration:none;font-size:14px">Clear</a>` : ''}
+    </form>
+  `
+
+  const memberHtml = Array.from(memberGroups.entries()).map(([memberId, rows]) => {
+    const first = rows[0]
+    const keyState = first.key_state ?? 'no vehicle'
+    const stateClass = first.key_state === 'paired' ? 'ok' : first.key_state === 'fault' ? 'bad' : 'warn'
+    
+    // Build consent history table
+    const consentRows = rows.filter(r => r.consent_id).map((r) => `
+      <tr>
+        <td class="meta">${escapeHtml(r.granted_at ?? '—')}</td>
+        <td class="meta">${escapeHtml(r.revoked_at ?? 'active')}</td>
+        <td>${escapeHtml(r.policy_version ?? '—')}</td>
+        <td><span class="pill ${r.revoked_at ? 'bad' : 'ok'}">${r.revoked_at ? 'Revoked' : 'Active'}</span></td>
+        <td class="meta">${escapeHtml(r.revoke_reason ?? '—')}</td>
+        <td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.collected_fields ?? '—')}</td>
+        <td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.recipients ?? '—')}</td>
+        <td class="meta">${escapeHtml(r.ip_hash ?? '—')}</td>
+      </tr>
+    `).join('')
+
+    const hasConsentHistory = rows.some(r => r.consent_id)
+    const consentTable = `
+      <div style="margin-top:12px;padding:12px;background:#101010;border-radius:8px">
+        <h4 style="margin:0 0 8px;color:#a52045">Consent History (${rows.filter(r=>r.consent_id).length} record(s))</h4>
+        ${rows.some(r => r.consent_id) ? `
+        <table style="font-size:12px">
+          <thead>
+            <tr>
+              <th>Granted</th><th>Revoked</th><th>Policy</th><th>Status</th><th>Reason</th>
+              <th>Collected Fields</th><th>Recipients</th><th>IP Hash</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.filter(r => r.consent_id).map((r) => `
+              <tr>
+                <td class="meta">${escapeHtml(r.granted_at ?? '—')}</td>
+                <td class="meta">${escapeHtml(r.revoked_at ?? 'active')}</td>
+                <td>${escapeHtml(r.policy_version ?? '—')}</td>
+                <td><span class="pill ${r.revoked_at ? 'bad' : 'ok'}">${r.revoked_at ? 'Revoked' : 'Active'}</span></td>
+                <td class="meta">${escapeHtml(r.revoke_reason ?? '—')}</td>
+                <td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.collected_fields ?? '—')}</td>
+                <td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.recipients ?? '—')}</td>
+                <td class="meta">${escapeHtml(r.ip_hash ?? '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ` : '<div class="meta" style="margin-top:12px">No consent records</div>'}
+      </div>
+    `
+
+
+}).join('')
+
+  const searchForm = `
+    <form method="GET" action="/admin/overview" style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input type="text" name="search" placeholder="Search member_id, email, VIN, vehicle, model, key state..."
+             value="${escapeHtml(search ?? '')}"
+             style="flex:1;min-width:280px;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;font-size:14px">
+      <select name="status" style="padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;font-size:14px">
+        <option value="all" ${status === 'all' || !status ? 'selected' : ''}>All</option>
+        <option value="active" ${status === 'active' ? 'selected' : ''}>Active</option>
+        <option value="inactive" ${status === 'inactive' ? 'selected' : ''}>Inactive</option>
+      </select>
+      <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Filter</button>
+      ${search || status ? `<a href="/admin/overview" style="padding:10px 18px;border:1px solid #444;border-radius:8px;color:#9ecbff;text-decoration:none;font-size:14px">Clear</a>` : ''}
+    </form>
+  `;
+
+  return `${searchForm}
+  <div style="display:flex;flex-direction:column;gap:16px">
+    ${memberHtml || '<div class="empty">No connections found.</div>'}
+  </div>`;
+}
+/* -------------------------------------------------------------------------- */
+/* HTML pages                                                                 */
+/* -------------------------------------------------------------------------- */
+
 adminApp.get('/overview', async (c) => {
   const dayStart = new Date().toISOString().slice(0, 10)
   const [members, vehicles, activeConsent, revokedConsent, batches, facts, signals] = await Promise.all([
@@ -243,6 +399,9 @@ adminApp.get('/overview', async (c) => {
     <div class="card"><div class="num">${signals?.n ?? 0}</div><div class="lbl">Signals</div></div>
     <div class="card"><div class="num">$${cost}</div><div class="lbl">Est. cost</div></div>
   </div>
+
+  <h2>Active Connections (per member)</h2>
+  ${await renderActiveConnections(c.env.D1_TESLA, c.req.query('search'), c.req.query('status') as 'active' | 'inactive' | 'all' | undefined)}
   `))
 })
 
