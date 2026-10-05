@@ -2081,7 +2081,7 @@ export default {
     // Only run the key pairing poll cron
     if (controller.cron === '*/5 * * * *') {
       const result = await cronPollAllKeyPairing(env)
-      console.log(`[cron] key-pairing-poll: checked=${result.checked} paired=${result.paired} failed=${result.failed}`)
+      console.warn(`[cron] key-pairing-poll: checked=${result.checked} paired=${result.paired} failed=${result.failed}`)
       if (result.errors.length) {
         console.error(`[cron] key-pairing-poll errors:`, result.errors)
       }
