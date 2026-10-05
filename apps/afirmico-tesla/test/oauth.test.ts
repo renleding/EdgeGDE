@@ -112,7 +112,7 @@ describe('authorize URL', () => {
     const granted = new URL(scope).searchParams.get('scope')!.split(' ')
 
     expect(granted).toEqual([...TESLA_SCOPES])
-    for (const forbidden of ['vehicle_cmds', 'energy_cmds', 'energy_device_data', 'enterprise_management']) {
+    for (const forbidden of ['energy_cmds', 'energy_device_data', 'enterprise_management']) {
       expect(granted).not.toContain(forbidden)
     }
   })

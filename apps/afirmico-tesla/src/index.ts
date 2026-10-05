@@ -18,6 +18,7 @@
  */
 
 import { Hono } from 'hono'
+import type { ScheduledController, ExecutionContext, ExportedHandler } from '@cloudflare/workers-types'
 import {
   SESSION_COOKIE,
   STATE_COOKIE,
@@ -33,6 +34,7 @@ import {
   fetchVehicles,
   generateCodeVerifier,
   generateState,
+  getPartnerToken,
   parseCookies,
   s256Challenge,
   serializeCookie,
@@ -98,6 +100,13 @@ import {
   type CollectedField,
 } from './vehicle-config'
 import { MIN_MARGIN_RATIO, evaluateBillingGuard, monthWindow } from './billing'
+import {
+  checkAndUpdateKeyPairing,
+  cronPollAllKeyPairing,
+  getMemberAccessToken,
+  type KeyPairingResult,
+} from './key-pairing'
+import { openToken } from './crypto'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
@@ -157,6 +166,10 @@ export interface Env {
    * "we never set a limit" and "we have 10x headroom" must not look alike.
    */
   TESLA_BILLING_LIMIT_USD?: string
+  /** Secret for authenticating cron job calls (e.g., key pairing poll). */
+  CRON_SECRET?: string
+  /** Shared secret for the config signer (nginx front door on signer host). */
+  SIGNER_SHARED_SECRET?: string
 }
 
 /** Path Tesla fetches to verify domain ownership (F02-R01). */
@@ -259,8 +272,9 @@ function page(title: string, body: string): string {
   *{box-sizing:border-box}
   body{margin:0;background:#090909;color:#fff;font-family:Arial,Helvetica,sans-serif;line-height:1.6}
   .wrap{max-width:760px;margin:0 auto;padding:48px 24px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}
   .logo{font-size:28px;font-weight:700;letter-spacing:1px}
-  .partner-mark{display:block;margin:0 0 22px;width:150px;height:auto}
+  .partner-mark{width:120px;height:auto}
   h1{font-size:44px;line-height:1.15;margin:32px 0 16px}
   h2{font-size:20px;margin:32px 0 8px}
   p{color:#d5d5d5;font-size:18px}
@@ -285,8 +299,10 @@ function page(title: string, body: string): string {
 </head>
 <body>
 <div class="wrap">
-  <img class="partner-mark" src="/toca-logo.png" alt="Tesla Owners Club Australia">
-  <div class="logo">AFIRMICO Auto</div>
+  <div class="header">
+    <div class="logo">AFIRMICO Auto</div>
+    <img class="partner-mark" src="/toca-logo.png" alt="Tesla Owners Club Australia">
+  </div>
   ${body}
   <footer>AFIRMICO Auto | EV Data | Home Energy Statistics | Benefit Optimisation</footer>
 </div>
@@ -735,16 +751,35 @@ app.get(DASHBOARD_PATH, async (c) => {
         .all<{ vin: string; display_name: string | null; model: string | null }>()
     : { results: [] as Array<{ vin: string; display_name: string | null; model: string | null }> }
 
+  // F02-R09a/F02-R09b: Check and update key pairing state on dashboard load
+  // This detects when the member has approved the virtual key in the Tesla app
+  const pairingResults = member
+    ? await checkAndUpdateKeyPairing(c.env, member.member_id)
+    : []
+
+  // Build a map of VIN -> keyState for display
+  const keyStateMap = new Map(pairingResults.map(r => [r.vin, r.keyState]))
+
   const list = vehiclesOnRecord.results.length
     ? vehiclesOnRecord.results
     : session.vehicles.map((v) => ({ vin: v.vin, display_name: v.displayName ?? null, model: null }))
 
   const vehicleRows = list.length
-    ? list.map((vehicle) => `
+    ? list.map((vehicle) => {
+        const keyState = keyStateMap.get(vehicle.vin) ?? 'unpaired'
+        const isPaired = keyState === 'paired'
+        const keyStateIcon = isPaired ? '✅' : '⏳'
+        const keyStateLabel = isPaired ? 'Paired' : 'Pending approval'
+        const keyStateClass = isPaired ? 'ok' : 'warn'
+        const pairingLink = isPaired ? '' : `<a class="cta" href="${PAIRING_URL}?vin=${encodeURIComponent(vehicle.vin)}" style="margin-top:8px;display:inline-block">Approve key for ${escapeHtml(vehicle.display_name ?? vehicle.vin)}</a>`
+        return `
       <div class="card ok">
         <strong>${escapeHtml(vehicle.display_name ?? vehicle.vin)}</strong>
         <div class="meta">VIN ${escapeHtml(vehicle.vin)}${vehicle.model ? ` &middot; ${escapeHtml(vehicle.model)}` : ''}</div>
-      </div>`).join('')
+        <div class="meta"><span class="${keyStateClass}">${keyStateIcon} Key: ${keyStateLabel}</span></div>
+        ${pairingLink}
+      </div>`
+      }).join('')
     : `<div class="note">Tesla returned no vehicles for this account. If you have a vehicle on this Tesla
        account, check that it is not a leased or business-managed vehicle.</div>`
 
@@ -755,6 +790,17 @@ app.get(DASHBOARD_PATH, async (c) => {
   // member discovers their profile is incomplete only when a release is blocked or
   // an insurer package arrives with a blank where their contact details should be.
   const gaps = member ? await memberDetailGaps(c.env.D1_TESLA, member.member_id) : []
+  
+  // F02-R16: Check if token is missing vehicle_cmds scope (required for telemetry config)
+  const missingVehicleCmds = member && session.scope && !session.scope.includes('vehicle_cmds')
+  const reconsentPrompt = missingVehicleCmds
+    ? `<div class="note">
+      <strong>Re-authorisation required.</strong>
+      Your Tesla token is missing the <code>vehicle_cmds</code> scope needed to configure telemetry.
+      <div style="margin-top:12px"><a class="cta" href="/toca-connect">Re-authorize with updated scopes</a></div>
+    </div>`
+    : ''
+
   const detailsPrompt = gaps.length
     ? `
   <div class="note">
@@ -784,12 +830,9 @@ app.get(DASHBOARD_PATH, async (c) => {
       ? 'The text shown on the connect page matches this authorisation exactly.'
       : 'This authorisation was granted under an earlier version of the text.'}</p>
     <form method="POST" action="/auth/revoke">
-      <button class="cta danger" type="submit">Withdraw authorisation</button>
+      <button class="cta danger" type="submit">Revoke Authorisation</button>
     </form>
-  </div>
-
-  <h2>The authorisation you agreed to</h2>
-  <div class="policy">${escapeHtml(CONSENT_TEXT)}</div>`
+  </div>`
     : `
   <div class="note">No current authorisation on record. <a href="/toca-connect">Grant one</a> to start collecting.</div>`
 
@@ -801,33 +844,18 @@ app.get(DASHBOARD_PATH, async (c) => {
     Connected: ${escapeHtml(session.createdAt)}</p>
   </div>
 
-  ${consentBlock}
+  <h2>Next step</h2>
+    <p>Approve the AFIRMICO Auto key on your vehicle in the Tesla app to start sending data.</p>
+    <a class="cta" href="${PAIRING_URL}">Approve the key in the Tesla app</a>
+
+  ${reconsentPrompt}
 
   <h2>Your vehicles</h2>
   ${vehicleRows}
 
   ${detailsPrompt}
 
-  <h2>Next step</h2>
-  <p>Approve the AFIRMICO Auto key on your vehicle in the Tesla app to start receiving data.</p>
-  <a class="cta" href="${PAIRING_URL}">Approve the key in the Tesla app</a>
-
-  <h2>Data we collect</h2>
-  <p>${CONSENTED_FIELDS.map((f) => `<code>${escapeHtml(f)}</code>`).join(' &middot; ')}</p>
-  <p class="meta">Your authorisation covers any field your vehicle reports on the data stream AFIRMICO has
-  enabled, so this set may change without you re-authorising. This is what is being collected today. The
-  distance and Full Self-Driving distance figures are the only numbers shared with insurers as driver
-  data. <a href="/details">Ask for the current field list</a> at any time.</p>
-
-  <h2>Where it has been shared</h2>
-  <p class="meta">No third party has received your data yet. Insurers receive data only where you have asked
-  AFIRMICO to seek offers on your behalf.</p>
-
-  <h2>Revoke access at Tesla</h2>
-  <p class="meta">Withdrawing here stops collection immediately. You can also revoke at Tesla, which stops
-  collection at the vehicle.</p>
-  <p><a href="${revokeUrl}">Revoke AFIRMICO Auto access at Tesla</a> &middot;
-  <a href="/auth/logout">Sign out of this browser</a></p>
+    ${consentBlock}
   `))
 })
 
@@ -875,7 +903,7 @@ app.post('/auth/revoke', async (c) => {
   const removals = await Promise.all(
     vins.map(async (vin) => {
       const removed = await markConfigRemoved(c.env.D1_TESLA, vin, nowIso)
-      const ok = await removeVehicleConfig(c.env, vin)
+      const ok = await removeVehicleConfig(c.env, vin, member.member_id)
       await audit(c.env.D1_TESLA, {
         action: 'telemetry.config_removed',
         actorType: 'member',
@@ -1710,6 +1738,7 @@ async function sendVehicleConfig(
   env: Env,
   vin: string,
   nowIso: string,
+  memberId: string,
 ): Promise<{ sent: boolean; state: 'active' | 'pending' | 'skipped' | 'failed'; skipReason?: string; error?: string }> {
   const base = proxyBase(env)
   if (!base) {
@@ -1734,9 +1763,18 @@ async function sendVehicleConfig(
   if (problems.length) return { sent: false, state: 'failed', error: `invalid_config:${problems.join(',')}` }
 
   try {
-    const res = await fetch(`${base}/api/1/vehicles/fleet_telemetry_config`, {
+    // Use member's access token (required for fleet_telemetry_config via proxy)
+    const accessToken = await getMemberAccessToken(env, memberId)
+    if (!accessToken) {
+      return { sent: false, state: 'failed', error: 'no_member_access_token' }
+    }
+    const res = await fetch(`${base}/api/1/vehicles/${encodeURIComponent(vin)}/fleet_telemetry_config`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-tesla-vin': vin },
+      headers: {
+        'content-type': 'application/json',
+        'x-signer-secret': env.SIGNER_SHARED_SECRET ?? '',
+        authorization: `Bearer ${accessToken}`,
+      },
       body: JSON.stringify(buildTelemetryConfig(input)),
     })
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -1764,12 +1802,21 @@ async function sendVehicleConfig(
  * caller records that separately from the row state, so a teardown that did not
  * reach Tesla is never reported as complete.
  */
-async function removeVehicleConfig(env: Env, vin: string): Promise<{ sent: boolean; error?: string }> {
+async function removeVehicleConfig(env: Env, vin: string, memberId: string): Promise<{ sent: boolean; error?: string }> {
   const base = proxyBase(env)
   if (!base) return { sent: false, error: 'proxy_not_configured' }
   try {
+    // Use member's access token (required for fleet_telemetry_config via proxy)
+    const accessToken = await getMemberAccessToken(env, memberId)
+    if (!accessToken) {
+      return { sent: false, error: 'no_member_access_token' }
+    }
     const res = await fetch(`${base}/api/1/vehicles/${encodeURIComponent(vin)}/fleet_telemetry_config`, {
       method: 'DELETE',
+      headers: {
+        'x-signer-secret': env.SIGNER_SHARED_SECRET ?? '',
+        authorization: `Bearer ${accessToken}`,
+      },
     })
     if (!res.ok) return { sent: false, error: `http_${res.status}` }
     return { sent: true }
@@ -1807,7 +1854,15 @@ app.post('/admin/telemetry/apply', async (c) => {
 
   const results: { vin: string; state: string; skip_reason?: string; error?: string }[] = []
   for (const vin of vins) {
-    const outcome = await sendVehicleConfig(c.env, vin, nowIso)
+    // Get member_id for this VIN
+    const vehicleRow = await c.env.D1_TESLA.prepare('SELECT member_id FROM tesla_vehicle WHERE vin = ?')
+      .bind(vin)
+      .first<{ member_id: string }>()
+    if (!vehicleRow) {
+      results.push({ vin, state: 'failed', error: 'vehicle_not_found' })
+      continue
+    }
+    const outcome = await sendVehicleConfig(c.env, vin, nowIso, vehicleRow.member_id)
     const rec = buildConfigRecord({
       vin,
       hostname: (await telemetryTarget(c.env.D1_TESLA)).hostname,
@@ -1834,22 +1889,48 @@ app.post('/admin/telemetry/apply', async (c) => {
   }
 
   // `proxy_configured` is reported so an operator reading this response can tell
-  // "no vehicles" apart from "no transport" — both produce an empty fleet result.
-  return c.json({
-    ok: true,
-    proxy_configured: proxyConfigured(c.env),
-    vehicles: vins.length,
-    results,
+    // "no vehicles" apart from "no transport" — both produce an empty fleet result.
+    return c.json({
+      ok: true,
+      proxy_configured: proxyConfigured(c.env),
+      vehicles: vins.length,
+      results,
+    })
   })
-})
 
-/**
- * Liveness and readiness.
- *
- * Reports configuration gaps by name rather than failing opaquely, and probes
- * D1 so a missing migration or binding is visible here instead of surfacing as
- * a member-facing 500 mid-onboarding.
- */
+  /* -------------------------------------------------------------------------- */
+  /* Cron: Virtual Key Pairing Poll (F02-R09a)                                 */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Scheduled cron job to poll all vehicles for key pairing status.
+   * Triggered by Cloudflare Cron Trigger (every 5 minutes).
+   * Expects CRON_SECRET in env for authentication.
+   */
+  app.get('/cron/key-pairing-poll', async (c) => {
+    const cronSecret = c.env.CRON_SECRET
+    if (!cronSecret) return c.json({ ok: false, error: 'not_configured' }, 503)
+    const provided = c.req.header('x-cron-secret') ?? ''
+    if (!timingSafeEqual(provided, cronSecret)) {
+      return c.json({ ok: false, error: 'unauthorized' }, 401)
+    }
+
+    try {
+      const result = await cronPollAllKeyPairing(c.env)
+      return c.json({ ok: true, ...result })
+    } catch (error) {
+      console.error('[cron] error:', error)
+      return c.json({ ok: false, error: `internal: ${(error as Error).message}` }, 500)
+    }
+  })
+
+  /* -------------------------------------------------------------------------- */
+  /* Liveness and readiness.                                                    */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Liveness and readiness.
+   */
 app.get('/healthz', async (c) => {
   const problems = assertConfigured({
     clientId: c.env.TESLA_CLIENT_ID,
@@ -1990,4 +2071,20 @@ app.get('/ineos-qld', (c) => c.html(ineosSplashPage()))
 
 app.route('/admin', adminApp)
 
-export default app
+/* -------------------------------------------------------------------------- */
+/* Scheduled event handler (Cron Triggers)                                    */
+/* -------------------------------------------------------------------------- */
+
+export default {
+  fetch: app.fetch,
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    // Only run the key pairing poll cron
+    if (controller.cron === '*/5 * * * *') {
+      const result = await cronPollAllKeyPairing(env)
+      console.log(`[cron] key-pairing-poll: checked=${result.checked} paired=${result.paired} failed=${result.failed}`)
+      if (result.errors.length) {
+        console.error(`[cron] key-pairing-poll errors:`, result.errors)
+      }
+    }
+  },
+} satisfies ExportedHandler<Env>
