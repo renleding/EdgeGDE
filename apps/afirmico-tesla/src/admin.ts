@@ -245,7 +245,7 @@ async function renderActiveConnections(
   // This returns one row per consent record, so a member with multiple consents
   // gets multiple rows (history)
   const connections = await db.prepare(
-    `SELECT 
+    `SELECT
        m.member_id, m.tesla_email, m.created_at as member_since,
        v.vin, v.display_name, v.model, v.last_seen_at,
        vk.key_state, vk.paired_at,
@@ -560,3 +560,4 @@ adminApp.get('/favicon.svg', (c) =>
 )
 
 export default adminApp
+// cache bust Mon  5 Oct 2026 11:57:18 AEDT

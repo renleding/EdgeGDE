@@ -35,10 +35,13 @@ export const TESLA_REVOKE_URL = 'https://auth.tesla.com/user/revoke/consent'
  *
  * `vehicle_device_data` is what reaches the vehicle list and telemetry fields.
  * `offline_access` is required to obtain a refresh token. Nothing that can
- * act on the car is requested: no `vehicle_cmds`, no `energy_cmds`, no
- * `enterprise_management` — matching the FRS scope (odometer + FSD km only).
+ * act on the car is requested: no `vehicle_charging_cmds`,
+ * no `energy_cmds`, no `enterprise_management` — matching the FRS scope
+ * (odometer + FSD km only).
+ * `vehicle_cmds` is required for the tesla-http-proxy to forward the signed
+ * fleet_telemetry_config to Tesla (F02-R16).
  */
-export const TESLA_SCOPES = ['openid', 'offline_access', 'vehicle_device_data'] as const
+export const TESLA_SCOPES = ['openid', 'offline_access', 'vehicle_device_data', 'vehicle_cmds'] as const
 
 /** Cookie holding the signed OAuth `state` value. Short-lived. */
 export const STATE_COOKIE = 'afirmico_oauth_state'
@@ -403,6 +406,52 @@ export function serializeCookie(
   parts.push(`SameSite=${options.sameSite ?? 'Lax'}`)
   if (typeof options.maxAge === 'number') parts.push(`Max-Age=${options.maxAge}`)
   return parts.join('; ')
+}
+
+/**
+ * Get a partner-scoped access token using client_credentials grant.
+ * Used for fleet_telemetry_config signing and other partner-level operations.
+ */
+export async function getPartnerToken(params: {
+  clientId: string
+  clientSecret: string
+  audience?: string
+}): Promise<TeslaTokens> {
+  const form: Record<string, string> = {
+    grant_type: 'client_credentials',
+    client_id: params.clientId,
+    client_secret: params.clientSecret,
+    // vehicle_cmds scope is required for fleet_telemetry_config (the proxy uses it to sign)
+    scope: 'vehicle_cmds openid offline_access vehicle_device_data',
+  }
+  // Tesla expects audience as an array for client_credentials grant
+  // We send it twice so URLSearchParams produces audience=...&audience=...
+  const aud = params.audience ?? TESLA_AUDIENCE
+  form.audience = aud
+  // Add a second audience entry to make it an array
+  const entries: [string, string][] = Object.entries(form).flatMap(([k, v]) =>
+    k === 'audience' ? [[k, v], [k, v]] : [[k, v]]
+  )
+  return postTokenFromEntries(entries)
+}
+
+async function postTokenFromEntries(entries: [string, string][]): Promise<TeslaTokens> {
+  const response = await fetch(TESLA_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(entries).toString(),
+  })
+  const text = await response.text()
+  let body: TokenResponse
+  try {
+    body = JSON.parse(text) as TokenResponse
+  } catch {
+    throw new TeslaAuthError('invalid_token_response', text.slice(0, 200))
+  }
+  if (!response.ok && !body.access_token) {
+    throw new TeslaAuthError(body.error ?? `http_${response.status}`, body.error_description)
+  }
+  return toTokens(body)
 }
 
 /** Expire a cookie immediately (used to clear transient state). */

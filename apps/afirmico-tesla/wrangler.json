@@ -35,6 +35,9 @@
   "observability": {
     "enabled": true
   },
+  "crons": [
+    "*/5 * * * *"
+  ],
   "routes": [
     {
       "pattern": "auto.afirmi.co/*",
