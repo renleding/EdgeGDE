@@ -192,6 +192,45 @@ export function proxyConfigured(env: { TESLA_PROXY_URL?: string }): boolean {
 }
 
 /**
+ * Build the `last_error` value for a failed config send.
+ *
+ * The status code alone is not enough to act on. A `http_404` from the signer
+ * chain is ambiguous between "the config endpoint moved", "this VIN is not
+ * visible to the authorising account" and "the vehicle has no such resource" —
+ * three different repairs. The upstream reply body carries the only explanation
+ * available, so it is captured rather than discarded.
+ *
+ * Recorded against the VIN, so it is bounded and redacted before it is stored:
+ * whitespace is collapsed, the text is clipped, and anything shaped like a
+ * bearer token or JWT is removed. An error string must never become a place a
+ * credential leaks into a table an operator reads.
+ */
+export function upstreamErrorDetail(status: number, rawBody: string): string {
+  const base = `http_${status}`
+  const collapsed = rawBody.replace(/\s+/g, ' ').trim()
+  if (!collapsed) return base
+
+  // Prefer a structured message; fall back to the raw body. Tesla's replies use
+  // `error` / `error_description`, and the signer chain can return other shapes.
+  let detail = collapsed
+  try {
+    const parsed = JSON.parse(rawBody) as Record<string, unknown>
+    const candidate = parsed.error ?? parsed.error_description ?? parsed.message ?? parsed.detail
+    if (typeof candidate === 'string' && candidate.trim()) detail = candidate.trim()
+    else if (candidate && typeof candidate === 'object') detail = JSON.stringify(candidate)
+  } catch {
+    // Not JSON — the raw (already collapsed) body is the detail.
+  }
+
+  const redacted = detail.replace(/\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, '[redacted-jwt]')
+  const clipped = redacted.slice(0, UPSTREAM_ERROR_MAX)
+  return clipped ? `${base}:${clipped}` : base
+}
+
+/** Upper bound on a stored upstream error, so one row cannot grow unbounded. */
+export const UPSTREAM_ERROR_MAX = 300
+
+/**
  * Reject a configuration attempt that could never succeed, before it is sent.
  *
  * A config with no fields, no VINs, or no `ca` is a caller bug. Sending it would

@@ -23,11 +23,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   SYNC_INTERVAL_SECONDS,
+  UPSTREAM_ERROR_MAX,
   buildConfigRecord,
   buildFieldConfig,
   buildTelemetryConfig,
   mapSkipReason,
   proxyConfigured,
+  upstreamErrorDetail,
   validateConfigInput,
   type CollectedField,
 } from '../src/vehicle-config'
@@ -176,5 +178,44 @@ describe('buildConfigRecord', () => {
   it('derives config_id from vin and timestamp, so a re-apply is idempotent', () => {
     const args = { vin: 'VIN1', hostname: 'h', port: 443, fields: FIELDS, now: '2026-10-03T00:00:00.000Z' }
     expect(buildConfigRecord(args).config_id).toBe(buildConfigRecord(args).config_id)
+  })
+})
+
+describe('upstreamErrorDetail (F02-R11 diagnosis)', () => {
+  // A bare `http_404` is ambiguous between a moved endpoint, a VIN the account
+  // cannot see, and a missing resource — three different repairs. These tests
+  // pin the property that makes a failure actionable: the upstream explanation
+  // is kept, and it is kept safely.
+
+  it('keeps the upstream message alongside the status', () => {
+    const body = JSON.stringify({ response: null, error: 'vehicle_not_found', error_description: '' })
+    expect(upstreamErrorDetail(404, body)).toBe('http_404:vehicle_not_found')
+  })
+
+  it('falls back to the raw body when it is not JSON', () => {
+    expect(upstreamErrorDetail(502, 'upstream connect error')).toBe('http_502:upstream connect error')
+  })
+
+  it('returns the bare status when the body is empty', () => {
+    expect(upstreamErrorDetail(404, '')).toBe('http_404')
+    expect(upstreamErrorDetail(404, '   \n  ')).toBe('http_404')
+  })
+
+  it('never stores a credential-shaped token', () => {
+    // The stored error is read by operators; it must not become a leak path.
+    const jwt = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln'
+    const out = upstreamErrorDetail(403, JSON.stringify({ error: `rejected token ${jwt}` }))
+    expect(out).not.toContain('eyJhbGciOiJSUzI1NiJ9')
+    expect(out).toContain('[redacted-jwt]')
+    expect(out.startsWith('http_403:')).toBe(true)
+  })
+
+  it('bounds the stored detail so one row cannot grow unbounded', () => {
+    const out = upstreamErrorDetail(404, 'x'.repeat(5000))
+    expect(out.length).toBeLessThanOrEqual('http_404:'.length + UPSTREAM_ERROR_MAX)
+  })
+
+  it('collapses whitespace so a multi-line body stays one line', () => {
+    expect(upstreamErrorDetail(500, 'line one\n\n  line two')).toBe('http_500:line one line two')
   })
 })
