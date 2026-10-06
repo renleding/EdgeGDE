@@ -96,6 +96,7 @@ import {
   buildConfigRecord,
   mapSkipReason,
   proxyConfigured,
+  upstreamErrorDetail,
   validateConfigInput,
   type CollectedField,
 } from './vehicle-config'
@@ -1787,7 +1788,11 @@ async function sendVehicleConfig(
       const mapped = mapSkipReason(reason) ?? String(reason ?? 'unknown')
       return { sent: true, state: 'skipped', skipReason: mapped }
     }
-    if (!res.ok) return { sent: false, state: 'failed', error: `http_${res.status}` }
+    if (!res.ok) {
+      // Capture WHY, not just the status. `http_404` alone is ambiguous across
+      // three different repairs and is what made this failure unactionable.
+      return { sent: false, state: 'failed', error: upstreamErrorDetail(res.status, JSON.stringify(body)) }
+    }
     return { sent: true, state: 'active' }
   } catch (error) {
     return { sent: false, state: 'failed', error: `transport:${(error as Error).message}` }
@@ -1818,7 +1823,13 @@ async function removeVehicleConfig(env: Env, vin: string, memberId: string): Pro
         authorization: `Bearer ${accessToken}`,
       },
     })
-    if (!res.ok) return { sent: false, error: `http_${res.status}` }
+    if (!res.ok) {
+      // Same reasoning as the send path: a bare status cannot distinguish a
+      // moved endpoint from a VIN the account cannot see, and a teardown that
+      // silently did not happen leaves the car transmitting.
+      const body = await res.text().catch(() => '')
+      return { sent: false, error: upstreamErrorDetail(res.status, body) }
+    }
     return { sent: true }
   } catch (error) {
     return { sent: false, error: `transport:${(error as Error).message}` }
