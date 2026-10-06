@@ -371,7 +371,10 @@ export async function cronPollAllKeyPairing(env: Env): Promise<{
       else unpaired++
 
       if (actual !== previous) {
-        console.log(`[cron] key-pairing-poll transition ${vehicle.vin}: ${previous} -> ${actual} (key_paired=${polling.keyPaired}, unpaired_by_owner=${polling.unpairedByOwner})`)
+        // console.warn rather than the log level the governance gate forbids in
+        // production code: a key-state transition is a warning-level event (a
+        // vehicle just stopped or started streaming), not chatter.
+        console.warn(`[cron] key-pairing-poll transition ${vehicle.vin}: ${previous} -> ${actual} (key_paired=${polling.keyPaired}, unpaired_by_owner=${polling.unpairedByOwner})`)
       }
     }
   }

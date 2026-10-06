@@ -791,7 +791,7 @@ app.get(DASHBOARD_PATH, async (c) => {
   // member discovers their profile is incomplete only when a release is blocked or
   // an insurer package arrives with a blank where their contact details should be.
   const gaps = member ? await memberDetailGaps(c.env.D1_TESLA, member.member_id) : []
-  
+
   // F02-R16: Check if token is missing vehicle_cmds scope (required for telemetry config)
   const missingVehicleCmds = member && session.scope && !session.scope.includes('vehicle_cmds')
   const reconsentPrompt = missingVehicleCmds
