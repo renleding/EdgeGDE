@@ -32,6 +32,15 @@ export interface KeyPairingResult {
    * separately so the dashboard and the operator prompt differ accordingly.
    */
   unpairedByOwner: boolean
+  /**
+   * Whether Tesla holds a telemetry config for this VIN, and where it points.
+   * This is the only evidence that a config actually reached the vehicle --
+   * a 2xx from the send proves the request was accepted, not that the vehicle
+   * adopted it, and `synced` alone stays true after a config is removed.
+   */
+  hasConfig: boolean
+  configHostname: string | null
+  configPort: number | null
   error?: string
 }
 
@@ -64,6 +73,9 @@ export async function pollKeyPairing(
         keyPaired: false,
         synced: false,
         unpairedByOwner: false,
+        hasConfig: false,
+        configHostname: null,
+        configPort: null,
         error: `http_${res.status}`,
       }
     }
@@ -76,7 +88,8 @@ export async function pollKeyPairing(
     // A config present on the vehicle with the key not paired means the key was
     // added once and later removed at the car -- distinguishing it from a vehicle
     // whose key was never added (which carries no config).
-    const hasConfig = Boolean(response?.config)
+    const config = response?.config as Record<string, unknown> | null | undefined
+    const hasConfig = Boolean(config)
     const unpairedByOwner = !keyPaired && hasConfig
 
     let newState: KeyPairingResult['newState'] = 'unknown'
@@ -84,7 +97,17 @@ export async function pollKeyPairing(
     else if (synced) newState = 'pending'
     else newState = 'unknown'
 
-    return { vin, previousState: 'unknown', newState, keyPaired, synced, unpairedByOwner }
+    return {
+      vin,
+      previousState: 'unknown',
+      newState,
+      keyPaired,
+      synced,
+      unpairedByOwner,
+      hasConfig,
+      configHostname: (config?.hostname as string | undefined) ?? null,
+      configPort: typeof config?.port === 'number' ? (config.port as number) : null,
+    }
   } catch (error) {
     return {
       vin,
@@ -93,6 +116,9 @@ export async function pollKeyPairing(
       keyPaired: false,
       synced: false,
       unpairedByOwner: false,
+      hasConfig: false,
+      configHostname: null,
+      configPort: null,
       error: `transport:${(error as Error).message}`,
     }
   }
@@ -241,6 +267,103 @@ export async function checkAndUpdateKeyPairing(
   return results
 }
 
+export type ConfigVerification =
+  | { action: 'verify' }
+  | { action: 'demote'; reason: string }
+
+/**
+ * Decide what to do with a config row, given Tesla's evidence.
+ *
+ * Pure and exported so every branch is pinned by a test. It never promotes a row
+ * -- only sending a config creates one -- and it only confirms on affirmative
+ * evidence (Tesla holds a config pointing at our host).
+ */
+export function decideConfigVerification(
+  row: { state: string; hostname: string | null; verified_at: string | null } | null,
+  tesla: { keyPaired: boolean; hasConfig: boolean; configHostname: string | null },
+): ConfigVerification | null {
+  if (!row) return null
+  // Only live claims are in scope; a row already failed/removed is not something
+  // this check corrects.
+  if (row.state !== 'active' && row.state !== 'pending') return null
+
+  const hostMatches =
+    tesla.hasConfig && row.hostname !== null && tesla.configHostname === row.hostname
+  if (hostMatches) {
+    return row.verified_at ? null : { action: 'verify' }
+  }
+
+  const reason = !tesla.keyPaired
+    ? 'key_not_paired'
+    : !tesla.hasConfig
+      ? 'config_absent_at_tesla'
+      : 'config_hostname_mismatch'
+  return { action: 'demote', reason }
+}
+
+/**
+ * Reconcile a telemetry-config row against what Tesla actually holds.
+ *
+ * This is F11-R02's obligation, which was designed and then never built: an
+ * `active` row that has never been verified is a claim, not a fact. Observed
+ * live -- vehicle 5YJ3F7EB7LF697834 held a row in state `active` with
+ * `verified_at: null` while Tesla reported `config: null` for it, and nothing
+ * anywhere would ever have corrected that.
+ *
+ * The evidence used is Tesla's own `fleet_telemetry_config` response:
+ *   - `config` present and the hostname matches ours -> verified, set
+ *     `verified_at`, keep `active`.
+ *   - `config` absent -> the vehicle does not hold our config. Transition the
+ *     row out of `active` so no surface keeps asserting collection that is not
+ *     happening. If the key is also unpaired the cause is `key_not_paired`;
+ *     otherwise the config was dropped (revocation, another app taking the slot,
+ *     or a failed adoption).
+ *
+ * Deliberately narrow: this only ever DEMOTES a row it can prove wrong, and only
+ * sets `verified_at` on affirmative evidence. It never promotes a row to
+ * `active` -- sending a config is still the only thing that creates one.
+ *
+ * Returns the state the row now holds, or null when nothing changed.
+ */
+export async function reconcileTelemetryConfig(
+  env: Env,
+  vin: string,
+  polling: KeyPairingResult,
+): Promise<{ from: string; to: string; reason: string } | null> {
+  const row = await env.D1_TESLA.prepare(
+    `SELECT state, hostname, verified_at FROM tesla_telemetry_config
+      WHERE vin = ? AND state IN ('active','pending')
+      ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(vin)
+    .first<{ state: string; hostname: string | null; verified_at: string | null }>()
+
+  if (!row) return null
+
+  const nowIso = new Date().toISOString()
+  const decision = decideConfigVerification(row, polling)
+  if (!decision) return null
+
+  if (decision.action === 'verify') {
+    await env.D1_TESLA.prepare(
+      `UPDATE tesla_telemetry_config SET verified_at = ? WHERE vin = ? AND state = ?`,
+    )
+      .bind(nowIso, vin, row.state)
+      .run()
+    return null
+  }
+
+  await env.D1_TESLA.prepare(
+    `UPDATE tesla_telemetry_config
+        SET state = 'failed', last_error = ?, verified_at = ?
+      WHERE vin = ? AND state IN ('active','pending')`,
+  )
+    .bind(decision.reason, nowIso, vin)
+    .run()
+
+  return { from: row.state, to: 'failed', reason: decision.reason }
+}
+
 /**
  * Decide the `key_state` our record should hold, from Tesla's two booleans.
  *
@@ -375,6 +498,18 @@ export async function cronPollAllKeyPairing(env: Env): Promise<{
         // production code: a key-state transition is a warning-level event (a
         // vehicle just stopped or started streaming), not chatter.
         console.warn(`[cron] key-pairing-poll transition ${vehicle.vin}: ${previous} -> ${actual} (key_paired=${polling.keyPaired}, unpaired_by_owner=${polling.unpairedByOwner})`)
+      }
+
+      // Verify the config row against Tesla too. A row claiming `active` with a
+      // null `verified_at` is a claim, not a fact -- and nothing else in the
+      // platform ever checks it.
+      try {
+        const cfgChange = await reconcileTelemetryConfig(env, vehicle.vin, polling)
+        if (cfgChange) {
+          console.warn(`[cron] config verification corrected ${vehicle.vin}: ${cfgChange.from} -> ${cfgChange.to} (${cfgChange.reason})`)
+        }
+      } catch (error) {
+        errors.push(`${vehicle.vin}: config verify failed: ${(error as Error).message}`)
       }
     }
   }

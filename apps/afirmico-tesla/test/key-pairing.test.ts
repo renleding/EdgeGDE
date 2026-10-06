@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { resolveKeyState } from '../src/key-pairing'
+import { decideConfigVerification, resolveKeyState } from '../src/key-pairing'
 
 describe('virtual key state reconciliation (F02-R16)', () => {
   it('records paired when Tesla reports the key present', () => {
@@ -65,5 +65,73 @@ describe('virtual key state reconciliation (F02-R16)', () => {
         expect(permitted.has(resolveKeyState(paired, byOwner).state)).toBe(true)
       }
     }
+  })
+})
+
+describe('telemetry config verification (F11-R02)', () => {
+  /**
+   * The property: an `active` row is only allowed to stand on affirmative
+   * evidence. Observed live -- vehicle 5YJ3F7EB7LF697834 held `state='active'`
+   * with `verified_at: null` while Tesla reported `config: null`, and no part of
+   * the platform would ever have corrected it.
+   */
+
+  it('verifies when Tesla holds a config pointing at our host', () => {
+    expect(
+      decideConfigVerification({ state: 'active', hostname: 'telemetry.afirmi.co', verified_at: null }, {
+        keyPaired: true, hasConfig: true, configHostname: 'telemetry.afirmi.co',
+      }),
+    ).toEqual({ action: 'verify' })
+  })
+
+  it('already-verified rows are left alone', () => {
+    // Idempotent: the cron runs every 5 minutes, so a standing verification must
+    // not rewrite the timestamp on every pass.
+    expect(
+      decideConfigVerification(
+        { state: 'active', hostname: 'telemetry.afirmi.co', verified_at: '2026-10-06T00:00:00Z' },
+        { keyPaired: true, hasConfig: true, configHostname: 'telemetry.afirmi.co' },
+      ),
+    ).toBeNull()
+  })
+
+  it('demotes when Tesla holds no config and the key is unpaired', () => {
+    expect(
+      decideConfigVerification({ state: 'active', hostname: 'telemetry.afirmi.co', verified_at: null }, {
+        keyPaired: false, hasConfig: false, configHostname: null,
+      }),
+    ).toEqual({ action: 'demote', reason: 'key_not_paired' })
+  })
+
+  it('demotes when the config is absent but the key is paired', () => {
+    // The config was dropped after adoption -- revocation, another app taking
+    // one of the three slots, or a failed adoption. Not a key problem.
+    expect(
+      decideConfigVerification({ state: 'active', hostname: 'telemetry.afirmi.co', verified_at: null }, {
+        keyPaired: true, hasConfig: false, configHostname: null,
+      }),
+    ).toEqual({ action: 'demote', reason: 'config_absent_at_tesla' })
+  })
+
+  it('demotes when Tesla points the config at a different host', () => {
+    // Our config was replaced by someone else's. Reporting `active` here would
+    // assert we are collecting when another party is.
+    expect(
+      decideConfigVerification({ state: 'active', hostname: 'telemetry.afirmi.co', verified_at: null }, {
+        keyPaired: true, hasConfig: true, configHostname: 'someone-else.example.com',
+      }),
+    ).toEqual({ action: 'demote', reason: 'config_hostname_mismatch' })
+  })
+
+  it('never promotes, and does nothing with no row', () => {
+    // Only sending a config creates one; verification can only confirm or demote.
+    expect(
+      decideConfigVerification(null, { keyPaired: true, hasConfig: true, configHostname: 'telemetry.afirmi.co' }),
+    ).toBeNull()
+    expect(
+      decideConfigVerification({ state: 'failed', hostname: 'h', verified_at: null }, {
+        keyPaired: true, hasConfig: true, configHostname: 'h',
+      }),
+    ).toBeNull()
   })
 })
