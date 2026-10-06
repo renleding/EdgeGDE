@@ -2116,8 +2116,14 @@ app.post('/admin/telemetry/apply', async (c) => {
       const out: Record<string, unknown> = { vin: v.vin, display_name: v.display_name, member_id: v.member_id }
 
       // --- our records ---
+      // Join the enum label so an operator reads "Model 3", not "CarTypeModel3".
+      // The raw enum label is still what the vehicle sent; the catalog's friendly
+      // text is derived from it, not a substitute for it.
       const cfgRow = await c.env.D1_TESLA.prepare(
-        'SELECT state, hostname, last_error, applied_at, verified_at, created_at FROM tesla_telemetry_config WHERE vin = ? ORDER BY created_at DESC LIMIT 1',
+        `SELECT state, hostname, last_error, applied_at, verified_at, created_at,
+                (SELECT value_text FROM tesla_vehicle_snapshot s
+                  WHERE s.vin = tc.vin AND s.field_key = 'CarType') AS car_type
+           FROM tesla_telemetry_config tc WHERE vin = ? ORDER BY created_at DESC LIMIT 1`,
       ).bind(v.vin).first<Record<string, unknown>>()
       const keyRow = await c.env.D1_TESLA.prepare(
         'SELECT key_state, paired_at, last_error FROM tesla_vehicle_key WHERE vin = ?',

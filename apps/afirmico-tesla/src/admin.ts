@@ -224,6 +224,27 @@ function keyReason(code: unknown): string {
 }
 
 /**
+ * Turn a raw enum label into the model name a person expects.
+ *
+ * The vehicle sends `CarTypeModel3`; the admin console should say "Model 3". This
+ * is a presentation mapping only -- the stored value stays the raw label the
+ * vehicle sent, so nothing here can change what we claim was observed.
+ */
+function modelName(raw: unknown): string {
+  const v = String(raw)
+  const map: Record<string, string> = {
+    CarTypeModelS: 'Model S',
+    CarTypeModel3: 'Model 3',
+    CarTypeModelX: 'Model X',
+    CarTypeModelY: 'Model Y',
+    CarTypeSemiTruck: 'Semi',
+    CarTypeCybertruck: 'Cybertruck',
+    CarTypeUnknown: 'unknown',
+  }
+  return map[v] ?? v
+}
+
+/**
  * Renders the connections table showing per-member Tesla connections
  * with their vehicle details, virtual key pairing status, and consent history.
  * Supports filtering by status (active/inactive/all) and search.
@@ -386,7 +407,14 @@ async function renderActiveConnections(
           <table style="font-size:13px;width:100%">
             <tbody>
               <tr><td class="meta" style="width:170px">Display Name</td><td>${escapeHtml(r.display_name ?? '—')}</td></tr>
-              <tr><td class="meta">Model</td><td>${escapeHtml(r.model ?? '—')}</td></tr>
+              <tr><td class="meta">Model</td><td>${
+                // CarType is the vehicle model. It was absent because the relay
+                // dropped the enum wrapper; if it is still missing, say so rather
+                // than rendering a bare dash that reads as "no model exists".
+                r.car_type
+                  ? `${escapeHtml(modelName(r.car_type))} <span class="meta">${escapeHtml(r.car_type)}</span>`
+                  : '<span class="meta">not received</span>'
+              }</td></tr>
               <tr><td class="meta">Last Seen</td><td class="meta">${escapeHtml(r.last_seen_at ?? '—')}</td></tr>
               <tr><td class="meta">Virtual Key</td><td><span class="pill ${r.key_state === 'paired' ? 'ok' : r.key_state === 'fault' ? 'bad' : 'warn'}">${escapeHtml(r.key_state ?? 'unpaired')}</span>${
                 // Show WHY a key is unpaired. "unpaired" alone cannot distinguish a
@@ -672,7 +700,13 @@ adminApp.get('/telemetry', async (c) => {
   <table style="font-size:13px;margin-bottom:20px">
     <thead><tr><th>Car type</th><th>Firmware</th><th>Efficiency package</th><th>Observed</th></tr></thead>
     <tbody><tr>
-      <td>${escapeHtml(attrs?.car_type ?? '—')}</td>
+      <td>${
+        // CarType is the model. Show the friendly name plus the raw label the
+        // vehicle sent, so the mapping is auditable rather than hidden.
+        attrs?.car_type
+          ? `${escapeHtml(modelName(attrs.car_type))} <span class="meta">${escapeHtml(attrs.car_type)}</span>`
+          : '<span class="meta">not received</span>'
+      }</td>
       <td class="mono">${escapeHtml(attrs?.version ?? '—')}</td>
       <td>${escapeHtml(attrs?.efficiency_package ?? '—')}</td>
       <td class="meta">${escapeHtml(String(attrs?.observed_at ?? '—').slice(0, 19).replace('T', ' '))}</td>
