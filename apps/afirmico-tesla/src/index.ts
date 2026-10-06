@@ -1769,7 +1769,7 @@ async function sendVehicleConfig(
     if (!accessToken) {
       return { sent: false, state: 'failed', error: 'no_member_access_token' }
     }
-    const res = await fetch(`${base}/api/1/vehicles/${encodeURIComponent(vin)}/fleet_telemetry_config`, {
+    const res = await fetch(`${base}/api/1/vehicles/fleet_telemetry_config`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
