@@ -2117,7 +2117,7 @@ app.post('/admin/telemetry/apply', async (c) => {
 
       // --- our records ---
       const cfgRow = await c.env.D1_TESLA.prepare(
-        'SELECT state, last_error, applied_at, created_at FROM tesla_telemetry_config WHERE vin = ? ORDER BY created_at DESC LIMIT 1',
+        'SELECT state, hostname, last_error, applied_at, verified_at, created_at FROM tesla_telemetry_config WHERE vin = ? ORDER BY created_at DESC LIMIT 1',
       ).bind(v.vin).first<Record<string, unknown>>()
       const keyRow = await c.env.D1_TESLA.prepare(
         'SELECT key_state, paired_at, last_error FROM tesla_vehicle_key WHERE vin = ?',
