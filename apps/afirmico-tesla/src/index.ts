@@ -2080,6 +2080,108 @@ app.post('/admin/telemetry/apply', async (c) => {
 
 
   /* -------------------------------------------------------------------------- */
+  /* Admin: Definitive per-VIN diagnosis (Tesla truth vs our records)            */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * The single call that answers "what is actually true about this vehicle".
+   *
+   * Reports BOTH sides side by side so a disagreement is visible rather than
+   * inferred:
+   *   - Tesla's own view: fleet_status (key count, telemetry client version,
+   *     firmware, whether the command protocol is required), the telemetry config
+   *     it holds, key_paired, and any vehicle-reported delivery errors.
+   *   - Our records: the D1 config row and D1 key_state.
+   *
+   * A mismatch between the two is the finding. This exists because the platform
+   * previously reported `key_state='paired'` and `config:active` for a vehicle
+   * Tesla reported as `key_paired:false, config:null` -- the local record was
+   * written from an earlier success and never re-verified.
+   */
+  app.post('/admin/telemetry/diagnose', async (c) => {
+    const secret = c.env.INGEST_SHARED_SECRET
+    if (!secret) return c.json({ ok: false, error: 'not_configured' }, 503)
+    if (!timingSafeEqual(c.req.header('x-ingest-secret') ?? '', secret)) {
+      return c.json({ ok: false, error: 'unauthorized' }, 401)
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as { vin?: string }
+    const vehicles = body.vin
+      ? await c.env.D1_TESLA.prepare('SELECT vin, member_id, display_name FROM tesla_vehicle WHERE vin = ?').bind(body.vin).all<{ vin: string; member_id: string; display_name: string | null }>()
+      : await c.env.D1_TESLA.prepare('SELECT vin, member_id, display_name FROM tesla_vehicle ORDER BY vin').all<{ vin: string; member_id: string; display_name: string | null }>()
+
+    const results: Record<string, unknown>[] = []
+
+    for (const v of vehicles.results ?? []) {
+      const out: Record<string, unknown> = { vin: v.vin, display_name: v.display_name, member_id: v.member_id }
+
+      // --- our records ---
+      const cfgRow = await c.env.D1_TESLA.prepare(
+        'SELECT state, last_error, applied_at, created_at FROM tesla_telemetry_config WHERE vin = ? ORDER BY created_at DESC LIMIT 1',
+      ).bind(v.vin).first<Record<string, unknown>>()
+      const keyRow = await c.env.D1_TESLA.prepare(
+        'SELECT key_state, paired_at, last_error FROM tesla_vehicle_key WHERE vin = ?',
+      ).bind(v.vin).first<Record<string, unknown>>()
+      out.our_config = cfgRow ?? null
+      out.our_key_state = keyRow ?? null
+
+      const accessToken = await getMemberAccessToken(c.env, v.member_id)
+      if (!accessToken) {
+        out.tesla = { error: 'no_access_token' }
+        results.push(out)
+        continue
+      }
+      const auth = { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }
+
+      // --- Tesla's view: fleet_status is the authoritative capability report ---
+      let fleetStatus: unknown = null
+      try {
+        const res = await fetch('https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles/fleet_status', {
+          method: 'POST',
+          headers: auth,
+          body: JSON.stringify({ vins: [v.vin] }),
+        })
+        const text = await res.text().catch(() => '')
+        let parsed: Record<string, unknown> = {}
+        try { parsed = text ? JSON.parse(text) : {} } catch {}
+        const response = parsed.response as Record<string, unknown> | undefined
+        fleetStatus = (response?.[v.vin] as unknown) ?? parsed
+      } catch (error) {
+        fleetStatus = { error: (error as Error).message }
+      }
+
+      // --- Tesla's view: the telemetry config it holds for this VIN ---
+      let telemetryConfig: unknown = null
+      try {
+        const res = await fetch(`https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles/${encodeURIComponent(v.vin)}/fleet_telemetry_config`, { headers: auth })
+        const text = await res.text().catch(() => '')
+        let parsed: Record<string, unknown> = {}
+        try { parsed = text ? JSON.parse(text) : {} } catch {}
+        const response = parsed.response as Record<string, unknown> | undefined
+        telemetryConfig = response
+          ? {
+              key_paired: response.key_paired ?? null,
+              synced: response.synced ?? null,
+              limit_reached: response.limit_reached ?? null,
+              config_hostname: (response.config as Record<string, unknown> | null)?.hostname ?? null,
+              config_port: (response.config as Record<string, unknown> | null)?.port ?? null,
+              has_config: Boolean(response.config),
+            }
+          : parsed
+      } catch (error) {
+        telemetryConfig = { error: (error as Error).message }
+      }
+
+      out.tesla_fleet_status = fleetStatus
+      out.tesla_telemetry_config = telemetryConfig
+      results.push(out)
+    }
+
+    return c.json({ ok: true, checked: results.length, vehicles: results })
+  })
+
+
+  /* -------------------------------------------------------------------------- */
   /* Cron: Virtual Key Pairing Poll (F02-R09a)                                  */
   /* -------------------------------------------------------------------------- */
 
@@ -2262,7 +2364,7 @@ export default {
     // Only run the key pairing poll cron
     if (controller.cron === '*/5 * * * *') {
       const result = await cronPollAllKeyPairing(env)
-      console.warn(`[cron] key-pairing-poll: checked=${result.checked} paired=${result.paired} failed=${result.failed}`)
+      console.warn(`[cron] key-pairing-poll: checked=${result.checked} paired=${result.paired} unpaired=${result.unpaired} failed=${result.failed}`)
       if (result.errors.length) {
         console.error(`[cron] key-pairing-poll errors:`, result.errors)
       }
