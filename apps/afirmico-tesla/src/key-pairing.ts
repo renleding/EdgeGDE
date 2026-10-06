@@ -24,6 +24,14 @@ export interface KeyPairingResult {
   newState: 'paired' | 'pending' | 'unknown' | 'failed'
   keyPaired: boolean
   synced: boolean
+  /**
+   * True when Tesla lists the VIN in `unpaired_vins` while the vehicle also
+   * carries a telemetry config. That combination means the owner removed the
+   * virtual key at the car (Locks screen) rather than it never having been
+   * added, which is a different operational situation and is recorded
+   * separately so the dashboard and the operator prompt differ accordingly.
+   */
+  unpairedByOwner: boolean
   error?: string
 }
 
@@ -55,6 +63,7 @@ export async function pollKeyPairing(
         newState: 'failed',
         keyPaired: false,
         synced: false,
+        unpairedByOwner: false,
         error: `http_${res.status}`,
       }
     }
@@ -64,13 +73,18 @@ export async function pollKeyPairing(
 
     const keyPaired = response?.key_paired === true
     const synced = response?.synced === true
+    // A config present on the vehicle with the key not paired means the key was
+    // added once and later removed at the car -- distinguishing it from a vehicle
+    // whose key was never added (which carries no config).
+    const hasConfig = Boolean(response?.config)
+    const unpairedByOwner = !keyPaired && hasConfig
 
     let newState: KeyPairingResult['newState'] = 'unknown'
     if (keyPaired) newState = 'paired'
     else if (synced) newState = 'pending'
     else newState = 'unknown'
 
-    return { vin, previousState: 'unknown', newState, keyPaired, synced }
+    return { vin, previousState: 'unknown', newState, keyPaired, synced, unpairedByOwner }
   } catch (error) {
     return {
       vin,
@@ -78,6 +92,7 @@ export async function pollKeyPairing(
       newState: 'failed',
       keyPaired: false,
       synced: false,
+      unpairedByOwner: false,
       error: `transport:${(error as Error).message}`,
     }
   }
@@ -189,13 +204,17 @@ export async function checkAndUpdateKeyPairing(
   env: Env,
   memberId: string
 ): Promise<Array<{ vin: string; keyState: string; displayName: string | null; model: string | null }>> {
-  // Get vehicles with key_state IN ('unpaired', NULL)
+  // Deliberately NOT filtered to unpaired rows. A vehicle previously recorded
+  // `paired` must still be re-verified: the owner can remove the virtual key at
+  // any time from the car's Locks screen, and Tesla then reports
+  // `key_paired: false` / `unpaired_vins: [...]` with no notification to us.
+  // Filtering by state is what let a revoked key stay `paired` in our records
+  // indefinitely while the vehicle silently stopped streaming.
   const vehicles = await env.D1_TESLA.prepare(
     `SELECT v.vin, v.display_name, v.model, vk.key_state
        FROM tesla_vehicle v
        LEFT JOIN tesla_vehicle_key vk ON vk.vin = v.vin
       WHERE v.member_id = ?
-        AND (vk.key_state IS NULL OR vk.key_state = 'unpaired')
       ORDER BY v.first_seen_at`
   )
     .bind(memberId)
@@ -214,33 +233,69 @@ export async function checkAndUpdateKeyPairing(
   const results: Array<{ vin: string; keyState: string; displayName: string | null; model: string | null }> = []
 
   for (const vehicle of vehicles.results) {
-    const currentKeyState = vehicle.key_state ?? 'unpaired'
     const polling = await pollKeyPairing(env, vehicle.vin, accessToken)
-
-    // If key_paired became true, update key_state to 'paired' in DB
-    if (polling.keyPaired && currentKeyState !== 'paired') {
-      await env.D1_TESLA.prepare(
-        `INSERT INTO tesla_vehicle_key (vin, key_state, paired_at, updated_at)
-           VALUES (?, 'paired', datetime('now'), datetime('now'))
-           ON CONFLICT(vin) DO UPDATE SET
-             key_state = 'paired',
-             paired_at = datetime('now'),
-             updated_at = datetime('now')`
-      )
-      .bind(vehicle.vin)
-      .run()
-      results.push({ vin: vehicle.vin, keyState: 'paired', displayName: vehicle.display_name, model: vehicle.model })
-    } else if (polling.synced && currentKeyState === 'unpaired') {
-      // Update to unpaired (synced means config is sent but key not yet approved)
-      // We keep 'unpaired' as the state since the schema only allows those values
-      // The dashboard will show 'Pending approval' based on synced=true
-      results.push({ vin: vehicle.vin, keyState: 'unpaired', displayName: vehicle.display_name, model: vehicle.model })
-    } else {
-      results.push({ vin: vehicle.vin, keyState: currentKeyState, displayName: vehicle.display_name, model: vehicle.model })
-    }
+    const actual = await reconcileKeyState(env, vehicle.vin, polling.keyPaired, polling.unpairedByOwner)
+    results.push({ vin: vehicle.vin, keyState: actual, displayName: vehicle.display_name, model: vehicle.model })
   }
 
   return results
+}
+
+/**
+ * Decide the `key_state` our record should hold, from Tesla's two booleans.
+ *
+ * Pure and exported so the mapping is pinned by a test: this is the decision that
+ * was previously wrong in one direction only (upgrade recorded, downgrade
+ * ignored), which is how a removed key stayed "paired" indefinitely.
+ */
+export function resolveKeyState(keyPaired: boolean, unpairedByOwner: boolean): {
+  state: 'paired' | 'unpaired' | 'unpaired_by_owner'
+  lastError: string | null
+} {
+  if (keyPaired) return { state: 'paired', lastError: null }
+  if (unpairedByOwner) return { state: 'unpaired_by_owner', lastError: 'key_removed_by_owner' }
+  return { state: 'unpaired', lastError: 'key_not_paired_at_tesla' }
+}
+
+/**
+ * Make our `tesla_vehicle_key` row match what Tesla just told us, in both
+ * directions.
+ *
+ * Recording only the upgrade (`unpaired` -> `paired`) is a one-way ratchet: once
+ * a vehicle is marked paired, a later removal at the car is never recorded, and
+ * every downstream surface keeps asserting a pairing that no longer exists. That
+ * is the silent-false-success class this platform has already been bitten by, so
+ * both directions are written here.
+ *
+ * `unpaired_by_owner` is set when Tesla reports the owner deliberately removed
+ * the key, which is operationally different from "never paired" and is already a
+ * permitted state in the schema.
+ */
+async function reconcileKeyState(
+  env: Env,
+  vin: string,
+  keyPaired: boolean,
+  unpairedByOwner: boolean,
+): Promise<string> {
+  const { state: nextState, lastError } = resolveKeyState(keyPaired, unpairedByOwner)
+
+  await env.D1_TESLA.prepare(
+    `INSERT INTO tesla_vehicle_key (vin, key_state, paired_at, last_error, updated_at)
+       VALUES (?, ?, CASE WHEN ? = 'paired' THEN datetime('now') ELSE NULL END, ?, datetime('now'))
+       ON CONFLICT(vin) DO UPDATE SET
+         key_state = excluded.key_state,
+         -- Keep the first paired_at; only set it when we have never had one.
+         paired_at = CASE
+           WHEN excluded.key_state = 'paired' THEN COALESCE(tesla_vehicle_key.paired_at, datetime('now'))
+           ELSE NULL
+         END,
+         last_error = excluded.last_error,
+         updated_at = datetime('now')`
+  )
+    .bind(vin, nextState, nextState, lastError)
+    .run()
+
+  return nextState
 }
 
 /**
@@ -250,19 +305,29 @@ export async function checkAndUpdateKeyPairing(
 export async function cronPollAllKeyPairing(env: Env): Promise<{
   checked: number
   paired: number
+  unpaired: number
   failed: number
   errors: string[]
 }> {
+  // Every vehicle, every run -- no key_state filter.
+  //
+  // Filtering to `unpaired` made the pairing record a one-way ratchet: a vehicle
+  // marked `paired` was never polled again, so a key removed at the car stayed
+  // "paired" in our records forever and the vehicle silently stopped streaming
+  // while every surface we show asserted it was connected.
+  //
+  // The cost of polling all vehicles is one GET per VIN per 5 minutes, which is
+  // what the pairing cron already spends on the unpaired set; correctness here is
+  // worth more than the saved call, because the failure mode is invisible.
   const vehicles = await env.D1_TESLA.prepare(
     `SELECT v.vin, v.member_id, v.display_name, v.model, vk.key_state
        FROM tesla_vehicle v
        LEFT JOIN tesla_vehicle_key vk ON vk.vin = v.vin
-      WHERE vk.key_state IS NULL OR vk.key_state = 'unpaired'
       ORDER BY v.first_seen_at`
   ).all<{ vin: string; member_id: string; display_name: string | null; model: string | null; key_state: string | null }>()
 
   if (!vehicles.results?.length) {
-    return { checked: 0, paired: 0, failed: 0, errors: [] }
+    return { checked: 0, paired: 0, unpaired: 0, failed: 0, errors: [] }
   }
 
   // Group by member to reuse access tokens
@@ -275,6 +340,7 @@ export async function cronPollAllKeyPairing(env: Env): Promise<{
 
   let checked = 0
   let paired = 0
+  let unpaired = 0
   let failed = 0
   const errors: string[] = []
 
@@ -296,25 +362,22 @@ export async function cronPollAllKeyPairing(env: Env): Promise<{
         continue
       }
 
-      const currentKeyState = vehicle.key_state ?? 'unpaired'
-      if (polling.keyPaired && currentKeyState !== 'paired') {
-        await env.D1_TESLA.prepare(
-          `INSERT INTO tesla_vehicle_key (vin, key_state, paired_at, updated_at)
-             VALUES (?, 'paired', datetime('now'), datetime('now'))
-             ON CONFLICT(vin) DO UPDATE SET
-               key_state = 'paired',
-               paired_at = datetime('now'),
-               updated_at = datetime('now')`
-        )
-          .bind(vehicle.vin)
-          .run()
-        paired++
-      } else if (polling.synced && currentKeyState === 'unpaired') {
-        // Config is synced but key not yet approved - keep 'unpaired' state
-        // The dashboard shows 'Pending approval' based on synced=true
+      // Reconcile both directions and record the transition, so a key removed at
+      // the car is a visible event rather than a silent state change.
+      const previous = vehicle.key_state ?? 'unpaired'
+      const actual = await reconcileKeyState(env, vehicle.vin, polling.keyPaired, polling.unpairedByOwner)
+
+      if (actual === 'paired') paired++
+      else unpaired++
+
+      if (actual !== previous) {
+        // console.warn rather than the log level the governance gate forbids in
+        // production code: a key-state transition is a warning-level event (a
+        // vehicle just stopped or started streaming), not chatter.
+        console.warn(`[cron] key-pairing-poll transition ${vehicle.vin}: ${previous} -> ${actual} (key_paired=${polling.keyPaired}, unpaired_by_owner=${polling.unpairedByOwner})`)
       }
     }
   }
 
-  return { checked, paired, failed, errors }
+  return { checked, paired, unpaired, failed, errors }
 }
