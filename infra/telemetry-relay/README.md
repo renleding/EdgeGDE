@@ -62,10 +62,28 @@ A test pins both forms: `test_bare_invalid_sentinel_is_not_a_measurement`.
 | File | Purpose |
 |------|---------|
 | `relay.py` | The forwarder. Tails the container log, transforms, POSTs to Tier 1. |
-| `test_relay.py` | 19 tests pinning the transform. `python3 test_relay.py` |
+| `test_relay.py` | Tests pinning the transform and the config invariants. `python3 -m unittest test_relay -v` |
 | `server_config.json` | fleet-telemetry config. Mounted read-only into the container. |
+| `journald-telemetry.conf` | → `/etc/systemd/journald.conf.d/99-telemetry-no-ratelimit.conf`. Disables journald rate limiting (a dropped line is lost member data) and bounds the journal by size. |
+| `logrotate-afirmico-relay.conf` | → `/etc/logrotate.d/afirmico-relay`. Bounds the forwarder's log file. Uses `copytruncate` because the forwarder holds it open by inode. |
 | `deploy.md` | Runbook: certs → container → forwarder → verify. |
 | `check_server_cert.sh` | Tesla's own mTLS validator (pre-flight before configuring any vehicle). |
+
+## Two settings that silently stop telemetry
+
+Both were wrong in production and neither is detectable from Tier 1. See
+`server_config.json`'s `_comment` and the headers of the two `.conf` files.
+
+1. **`log_level` must be `info`.** The logger dispatcher emits each vehicle payload
+   as an INFO `record_payload` line. At `warn` nothing is written that the
+   forwarder can read. Observed: 3 days live, 84 signals billed by Tesla, 0 rows
+   forwarded, and exactly one `record_payload` line ever written (the synthetic
+   deploy self-test). Pinned by `TestServerConfig`.
+
+2. **journald rate limiting must be off.** It drops over-limit lines *silently*;
+   the forwarder's counters simply stop advancing. Disabled, with the journal
+   bounded by `SystemMaxUse` instead.
+
 
 ## Configuration (environment, never a file)
 
