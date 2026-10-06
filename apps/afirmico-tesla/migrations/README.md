@@ -73,6 +73,8 @@ F01  tesla_member, tesla_vehicle, tesla_vehicle_snapshot(+_history),
 
 F04  tesla_telemetry_config, tesla_telemetry_batch, tesla_telemetry_fact,
      tesla_state_change, tesla_signal_counter, tesla_billing_guard
+     VIEW tesla_telemetry_record      ← wide (column-per-field) read model over the facts
+     VIEW tesla_vehicle_attribute     ← the `once`-tier attributes, kept out of the series
 
 F05  tesla_driver_profile, tesla_counter_reset
 
@@ -82,6 +84,47 @@ F07  tesla_download_token
 F09/ tesla_admin_user, tesla_audit_event, tesla_erasure_log
 F10
 ```
+
+## Reading the data: narrow storage, wide view
+
+The fact table is narrow so no migration is needed to change what is collected. That
+makes it the wrong shape to read: comparing signals at one instant is a self-join per
+field. `tesla_telemetry_record` (migration `0012`) is the pivot — one row per
+`(vin, observed_at)`, one column per collected signal, in time order.
+
+```sql
+-- One row per instant, one column per signal. This is the analysis shape.
+SELECT observed_at, odometer, miles_since_reset, self_driving_miles_since_reset,
+       sentry_mode, speed_limit_mode
+  FROM tesla_telemetry_record
+ WHERE vin = 'LRW3F7ET1SC584656'
+ ORDER BY observed_at DESC;
+```
+
+The grain is exact rather than approximate: `normalise()` stamps every datum in a
+payload with the same `observedAt` (`datum.createdAt ?? receivedAt`), so one row per
+instant reconstructs exactly what the vehicle sent together.
+
+**It is a view, not a table, deliberately.** A materialised wide table would be a
+second write path over the same facts — a second thing that can disagree with the
+source. Every false-success defect in this pipeline came from a record written
+optimistically and never reconciled (`tesla_vehicle_key.key_state`, then
+`tesla_telemetry_config.verified_at`). A view is evaluated from the facts on every
+read and so cannot assert anything the fact stream does not contain. If read volume
+ever justified materialising, the correct place is inside the ingest run — where the
+facts are written — not a hand-maintained table.
+
+**The three `once` fields are absent by design.** `CarType`, `Version` and
+`EfficiencyPackage` are routed to `tesla_vehicle_snapshot` by `persistDatums()` —
+they are vehicle attributes, not a time series. They get their own view
+(`tesla_vehicle_attribute`) so a constant is never mistaken for an observation. An
+earlier draft pivoted them in, which would have presented a per-vehicle constant as
+though it were measured at every instant.
+
+**NULL is not zero.** A signal missing from a payload yields NULL, and a signal the
+vehicle explicitly could not measure arrives as `value_kind = 'invalid'` and also
+yields NULL. Both render as `—` in the console. Reading either as 0 would fabricate a
+reading; the schema makes the distinction and the view preserves it.
 
 ## Decisions worth knowing
 

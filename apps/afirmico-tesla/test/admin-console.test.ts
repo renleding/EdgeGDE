@@ -65,7 +65,7 @@ async function login(env: ReturnType<typeof makeEnv>): Promise<string> {
   return cookie
 }
 
-const PAGES = ['/admin/overview', '/admin/members', '/admin/vehicles', '/admin/consent', '/admin/audit']
+const PAGES = ['/admin/overview', '/admin/members', '/admin/vehicles', '/admin/telemetry', '/admin/consent', '/admin/audit']
 const APIS = ['/admin/api/members', '/admin/api/telemetry/health']
 
 describe('operator console: closed by default', () => {

@@ -75,6 +75,7 @@ function shell(title: string, body: string, nav = true): string {
     <a href="/admin/overview">Overview</a>
     <a href="/admin/members">Members</a>
     <a href="/admin/vehicles">Vehicles</a>
+    <a href="/admin/telemetry">Telemetry</a>
     <a href="/admin/consent">Consent</a>
     <a href="/admin/audit">Audit</a>
     <a href="/admin/logout" class="right">Sign out</a>
@@ -209,6 +210,20 @@ adminApp.use('/*', async (c: Context<{ Bindings: AdminEnv }>, next: Next) => {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Turn the recorded key-state error code into something an operator can act on.
+ *
+ * `key_not_paired_at_tesla` and `key_removed_by_owner` are different situations
+ * with different remediations, and the bare key_state (`unpaired`) renders them
+ * identically. The admin console must say which.
+ */
+function keyReason(code: unknown): string {
+  const value = String(code)
+  if (value === 'key_not_paired_at_tesla') return '— key never added on the vehicle'
+  if (value === 'key_removed_by_owner') return '— key removed at the vehicle (Locks screen)'
+  return `— ${value}`
+}
+
+/**
  * Renders the connections table showing per-member Tesla connections
  * with their vehicle details, virtual key pairing status, and consent history.
  * Supports filtering by status (active/inactive/all) and search.
@@ -243,12 +258,19 @@ async function renderActiveConnections(
 
   // Main query: member + vehicle + key + consent history
   // This returns one row per consent record, so a member with multiple consents
-  // gets multiple rows (history)
+  // gets multiple rows (history). Vehicle blocks are deduped per VIN below — this
+  // join is for the consent history, not a source of per-vehicle rows.
   const connections = await db.prepare(
     `SELECT
        m.member_id, m.tesla_email, m.created_at as member_since,
        v.vin, v.display_name, v.model, v.last_seen_at,
-       vk.key_state, vk.paired_at,
+       vk.key_state, vk.paired_at, vk.last_error AS key_last_error,
+       (SELECT state FROM tesla_telemetry_config t2 WHERE t2.vin = v.vin
+         ORDER BY t2.created_at DESC LIMIT 1) AS config_state,
+       (SELECT last_error FROM tesla_telemetry_config t3 WHERE t3.vin = v.vin
+         ORDER BY t3.created_at DESC LIMIT 1) AS config_last_error,
+       (SELECT COUNT(*) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS fact_count,
+       (SELECT MAX(f.observed_at) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS last_fact_at,
        c.consent_id, c.policy_version, c.granted_at, c.revoked_at, c.revoke_reason,
        c.collected_fields, c.recipients, c.ip_hash, c.user_agent
      FROM tesla_member m
@@ -289,9 +311,46 @@ async function renderActiveConnections(
 
   const memberHtml = Array.from(memberGroups.entries()).map(([memberId, rows]) => {
     const first = rows[0]
-    const keyState = first.key_state ?? 'no vehicle'
-    const stateClass = first.key_state === 'paired' ? 'ok' : first.key_state === 'fault' ? 'bad' : 'warn'
-    
+
+    // One vehicle block per VIN. The query joins consent history, so a member with
+    // N consent records produced N copies of every vehicle -- observed live as ten
+    // identical blocks (and ten "Virtual Key" rows) for a single member, nine of
+    // them stale. Dedupe before rendering, and record the distinct states.
+    const vehicleByVin = new Map<string, Record<string, unknown>>()
+    for (const r of rows) {
+      if (!r.vin) continue
+      const v = String(r.vin)
+      if (!vehicleByVin.has(v)) vehicleByVin.set(v, r)
+    }
+    const vehicles = Array.from(vehicleByVin.values())
+
+    // The member-level pill must not speak for one vehicle and imply all of them.
+    // It previously read `first.key_state`, so a member with one paired and one
+    // unpaired vehicle showed a single green "paired" pill -- the unpaired vehicle
+    // was reported as fine at member level. Report the count instead, and reserve
+    // the plain state for the single-vehicle case where it is unambiguous.
+    const pairedCount = vehicles.filter((v) => v.key_state === 'paired').length
+    const faultCount = vehicles.filter((v) => v.key_state === 'fault').length
+    const isAmbiguous = vehicles.length !== 1
+    const keyLabel = vehicles.length === 0
+      ? 'no vehicle'
+      : isAmbiguous
+        ? `${pairedCount} of ${vehicles.length} keys paired`
+        : String(vehicles[0].key_state ?? 'unpaired')
+    const stateClass = vehicles.length === 0
+      ? 'warn'
+      : isAmbiguous
+        ? pairedCount === vehicles.length
+          ? 'ok'
+          : pairedCount === 0
+            ? 'bad'
+            : 'warn'
+        : vehicles[0].key_state === 'paired'
+          ? 'ok'
+          : vehicles[0].key_state === 'fault'
+            ? 'bad'
+            : 'warn'
+
     // Build consent history table
     const consentRows = rows.filter(r => r.consent_id).map((r) => `
       <tr>
@@ -307,35 +366,6 @@ async function renderActiveConnections(
     `).join('')
 
     const hasConsentHistory = rows.some(r => r.consent_id)
-    const consentTable = `
-      <div style="margin-top:12px;padding:12px;background:#101010;border-radius:8px">
-        <h4 style="margin:0 0 8px;color:#a52045">Consent History (${rows.filter(r=>r.consent_id).length} record(s))</h4>
-        ${rows.some(r => r.consent_id) ? `
-        <table style="font-size:12px">
-          <thead>
-            <tr>
-              <th>Granted</th><th>Revoked</th><th>Policy</th><th>Status</th><th>Reason</th>
-              <th>Collected Fields</th><th>Recipients</th><th>IP Hash</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.filter(r => r.consent_id).map((r) => `
-              <tr>
-                <td class="meta">${escapeHtml(r.granted_at ?? '—')}</td>
-                <td class="meta">${escapeHtml(r.revoked_at ?? 'active')}</td>
-                <td>${escapeHtml(r.policy_version ?? '—')}</td>
-                <td><span class="pill ${r.revoked_at ? 'bad' : 'ok'}">${r.revoked_at ? 'Revoked' : 'Active'}</span></td>
-                <td class="meta">${escapeHtml(r.revoke_reason ?? '—')}</td>
-                <td class="mono" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.collected_fields ?? '—')}</td>
-                <td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(r.recipients ?? '—')}</td>
-                <td class="meta">${escapeHtml(r.ip_hash ?? '—')}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        ` : '<div class="meta" style="margin-top:12px">No consent records</div>'}
-      </div>
-    `
 
     return `
       <div style="margin-bottom:16px;padding:16px;background:#151515;border-radius:12px">
@@ -346,10 +376,11 @@ async function renderActiveConnections(
             <div class="meta">Joined: ${escapeHtml(first.member_since ?? '—')}</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <span class="pill ${stateClass}">${escapeHtml(keyState)}</span>
+            <span class="pill ${stateClass}">${escapeHtml(keyLabel)}</span>
           </div>
         </div>
-        ${rows.filter((r) => r.vin).map((r) => `
+        ${vehicles.length === 0 ? '<div class="meta">No vehicle on record for this member.</div>' : ''}
+        ${vehicles.map((r) => `
         <div style="margin-top:12px;padding:12px;background:#101010;border-radius:8px">
           <h4 style="margin:0 0 8px;color:#42ff8c">Vehicle — ${escapeHtml(r.vin)}</h4>
           <table style="font-size:13px;width:100%">
@@ -357,8 +388,29 @@ async function renderActiveConnections(
               <tr><td class="meta" style="width:170px">Display Name</td><td>${escapeHtml(r.display_name ?? '—')}</td></tr>
               <tr><td class="meta">Model</td><td>${escapeHtml(r.model ?? '—')}</td></tr>
               <tr><td class="meta">Last Seen</td><td class="meta">${escapeHtml(r.last_seen_at ?? '—')}</td></tr>
-              <tr><td class="meta">Virtual Key</td><td><span class="pill ${r.key_state === 'paired' ? 'ok' : r.key_state === 'fault' ? 'bad' : 'warn'}">${escapeHtml(r.key_state ?? 'unpaired')}</span></td></tr>
+              <tr><td class="meta">Virtual Key</td><td><span class="pill ${r.key_state === 'paired' ? 'ok' : r.key_state === 'fault' ? 'bad' : 'warn'}">${escapeHtml(r.key_state ?? 'unpaired')}</span>${
+                // Show WHY a key is unpaired. "unpaired" alone cannot distinguish a
+                // key the member never added from one removed at the car from a
+                // Tesla-side problem, and those need different actions.
+                r.key_last_error
+                  ? ` <span class="meta">${escapeHtml(keyReason(r.key_last_error))}</span>`
+                  : ''
+              }</td></tr>
               <tr><td class="meta">Paired At</td><td class="meta">${escapeHtml(r.paired_at ?? '—')}</td></tr>
+              <tr><td class="meta">Telemetry Config</td><td><span class="pill ${
+                r.config_state === 'active' ? 'ok' : r.config_state === 'failed' ? 'bad' : 'warn'
+              }">${escapeHtml(r.config_state ?? 'none')}</span>${
+                r.config_last_error ? ` <span class="meta">${escapeHtml(String(r.config_last_error).slice(0, 80))}</span>` : ''
+              }</td></tr>
+              <tr><td class="meta">Data Received</td><td>${
+                // "0 records" and "collection silently broken" must not look alike,
+                // so a verified active config with nothing captured is called out.
+                Number(r.fact_count ?? 0) === 0
+                  ? r.config_state === 'active'
+                    ? '<span class="pill bad">no data yet</span> <span class="meta">config active but nothing captured — check the relay</span>'
+                    : '<span class="meta">none yet</span>'
+                  : `<strong>${Number(r.fact_count)}</strong> <span class="meta">records, latest ${escapeHtml(String(r.last_fact_at ?? '—').slice(0, 19).replace('T', ' '))}</span>`
+              }</td></tr>
             </tbody>
           </table>
         </div>
@@ -406,15 +458,18 @@ async function renderActiveConnections(
 /* -------------------------------------------------------------------------- */
 
 adminApp.get('/overview', async (c) => {
-  const dayStart = new Date().toISOString().slice(0, 10)
   const [members, vehicles, activeConsent, revokedConsent, batches, facts, signals] = await Promise.all([
     c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_member').first<{ n: number }>(),
     c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_vehicle').first<{ n: number }>(),
     c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_consent WHERE revoked_at IS NULL').first<{ n: number }>(),
     c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_consent WHERE revoked_at IS NOT NULL').first<{ n: number }>(),
-    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_batch WHERE received_at >= ?').bind(dayStart).first<{ n: number }>(),
-    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_fact WHERE observed_at >= ?').bind(dayStart).first<{ n: number }>(),
-    c.env.D1_TESLA.prepare('SELECT COALESCE(SUM(signals),0) AS n FROM tesla_signal_counter WHERE period_start = ?').bind(dayStart).first<{ n: number }>(),
+    // Total, not day-scoped. A day-scoped counter resets to 0 at 00:00 UTC, so a
+    // pipeline that has been silently broken since yesterday reads identically to
+    // one that was never set up -- and an empty card reads as "nothing is wrong"
+    // rather than "nothing has ever arrived". "Ever" is the honest denominator.
+    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_batch').first<{ n: number }>(),
+    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_fact').first<{ n: number }>(),
+    c.env.D1_TESLA.prepare('SELECT COALESCE(SUM(signals),0) AS n FROM tesla_signal_counter').first<{ n: number }>(),
   ])
 
   const paired = await c.env.D1_TESLA.prepare(
@@ -433,13 +488,15 @@ adminApp.get('/overview', async (c) => {
     <div class="card"><div class="num">${revokedConsent?.n ?? 0}</div><div class="lbl">Revoked</div></div>
   </div>
 
-  <h2>Telemetry today (${escapeHtml(dayStart)})</h2>
+  <h2>Telemetry</h2>
   <div class="cards">
-    <div class="card"><div class="num">${batches?.n ?? 0}</div><div class="lbl">Batches</div></div>
-    <div class="card"><div class="num">${facts?.n ?? 0}</div><div class="lbl">Facts</div></div>
-    <div class="card"><div class="num">${signals?.n ?? 0}</div><div class="lbl">Signals</div></div>
+    <div class="card"><div class="num">${batches?.n ?? 0}</div><div class="lbl">Batches (all time)</div></div>
+    <div class="card"><div class="num">${facts?.n ?? 0}</div><div class="lbl">Records (all time)</div></div>
+    <div class="card"><div class="num">${signals?.n ?? 0}</div><div class="lbl">Signals metered</div></div>
     <div class="card"><div class="num">$${cost}</div><div class="lbl">Est. cost</div></div>
   </div>
+  <p class="meta">Counts are all-time, not today: a day-scoped counter reads 0 both when nothing is
+  wrong and when nothing has ever arrived. <a href="/admin/telemetry">View records by column →</a></p>
 
   <h2>Active Connections (per member)</h2>
   ${await renderActiveConnections(c.env.D1_TESLA, c.req.query('search'), c.req.query('status') as 'active' | 'inactive' | 'all' | undefined)}
@@ -502,6 +559,140 @@ adminApp.get('/vehicles', async (c) => {
         <td class="meta">${escapeHtml(v.last_seen_at ?? 'never')}</td>
       </tr>`).join('')}
       </tbody></table>`}
+  `))
+})
+
+/**
+ * Column-per-field telemetry history (F04).
+ *
+ * The fact table is narrow by design, which is unreadable for analysis. This
+ * renders `tesla_telemetry_record` -- one row per instant, one column per signal,
+ * in time order -- so a member's history can be read as a table. The view is
+ * derived from the facts, so it cannot drift; see migration 0012.
+ */
+adminApp.get('/telemetry', async (c) => {
+  const vinFilter = (c.req.query('vin') ?? '').trim()
+  const limit = Math.min(Number(c.req.query('limit') ?? '100'), 500)
+
+  // VIN list for the selector, plus the `once`-tier vehicle attributes so the
+  // firmware/config context is visible next to the time series.
+  const vinRows = await c.env.D1_TESLA.prepare(
+    `SELECT v.vin, v.display_name,
+            (SELECT COUNT(*) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS facts,
+            (SELECT MAX(f.observed_at) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS last_at
+       FROM tesla_vehicle v ORDER BY v.first_seen_at DESC`,
+  ).all<Record<string, unknown>>()
+  const vins = vinRows.results ?? []
+
+  const selected = vinFilter || (vins[0]?.vin ? String(vins[0].vin) : '')
+
+  const [records, attrs] = selected
+    ? await Promise.all([
+        c.env.D1_TESLA.prepare(
+          `SELECT * FROM tesla_telemetry_record
+            WHERE vin = ? ORDER BY observed_at DESC LIMIT ?`,
+        )
+          .bind(selected, limit)
+          .all<Record<string, unknown>>(),
+        c.env.D1_TESLA.prepare(
+          'SELECT * FROM tesla_vehicle_attribute WHERE vin = ?',
+        )
+          .bind(selected)
+          .first<Record<string, unknown>>(),
+      ])
+    : [{ results: [] as Record<string, unknown>[] }, null]
+
+  const rows = records.results ?? []
+
+  // Column definitions drive both the header and each cell. Keeping them in data
+  // means the null-rendering rule is applied in exactly one place -- a NULL is a
+  // signal not reported in that payload, and must not render as "0" or a blank
+  // that reads as zero.
+  const columns: Array<{ key: string; label: string; kind: 'num' | 'bool' | 'text' }> = [
+    { key: 'observed_at', label: 'Observed (UTC)', kind: 'text' },
+    { key: 'received_at', label: 'Received (UTC)', kind: 'text' },
+    { key: 'odometer', label: 'Odometer (mi)', kind: 'num' },
+    { key: 'miles_since_reset', label: 'Miles since reset', kind: 'num' },
+    { key: 'self_driving_miles_since_reset', label: 'FSD miles since reset', kind: 'num' },
+    { key: 'sentry_mode', label: 'Sentry mode', kind: 'text' },
+    { key: 'speed_limit_mode', label: 'Speed limit mode', kind: 'bool' },
+    { key: 'speed_limit_warning', label: 'Speed limit warning', kind: 'text' },
+    { key: 'pin_to_drive_enabled', label: 'PIN to drive', kind: 'bool' },
+    { key: 'automatic_blind_spot_camera', label: 'Auto blind spot camera', kind: 'bool' },
+    { key: 'automatic_emergency_braking_off', label: 'AEB off', kind: 'bool' },
+    { key: 'blind_spot_collision_warning_chime', label: 'BSM chime', kind: 'bool' },
+    { key: 'emergency_lane_departure_avoidance', label: 'Emergency lane departure avoidance', kind: 'bool' },
+    { key: 'is_resend', label: 'Resend', kind: 'bool' },
+  ]
+
+  const cell = (row: Record<string, unknown>, col: (typeof columns)[number]): string => {
+    const v = row[col.key]
+    // NULL is "not reported", not zero. Surfaced explicitly so an absent reading
+    // can never be mistaken for a measured 0 -- the same distinction the schema
+    // makes with value_kind = 'invalid'.
+    if (v === null || v === undefined || v === '') return '<span class="meta">—</span>'
+    if (col.kind === 'bool') {
+      const on = Number(v) === 1
+      return `<span class="pill ${on ? 'ok' : 'warn'}">${on ? 'yes' : 'no'}</span>`
+    }
+    if (col.kind === 'num') return `<span class="mono">${escapeHtml(v)}</span>`
+    if (col.key === 'observed_at' || col.key === 'received_at') {
+      return `<span class="mono">${escapeHtml(String(v).slice(0, 19).replace('T', ' '))}</span>`
+    }
+    return escapeHtml(v)
+  }
+
+  const hasData = rows.length > 0
+
+  return c.html(shell('Admin — Telemetry', `
+  <h1>Telemetry <span class="meta">${selected ? `— ${escapeHtml(selected)}` : ''}</span></h1>
+
+  <form method="GET" action="/admin/telemetry" style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <select name="vin" style="padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;font-size:14px">
+      ${vins.length === 0 ? '<option value="">No vehicles</option>' : ''}
+      ${vins.map(v => `<option value="${escapeHtml(v.vin)}" ${selected === String(v.vin) ? 'selected' : ''}>${escapeHtml(v.display_name ?? v.vin)} — ${escapeHtml(v.vin)} (${escapeHtml(v.facts ?? 0)} records)</option>`).join('')}
+    </select>
+    <label class="meta">Rows
+      <input type="number" name="limit" min="1" max="500" value="${limit}"
+             style="width:90px;padding:8px 10px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff">
+    </label>
+    <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Show</button>
+  </form>
+
+  ${!hasData ? `
+  <div class="note">
+    <strong>No telemetry recorded yet.</strong>
+    ${selected ? `One row appears here per payload received for ${escapeHtml(selected)}.
+      A verified config with nothing captured means collection is not reaching Tier 1 —
+      check the relay's <code>log_level</code> (must be <code>info</code>) and its forwarded-line
+      counters. A parked vehicle legitimately produces nothing: every configured field is
+      change-gated at 6 hours.` : 'No vehicle on record.'}
+  </div>` : `
+  <h2>Vehicle attributes <span class="meta">(constant unless firmware or hardware changes)</span></h2>
+  <table style="font-size:13px;margin-bottom:20px">
+    <thead><tr><th>Car type</th><th>Firmware</th><th>Efficiency package</th><th>Observed</th></tr></thead>
+    <tbody><tr>
+      <td>${escapeHtml(attrs?.car_type ?? '—')}</td>
+      <td class="mono">${escapeHtml(attrs?.version ?? '—')}</td>
+      <td>${escapeHtml(attrs?.efficiency_package ?? '—')}</td>
+      <td class="meta">${escapeHtml(String(attrs?.observed_at ?? '—').slice(0, 19).replace('T', ' '))}</td>
+    </tr></tbody>
+  </table>
+
+  <h2>Records <span class="meta">(${rows.length} row${rows.length === 1 ? '' : 's'}, newest first)</span></h2>
+  <div style="overflow-x:auto">
+  <table style="font-size:12px;white-space:nowrap">
+    <thead><tr>${columns.map(col => `<th>${escapeHtml(col.label)}</th>`).join('')}</tr></thead>
+    <tbody>
+    ${rows.map(row => `<tr>${columns.map(col => `<td>${cell(row, col)}</td>`).join('')}</tr>`).join('')}
+    </tbody>
+  </table>
+  </div>
+  <p class="meta" style="margin-top:12px">
+    A dash (—) means the signal was not reported in that payload, which is not the same as a
+    measured zero. Storage is narrow (one row per field per instant) and this table is the
+    pivot of it (migration 0012); the raw payload for every row is retained in R2.
+  </p>`}
   `))
 })
 
