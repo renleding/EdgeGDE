@@ -1,11 +1,5 @@
 {
   "recurring_errors": [],
-  "no_compensation_failures": [
-    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/EG-FEAT-0032-phase3-saga.report.json",
-    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/EG-FEAT-0032-phase3.report.json",
-    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac1.report.json",
-    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac2.report.json",
-    "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/qwen35-001-droid-coding-test.report.json"
-  ],
-  "detected_at": "2026-10-05T11:00:09.336750+00:00"
+  "no_compensation_failures": [],
+  "detected_at": "2026-10-06T11:03:02.168612+00:00"
 }
