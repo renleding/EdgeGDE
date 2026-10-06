@@ -2319,6 +2319,60 @@ app.get('/healthz', async (c) => {
     checks.billing_margin = `error: ${(error as Error).message.slice(0, 120)}`
   }
 
+  // F02-R14: a verified, active config with nothing arriving is the silent
+  // failure this whole pipeline is prone to, and it is invisible from every
+  // other signal we have. Observed live over three days: the vehicle streamed,
+  // Tesla billed 84 signals, the container stayed healthy, `billing_margin`
+  // read `no_usage_yet` and `problems` was empty — while `tesla_telemetry_fact`
+  // held zero rows. "No rows yet" and "collection is silently broken" must not
+  // look the same, so a config we can verify as active with no telemetry
+  // recorded is reported as a problem.
+  //
+  // This does not fire for a vehicle that is merely parked: the fields are
+  // change-gated, so quiet periods are expected. It fires on the combination
+  // that is never legitimate — we assert active collection and have captured
+  // nothing at all, ever.
+  try {
+    const active = await c.env.D1_TESLA.prepare(
+      `SELECT COUNT(*) AS n FROM tesla_telemetry_config WHERE state = 'active'`,
+    ).first<{ n: number }>()
+    const facts = await c.env.D1_TESLA.prepare(
+      'SELECT COUNT(*) AS n FROM tesla_telemetry_fact',
+    ).first<{ n: number }>()
+
+    const activeCount = active?.n ?? 0
+    const factCount = facts?.n ?? 0
+    checks.active_configs = String(activeCount)
+    checks.telemetry_facts = String(factCount)
+
+    // Only meaningful once a config has been verified as adopted; a pending
+    // config legitimately produces nothing yet.
+    const verified = await c.env.D1_TESLA.prepare(
+      `SELECT COUNT(*) AS n FROM tesla_telemetry_config
+        WHERE state = 'active' AND verified_at IS NOT NULL`,
+    ).first<{ n: number }>()
+    const verifiedCount = verified?.n ?? 0
+    checks.verified_configs = String(verifiedCount)
+
+    if (verifiedCount > 0 && factCount === 0) {
+      checks.telemetry_flow = 'NO_DATA'
+      problems.push(
+        `F02-R14: ${verifiedCount} config(s) verified active but tesla_telemetry_fact is empty — collection is not reaching Tier 1 (check the relay log_level and its ` +
+          'forwarded-line counters; a log_level above info discards every payload silently)',
+      )
+    } else if (factCount === 0) {
+      checks.telemetry_flow = 'awaiting_first_drive'
+    } else {
+      const last = await c.env.D1_TESLA.prepare(
+        'SELECT MAX(received_at) AS last FROM tesla_telemetry_fact',
+      ).first<{ last: string | null }>()
+      checks.telemetry_flow = 'ok'
+      checks.telemetry_last_fact = last?.last ?? 'unknown'
+    }
+  } catch (error) {
+    checks.telemetry_flow = `error: ${(error as Error).message.slice(0, 120)}`
+  }
+
   return c.json({
     status: problems.length ? 'degraded' : 'ok',
     service: 'afirmico-tesla',
