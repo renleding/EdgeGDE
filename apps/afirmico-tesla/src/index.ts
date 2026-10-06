@@ -1778,7 +1778,16 @@ async function sendVehicleConfig(
       },
       body: JSON.stringify(buildTelemetryConfig(input)),
     })
-    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    // Read text first so an empty/non-JSON body is captured for diagnosis.
+    // (The upstream 404 returned {} when we parsed JSON first; text reveals the
+    // actual body.)
+    const rawBody = await res.text().catch(() => '')
+    let body: Record<string, unknown> = {}
+    try {
+      body = rawBody ? JSON.parse(rawBody) : {}
+    } catch {
+      // Non-JSON body — keep the text for the error detail.
+    }
 
     // Per-VIN outcomes nest under `skipped_vehicles`; map each to its own state.
     const skipped = Array.isArray(body.skipped_vehicles) ? (body.skipped_vehicles as Record<string, unknown>[]) : []
@@ -1791,7 +1800,7 @@ async function sendVehicleConfig(
     if (!res.ok) {
       // Capture WHY, not just the status. `http_404` alone is ambiguous across
       // three different repairs and is what made this failure unactionable.
-      return { sent: false, state: 'failed', error: upstreamErrorDetail(res.status, JSON.stringify(body)) }
+      return { sent: false, state: 'failed', error: upstreamErrorDetail(res.status, rawBody) }
     }
     return { sent: true, state: 'active' }
   } catch (error) {
