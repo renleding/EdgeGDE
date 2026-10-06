@@ -1919,7 +1919,104 @@ app.post('/admin/telemetry/apply', async (c) => {
   })
 
   /* -------------------------------------------------------------------------- */
-  /* Cron: Virtual Key Pairing Poll (F02-R09a)                                 */
+  /* Admin: Force refresh vehicle list from Tesla (diagnostic)                  */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Diagnostic endpoint: fetch the current vehicle list from Tesla using the
+   * member's access token. This reveals whether the VINs are visible to the
+   * authorising account *right now* — the same token that config send uses.
+   * Guarded by ingest secret; write-once so it cannot be abused.
+   */
+  app.post('/admin/telemetry/refresh-vehicles', async (c) => {
+    const secret = c.env.INGEST_SHARED_SECRET
+    if (!secret) return c.json({ ok: false, error: 'not_configured' }, 503)
+    if (!timingSafeEqual(c.req.header('x-ingest-secret') ?? '', secret)) {
+      return c.json({ ok: false, error: 'unauthorized' }, 401)
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as { member_id?: string }
+    const members = body.member_id
+      ? await c.env.D1_TESLA.prepare('SELECT member_id FROM tesla_member WHERE member_id = ?').bind(body.member_id).all<{ member_id: string }>()
+      : await c.env.D1_TESLA.prepare('SELECT member_id FROM tesla_member ORDER BY member_id').all<{ member_id: string }>()
+
+    const results = []
+    for (const m of members.results ?? []) {
+      const accessToken = await getMemberAccessToken(c.env, m.member_id)
+      if (!accessToken) {
+        results.push({ member_id: m.member_id, error: 'no_access_token' })
+        continue
+      }
+      try {
+        const res = await fetch('https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles', {
+          headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+        })
+        const text = await res.text().catch(() => '')
+        let data: Record<string, unknown> = {}
+        try { data = text ? JSON.parse(text) : {} } catch {}
+        const teslaVins = Array.isArray(data.response) ? data.response.map((v: any) => v.vin ?? v.VIN).filter(Boolean) : []
+        const dbVins = (await c.env.D1_TESLA.prepare('SELECT vin FROM tesla_vehicle WHERE member_id = ?').bind(m.member_id).all<{ vin: string }>()).results?.map(r => r.vin) ?? []
+        results.push({
+          member_id: m.member_id,
+          tesla_vehicles: teslaVins,
+          db_vehicles: dbVins,
+          tesla_missing: dbVins.filter(v => !teslaVins.includes(v)),
+          tesla_extra: teslaVins.filter(v => !dbVins.includes(v)),
+        })
+      } catch (error) {
+        results.push({ member_id: m.member_id, error: (error as Error).message })
+      }
+    }
+    return c.json({ ok: true, results })
+  })
+
+
+  /* -------------------------------------------------------------------------- */
+  /* Admin: Force check specific VIN's fleet_telemetry_config from Tesla        */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Diagnostic endpoint: poll the fleet_telemetry_config endpoint for a specific
+   * VIN using the member's token, exactly as the key-pairing cron does. This
+   * shows whether Tesla currently reports the VIN as paired and what its config
+   * state is.
+   */
+  app.post('/admin/telemetry/check-config', async (c) => {
+    const secret = c.env.INGEST_SHARED_SECRET
+    if (!secret) return c.json({ ok: false, error: 'not_configured' }, 503)
+    if (!timingSafeEqual(c.req.header('x-ingest-secret') ?? '', secret)) {
+      return c.json({ ok: false, error: 'unauthorized' }, 401)
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as { vin: string; member_id?: string }
+    if (!body.vin) return c.json({ ok: false, error: 'vin_required' }, 400)
+
+    let memberId = body.member_id
+    if (!memberId) {
+      const vehicleRow = await c.env.D1_TESLA.prepare('SELECT member_id FROM tesla_vehicle WHERE vin = ?').bind(body.vin).first<{ member_id: string }>()
+      if (!vehicleRow) return c.json({ ok: false, error: 'vehicle_not_found' }, 404)
+      memberId = vehicleRow.member_id
+    }
+
+    const accessToken = await getMemberAccessToken(c.env, memberId)
+    if (!accessToken) return c.json({ ok: false, error: 'no_access_token' }, 401)
+
+    try {
+      const res = await fetch(`https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles/${encodeURIComponent(body.vin)}/fleet_telemetry_config`, {
+        headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      })
+      const text = await res.text().catch(() => '')
+      let data: Record<string, unknown> = {}
+      try { data = text ? JSON.parse(text) : {} } catch {}
+      return c.json({ ok: true, vin: body.vin, status: res.status, body: data })
+    } catch (error) {
+      return c.json({ ok: false, error: (error as Error).message }, 500)
+    }
+  })
+
+
+  /* -------------------------------------------------------------------------- */
+  /* Cron: Virtual Key Pairing Poll (F02-R09a)                                  */
   /* -------------------------------------------------------------------------- */
 
   /**
