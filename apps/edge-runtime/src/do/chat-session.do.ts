@@ -11,6 +11,7 @@
  */
 
 import { guardDB } from '../lib/db'
+import type { DurableObjectState, DurableObject } from '@cloudflare/workers-types'
 
 const SNAPSHOT_INTERVAL = 5
 
@@ -48,9 +49,9 @@ export class ChatSession_DO {
   private state: ChatSessionState | null = null
   private scheduledSnapshot = false
   readonly state_: DurableObjectState
-  private env: any
+  private env: Record<string, unknown>
 
-  constructor(state: DurableObjectState, env: any) {
+  constructor(state: DurableObjectState, env: Record<string, unknown>) {
     this.state_ = state
     this.env = env
   }
@@ -145,18 +146,18 @@ export class ChatSession_DO {
     if (this.state) return
     try {
       const db = guardDB(this.env?.['DB'])
-      const row: any = await db.prepare(
+      const row: Record<string, unknown> | null = await db.prepare(
         `SELECT id, collected_fields_json, state_json, status FROM chat_sessions WHERE id = ? AND tenant_id = ?`
       ).bind(this.state_.id.toString(), tenantId).first()
       if (row) {
         this.state = {
-          sessionId: row.id,
+          sessionId: String(row.id ?? ''),
           tenantId,
-          collected: row.collected_fields_json ? JSON.parse(row.collected_fields_json) : {},
-          currentField: row.state_json ? (JSON.parse(row.state_json).currentField || '') : '',
-          status: row.status || 'active',
+          collected: row.collected_fields_json ? JSON.parse(String(row.collected_fields_json)) : {},
+          currentField: row.state_json ? (JSON.parse(String(row.state_json)).currentField || '') : '',
+          status: (row.status === 'complete' || row.status === 'active' || row.status === 'abandoned') ? row.status : 'active',
           stepCount: 0,
-        version: 0,
+          version: 0,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         }

@@ -20,13 +20,29 @@ import type { EdgeGDEAction, ActionContext } from './types'
 import { CALCULATOR_REGISTRY } from '../registry/calculators'
 import { getCalculator } from '../lib/calculator-engine'
 import { safeEnv } from '../lib/env'
+import type { KVNamespace, D1Database } from '@cloudflare/workers-types'
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Type guards for action inputs/outputs
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface CanvasNodeInput { nodeId?: string }
+interface CanvasNodeOutput { nodeId?: string; nodeData?: { id: string } }
+interface CanvasMoveOutput { nodeId?: string; previousParentId?: string; previousIndex?: number }
+interface LeadCaptureInput { leadId?: string }
+interface LeadCaptureOutput { leadId?: string }
+interface SitePublishInput { tenantId?: string }
+interface SitePublishOutput { previousVersion?: string; version?: string }
+interface SiteRollbackInput { tenantId?: string }
+interface CalculatorExecuteInput { toolId?: string; input?: unknown }
+interface CalculatorInsertInput { recordId?: string; id?: string }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** Try to get D1 binding — return null if unavailable. */
-function tryD1(env: Record<string, unknown>): any | null {
+function tryD1(env: Record<string, unknown>): D1Database | null {
   try {
     const typed = safeEnv(env)
     const rawDB = typed.DB
@@ -52,12 +68,12 @@ function logCompensation(ctx: ActionContext, actionType: string, status: string,
 // Canvas Actions
 // ═══════════════════════════════════════════════════════════════════════════
 
-const canvasAddNode: EdgeGDEAction = {
+const canvasAddNode: EdgeGDEAction<CanvasNodeInput, CanvasNodeOutput | null> = {
   type: 'canvas.add_node',
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 0 }
   },
-  async compensate(ctx, input: any, originalOutput: any) {
+  async compensate(ctx, input: CanvasNodeInput, originalOutput: CanvasNodeOutput | null) {
     // Reverse: delete the node that was added
     const nodeId = input?.nodeId ?? originalOutput?.nodeId
     if (!nodeId) {
@@ -69,12 +85,12 @@ const canvasAddNode: EdgeGDEAction = {
   },
 }
 
-const canvasDeleteNode: EdgeGDEAction = {
+const canvasDeleteNode: EdgeGDEAction<unknown, CanvasNodeOutput | null> = {
   type: 'canvas.delete_node',
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 0 }
   },
-  async compensate(ctx, _input, originalOutput: any) {
+  async compensate(ctx, _input, originalOutput: CanvasNodeOutput | null) {
     // Reverse: re-add the node that was deleted
     if (!originalOutput?.nodeData) {
       logCompensation(ctx, 'canvas.delete_node', 'skipped', 'No nodeData available in originalOutput')
@@ -85,12 +101,12 @@ const canvasDeleteNode: EdgeGDEAction = {
   },
 }
 
-const canvasMoveNode: EdgeGDEAction = {
+const canvasMoveNode: EdgeGDEAction<unknown, CanvasMoveOutput | null> = {
   type: 'canvas.move_node',
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 0 }
   },
-  async compensate(ctx, _input, originalOutput: any) {
+  async compensate(ctx, _input, originalOutput: CanvasMoveOutput | null) {
     // Reverse: move back to original position
     const nodeId = originalOutput?.nodeId
     const prevParent = originalOutput?.previousParentId
@@ -108,12 +124,12 @@ const canvasMoveNode: EdgeGDEAction = {
 // Lead Actions
 // ═══════════════════════════════════════════════════════════════════════════
 
-const leadCapture: EdgeGDEAction = {
+const leadCapture: EdgeGDEAction<LeadCaptureInput, LeadCaptureOutput> = {
   type: 'lead.capture',
-  async execute(_ctx, input: any) {
+  async execute(_ctx, input: LeadCaptureInput) {
     return { status: 'success', output: { leadId: input.leadId, captured: true }, durationMs: 50 }
   },
-  async compensate(ctx, input: any, originalOutput: any) {
+  async compensate(ctx, input: LeadCaptureInput, originalOutput: LeadCaptureOutput) {
     // Reverse: delete/archive the captured lead from D1
     const leadId = originalOutput?.leadId ?? input?.leadId
     if (!leadId) {
@@ -139,7 +155,7 @@ const leadCapture: EdgeGDEAction = {
       logCompensation(ctx, 'lead.capture', 'simulated', `Would archive lead ${leadId}`)
     }
   },
-  dryRun(_input: any) {
+  dryRun(_input: unknown) {
     return { expectedOutputType: '{ leadId, captured }', sideEffects: ['creates lead record'], idempotent: false }
   },
 }
@@ -148,12 +164,12 @@ const leadCapture: EdgeGDEAction = {
 // Site Actions
 // ═══════════════════════════════════════════════════════════════════════════
 
-const sitePublish: EdgeGDEAction = {
+const sitePublish: EdgeGDEAction<SitePublishInput, SitePublishOutput | null> = {
   type: 'site.publish',
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 1000 }
   },
-  async compensate(ctx, input: any, originalOutput: any) {
+  async compensate(ctx, input: SitePublishInput, originalOutput: SitePublishOutput | null) {
     // Reverse: roll back the published site to previous version
     const tenantId = input?.tenantId ?? ctx.tenantId
     const previousVersion = originalOutput?.previousVersion
@@ -195,12 +211,12 @@ const sitePublish: EdgeGDEAction = {
   },
 }
 
-const siteRollback: EdgeGDEAction = {
+const siteRollback: EdgeGDEAction<SiteRollbackInput, unknown> = {
   type: 'site.rollback',
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 1000 }
   },
-  async compensate(ctx, input: any, _originalOutput) {
+  async compensate(ctx, input: SiteRollbackInput, _originalOutput: unknown) {
     // Reverse: re-publish the version that was active before rollback
     const tenantId = input?.tenantId ?? ctx.tenantId
     if (!tenantId) {
@@ -222,9 +238,9 @@ const siteRollback: EdgeGDEAction = {
  * Input shape: { toolId: string, input: Record<string, unknown> }
  * The inner input is validated against the tool's Zod schema before execution.
  */
-const calculatorExecute: EdgeGDEAction = {
+const calculatorExecute: EdgeGDEAction<CalculatorExecuteInput, unknown> = {
   type: 'calculator.execute',
-  async execute(_ctx, rawInput: any) {
+  async execute(_ctx, rawInput: CalculatorExecuteInput) {
     const toolId = rawInput?.toolId as string | undefined
     if (!toolId) {
       return { status: 'failure' as const, output: null, error: 'Missing toolId in input', durationMs: 0 }
@@ -236,7 +252,7 @@ const calculatorExecute: EdgeGDEAction = {
       return {
         id: engineCalc.id, description: engineCalc.description,
         schema: engineCalc.inputSchema,
-        execute(input: any) { return engineCalc.execute(input) },
+        execute(input: unknown) { return engineCalc.execute(input) },
       }
     })()
     if (!tool) {
@@ -260,7 +276,7 @@ const calculatorExecute: EdgeGDEAction = {
     // Execute the tool
     const startTime = Date.now()
     try {
-      const result = tool.execute(parsed.data)
+      const result: { monthlyRepayment?: number; fortnightlyRepayment?: number; weeklyRepayment?: number; totalInterest?: number; totalCost?: number; loanTerm?: number } = tool.execute(parsed.data)
       return {
         status: 'success' as const,
         output: {
@@ -272,8 +288,12 @@ const calculatorExecute: EdgeGDEAction = {
             weeklyRepayment: result.weeklyRepayment,
             totalInterest: result.totalInterest,
             totalCost: result.totalCost,
-            totalRepayments: parsed.data.loanTerm ? parsed.data.loanTerm * 12 : 0,
-            loanTerm: parsed.data.loanTerm ?? null,
+            totalRepayments: parsed.data && typeof parsed.data === 'object' && 'loanTerm' in parsed.data
+              ? (parsed.data as Record<string, unknown>).loanTerm ? (parsed.data as Record<string, unknown>).loanTerm * 12 : 0
+              : 0,
+            loanTerm: parsed.data && typeof parsed.data === 'object' && 'loanTerm' in parsed.data
+              ? (parsed.data as Record<string, unknown>).loanTerm ?? null
+              : null,
             totalFees: 0,
           },
           timestamp: new Date().toISOString(),
@@ -290,7 +310,7 @@ const calculatorExecute: EdgeGDEAction = {
     }
   },
   // calculator.execute is read-only — no compensation needed
-  dryRun(_input: any) {
+  dryRun(_input: unknown) {
     return {
       expectedOutputType: '{ toolId, input, summary }',
       sideEffects: ['computes calculator result — no state mutation'],
@@ -300,12 +320,12 @@ const calculatorExecute: EdgeGDEAction = {
   },
 }
 
-const calculatorInsert: EdgeGDEAction = {
+const calculatorInsert: EdgeGDEAction<CalculatorInsertInput, unknown> = {
   type: 'calculator.insert',
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 100 }
   },
-  async compensate(ctx, input: any, _originalOutput) {
+  async compensate(ctx, input: CalculatorInsertInput, _originalOutput: unknown) {
     // Reverse: delete the inserted record from D1
     const recordId = input?.recordId ?? input?.id
     if (!recordId) {

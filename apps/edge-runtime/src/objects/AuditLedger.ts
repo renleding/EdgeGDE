@@ -12,6 +12,8 @@
  * @packageDocumentation
  */
 
+import type { DurableObjectState, DurableObject } from '@cloudflare/workers-types'
+
 const MAX_EVENT_SIZE = 10 * 1024 // 10KB
 const IDEMPOTENCY_TTL = 86400 // 24h
 
@@ -75,14 +77,14 @@ async function sha256(input: string): Promise<string> {
 
 export class AuditLedger {
   private state: DurableObjectState
-  private env: any
+  private env: Record<string, unknown>
 
   /** Live SSE stream writer for this DO instance (set by handleStream). */
   private _streamWriter?: WritableStreamDefaultWriter<Uint8Array>
   /** Storage key the active SSE stream is bound to. */
   private _streamKey?: string
 
-  constructor(state: DurableObjectState, env: unknown) {
+  constructor(state: DurableObjectState, env: Record<string, unknown>) {
     this.state = state
     this.env = env
   }
@@ -129,11 +131,11 @@ export class AuditLedger {
 
   private async handleAppend(request: Request, sessionId?: string): Promise<Response> {
     try {
-      const body: any = await request.json()
-      const tenantId = body.tenantId || ''
+      const body: Record<string, unknown> = await request.json()
+      const tenantId = String(body.tenantId ?? '')
       if (!tenantId) return Response.json({ error: 'tenantId required' }, { status: 400 })
 
-      const effectiveSession = body.sessionId || sessionId
+      const effectiveSession = String(body.sessionId ?? sessionId ?? '')
       const storageKey = buildStorageKey(tenantId, effectiveSession)
       const storage = this.state.storage
 
@@ -142,19 +144,19 @@ export class AuditLedger {
         const ikey = `idempotent:${body.idempotency_key}`
         const existing = await storage.get(ikey)
         if (existing) {
-          const prev: any = JSON.parse(existing as string)
+          const prev: Record<string, unknown> = JSON.parse(existing as string)
           return Response.json({
             success: true,
             idempotent: true,
-            entryId: prev.entryId,
-            seq: prev.seq,
+            entryId: String(prev.entryId ?? ''),
+            seq: Number(prev.seq ?? 0),
             key: storageKey,
           })
         }
       }
 
       // ═══ EVENT TYPE WHITELIST ═══
-      const eventType = body.type || body.action || 'unknown'
+      const eventType = String(body.type ?? body.action ?? 'unknown')
       if (!ALLOWED_EVENTS.has(eventType)) {
         return Response.json({
           error: `Event type '${eventType}' is not in the whitelist`,
@@ -169,7 +171,7 @@ export class AuditLedger {
       // No gap: prevSeq + 1 always equals seq since we increment atomically
 
       // ═══ ACTOR WHITELIST ═══
-      const actor = (body.actor || 'system').toLowerCase()
+      const actor = String(body.actor ?? 'system').toLowerCase()
       if (!ALLOWED_ACTORS.has(actor)) {
         return Response.json({
           error: `Actor '${actor}' is not in the whitelist`,
@@ -182,7 +184,7 @@ export class AuditLedger {
       const prevHash: string = (await storage.get<string>(hashStoreKey)) || '0'.repeat(64)
 
       // Build envelope (without hash first, then hash the serialization)
-      const envelopePreHash: any = {
+      const envelopePreHash: Record<string, unknown> = {
         id: crypto.randomUUID(),
         seq,
         ts: Date.now(),
@@ -191,12 +193,12 @@ export class AuditLedger {
         sessionId: effectiveSession,
         type: eventType,
         actor,
-        data: body.data || body.metadata || {},
+        data: body.data ?? body.metadata ?? {},
       }
       const hashInput = `${prevHash}:${seq}:${JSON.stringify(envelopePreHash)}`
       const hash = await sha256(hashInput)
 
-      const envelope: AuditEnvelope = { ...envelopePreHash, hash }
+      const envelope: AuditEnvelope = { ...envelopePreHash, hash } as AuditEnvelope
 
       // ═══ EVENT SIZE GUARD ═══
       const payload = JSON.stringify(envelope)
@@ -208,9 +210,9 @@ export class AuditLedger {
       }
 
       // ═══ PROJECTION WARNING GUARD ═══
-      if (eventType === 'field_updated' && body.data?.projectionCheck) {
+      if (eventType === 'field_updated' && body.data && typeof body.data === 'object' && 'projectionCheck' in body.data) {
         console.warn('[projection] field_updated event may have drift — D1 projection should be verified', {
-          tenantId, sessionId: effectiveSession, field: body.data.field, seq,
+          tenantId, sessionId: effectiveSession, field: (body.data as Record<string, unknown>).field, seq,
         })
       }
 
@@ -239,8 +241,9 @@ export class AuditLedger {
       }
 
       // ═══ AUTOMATION HOOK ═══
-      if (this.env?.LEAD_SCORING_QUEUE && typeof this.env.LEAD_SCORING_QUEUE.send === 'function') {
-        this.env.LEAD_SCORING_QUEUE.send({
+      const queue = this.env.LEAD_SCORING_QUEUE
+      if (queue && typeof queue.send === 'function') {
+        queue.send({
           type: 'execute_automation',
           eventType: envelope.type,
           tenantId,
@@ -261,8 +264,8 @@ export class AuditLedger {
       } catch {}
 
       return Response.json({ success: true, entryId: envelope.id, seq, key: storageKey })
-    } catch (err: any) {
-      return Response.json({ error: 'Failed to append', details: err.message }, { status: 500 })
+    } catch (err: unknown) {
+      return Response.json({ error: 'Failed to append', details: err instanceof Error ? err.message : String(err) }, { status: 500 })
     }
   }
 
@@ -298,8 +301,8 @@ export class AuditLedger {
         nextCursor,
         hasMore: nextCursor !== null,
       })
-    } catch (err: any) {
-      return Response.json({ error: 'Failed to list', details: err.message }, { status: 500 })
+    } catch (err: unknown) {
+      return Response.json({ error: 'Failed to list', details: err instanceof Error ? err.message : String(err) }, { status: 500 })
     }
   }
 
@@ -316,8 +319,8 @@ export class AuditLedger {
       const storage = this.state.storage
       const entries: AuditEnvelope[] = (await storage.get<AuditEnvelope[]>(storageKey)) || []
       return Response.json({ count: entries.length, lastSeq: entries.length > 0 ? entries[entries.length - 1].seq : 0, key: storageKey })
-    } catch (err: any) {
-      return Response.json({ error: 'Failed to count', details: err.message }, { status: 500 })
+    } catch (err: unknown) {
+      return Response.json({ error: 'Failed to count', details: err instanceof Error ? err.message : String(err) }, { status: 500 })
     }
   }
 
@@ -380,8 +383,8 @@ export class AuditLedger {
 
   private async handleClose(request: Request, sessionId?: string): Promise<Response> {
     try {
-      const body: any = await request.json()
-      const tenantId = body.tenantId || ''
+      const body: Record<string, unknown> = await request.json()
+      const tenantId = String(body.tenantId ?? '')
       if (!tenantId) return Response.json({ error: 'tenantId required' }, { status: 400 })
       if (!sessionId) return Response.json({ error: 'sessionId required' }, { status: 400 })
 
@@ -418,12 +421,12 @@ export class AuditLedger {
       }
 
       const existing: AuditEnvelope[] = (await storage.get<AuditEnvelope[]>(systemKey)) || []
-      existing.push(systemAnchor)
+      existing.push(systemAnchor as AuditEnvelope)
       await storage.put(systemKey, existing)
 
       return Response.json({ success: true, sessionId, lastSeq, anchorHash: lastHash })
-    } catch (err: any) {
-      return Response.json({ error: 'Failed to close session', details: err.message }, { status: 500 })
+    } catch (err: unknown) {
+      return Response.json({ error: 'Failed to close session', details: err instanceof Error ? err.message : String(err) }, { status: 500 })
     }
   }
 }

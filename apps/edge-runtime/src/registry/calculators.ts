@@ -134,9 +134,9 @@ import {
 
 export interface CalculatorTool {
   id: string
-  schema: z.ZodType<any, any, any>
+  schema: z.ZodType<unknown, unknown, unknown>
   layout: LayoutDefinition
-  execute: (input: any) => any
+  execute: (input: unknown) => unknown
   description: string
 }
 
@@ -294,7 +294,7 @@ export const CALCULATOR_REGISTRY: Record<string, CalculatorTool> = {
         type: 'card',
       },
     },
-    execute(input: MortgageCalculatorInput): any {
+    execute(input: MortgageCalculatorInput): CalcResult {
       return calculateMortgage(input)
     },
   },
@@ -313,7 +313,7 @@ registerCalculator({
     'weekly repayment amounts plus total interest and total cost.',
   category: 'loan',
   inputSchema: LoanRepaymentInputSchema,
-  execute: (input) => calculateLoanRepayment(input),
+  execute: (input: unknown) => calculateLoanRepayment(input),
 })
 
 registerCalculator({
@@ -324,7 +324,7 @@ registerCalculator({
     'expenses (10 categories). Returns savings rate, expense ratio, and detailed breakdowns.',
   category: 'budget',
   inputSchema: BudgetPlannerInputSchema,
-  execute: (input) => calculateBudgetPlanner(input),
+  execute: (input: unknown) => calculateBudgetPlanner(input),
 })
 
 registerCalculator({
@@ -336,7 +336,7 @@ registerCalculator({
     'Returns duty amount, effective rate, and concession details.',
   category: 'stamp-duty',
   inputSchema: StampDutyInputSchema,
-  execute: (input) => calculateStampDuty(input),
+  execute: (input: unknown) => calculateStampDuty(input),
 })
 
 registerCalculator({
@@ -348,7 +348,7 @@ registerCalculator({
     'and total interest earned.',
   category: 'investment',
   inputSchema: SavingsGoalInputSchema,
-  execute: (input) => calculateSavingsGoal(input),
+  execute: (input: unknown) => calculateSavingsGoal(input),
 })
 
 registerCalculator({
@@ -359,7 +359,7 @@ registerCalculator({
     'interest saved, and the new total cost when making extra repayments on a loan.',
   category: 'loan',
   inputSchema: RepaymentComparisonInputSchema,
-  execute: (input) => calculateRepaymentComparison(input),
+  execute: (input: unknown) => calculateRepaymentComparison(input),
 })
 
 registerCalculator({
@@ -370,7 +370,7 @@ registerCalculator({
     'and loan amount, returns LVR percentage, estimated stamp duty, and LMI indicator.',
   category: 'property',
   inputSchema: LvrCalculatorInputSchema,
-  execute: (input) => calculateLvr(input),
+  execute: (input: unknown) => calculateLvr(input),
 })
 
 registerCalculator({
@@ -381,7 +381,7 @@ registerCalculator({
     'rent, savings, and investment returns, compares net worth over a time horizon.',
   category: 'comparison',
   inputSchema: RentVsBuyInputSchema,
-  execute: (input) => calculateRentVsBuy(input),
+  execute: (input: unknown) => calculateRentVsBuy(input),
 })
 
 registerCalculator({
@@ -392,7 +392,7 @@ registerCalculator({
     'Uses conservative buffer rates and employment-type stability multipliers.',
   category: 'loan',
   inputSchema: BorrowingPowerInputSchema,
-  execute: (input) => calculateBorrowingPower(input),
+  execute: (input: unknown) => calculateBorrowingPower(input),
 })
 
 registerCalculator({
@@ -403,7 +403,7 @@ registerCalculator({
     'Includes stamp duty (by state), LMI, legal fees, inspection, moving costs, and grants.',
   category: 'property',
   inputSchema: PropertyBuyingCostInputSchema,
-  execute: (input) => calculatePropertyBuyingCost(input),
+  execute: (input: unknown) => calculatePropertyBuyingCost(input),
 })
 
 registerCalculator({
@@ -414,7 +414,7 @@ registerCalculator({
     'Includes agent commission, marketing, conveyancing, mortgage discharge, and moving costs.',
   category: 'property',
   inputSchema: PropertySellingCostInputSchema,
-  execute: (input) => calculatePropertySellingCost(input),
+  execute: (input: unknown) => calculatePropertySellingCost(input),
 })
 
 registerCalculator({
@@ -425,7 +425,7 @@ registerCalculator({
     'Uses Newton-Raphson iteration to solve for the comparison rate.',
   category: 'loan',
   inputSchema: ComparisonRateInputSchema,
-  execute: (input) => calculateComparisonRate(input),
+  execute: (input: unknown) => calculateComparisonRate(input),
 })
 
 registerCalculator({
@@ -436,7 +436,7 @@ registerCalculator({
     'Shows months saved, interest saved, and new total cost.',
   category: 'loan',
   inputSchema: ExtraRepaymentInputSchema,
-  execute: (input) => calculateExtraRepayment(input),
+  execute: (input: unknown) => calculateExtraRepayment(input),
 })
 
 registerCalculator({
@@ -447,7 +447,7 @@ registerCalculator({
     'Shows the extra cost of an interest-only period vs standard P&I.',
   category: 'loan',
   inputSchema: InterestOnlyInputSchema,
-  execute: (input) => calculateInterestOnly(input),
+  execute: (input: unknown) => calculateInterestOnly(input),
 })
 
 registerCalculator({
@@ -458,7 +458,7 @@ registerCalculator({
     'Returns months to payoff and total interest paid.',
   category: 'loan',
   inputSchema: HowLongToRepayInputSchema,
-  execute: (input) => calculateHowLongToRepay(input),
+  execute: (input: unknown) => calculateHowLongToRepay(input),
 })
 
 registerCalculator({
@@ -469,7 +469,7 @@ registerCalculator({
     'Shows months saved, interest saved, and new payoff date.',
   category: 'loan',
   inputSchema: LumpSumRepaymentInputSchema,
-  execute: (input) => calculateLumpSumRepayment(input),
+  execute: (input: unknown) => calculateLumpSumRepayment(input),
 })
 
 registerCalculator({
@@ -480,7 +480,7 @@ registerCalculator({
     'with medicare levy and offsets. Uses 2025-26 ATO rates.',
   category: 'general',
   inputSchema: IncomeTaxInputSchema,
-  execute: (input) => calculateIncomeTax(input),
+  execute: (input: unknown) => calculateIncomeTax(input),
 })
 
 registerCalculator({
@@ -491,7 +491,7 @@ registerCalculator({
     'and compound interest. Supports monthly, quarterly, and annual compounding.',
   category: 'investment',
   inputSchema: CompoundInterestInputSchema,
-  execute: (input) => calculateCompoundInterest(input),
+  execute: (input: unknown) => calculateCompoundInterest(input),
 })
 
 registerCalculator({
@@ -502,7 +502,7 @@ registerCalculator({
     'Supports introductory rates and balance transfer fees.',
   category: 'general',
   inputSchema: CreditCardInputSchema,
-  execute: (input) => calculateCreditCard(input),
+  execute: (input: unknown) => calculateCreditCard(input),
 })
 
 registerCalculator({
@@ -513,7 +513,7 @@ registerCalculator({
     'and monthly equivalent figures.',
   category: 'general',
   inputSchema: IncomeAnnualisationInputSchema,
-  execute: (input) => calculateIncomeAnnualisation(input),
+  execute: (input: unknown) => calculateIncomeAnnualisation(input),
 })
 
 registerCalculator({
@@ -524,7 +524,7 @@ registerCalculator({
     'using a given tax rate or gross-up rate.',
   category: 'general',
   inputSchema: IncomeGrossUpInputSchema,
-  execute: (input) => calculateIncomeGrossUp(input),
+  execute: (input: unknown) => calculateIncomeGrossUp(input),
 })
 
 registerCalculator({
@@ -533,7 +533,7 @@ registerCalculator({
   description: 'Calculate loans split across fixed and variable portions. Returns individual repayments, total, and weighted average rate.',
   category: 'loan',
   inputSchema: SplitLoanInputSchema,
-  execute: (input) => calculateSplitLoan(input),
+  execute: (input: unknown) => calculateSplitLoan(input),
 })
 
 registerCalculator({
@@ -542,7 +542,7 @@ registerCalculator({
   description: 'Estimate interest savings from an offset account. Compares with-offset amortization against no-offset baseline.',
   category: 'loan',
   inputSchema: HomeLoanOffsetInputSchema,
-  execute: (input) => calculateHomeLoanOffset(input),
+  execute: (input: unknown) => calculateHomeLoanOffset(input),
 })
 
 registerCalculator({
@@ -551,7 +551,7 @@ registerCalculator({
   description: 'Model an introductory (honeymoon) rate loan that reverts after a fixed period. Shows the jump in repayments.',
   category: 'loan',
   inputSchema: IntroductoryRateLoanInputSchema,
-  execute: (input) => calculateIntroductoryRateLoan(input),
+  execute: (input: unknown) => calculateIntroductoryRateLoan(input),
 })
 
 registerCalculator({
@@ -560,7 +560,7 @@ registerCalculator({
   description: 'Compare two or more loan options side-by-side. Finds best by total cost, monthly repayment, and interest saved.',
   category: 'comparison',
   inputSchema: LoanComparisonInputSchema,
-  execute: (input) => calculateLoanComparison(input),
+  execute: (input: unknown) => calculateLoanComparison(input),
 })
 
 registerCalculator({
@@ -569,7 +569,7 @@ registerCalculator({
   description: 'Compare staying with current loan vs switching/refinancing. Includes break-even analysis with upfront costs.',
   category: 'comparison',
   inputSchema: MortgageSwitchingInputSchema,
-  execute: (input) => calculateMortgageSwitching(input),
+  execute: (input: unknown) => calculateMortgageSwitching(input),
 })
 
 registerCalculator({
@@ -578,7 +578,7 @@ registerCalculator({
   description: 'Estimate lease payments for an asset given price, residual value, interest rate, term, and fees.',
   category: 'general',
   inputSchema: LeasingInputSchema,
-  execute: (input) => calculateLeasing(input),
+  execute: (input: unknown) => calculateLeasing(input),
 })
 
 registerCalculator({
@@ -587,7 +587,7 @@ registerCalculator({
   description: 'Estimate reverse mortgage drawdown and projected loan balance over time. Includes equity remaining analysis.',
   category: 'general',
   inputSchema: ReverseMortgageInputSchema,
-  execute: (input) => calculateReverseMortgage(input),
+  execute: (input: unknown) => calculateReverseMortgage(input),
 })
 
 /** Re-export the engine utilities for convenience */
