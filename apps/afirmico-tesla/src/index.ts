@@ -1882,6 +1882,11 @@ app.post('/admin/telemetry/apply', async (c) => {
       results.push({ vin, state: 'failed', error: 'vehicle_not_found' })
       continue
     }
+    // Remove any existing pending/active config for this VIN to avoid unique index conflict
+    await c.env.D1_TESLA.prepare(
+      `DELETE FROM tesla_telemetry_config WHERE vin = ? AND state IN ('pending', 'active')`
+    ).bind(vin).run()
+
     const outcome = await sendVehicleConfig(c.env, vin, nowIso, vehicleRow.member_id)
     const rec = buildConfigRecord({
       vin,
@@ -1890,21 +1895,31 @@ app.post('/admin/telemetry/apply', async (c) => {
       fields: (await collectedFields(c.env.D1_TESLA)) as CollectedField[],
       now: nowIso,
     })
-    await upsertTelemetryConfig(c.env.D1_TESLA, {
-      ...rec,
-      state: outcome.state,
-      skip_reason: outcome.skipReason ?? null,
-      applied_at: outcome.state === 'active' ? nowIso : null,
-      last_error: outcome.error ?? null,
-    })
-    await audit(c.env.D1_TESLA, {
-      action: 'telemetry.config_applied',
-      actorType: 'admin',
-      subjectType: 'vehicle',
-      subjectId: vin,
-      detail: { state: outcome.state, skip_reason: outcome.skipReason ?? null, error: outcome.error ?? null },
-      nowIso,
-    })
+    try {
+      await upsertTelemetryConfig(c.env.D1_TESLA, {
+        ...rec,
+        state: outcome.state,
+        skip_reason: outcome.skipReason ?? null,
+        applied_at: outcome.state === 'active' ? nowIso : null,
+        last_error: outcome.error ?? null,
+      })
+    } catch (error) {
+      results.push({ vin, state: 'failed', error: `db_upsert:${(error as Error).message}` })
+      continue
+    }
+    try {
+      await audit(c.env.D1_TESLA, {
+        action: 'telemetry.config_applied',
+        actorType: 'admin',
+        subjectType: 'vehicle',
+        subjectId: vin,
+        detail: { state: outcome.state, skip_reason: outcome.skipReason ?? null, error: outcome.error ?? null },
+        nowIso,
+      })
+    } catch (error) {
+      results.push({ vin, state: 'failed', error: `db_audit:${(error as Error).message}` })
+      continue
+    }
     results.push({ vin, state: outcome.state, skip_reason: outcome.skipReason, error: outcome.error })
   }
 
@@ -2003,6 +2018,55 @@ app.post('/admin/telemetry/apply', async (c) => {
 
     try {
       const res = await fetch(`https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles/${encodeURIComponent(body.vin)}/fleet_telemetry_config`, {
+        headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      })
+      const text = await res.text().catch(() => '')
+      let data: Record<string, unknown> = {}
+      try { data = text ? JSON.parse(text) : {} } catch {}
+      return c.json({ ok: true, vin: body.vin, status: res.status, body: data })
+    } catch (error) {
+      return c.json({ ok: false, error: (error as Error).message }, 500)
+    }
+  })
+
+
+  /* -------------------------------------------------------------------------- */
+  /* Admin: Tesla-reported vehicle delivery errors (relay hop diagnosis)        */
+  /* -------------------------------------------------------------------------- */
+
+  /**
+   * Diagnostic endpoint: ask Tesla what errors the VEHICLE is hitting when it
+   * tries to deliver telemetry to our configured server.
+   *
+   * This is the only vantage point that can separate the two hops:
+   *   vehicle --mTLS--> relay --HTTPS--> Tier 1
+   * If Tesla reports delivery errors, the loss is on the first hop (certs/host).
+   * If Tesla reports none while our tables stay empty, the vehicle delivered and
+   * the relay's forwarder dropped it -- which is the relay-side failure the
+   * README already flags as never having been exercised by a real payload.
+   */
+  app.post('/admin/telemetry/delivery-errors', async (c) => {
+    const secret = c.env.INGEST_SHARED_SECRET
+    if (!secret) return c.json({ ok: false, error: 'not_configured' }, 503)
+    if (!timingSafeEqual(c.req.header('x-ingest-secret') ?? '', secret)) {
+      return c.json({ ok: false, error: 'unauthorized' }, 401)
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as { vin: string; member_id?: string }
+    if (!body.vin) return c.json({ ok: false, error: 'vin_required' }, 400)
+
+    let memberId = body.member_id
+    if (!memberId) {
+      const vehicleRow = await c.env.D1_TESLA.prepare('SELECT member_id FROM tesla_vehicle WHERE vin = ?').bind(body.vin).first<{ member_id: string }>()
+      if (!vehicleRow) return c.json({ ok: false, error: 'vehicle_not_found' }, 404)
+      memberId = vehicleRow.member_id
+    }
+
+    const accessToken = await getMemberAccessToken(c.env, memberId)
+    if (!accessToken) return c.json({ ok: false, error: 'no_access_token' }, 401)
+
+    try {
+      const res = await fetch(`https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles/${encodeURIComponent(body.vin)}/fleet_telemetry_errors`, {
         headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
       })
       const text = await res.text().catch(() => '')

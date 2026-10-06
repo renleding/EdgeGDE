@@ -164,5 +164,48 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(relay.STATS.skipped_nondata, 1)
 
 
+class TestServerConfig(unittest.TestCase):
+    """server_config.json settings that silently destroy telemetry if wrong.
+
+    These are asserted here because the failure is invisible from every other
+    vantage point: Tesla still receives and bills the signals, the vehicle still
+    connects, and the container still looks healthy -- while the forwarder ships
+    nothing and every downstream table stays empty.
+    """
+
+    def setUp(self):
+        import json as _json
+        with open(os.path.join(HERE, "server_config.json"), encoding="utf-8") as fh:
+            self.config = _json.load(fh)
+
+    def test_log_level_is_info(self):
+        # The logger dispatcher emits each vehicle payload as an INFO-level
+        # record_payload line. At `warn` none is written, so the forwarder sees
+        # nothing and telemetry is lost after Tesla has already billed for it.
+        self.assertEqual(
+            self.config["log_level"],
+            "info",
+            "log_level must be 'info': 'warn' suppresses the record_payload lines "
+            "that carry the telemetry the forwarder ships.",
+        )
+
+    def test_json_log_enable_is_true(self):
+        # The forwarder parses JSONL, not logrus text.
+        self.assertIs(self.config["json_log_enable"], True)
+
+    def test_logger_verbose_is_true(self):
+        # Sets includeTypes so every value is an object; without it an invalid
+        # signal is emitted as the string "<invalid>" and stored as valid text.
+        self.assertIs(self.config["logger"]["verbose"], True)
+
+    def test_transmit_decoded_records_is_true(self):
+        # Emits JSON rather than protobuf, so the forwarder needs no decoder.
+        self.assertIs(self.config["transmit_decoded_records"], True)
+
+    def test_vehicle_data_record_routes_to_logger(self):
+        # `V` is the only record type carrying vehicle data.
+        self.assertEqual(self.config["records"]["V"], ["logger"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -337,8 +337,49 @@ async function renderActiveConnections(
       </div>
     `
 
-
-}).join('')
+    return `
+      <div style="margin-bottom:16px;padding:16px;background:#151515;border-radius:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:17px;font-weight:700;color:#fff">${escapeHtml(first.member_id ?? memberId)}</div>
+            <div class="meta">${escapeHtml(first.tesla_email ?? '—')}</div>
+            <div class="meta">Joined: ${escapeHtml(first.member_since ?? '—')}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="pill ${stateClass}">${escapeHtml(keyState)}</span>
+          </div>
+        </div>
+        ${rows.filter((r) => r.vin).map((r) => `
+        <div style="margin-top:12px;padding:12px;background:#101010;border-radius:8px">
+          <h4 style="margin:0 0 8px;color:#42ff8c">Vehicle — ${escapeHtml(r.vin)}</h4>
+          <table style="font-size:13px;width:100%">
+            <tbody>
+              <tr><td class="meta" style="width:170px">Display Name</td><td>${escapeHtml(r.display_name ?? '—')}</td></tr>
+              <tr><td class="meta">Model</td><td>${escapeHtml(r.model ?? '—')}</td></tr>
+              <tr><td class="meta">Last Seen</td><td class="meta">${escapeHtml(r.last_seen_at ?? '—')}</td></tr>
+              <tr><td class="meta">Virtual Key</td><td><span class="pill ${r.key_state === 'paired' ? 'ok' : r.key_state === 'fault' ? 'bad' : 'warn'}">${escapeHtml(r.key_state ?? 'unpaired')}</span></td></tr>
+              <tr><td class="meta">Paired At</td><td class="meta">${escapeHtml(r.paired_at ?? '—')}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        `).join('')}
+        ${hasConsentHistory ? `
+        <div style="margin-top:12px;padding:12px;background:#101010;border-radius:8px">
+          <h4 style="margin:0 0 8px;color:#a52045">Consent History (${rows.filter(r => r.consent_id).length} record(s))</h4>
+          <table style="font-size:12px">
+            <thead>
+              <tr>
+                <th>Granted</th><th>Revoked</th><th>Policy</th><th>Status</th><th>Reason</th>
+                <th>Collected Fields</th><th>Recipients</th><th>IP Hash</th>
+              </tr>
+            </thead>
+            <tbody>${consentRows}</tbody>
+          </table>
+        </div>
+        ` : '<div class="meta" style="margin-top:12px">No consent records</div>'}
+      </div>
+    `
+  }).join('')
 
   const searchForm = `
     <form method="GET" action="/admin/overview" style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -553,7 +594,6 @@ adminApp.get('/api/telemetry/health', async (c) => {
     vehicles: vehicles ?? { total: 0 },
   })
 })
-
 /** The icon is served by the worker at /favicon.svg; this is only a fallback. */
 adminApp.get('/favicon.svg', (c) =>
   c.body(FAVICON_SVG, 200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=3600' }),

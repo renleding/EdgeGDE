@@ -13,13 +13,23 @@
     "    which wraps each value with its type ({doubleValue: 10}). With verbose=false",
     "    an invalid signal is emitted as the STRING \"<invalid>\", which Tier 1 would",
     "    store as valid text -- a declined signal silently becoming a measurement.",
-    "  - log_level warn: info-level logging wrote ~1.5 MB for 1500 handshake events."
+    "  - log_level info (NOT warn) is REQUIRED, and this is the one setting that",
+    "    silently destroys telemetry. The logger dispatcher emits every vehicle",
+    "    payload as an INFO-level record_payload line. At warn, fleet-telemetry",
+    "    still receives the signals and Tesla still bills for them, but nothing is",
+    "    written that the forwarder can read -- so the relay ships zero batches and",
+    "    every downstream table stays empty while Tesla's dashboard shows usage.",
+    "    Observed: 3 days of live traffic, 84 billed signals, 0 rows forwarded, and",
+    "    only ONE record_payload line ever written (the synthetic deploy self-test).",
+    "    At info the log grows with traffic; rotate it (see max-size/max-file) rather",
+    "    than raising the level back, because raising it does not slow the log --",
+    "    it stops the data."
   ],
 
   "host": "0.0.0.0",
   "port": 443,
 
-  "log_level": "warn",
+  "log_level": "info",
   "json_log_enable": true,
 
   "namespace": "tesla",
