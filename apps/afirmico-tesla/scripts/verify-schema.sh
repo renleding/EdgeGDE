@@ -174,6 +174,48 @@ sqlite3 "$DB" "INSERT INTO tesla_telemetry_fact (fact_id,vin,field_key,observed_
 ratio=$(q "SELECT printf('%.2f', (SELECT value_real FROM tesla_telemetry_fact WHERE field_key='SelfDrivingMilesSinceReset') / (SELECT value_real FROM tesla_telemetry_fact WHERE field_key='MilesSinceReset'))")
 check "FSD share computes as a ratio" "$ratio" "0.40"
 
+echo
+echo "Wide read model (F04 — column-per-field pivot, migration 0012)"
+# The view must exist and expose one column per collected time-varying signal.
+check "telemetry_record view exists" "$(q "SELECT count(*) FROM sqlite_master WHERE type='view' AND name='tesla_telemetry_record'")" 1
+check "vehicle_attribute view exists" "$(q "SELECT count(*) FROM sqlite_master WHERE type='view' AND name='tesla_vehicle_attribute'")" 1
+check "record view exposes 11 signals + 5 provenance" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record')")" 16
+
+# The `once` tier is a vehicle attribute, not a time series, and must NOT be
+# pivoted into the record stream -- presenting a constant as if it were observed
+# at every instant is the defect this guards.
+check "once-tier fields absent from series" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record') WHERE name IN ('car_type','version','efficiency_package')")" 0
+check "once-tier fields present as attributes" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_vehicle_attribute') WHERE name IN ('car_type','version','efficiency_package')")" 3
+
+# The pivot must collapse to one row per (vin, observed_at) -- the grain that makes
+# it a true record rather than an approximation. Three facts sharing one instant
+# must yield exactly one row.
+check "one row per (vin, observed_at)" \
+  "$(q "SELECT count(*) FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" 1
+check "pivot carries the signal values" \
+  "$(q "SELECT CAST(miles_since_reset AS INT)||'/'||CAST(self_driving_miles_since_reset AS INT) FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "1000/400"
+# The same row has no odometer fact, so that column must be NULL rather than 0 --
+# the concat above would have collapsed to empty if any operand were NULL.
+check "unset signal in a populated row is NULL" \
+  "$(q "SELECT CASE WHEN odometer IS NULL THEN 'null' ELSE 'set' END FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "null"
+
+# NULL (not reported) and 0 (a measured zero) must render differently. An absent
+# signal silently reading as 0 would fabricate a reading.
+sqlite3 "$DB" "INSERT INTO tesla_telemetry_fact (fact_id,vin,field_key,observed_at,received_at,value_bool,value_kind,collection_tier) VALUES ('N1','TESTVIN','SpeedLimitMode','2026-10-02T00:00:00Z','t',0,'bool','event');" 2>&1
+check "absent signal pivots to NULL" \
+  "$(sqlite3 -noheader "$DB" "SELECT CASE WHEN pin_to_drive_enabled IS NULL THEN 'null' ELSE 'val' END FROM tesla_telemetry_record WHERE observed_at='2026-10-02T00:00:00Z';" | tr -d '[:space:]')" "null"
+check "measured zero pivots to 0" \
+  "$(sqlite3 -noheader "$DB" "SELECT CASE WHEN speed_limit_mode = 0 THEN 'zero' ELSE 'other' END FROM tesla_telemetry_record WHERE observed_at='2026-10-02T00:00:00Z';" | tr -d '[:space:]')" "zero"
+
+# A view over the facts cannot drift from them: every fact instant it exposes must
+# correspond to a real fact row. This is the property that makes the view safer
+# than a second, hand-maintained table.
+check "view cannot invent instants" \
+  "$(q "SELECT count(*) FROM tesla_telemetry_record r WHERE NOT EXISTS (SELECT 1 FROM tesla_telemetry_fact f WHERE f.vin=r.vin AND f.observed_at=r.observed_at)")" 0
+
 [[ $KEEP -eq 1 ]] && echo && echo "database kept at $DB" || rm -f "$DB"
 echo
 echo "passed $pass, failed $fail"
