@@ -111,51 +111,87 @@ META_KEYS = frozenset({"Vin", "CreatedAt", "IsResend"})
 # Enum-valued fields: fleet-telemetry emits these as STRINGS (carType, sentryModeState,
 # ...). Tier 1's classifyValue() only accepts a string in object form, so each must be
 # wrapped as {"stringValue": ...}.
+#
+# These are FIELD KEYS (the name the telemetry record uses), not the enum TYPE name.
+# The list previously held enum type names -- "SentryModeState", "SpeedAssistLevel",
+# "ShiftState", "WindowState" and 20 others -- none of which are field keys, while
+# omitting the real keys. The two that mattered for us are included here correctly:
+# the field is `SentryMode` (type `SentryModeState`) and the field is
+# `SpeedLimitWarning` (type `SpeedAssistLevel`). Because the wrong names were listed,
+# a bare-string enum value for those fields fell through to the unmapped counter and
+# was dropped -- see the dict branch below, which is where the values actually arrive.
+#
+# Source of truth: `SELECT field_key FROM tesla_field_catalog WHERE value_type='enum'`.
 ENUM_FIELDS: frozenset[str] = frozenset({
-    "ChargeState",
-    "DetailedChargeState",
-    "ShiftState",
-    "SentryModeState",
-    "SpeedAssistLevel",
-    "LaneAssistLevel",
-    "ScheduledChargingMode",
-    "BmsState",
-    "BuckleStatus",
-    "CarType",
-    "ChargePort",
-    "ChargePortLatch",
-    "DriveInverterState",
-    "HvilStatus",
-    "WindowState",
-    "SeatFoldPosition",
-    "TractorAirStatus",
-    "FollowDistance",
-    "ForwardCollisionSensitivity",
-    "GuestModeMobileAccess",
-    "TrailerAirStatus",
-    "HvacAutoMode",
+    "BMSState",
     "CabinOverheatProtectionMode",
     "CabinOverheatProtectionTemperatureLimit",
-    "DefrostMode",
-    "ClimateKeeperMode",
-    "HvacPower",
-    "TireLocation",
-    "FastChargerType",
+    "CarType",
+    "CenterDisplay",
+    "ChargePort",
+    "ChargePortLatch",
     "ChargingCableType",
-    "TonneauTentMode",
-    "TonneauPosition",
+    "ClimateKeeperMode",
+    "CruiseFollowDistance",
+    "DefrostMode",
+    "DetailedChargeState",
+    "DiStateF",
+    "DiStateR",
+    "DiStateREL",
+    "DiStateRER",
+    "DoorState",
+    "FastChargerType",
+    "FdWindow",
+    "ForwardCollisionWarning",
+    "FpWindow",
+    "Gear",
+    "GuestModeMobileAccessState",
+    "HvacAutoMode",
+    "HvacPower",
+    "Hvil",
+    "LaneDepartureAvoidance",
+    "LightsTurnSignal",
+    "MediaPlaybackStatus",
+    "PassengerSeatBelt",
     "PowershareStatus",
     "PowershareStopReason",
     "PowershareType",
-    "DisplayState",
-    "PressureUnit",
-    "TemperatureUnit",
-    "ChargeUnit",
-    "DistanceUnit",
-    "SunroofInstalledState",
-    "TurnSignalState",
-    "MediaStatus",
-    "DriveRail",
+    "RdWindow",
+    "RpWindow",
+    "ScheduledChargingMode",
+    "SemitruckPassengerSeatFoldPosition",
+    "SemitruckTractorParkBrakeStatus",
+    "SemitruckTrailerParkBrakeStatus",
+    "SentryMode",
+    "SettingChargeUnit",
+    "SettingDistanceUnit",
+    "SettingTemperatureUnit",
+    "SettingTirePressureUnit",
+    "SpeedLimitWarning",
+    "SunroofInstalled",
+    "TonneauPosition",
+    "TonneauTentMode",
+    "TpmsHardWarnings",
+    "TpmsSoftWarnings",
+})
+
+# Value type indicates the payload carries a signal we collected, so a value we cannot
+# classify is data loss rather than noise. Used to escalate the unmapped counter.
+COLLECTED_FIELDS: frozenset[str] = frozenset({
+    "Odometer",
+    "MilesSinceReset",
+    "SelfDrivingMilesSinceReset",
+    "SentryMode",
+    "SpeedLimitMode",
+    "SpeedLimitWarning",
+    "PinToDriveEnabled",
+    "AutomaticBlindSpotCamera",
+    "AutomaticEmergencyBrakingOff",
+    "BlindSpotCollisionWarningChime",
+    "EmergencyLaneDepartureAvoidance",
+    "CarType",
+    "Version",
+    "EfficiencyPackage",
 })
 
 # Payload values that ARE objects once verbose is on. Anything else that is not a
@@ -226,6 +262,36 @@ def transform_datum(datum_key: str, value: object) -> "dict | None":
         ):
             if wrapper in value:
                 return {wrapper: value[wrapper]}
+
+        # Enum fields arrive wrapped under their ENUM TYPE name, not as a plain
+        # scalar: CarType is {"carType": "CarTypeModel3"}, SentryMode is
+        # {"sentryModeState": "SentryModeStateOff"}, SpeedLimitWarning is
+        # {"speedAssistLevel": "SpeedAssistLevelNone"}.
+        #
+        # These are the `oneof` members generated from the proto, so the wrapper
+        # key is inside the value and cannot be known from the field key alone.
+        # Every one of them was previously dropped: this branch only knew the five
+        # value wrappers above, so an enum fell through to `return None` and the
+        # field was silently discarded as `unmapped`. Three of our fourteen
+        # consented fields were lost that way -- including the vehicle model.
+        #
+        # Accepting a single-entry dict whose value is a string or an integer is
+        # the general rule rather than a wrapper-name list, because the wrapper is
+        # the enum type name and there are 43 of them. Enums arrive as a label
+        # ("CarTypeModel3") or occasionally as an ordinal ({"gear": 3}), so both
+        # scalars are accepted. A multi-key dict is NOT accepted: that is the
+        # location object, handled below.
+        if len(value) == 1:
+            only_value = next(iter(value.values()))
+            # bool is a subclass of int, so exclude it explicitly -- a boolean
+            # signal arrives as {"booleanValue": ...} and is handled above.
+            if isinstance(only_value, str):
+                return {"stringValue": only_value}
+            if isinstance(only_value, int) and not isinstance(only_value, bool):
+                return {"intValue": only_value}
+            if isinstance(only_value, float):
+                return {"doubleValue": only_value}
+
         # e.g. {"latitude":.., "longitude":..} from the location transformer.
         if "latitude" in value and "longitude" in value:
             return {"locationValue": value}
@@ -297,7 +363,12 @@ def line_to_payload(line: str) -> "dict | None":
         transformed = transform_datum(key, value)
         if transformed is None:
             STATS.unmapped += 1
-            log("unmapped_value", field=key, python_type=type(value).__name__)
+            # A field we collected that cannot be classified is LOST DATA, not
+            # noise -- exactly how CarType, SentryMode and SpeedLimitWarning went
+            # missing for three days while every counter looked calm. Log it at
+            # warn so it is separable from the connection-record chatter above.
+            level = "warn" if key in COLLECTED_FIELDS else "info"
+            log("unmapped_value", level=level, field=key, python_type=type(value).__name__)
             continue
         datum: dict = {"key": key, "value": transformed}
         if isinstance(created_at, str) and created_at:
