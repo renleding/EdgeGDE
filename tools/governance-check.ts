@@ -124,7 +124,7 @@ function checkNoAsAny(content: string, file: string, lineRanges?: [number, numbe
   const fileName = file.split('/').pop() || ''
   // Skip test files — mock setup routinely needs casts (matches console.log rule)
   if (fileName.endsWith('.test.ts')) {
-    return { check: 'No `as any`', status: 'pass', details: [] }
+    return { check: 'No `any` escape hatches', status: 'pass', details: [] }
   }
   for (let i = 0; i < lines.length; i++) {
     if (lineRanges) {
@@ -132,12 +132,27 @@ function checkNoAsAny(content: string, file: string, lineRanges?: [number, numbe
       const inRange = lineRanges.some(([start, end]) => lineNum >= start && lineNum <= end)
       if (!inRange) continue
     }
-    if (lines[i].includes('as any') && !lines[i].trim().startsWith('//') && !lines[i].trim().startsWith('*')) {
-      details.push(`${file}:${i + 1}: ${lines[i].trim()}`)
+    const trimmed = lines[i].trim()
+    if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue
+
+    // Both escape hatches, because they are the same escape.
+    //
+    // This check originally matched only `as any`. `(v: any)` is a type
+    // ANNOTATION and it slipped through CI green — a gate that catches one
+    // spelling of a construct and misses the other is a gate you cannot trust,
+    // because the next author reaches for whichever spelling passes.
+    //
+    // `: any` is matched as a type annotation (followed by a delimiter) so that
+    // prose and identifiers containing "any" do not trip it: `every:` and
+    // `Company:` must not match, while `(v: any)`, `x: any;` and `a: any[]` must.
+    const isAsAny = lines[i].includes('as any')
+    const isAnnotationAny = /:\s*any\s*[),;\]\[=>|&}\n]/.test(lines[i]) || /:\s*any\s*$/.test(lines[i])
+    if (isAsAny || isAnnotationAny) {
+      details.push(`${file}:${i + 1}: ${trimmed}`)
     }
   }
   return {
-    check: 'No `as any`',
+    check: 'No `any` escape hatches',
     status: details.length === 0 ? 'pass' : 'fail',
     details: details.length > 0 ? details.slice(0, 10) : [],
   }

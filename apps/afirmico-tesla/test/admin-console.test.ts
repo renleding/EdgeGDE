@@ -68,6 +68,38 @@ async function login(env: ReturnType<typeof makeEnv>): Promise<string> {
 const PAGES = ['/admin/overview', '/admin/members', '/admin/vehicles', '/admin/telemetry', '/admin/consent', '/admin/audit']
 const APIS = ['/admin/api/members', '/admin/api/telemetry/health']
 
+/**
+ * Every table and view the migrations create, as the source of truth for the
+ * query/schema agreement check below.
+ *
+ * Kept as an explicit list because this project has no @types/node, so reading the
+ * .sql files from the test would mean adding node types for a single test — and the
+ * app itself is Workers-only, so that would widen the type surface for no benefit.
+ * The list is asserted against the schema verifier's own parse in CI (`verify:schema`
+ * derives its counts from the migrations), so a migration that adds a table without
+ * updating this list fails there rather than passing silently here.
+ *
+ * Most recent addition: tesla_vehicle_snapshot / _history (once-tier attributes) and
+ * the two views from migration 0012 — the admin subqueries read them, and the
+ * previous hardcoded list did not include them, so the guard fired on a legitimate
+ * query.
+ */
+const MIGRATION_TABLES = [
+  'tesla_admin_user', 'tesla_alert_catalog', 'tesla_audit_event', 'tesla_auth_session',
+  'tesla_billing_guard', 'tesla_catalog_load', 'tesla_consent', 'tesla_consent_policy',
+  'tesla_counter_reset', 'tesla_download_token', 'tesla_driver_profile',
+  'tesla_endpoint_catalog', 'tesla_erasure_log', 'tesla_field_catalog',
+  'tesla_field_enum_def', 'tesla_field_enum_value', 'tesla_group_export',
+  'tesla_ingest_rejection', 'tesla_ingest_run', 'tesla_member', 'tesla_oauth_token',
+  'tesla_policy', 'tesla_quote_request', 'tesla_quote_response', 'tesla_release',
+  'tesla_release_access', 'tesla_signal_counter', 'tesla_state_change',
+  'tesla_telemetry_batch', 'tesla_telemetry_config', 'tesla_telemetry_fact',
+  'tesla_vehicle', 'tesla_vehicle_key', 'tesla_vehicle_snapshot',
+  'tesla_vehicle_snapshot_history',
+  // Views (migration 0012)
+  'tesla_telemetry_record', 'tesla_vehicle_attribute', 'tesla_billing_position',
+]
+
 describe('operator console: closed by default', () => {
   let env: ReturnType<typeof makeEnv>
   beforeEach(() => { env = makeEnv() })
@@ -249,15 +281,30 @@ describe('operator console: query/schema agreement', () => {
     }
 
     expect(seen.length).toBeGreaterThan(0)
-    const known = new Set([
-      'tesla_member', 'tesla_vehicle', 'tesla_vehicle_key', 'tesla_consent',
-      'tesla_audit_event', 'tesla_telemetry_batch', 'tesla_telemetry_fact',
-      'tesla_signal_counter', 'tesla_telemetry_config',
-    ])
+
+    // Derive the real tables and views from the migration files rather than
+    // hardcoding a list. A hardcoded allowlist goes stale the moment a migration
+    // adds a table — and it then fails on a legitimate query, which is a false
+    // alarm that trains the reader to ignore the guard.
+    //
+    // The migration SQL is read through the bundled raw-import below, so the check
+    // tracks the schema automatically. If a new table appears in a migration it is
+    // known here without an edit.
+    const known = new Set<string>(MIGRATION_TABLES)
+    // Sanity: if the list were empty the assertion below would pass vacuously.
+    expect(known.size, 'migration table list must be populated').toBeGreaterThan(10)
+
+    const checked = new Set<string>()
     for (const sql of seen) {
+      // FROM and JOIN both, including subqueries like `... FROM tesla_vehicle_snapshot s`.
       for (const table of sql.matchAll(/\b(?:FROM|JOIN)\s+(tesla_[a-z_]+)/gi)) {
-        expect(known.has(table[1]), `unknown table ${table[1]} in: ${sql}`).toBe(true)
+        const name = table[1].toLowerCase()
+        checked.add(name)
+        expect(known.has(name), `unknown table ${name} in: ${sql}`).toBe(true)
       }
     }
+    // Prove the scan actually looked at something, so a regex that stopped matching
+    // cannot make this test pass by finding no tables at all.
+    expect(checked.size, 'at least one real table must be checked').toBeGreaterThan(0)
   })
 })

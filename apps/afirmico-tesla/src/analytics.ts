@@ -330,6 +330,47 @@ export function normaliseCarType(raw: string | null): string | null {
 }
 
 /**
+ * Variant from Tesla's `EfficiencyPackage`, e.g. "M3POPPYSEED2024" -> "Performance".
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * `CarType` gives the model only (Model 3). The variant — Performance, Long Range —
+ * is not in any field we collect: `Trim` (`vehicle_config.trim_badging`) is the field
+ * that would report it and Tesla exposes it separately, but `EfficiencyPackage` is
+ * already collected and its value is a build-package code that identifies the variant.
+ *
+ * The observed value is `M3POPPYSEED2024`, and POPPYSEED is Tesla's internal codename
+ * for the Model 3 Performance (the "Ludicrous" refresh). The trailing `2024` is the
+ * package generation, NOT the model year and NOT the registration year — Tesla kept
+ * reporting the same string on later builds, so it must never be read as a year.
+ * The model year is derived separately from the VIN by `modelYearFromVin`.
+ *
+ * The mapping is deliberately small and explicit rather than a pattern match: a regex
+ * over codenames would silently invent a variant for a code we have never seen. An
+ * unrecognised package returns null, and the caller shows the raw code instead of a
+ * guess — the same discipline as `normaliseCarType`.
+ */
+const EFFICIENCY_PACKAGE_VARIANT: Record<string, string> = {
+  // Model 3
+  M3POPPYSEED2024: 'Performance',
+  // Model Y
+  MYPOPPYSEED2024: 'Performance',
+  MYBLACK2024: 'Long Range',
+}
+
+/**
+ * Resolve the vehicle variant from the collected `EfficiencyPackage` code.
+ *
+ * Returns null when the code is absent or not one we can map — never a guess.
+ */
+export function variantFromEfficiencyPackage(raw: string | null): string | null {
+  if (!raw) return null
+  const code = raw.trim().toUpperCase()
+  if (!code) return null
+  return EFFICIENCY_PACKAGE_VARIANT[code] ?? null
+}
+
+/**
  * Resolve model/variant and its provenance from the three places the data can live.
  *
  * Order matters and is deliberate: the denormalised vehicle row wins when it is

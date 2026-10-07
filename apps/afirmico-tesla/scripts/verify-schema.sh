@@ -103,10 +103,10 @@ check "AC3 disabled families"     "$(q "SELECT group_concat(DISTINCT family) FRO
 
 echo
 echo "Collected subset"
-check "collected fields"          "$(q "SELECT count(*) FROM tesla_field_catalog WHERE collected=1")" 14
+check "collected fields"          "$(q "SELECT count(*) FROM tesla_field_catalog WHERE collected=1")" 15
 check "event tier"                "$(q "SELECT count(*) FROM tesla_field_catalog WHERE collection_tier='event'")" 3
 check "on_change tier"            "$(q "SELECT count(*) FROM tesla_field_catalog WHERE collection_tier='on_change'")" 8
-check "once tier"                 "$(q "SELECT count(*) FROM tesla_field_catalog WHERE collection_tier='once'")" 3
+check "once tier"                 "$(q "SELECT count(*) FROM tesla_field_catalog WHERE collection_tier='once' AND collected=1")" 4
 check "FSD field collected"       "$(q "SELECT collected FROM tesla_field_catalog WHERE field_key='SelfDrivingMilesSinceReset'")" 1
 check "Odometer collected"        "$(q "SELECT collected FROM tesla_field_catalog WHERE field_key='Odometer'")" 1
 check "FSD min_delta = 1"         "$(q "SELECT min_delta FROM tesla_field_catalog WHERE field_key='SelfDrivingMilesSinceReset'")" 1.0
@@ -150,7 +150,8 @@ check "event field rejected in snapshot" "$([[ "$wringsent" == *"once-only"* ]] 
 ok1=$(sqlite3 "$DB" "INSERT INTO tesla_vehicle_snapshot (vin,field_key,value_text,observed_at) VALUES ('TESTVIN','CarType','Model Y','t');" 2>&1)
 ok2=$(sqlite3 "$DB" "INSERT INTO tesla_vehicle_snapshot (vin,field_key,value_text,observed_at) VALUES ('TESTVIN','Version','2025.44.25.5','t');" 2>&1)
 ok3=$(sqlite3 "$DB" "INSERT INTO tesla_vehicle_snapshot (vin,field_key,value_text,observed_at) VALUES ('TESTVIN','EfficiencyPackage','P1','t');" 2>&1)
-check "all 3 once-only fields accepted" "$([[ -z "$ok1$ok2$ok3" ]] && echo yes || echo no)" yes
+ok4=$(sqlite3 "$DB" "INSERT INTO tesla_vehicle_snapshot (vin,field_key,value_text,observed_at) VALUES ('TESTVIN','Trim','Performance','t');" 2>&1)
+check "all 4 once-only collected fields accepted" "$([[ -z "$ok1$ok2$ok3$ok4" ]] && echo yes || echo no)" yes
 
 echo
 echo "Idempotency (F03 AC4 / N03)"
@@ -180,7 +181,15 @@ echo "Wide read model (F04 — column-per-field pivot, migration 0012)"
 check "telemetry_record view exists" "$(q "SELECT count(*) FROM sqlite_master WHERE type='view' AND name='tesla_telemetry_record'")" 1
 check "vehicle_attribute view exists" "$(q "SELECT count(*) FROM sqlite_master WHERE type='view' AND name='tesla_vehicle_attribute'")" 1
 check "record view exposes 11 signals + 5 provenance" \
-  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record')")" 16
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record')")" 19
+
+# The three distance signals appear twice: once as reported (miles) and once converted
+# (km). Both must be present — an analyst reading the record view must not have to
+# convert by hand, and the conversion must not replace the reported value.
+check "miles columns present" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record') WHERE name IN ('odometer_mi','miles_since_reset_mi','self_driving_miles_since_reset_mi')")" 3
+check "km columns present" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record') WHERE name IN ('odometer_km','miles_since_reset_km','self_driving_miles_since_reset_km')")" 3
 
 # The `once` tier is a vehicle attribute, not a time series, and must NOT be
 # pivoted into the record stream -- presenting a constant as if it were observed
@@ -188,7 +197,7 @@ check "record view exposes 11 signals + 5 provenance" \
 check "once-tier fields absent from series" \
   "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record') WHERE name IN ('car_type','version','efficiency_package')")" 0
 check "once-tier fields present as attributes" \
-  "$(q "SELECT count(*) FROM pragma_table_info('tesla_vehicle_attribute') WHERE name IN ('car_type','version','efficiency_package')")" 3
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_vehicle_attribute') WHERE name IN ('car_type','version','efficiency_package','trim')")" 4
 
 # The pivot must collapse to one row per (vin, observed_at) -- the grain that makes
 # it a true record rather than an approximation. Three facts sharing one instant
@@ -196,11 +205,17 @@ check "once-tier fields present as attributes" \
 check "one row per (vin, observed_at)" \
   "$(q "SELECT count(*) FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" 1
 check "pivot carries the signal values" \
-  "$(q "SELECT CAST(miles_since_reset AS INT)||'/'||CAST(self_driving_miles_since_reset AS INT) FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "1000/400"
+  "$(q "SELECT CAST(miles_since_reset_mi AS INT)||'/'||CAST(self_driving_miles_since_reset_mi AS INT) FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "1000/400"
+# The conversion must be applied, and must equal the same constant derive.ts uses
+# (1.609344) so the record view and the derived profile cannot disagree.
+check "km conversion applied (1000 mi = 1609.344 km)" \
+  "$(q "SELECT CAST(ROUND(miles_since_reset_km, 3) AS TEXT) FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "1609.344"
+check "km conversion preserves NULL (absent stays absent)" \
+  "$(q "SELECT CASE WHEN odometer_km IS NULL THEN 'null' ELSE 'set' END FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "null"
 # The same row has no odometer fact, so that column must be NULL rather than 0 --
 # the concat above would have collapsed to empty if any operand were NULL.
 check "unset signal in a populated row is NULL" \
-  "$(q "SELECT CASE WHEN odometer IS NULL THEN 'null' ELSE 'set' END FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "null"
+  "$(q "SELECT CASE WHEN odometer_mi IS NULL THEN 'null' ELSE 'set' END FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "null"
 
 # NULL (not reported) and 0 (a measured zero) must render differently. An absent
 # signal silently reading as 0 would fabricate a reading.

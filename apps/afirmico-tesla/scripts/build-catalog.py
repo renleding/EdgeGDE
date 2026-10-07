@@ -97,6 +97,10 @@ LAUNCH_SET = {
     "EmergencyLaneDepartureAvoidance",
     "PinToDriveEnabled",
     "EfficiencyPackage",
+    # Trim is the variant badge ("Performance", "Long Range"). Enabled at the owner's
+    # explicit request so the console can state "Model 3 Performance 2025" rather than
+    # leaving the variant to be inferred from the EfficiencyPackage codename.
+    "Trim",
 }
 
 # Collection group per field: the name Tesla's config uses to bundle fields
@@ -110,6 +114,7 @@ LAUNCH_GROUPS = {
     "CarType": "$vehicleInfo",
     "Version": "$vehicleInfo",
     "EfficiencyPackage": "$vehicleInfo",
+    "Trim": "$vehicleInfo",
     "SentryMode": "$vehicleState",
     "SpeedLimitMode": "$vehicleState",
     "SpeedLimitWarning": "$vehicleState",
