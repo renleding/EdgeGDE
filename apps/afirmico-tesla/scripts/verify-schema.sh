@@ -37,15 +37,53 @@ echo
 # happened on 2026-10-02. This check is the gate that was missing, and it runs
 # first so the failure is reported as a limit violation, not a mysterious
 # downstream error.
+#
+# THE MEASUREMENT USES SQLITE'S OWN TOKENIZER, not a text heuristic.
+# It previously split on `;` immediately followed by a newline, which is not SQL's rule
+# for ending a statement. `;` inside a string literal ends nothing, so the split produced
+# fragments that were not statements: on 0011_seed_consent_policy.sql the true INSERT is
+# 2,222 B while the heuristic reported 3,018 B by folding a comment block into it. That
+# over-reports (so it failed safe), but a limit check whose number is wrong is a check
+# nobody can act on — and the whole point of this gate is that the number is actionable.
+# `sqlite3.complete_statement()` is SQLite's own parser: it is the same authority that
+# decides, so the split cannot disagree with the engine about where a statement ends.
+#
+# THE 80% ALARM is the early warning for the case this gate cannot fix: a seed migration
+# grows by appending rows, so it will breach eventually. Measured 2026-10-07, the largest
+# is 0002_seed_tesla_catalog.sql at 60.4% — 39.6 KB of headroom. Crossing 80% means the
+# next row-batch risks a production-only failure, and the answer is then to move that seed
+# to a split-by-row-count loader rather than to keep appending. It warns rather than fails
+# because a large-but-legal statement is not a defect.
 echo "D1 platform limits"
 D1_MAX_STATEMENT=100000
+D1_WARN_STATEMENT=$(( D1_MAX_STATEMENT * 80 / 100 ))
 for f in migrations/*.sql; do
   name=$(basename "$f")
-  maxb=$(awk 'BEGIN{RS=";\n"; m=0} {if (length($0)+1>m) m=length($0)+1} END{print m}' "$f")
-  nstmt=$(awk 'BEGIN{RS=";\n"; c=0} /[^[:space:]]/ {c++} END{print c}' "$f")
+  read -r maxb nstmt <<< "$(python3 - "$f" <<'PY'
+import sqlite3, sys
+src = open(sys.argv[1]).read()
+# Accumulate characters until SQLite says the text so far is a complete statement.
+# complete_statement() returns True only at a genuine top-level ';', so string literals
+# and comments are handled by the engine rather than by a regex.
+statements, buf = [], ''
+for ch in src:
+    buf += ch
+    if ch == ';' and sqlite3.complete_statement(buf):
+        statements.append(buf)
+        buf = ''
+if buf.strip():
+    statements.append(buf)
+longest = max((len(s) for s in statements), default=0)
+print(longest, len(statements))
+PY
+)"
   if [[ "$maxb" -gt "$D1_MAX_STATEMENT" ]]; then
     printf '  FAIL  %-34s %4s stmts  max %8s B exceeds %s\n' "$name" "$nstmt" "$maxb" "$D1_MAX_STATEMENT"
     fail=$((fail + 1))
+  elif [[ "$maxb" -gt "$D1_WARN_STATEMENT" ]]; then
+    printf '  WARN  %-34s %4s stmts  max %8s B (%s%% of cap — split the seed before adding rows)\n' \
+      "$name" "$nstmt" "$maxb" "$((maxb * 100 / D1_MAX_STATEMENT))"
+    pass=$((pass + 1))
   else
     printf '  ok    %-34s %4s stmts  max %8s B (%s%% of cap)\n' \
       "$name" "$nstmt" "$maxb" "$((maxb * 100 / D1_MAX_STATEMENT))"
