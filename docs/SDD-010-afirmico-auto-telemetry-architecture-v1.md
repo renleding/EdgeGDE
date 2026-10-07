@@ -295,38 +295,43 @@ leave the vehicle streaming, which is both a privacy failure and a continuing Te
     "port": 443,
     "ca": "<full LE certificate chain — contents, not a path>",
     "fields": {
-      "Odometer":                        { "interval_seconds": 21600, "minimum_delta": 0.1 },
-      "MilesSinceReset":                 { "interval_seconds": 21600, "minimum_delta": 1 },
-      "SelfDrivingMilesSinceReset":      { "interval_seconds": 21600, "minimum_delta": 1 },
-      "CarType":                         { "interval_seconds": 21600 },
-      "Version":                         { "interval_seconds": 21600 },
-      "EfficiencyPackage":               { "interval_seconds": 21600 },
-      "Trim":                            { "interval_seconds": 21600 },
-      "AutomaticBlindSpotCamera":        { "interval_seconds": 21600 },
-      "SpeedLimitMode":                  { "interval_seconds": 21600 },
-      "SpeedLimitWarning":               { "interval_seconds": 21600 },
-      "SentryMode":                      { "interval_seconds": 21600 },
-      "AutomaticEmergencyBrakingOff":    { "interval_seconds": 21600 },
-      "BlindSpotCollisionWarningChime":  { "interval_seconds": 21600 },
-      "EmergencyLaneDepartureAvoidance": { "interval_seconds": 21600 },
-      "PinToDriveEnabled":               { "interval_seconds": 21600 }
+      "Odometer":                        { "interval_seconds": 180, "minimum_delta": 0.1 },
+      "MilesSinceReset":                 { "interval_seconds": 180, "minimum_delta": 1 },
+      "SelfDrivingMilesSinceReset":      { "interval_seconds": 180, "minimum_delta": 1 },
+      "CarType":                         { "interval_seconds": 180 },
+      "Version":                         { "interval_seconds": 180 },
+      "EfficiencyPackage":               { "interval_seconds": 180 },
+      "Trim":                            { "interval_seconds": 180 },
+      "AutomaticBlindSpotCamera":        { "interval_seconds": 180 },
+      "SpeedLimitMode":                  { "interval_seconds": 180 },
+      "SpeedLimitWarning":               { "interval_seconds": 180 },
+      "SentryMode":                      { "interval_seconds": 180 },
+      "AutomaticEmergencyBrakingOff":    { "interval_seconds": 180 },
+      "BlindSpotCollisionWarningChime":  { "interval_seconds": 180 },
+      "EmergencyLaneDepartureAvoidance": { "interval_seconds": 180 },
+      "PinToDriveEnabled":               { "interval_seconds": 180 }
     }
   }
 }
 ```
 
 **Why this is cheap.** Signals bill on *change*, gated by `interval_seconds` per field, and only while the
-vehicle is awake. With a 6-hour interval a field can emit at most 4 times a day, and emits nothing while the
-vehicle sleeps. Measured: ~17.5 signals/vehicle/day → 525/month → $0.0035/vehicle/month.
+vehicle is awake. At 180 s a *changed* delta-gated field can emit at most 20 times an hour, and a field that
+has not changed emits nothing at any interval. Worst case (continuous driving) is 3 delta-gated fields ×
+60 signals/hour × 2 h/day ≈ 3,600 signals/month ≈ **$0.024/vehicle/month** — 0.024% of the configured $100
+limit, and ~4,167× the 10× floor F02-R13 requires. Measured at the previous 6-hour interval: ~17.5
+signals/vehicle/day → 525/month → $0.0035/vehicle/month, for comparison.
 
 **Delta gate.** `SelfDrivingMilesSinceReset` *requires* `minimum_delta >= 1`, so it only emits when at least
 one FSD mile has accrued since its last send. It is already maximally throttled and cannot be throttled
 further — this is a Tesla-imposed floor, and it also means the FSD field costs almost nothing.
 
-**Open verification:** whether `interval_seconds` accepts a 6-hour value, or caps lower. The docs show the
-1–60 s range and a 10-minute example and do not state a maximum. If 21600 is rejected, fall back to 3600
-(1 h), which costs ~$6.60/mo fleet — still inside the credit. **Verify against a live vehicle before
-committing the config** (see §7).
+**Resolved: `interval_seconds` accepts well above 60 s.** The earlier note here claimed a 1–60 s range and
+flagged 21600 as unverified. That was wrong on both counts: 21600 was accepted in production for days (the
+live config row records `interval_seconds: 21600`), and Tesla's own examples use 60 s and 10 minutes. The
+real ceiling is far above 60, so the range claim is withdrawn rather than left standing. The interval is now
+180 s by owner decision (2026-10-07) so a trip produces a usable series instead of isolated points.
+
 
 ### 4.2 D1 tables
 

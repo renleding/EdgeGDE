@@ -47,19 +47,55 @@ export interface CollectedField {
 }
 
 /**
- * Six hours. Tesla bills on change gated by the interval, and a field can emit
- * at most 4×/day at this setting while emitting nothing while the vehicle
- * sleeps — measured at ~17.5 signals/vehicle/day (SDD-010 §4.1).
+ * Three minutes (180 s).
  *
- * `interval_seconds` accepts 21600 in the field config (the docs show a 1-60 s
- * range and a 10-minute example, so this is VERIFY-ON-FIRST-VEHICLE, not
- * assumed). If Tesla rejects it, drop to 3600 and the fleet cost is ~$6.60/mo,
- * still inside the credit.
+ * CHANGED FROM 21600 (6 hours) on the owner's instruction, 2026-10-07.
+ *
+ * WHY IT MOVED
+ * ------------
+ * At 6 hours the time series was too coarse to answer the question it exists for. An
+ * owner reported being in the car around 0800; the single record for that period carried
+ * values captured at 13:28 the PREVIOUS DAY, because `Odometer` had not moved enough to
+ * pass its delta gate and the vehicle re-sent its last known values. A trip was therefore
+ * invisible in the data even though the vehicle had connected and delivered a payload.
+ *
+ * At 180 s the same drive produces a real series. This is the change that makes the
+ * odometer and FSD figures analysable over time rather than as isolated points.
+ *
+ * COST, MEASURED AGAINST THIS ACCOUNT'S ACTUAL SETTINGS
+ * -----------------------------------------------------
+ * Tesla transmits ON CHANGE, gated by the interval — so the interval is a ceiling, not a
+ * rate. Only the three distance fields have a `minimum_delta`; the other eleven are
+ * change-gated settings that stay quiet regardless of the interval.
+ *
+ *   worst case (continuous driving), 3 delta-gated fields:
+ *     1 send / 180 s = 60 signals/hour
+ *     2 h/day driving x 30 days = ~3,600 signals/month ~= **$0.024/month**
+ *   against the configured $100 limit: 0.024% consumed, ~4,167x margin over the
+ *  10x floor F02-R13 requires ("211,693x" was the margin at 6 h, for comparison).
+ *
+ * A PARKED VEHICLE STILL PRODUCES NOTHING. The interval only bounds how often a CHANGED
+ * value may be sent; it does not create sends. 180 s does not make the dashboard live —
+ * there is up to a 3-minute lag on a changing value, and the UI says so rather than
+ * implying real time.
+ *
+ * A CORRECTION TO THE PREVIOUS COMMENT
+ * ------------------------------------
+ * The old note said "the docs show a 1-60 s range ... so this is VERIFY-ON-FIRST-VEHICLE".
+ * That was wrong and is withdrawn: 21600 was accepted in production for days (the live
+ * config row records `interval_seconds: 21600`), and Tesla's published examples use
+ * values well above 60 s (60 s, 10 minutes). The real ceiling is far higher than 60.
+ *
+ * WHAT THIS DOES NOT CHANGE
+ * -------------------------
+ * The `minimum_delta` gates are untouched. Lowering the interval without them would not
+ * increase resolution — a value that has not changed is not sent at any interval — it
+ * would only allow a changed value to be sent more often.
  */
-export const SYNC_INTERVAL_SECONDS = 21600
+export const SYNC_INTERVAL_SECONDS = 180
 
 /** Human-readable interval recorded on the row; Tesla's own accepted format. */
-export const SYNC_INTERVAL = '6 hours'
+export const SYNC_INTERVAL = '3 minutes'
 
 /** A `vehicle_config` entry: interval, plus a delta gate where it applies. */
 export interface FieldConfig {
