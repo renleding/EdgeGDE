@@ -72,8 +72,11 @@ describe('field config (F02-R11)', () => {
     expect(cfg['CarType']).toEqual({ interval_seconds: SYNC_INTERVAL_SECONDS })
   })
 
-  it('uses a six-hour interval', () => {
-    expect(SYNC_INTERVAL_SECONDS).toBe(21600)
+  it('uses a three-minute interval', () => {
+    // 180 s, down from 21600 (6 h) on the owner's instruction 2026-10-07. An owner's trip
+    // was invisible at 6 h because a re-sent unchanged odometer carried a value from the
+    // previous day. Pinned so a change to the sampling rate is a deliberate act.
+    expect(SYNC_INTERVAL_SECONDS).toBe(180)
   })
 })
 
