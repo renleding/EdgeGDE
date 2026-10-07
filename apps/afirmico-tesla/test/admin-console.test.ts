@@ -11,42 +11,56 @@
  *     browser history.
  *  3. Reads only. There is deliberately no write route; a test asserts the
  *     mutation verbs are absent so a future edit cannot quietly add one.
- *  4. Table/column names match the real schema. A typo here fails as a 500 at
- *     runtime, which is exactly the class of bug a static check catches cheaply.
+ *  4. The queries actually run. Every page and API route is exercised against
+ *     REAL SQLite with the real migrations applied (test/helpers/sqlite-d1.ts).
+ *
+ * Why (4) matters, in the strongest terms this file can put it:
+ *
+ * These tests previously used `prepare: vi.fn().mockReturnThis()` — a double that accepted
+ * ANY SQL. A column that did not exist was indistinguishable from one that did, and a
+ * production endpoint shipped returning HTTP 500 with 295 tests green:
+ *
+ *     no such column: observed_at at offset 11: SQLITE_ERROR [code: 7500]
+ *
+ * That was the third production failure to come through this blind spot, so the mock is
+ * gone rather than supplemented. A test double that cannot reject anything validates
+ * nothing about the queries it stands in for.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import app from '../src/index'
+import { createSqliteD1, assertRejectsInvalidSql, seedBaseline, MIGRATION_COUNT, type SqliteD1 } from './helpers/sqlite-d1'
 
 const SECRET = 'test-admin-secret'
 
 function makeEnv() {
   const kv = new Map<string, string>()
-  const d1 = {
-    prepare: vi.fn().mockReturnThis(),
-    bind: vi.fn().mockReturnThis(),
-    first: vi.fn().mockResolvedValue(null),
-    all: vi.fn().mockResolvedValue({ results: [] }),
-    run: vi.fn().mockResolvedValue({ success: true }),
-    batch: vi.fn().mockResolvedValue([]),
-  }
+  // Real SQLite with every migration applied — not a permissive stub. See the note above:
+  // the stub is what let a 500 ship.
+  const d1 = createSqliteD1()
+  assertRejectsInvalidSql(d1)
   return {
     OAUTH_SESSIONS: {
-      get: vi.fn(async (k: string) => kv.get(k) ?? null),
-      put: vi.fn(async (k: string, v: string) => { kv.set(k, v) }),
-      delete: vi.fn(async (k: string) => { kv.delete(k) }),
+      get: async (k: string) => kv.get(k) ?? null,
+      put: async (k: string, v: string) => { kv.set(k, v) },
+      delete: async (k: string) => { kv.delete(k) },
     },
     D1_TESLA: d1,
-    RAW_PAYLOADS: { put: vi.fn(), get: vi.fn().mockResolvedValue(null) },
+    RAW_PAYLOADS: { put: async () => {}, get: async () => null },
     TESLA_CLIENT_ID: 'test-client-id',
     TESLA_CLIENT_SECRET: 'test-client-secret',
     OAUTH_STATE_SECRET: 'test-state-secret',
     TOKEN_ENCRYPTION_KEY: 'dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXk=',
     INGEST_SHARED_SECRET: SECRET,
     TESLA_AUDIENCE: 'https://fleet-api.test.tesla.com',
-    ASSETS: { fetch: vi.fn().mockResolvedValue(new Response('splash', { status: 200 })) },
+    ASSETS: { fetch: async () => new Response('splash', { status: 200 }) },
     _kv: kv,
     _d1: d1,
   } as never
+}
+
+/** The D1 double, for tests that need to seed or inspect rows. */
+function d1Of(env: ReturnType<typeof makeEnv>): SqliteD1 {
+  return (env as never as { D1_TESLA: SqliteD1 }).D1_TESLA
 }
 
 /** Log in and return the session cookie value. */
@@ -68,38 +82,6 @@ async function login(env: ReturnType<typeof makeEnv>): Promise<string> {
 const PAGES = ['/admin/overview', '/admin/members', '/admin/vehicles', '/admin/telemetry', '/admin/consent', '/admin/audit']
 const APIS = ['/admin/api/members', '/admin/api/telemetry/health', '/admin/api/telemetry/latest']
 
-/**
- * Every table and view the migrations create, as the source of truth for the
- * query/schema agreement check below.
- *
- * Kept as an explicit list because this project has no @types/node, so reading the
- * .sql files from the test would mean adding node types for a single test — and the
- * app itself is Workers-only, so that would widen the type surface for no benefit.
- * The list is asserted against the schema verifier's own parse in CI (`verify:schema`
- * derives its counts from the migrations), so a migration that adds a table without
- * updating this list fails there rather than passing silently here.
- *
- * Most recent addition: tesla_vehicle_snapshot / _history (once-tier attributes) and
- * the two views from migration 0012 — the admin subqueries read them, and the
- * previous hardcoded list did not include them, so the guard fired on a legitimate
- * query.
- */
-const MIGRATION_TABLES = [
-  'tesla_admin_user', 'tesla_alert_catalog', 'tesla_audit_event', 'tesla_auth_session',
-  'tesla_billing_guard', 'tesla_catalog_load', 'tesla_consent', 'tesla_consent_policy',
-  'tesla_counter_reset', 'tesla_download_token', 'tesla_driver_profile',
-  'tesla_endpoint_catalog', 'tesla_erasure_log', 'tesla_field_catalog',
-  'tesla_field_enum_def', 'tesla_field_enum_value', 'tesla_group_export',
-  'tesla_ingest_rejection', 'tesla_ingest_run', 'tesla_member', 'tesla_oauth_token',
-  'tesla_policy', 'tesla_quote_request', 'tesla_quote_response', 'tesla_release',
-  'tesla_release_access', 'tesla_signal_counter', 'tesla_state_change',
-  'tesla_telemetry_batch', 'tesla_telemetry_config', 'tesla_telemetry_fact',
-  'tesla_telemetry_config_archive',
-  'tesla_vehicle', 'tesla_vehicle_key', 'tesla_vehicle_snapshot',
-  'tesla_vehicle_snapshot_history',
-  // Views (migration 0012)
-  'tesla_telemetry_record', 'tesla_vehicle_attribute', 'tesla_billing_position',
-]
 
 describe('operator console: closed by default', () => {
   let env: ReturnType<typeof makeEnv>
@@ -261,52 +243,113 @@ describe('operator console: read-only by construction', () => {
   })
 })
 
-describe('operator console: query/schema agreement', () => {
+describe('operator console: queries actually run against the real schema', () => {
   let env: ReturnType<typeof makeEnv>
   beforeEach(() => { env = makeEnv() })
 
-  it('queries only tables that exist in the schema', async () => {
+  it('every page and API route returns 200 when driven through real SQLite', async () => {
+    // This is the test that would have caught the production 500 on
+    // /admin/api/telemetry/latest. The endpoint read `observed_at` from
+    // tesla_telemetry_batch, which has no such column — the permissive mock returned a
+    // null row instead of raising, so the suite stayed green while the endpoint 500'd.
     const cookie = await login(env)
-    const seen: string[] = []
-    const d1: any = (env as any).D1_TESLA
-    d1.prepare.mockImplementation((sql: string) => {
-      seen.push(sql)
-      return d1
-    })
-
     for (const path of PAGES) {
-      await app.fetch(
+      const res = await app.fetch(
         new Request(`https://auto.afirmi.co${path}`, { headers: { accept: 'text/html', cookie } }),
         env,
       )
+      expect(res.status, `${path} must not 500 against the real schema`).toBe(200)
     }
-
-    expect(seen.length).toBeGreaterThan(0)
-
-    // Derive the real tables and views from the migration files rather than
-    // hardcoding a list. A hardcoded allowlist goes stale the moment a migration
-    // adds a table — and it then fails on a legitimate query, which is a false
-    // alarm that trains the reader to ignore the guard.
-    //
-    // The migration SQL is read through the bundled raw-import below, so the check
-    // tracks the schema automatically. If a new table appears in a migration it is
-    // known here without an edit.
-    const known = new Set<string>(MIGRATION_TABLES)
-    // Sanity: if the list were empty the assertion below would pass vacuously.
-    expect(known.size, 'migration table list must be populated').toBeGreaterThan(10)
-
-    const checked = new Set<string>()
-    for (const sql of seen) {
-      // FROM and JOIN both, including subqueries like `... FROM tesla_vehicle_snapshot s`.
-      for (const table of sql.matchAll(/\b(?:FROM|JOIN)\s+(tesla_[a-z_]+)/gi)) {
-        const name = table[1].toLowerCase()
-        checked.add(name)
-        expect(known.has(name), `unknown table ${name} in: ${sql}`).toBe(true)
-      }
+    for (const path of APIS) {
+      const res = await app.fetch(
+        new Request(`https://auto.afirmi.co${path}`, { headers: { 'x-admin-secret': SECRET } }),
+        env,
+      )
+      expect(res.status, `${path} must not 500 against the real schema`).toBe(200)
     }
-    // Prove the scan actually looked at something, so a regex that stopped matching
-    // cannot make this test pass by finding no tables at all.
-    expect(checked.size, 'at least one real table must be checked').toBeGreaterThan(0)
+  })
+
+  it('reports real row counts from seeded data, not a stubbed null', async () => {
+    // Proves the pages read the database rather than a mock's fixed return: with rows
+    // seeded, the values must move. A stub returning null for every `first()` would still
+    // render "0", so asserting the count catches a regression back to a stub.
+    const { vin } = seedBaseline(d1Of(env))
+    const cookie = await login(env)
+    const res = await app.fetch(
+      new Request(`https://auto.afirmi.co/admin/api/telemetry/latest?vin=${vin}`, {
+        headers: { 'x-admin-secret': SECRET },
+      }),
+      env,
+    )
+    const body = (await res.json()) as { facts: number; batches: number; newest_observed_at: string | null }
+    expect(body.facts, 'seeded fact must be counted').toBe(1)
+    expect(body.batches, 'seeded batch must be counted').toBe(1)
+    expect(body.newest_observed_at, 'observed_at comes from the fact table').not.toBeNull()
+  })
+
+  it('reads the two instants from the tables that own them', async () => {
+    // The exact confusion that caused the 500: `observed_at` is on tesla_telemetry_fact
+    // (the vehicle's clock for a reading) and `received_at` is on tesla_telemetry_batch
+    // (when the payload reached us). Seeding DIFFERENT values proves each is read from the
+    // right place — no single-table query can satisfy both.
+    const d1 = d1Of(env)
+    seedBaseline(d1)
+    d1._seed(`
+      UPDATE tesla_telemetry_fact SET observed_at = '2026-10-07T01:00:00Z';
+      UPDATE tesla_telemetry_batch SET received_at = '2026-10-07T09:00:00Z';
+    `)
+    const res = await app.fetch(
+      new Request('https://auto.afirmi.co/admin/api/telemetry/latest', {
+        headers: { 'x-admin-secret': SECRET },
+      }),
+      env,
+    )
+    const body = (await res.json()) as { newest_observed_at: string; newest_received_at: string }
+    expect(body.newest_observed_at, 'from tesla_telemetry_fact').toBe('2026-10-07T01:00:00Z')
+    expect(body.newest_received_at, 'from tesla_telemetry_batch').toBe('2026-10-07T09:00:00Z')
+  })
+
+  it('the per-vehicle scope filters, rather than ignoring the VIN', async () => {
+    const { vin } = seedBaseline(d1Of(env))
+    const cookie = await login(env)
+    const mine = await app.fetch(
+      new Request(`https://auto.afirmi.co/admin/api/telemetry/latest?vin=${vin}`, {
+        headers: { 'x-admin-secret': SECRET },
+      }),
+      env,
+    )
+    const other = await app.fetch(
+      new Request('https://auto.afirmi.co/admin/api/telemetry/latest?vin=5YJ3F7EB7LF697834', {
+        headers: { 'x-admin-secret': SECRET },
+      }),
+      env,
+    )
+    expect(((await mine.json()) as { facts: number }).facts, 'the seeded VIN has data').toBe(1)
+    expect(((await other.json()) as { facts: number }).facts, 'an unknown VIN has none').toBe(0)
+  })
+
+  it('the harness really applied every migration', () => {
+    // If the migrations silently stopped being applied, every other test here would still
+    // pass against an empty but permissive schema — so assert the schema exists.
+    expect(MIGRATION_COUNT, 'migrations must be discoverable').toBeGreaterThan(10)
+    const tables = d1Of(env)._rows(
+      "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name LIKE 'tesla_%'",
+    )
+    expect(tables.length, 'the migrated schema must be present').toBeGreaterThan(MIGRATION_COUNT)
+  })
+
+  it('enforces the schema constraints a permissive mock ignored', () => {
+    // Not incidental: the mock accepted NULLs and out-of-range enum values that the
+    // migrations forbid. Data-level mistakes are as invisible to a stub as column ones.
+    const d1 = d1Of(env)
+    expect(
+      () => d1._seed("INSERT INTO tesla_member (member_id, toca_status, email, created_at, updated_at) VALUES ('m2','nonsense','a@b.c','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')"),
+      'toca_status is CHECK constrained',
+    ).toThrow()
+    expect(
+      () => d1._seed("INSERT INTO tesla_vehicle (vin, member_id, display_name, first_seen_at) VALUES ('V','no-such-member','X','2026-01-01T00:00:00Z')"),
+      'tesla_vehicle.member_id is a real foreign key',
+    ).toThrow()
   })
 })
 
