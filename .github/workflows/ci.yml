@@ -48,24 +48,79 @@ jobs:
         # Thresholds ratchet up in each coverage batch PR (EG-TEST-0009).
 
   swe-bench-lint:
-    needs: unit-tests
+    # Aegis governance lint + SWE-bench adapter sanity.
+    #
+    # THE JOB NAME IS LOAD-BEARING. `swe-bench-lint` is a REQUIRED status check on
+    # main, so a job-level `paths:` filter here would make the job not run at all on
+    # an unrelated PR — and a required check that never reports stays "Expected —
+    # waiting for status" indefinitely, blocking every merge. The job therefore always
+    # runs and always reports a conclusion; only the SWE-bench-specific steps are
+    # conditional, which scopes the cost without ever leaving the check pending.
+    #
+    # It also does not need `unit-tests`: nothing here reads TypeScript or unit-test
+    # output. Waiting on typecheck -> unit-tests -> coverage only added latency.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the change-detection diff below can reach the base commit.
+          fetch-depth: 0
+
+      - name: Detect whether SWE-bench tooling changed
+        id: scope
+        if: github.event_name == 'pull_request'
+        # The Aegis policy and red-team checks below are governance gates and run on
+        # EVERY pull request. The SWE-bench adapter steps and their ~2-minute
+        # `datasets` install are only relevant when the tooling itself is touched, so
+        # they are scoped rather than run on e.g. a Tesla-only change.
+        run: |
+          base="${{ github.base_ref }}"
+          git fetch --depth=1 origin "$base"
+          if git diff --name-only "origin/$base...HEAD" \
+               | grep -qE '^(tools/|\.github/|automation/|prompts/|AGENTS\.md)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "SWE-bench tooling changed - running adapter steps."
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No SWE-bench tooling change - Aegis gates still run below."
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install datasets>=3.0.0
+          # The `datasets` install pulls pyarrow/pandas/numpy and dominated this job
+          # (~123s of a ~130s runtime). Caching the pip download cache cuts repeat
+          # installs substantially. Gated on the same condition as the install.
+          cache: 'pip'
+        if: github.event_name != 'pull_request' || steps.scope.outputs.relevant == 'true'
+
+      - run: pip install 'datasets>=3.0.0'
         name: Install deps
+        if: github.event_name != 'pull_request' || steps.scope.outputs.relevant == 'true'
+
       - run: python3 -c "import ast; ast.parse(open('tools/swe-bench/adapter.py').read()); print('ok adapter')"
         name: Validate adapter.py
-      - run: python3 tools/swe-bench/adapter.py --help > /dev/null 2>&1 || true
+        # Syntax only -- takes no imports, so it needs no install.
+        if: github.event_name != 'pull_request' || steps.scope.outputs.relevant == 'true'
+
+      - run: python3 tools/swe-bench/adapter.py --help > /dev/null
         name: adapter.py imports
-      - run: python3 tools/lsp-gate/lsp-validate.py --help > /dev/null 2>&1 || true
+        # NO `|| true`. The step exists to prove adapter.py's module-level imports
+        # resolve; `|| true` made it the one step guaranteed to pass, so the two-minute
+        # install bought nothing. Verified locally that this correctly FAILS when
+        # `datasets` is absent, which is the behaviour the step claims to have.
+        if: github.event_name != 'pull_request' || steps.scope.outputs.relevant == 'true'
+
+      - run: python3 tools/lsp-gate/lsp-validate.py --help > /dev/null
         name: lsp-validate.py imports
+        # NO `|| true`, same reason. Verified this tool does not import `datasets`, so
+        # it needs no install and can run unconditionally.
+
+      # --- Aegis governance: unconditional, on every pull request -------------
       - run: python3 tools/aegis.py policy validate
         name: Aegis policy integrity
+
       - run: python3 tools/redteam_test.py run
         name: Aegis red-team tests
 
