@@ -721,10 +721,25 @@ adminApp.get('/telemetry', async (c) => {
     { key: 'received_at', label: 'Received (UTC)', kind: 'text' },
     // Miles as reported, and the converted kilometres beside it. km is derived from
     // the same factor as src/derive.ts so the two cannot disagree.
+    //
+    // The two "since reset" columns are easily confused, so each label names its
+    // subject explicitly. Tesla's own names differ only by the FSD prefix and read
+    // almost identically in a table:
+    //
+    //   MilesSinceReset              "total number of miles driven since the
+    //                                 Self-Driving statistics were reset"
+    //   SelfDrivingMilesSinceReset   "total number of miles driven using Full
+    //                                 Self-Driving since the ... reset"
+    //
+    // So one is ALL driving and the other is the FSD subset, both measured from the
+    // same reset event — and `MilesSinceReset` is the denominator of the FSD share
+    // ratio (ΔSelfDriving / ΔTotal), which an insurer reads as the FSD-usage
+    // proportion. Labelled "Total miles since reset" rather than "Odometer since
+    // reset": it is a distance-since-reset counter, not the odometer reading.
     { key: 'odometer_mi', label: 'Odometer (mi)', kind: 'num' },
     { key: 'odometer_km', label: 'Odometer (km)', kind: 'num' },
-    { key: 'miles_since_reset_mi', label: 'Miles since reset (mi)', kind: 'num' },
-    { key: 'miles_since_reset_km', label: 'Miles since reset (km)', kind: 'num' },
+    { key: 'miles_since_reset_mi', label: 'Total miles since reset (mi)', kind: 'num' },
+    { key: 'miles_since_reset_km', label: 'Total miles since reset (km)', kind: 'num' },
     { key: 'self_driving_miles_since_reset_mi', label: 'FSD miles since reset (mi)', kind: 'num' },
     { key: 'self_driving_miles_since_reset_km', label: 'FSD miles since reset (km)', kind: 'num' },
     { key: 'sentry_mode', label: 'Sentry mode', kind: 'text' },
