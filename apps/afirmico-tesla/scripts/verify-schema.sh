@@ -256,6 +256,47 @@ check "measured zero pivots to 0" \
 check "view cannot invent instants" \
   "$(q "SELECT count(*) FROM tesla_telemetry_record r WHERE NOT EXISTS (SELECT 1 FROM tesla_telemetry_fact f WHERE f.vin=r.vin AND f.observed_at=r.observed_at)")" 0
 
+# --- admin query column validity ---------------------------------------------
+#
+# A GUARD ADDED AFTER A REAL PRODUCTION 500. `/admin/api/telemetry/latest` was written
+# as `SELECT MAX(observed_at) ... FROM tesla_telemetry_batch`, but `observed_at` lives on
+# tesla_telemetry_fact; the batch table has only `received_at`. The unit tests could not
+# catch it: the admin tests run against a MOCKED D1 whose prepare() accepts any SQL, so an
+# invalid column is invisible there and valid only until it reaches the real database. The
+# endpoint returned 500 in production.
+#
+# This closes the class rather than the instance: every column referenced as
+# `tesla_x.col` in src/admin.ts is checked against the schema built from the migrations,
+# using pragma_table_info. A column that does not exist fails here, in CI, instead of
+# returning 500 in front of an operator.
+ADMIN_SRC="src/admin.ts"
+[[ -f "$ADMIN_SRC" ]] || ADMIN_SRC="../apps/afirmico-tesla/src/admin.ts"
+if [[ -f "$ADMIN_SRC" ]]; then
+  ADMIN_TABLES=$(grep -oE '\b(FROM|JOIN)[[:space:]]+tesla_[a-z_]+' "$ADMIN_SRC" \
+    | awk '{print $2}' | sort -u)
+  bad_cols=0
+  checked_tables=0
+  for t in $ADMIN_TABLES; do
+    exists=$(sqlite3 -noheader "$DB" "SELECT count(*) FROM sqlite_master WHERE name='$t'" 2>/dev/null | tr -d '[:space:]')
+    [[ "$exists" == "1" ]] || continue
+    checked_tables=$((checked_tables + 1))
+    while IFS= read -r col; do
+      [[ -z "$col" ]] && continue
+      has=$(sqlite3 -noheader "$DB" "SELECT count(*) FROM pragma_table_info('$t') WHERE name='$col'" 2>/dev/null | tr -d '[:space:]')
+      if [[ "$has" != "1" ]]; then
+        printf '  FAIL  %-46s %s.%s does not exist\n' "admin column validity" "$t" "$col"
+        bad_cols=$((bad_cols + 1))
+      fi
+    done < <(grep -oE "${t}\.[a-z_]+" "$ADMIN_SRC" | sed "s/^${t}\.//" | sort -u)
+  done
+  # A zero here would mean the scan matched nothing and the next check is vacuous.
+  check "admin column scan found tables" "$(( checked_tables > 0 ? 1 : 0 ))" 1
+  check "admin references only real columns" "$bad_cols" 0
+else
+  echo "  FAIL  admin source not found — column validity not checked"
+  fail=$((fail + 1))
+fi
+
 [[ $KEEP -eq 1 ]] && echo && echo "database kept at $DB" || rm -f "$DB"
 echo
 echo "passed $pass, failed $fail"
