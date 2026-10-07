@@ -1969,7 +1969,15 @@ app.post('/admin/telemetry/apply', async (c) => {
         const text = await res.text().catch(() => '')
         let data: Record<string, unknown> = {}
         try { data = text ? JSON.parse(text) : {} } catch {}
-        const teslaVins = Array.isArray(data.response) ? data.response.map((v: any) => v.vin ?? v.VIN).filter(Boolean) : []
+        // Tesla's vehicle list: each entry carries the VIN under `vin` (lowercase in
+        // the Fleet API). Typed as Record<string, unknown> rather than the previous
+        // `(v: any)` — that was a type ANNOTATION, so the value was still unchecked
+        // and the governance gate (which only grepped `as any`) passed it green.
+        const teslaVins = Array.isArray(data.response)
+          ? data.response
+              .map((v: Record<string, unknown>) => v.vin ?? v.VIN)
+              .filter((v): v is string => typeof v === 'string' && v.length > 0)
+          : []
         const dbVins = (await c.env.D1_TESLA.prepare('SELECT vin FROM tesla_vehicle WHERE member_id = ?').bind(m.member_id).all<{ vin: string }>()).results?.map(r => r.vin) ?? []
         results.push({
           member_id: m.member_id,

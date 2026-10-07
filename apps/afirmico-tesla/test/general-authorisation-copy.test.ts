@@ -110,15 +110,18 @@ describe('no operative copy asserts a bound on the collected set (F01-R10, v1.25
     }
   })
 
-  it('the authoritative set is still 14 fields (the ruling removed text, not data)', () => {
-    // This revision must not have narrowed the set by accident.
+  it('the authoritative set is still the ruled set (the ruling removed text, not data)', () => {
+    // This revision must not have narrowed the set by accident. Migration 0013 adds
+    // Trim (the variant badge) at the owner's explicit request, so the set is 15, not
+    // 14 — the cardinality is pinned so an accidental narrowing still fails here.
     const src = readFileSync(join(repo, 'apps/afirmico-tesla/src/consent-policy.ts'), 'utf8')
     const m = src.match(/export const CONSENTED_FIELDS = \[(.*?)\] as const/s)
     expect(m, 'CONSENTED_FIELDS not found').toBeTruthy()
     const keys = [...(m![1].matchAll(/'([^']+)'/g))].map((x) => x[1])
-    expect(keys.length).toBe(14)
+    expect(keys.length).toBe(15)
     expect(keys).toContain('Odometer')
     expect(keys).toContain('SelfDrivingMilesSinceReset')
+    expect(keys).toContain('Trim')
   })
 
   it('SDD 4.1 config matches the authoritative set, not the retired polling set', () => {

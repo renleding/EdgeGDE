@@ -137,6 +137,7 @@ export const CONSENTED_FIELDS = [
   'CarType',
   'Version',
   'EfficiencyPackage',
+  'Trim',
   'AutomaticBlindSpotCamera',
   'SpeedLimitMode',
   'SpeedLimitWarning',

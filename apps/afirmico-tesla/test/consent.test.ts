@@ -100,9 +100,16 @@ describe('consent policy (F01-R02/R03, F01 AC5)', () => {
   it('scopes the authorisation to the authorised connection (F04-R01a)', () => {
     // CONSENTED_FIELDS is the CURRENT collection set, not the consent scope, and
     // must agree with the catalog (asserted in verify-store.ts, F01 AC6).
-    expect(CONSENTED_FIELDS.length).toBe(14)
+    //
+    // 15 as of migration 0013, which enables Trim (the variant badge) so the console
+    // can state "Model 3 Performance 2025" from a reported value rather than
+    // inferring the variant from the EfficiencyPackage codename. The count is pinned
+    // deliberately: changing the collection set should require a considered edit
+    // here, not pass unnoticed.
+    expect(CONSENTED_FIELDS.length).toBe(15)
     expect([...CONSENTED_FIELDS]).toContain('Odometer')
     expect([...CONSENTED_FIELDS]).toContain('SelfDrivingMilesSinceReset')
+    expect([...CONSENTED_FIELDS]).toContain('Trim')
   })
 })
 

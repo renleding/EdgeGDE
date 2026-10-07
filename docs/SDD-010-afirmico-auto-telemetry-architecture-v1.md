@@ -295,20 +295,21 @@ leave the vehicle streaming, which is both a privacy failure and a continuing Te
     "port": 443,
     "ca": "<full LE certificate chain — contents, not a path>",
     "fields": {
-      "Odometer":                        { "interval_seconds": 21600, "minimum_delta": 1 },
-      "MilesSinceReset":                 { "interval_seconds": 21600 },
+      "Odometer":                        { "interval_seconds": 21600, "minimum_delta": 0.1 },
+      "MilesSinceReset":                 { "interval_seconds": 21600, "minimum_delta": 1 },
       "SelfDrivingMilesSinceReset":      { "interval_seconds": 21600, "minimum_delta": 1 },
       "CarType":                         { "interval_seconds": 21600 },
       "Version":                         { "interval_seconds": 21600 },
       "EfficiencyPackage":               { "interval_seconds": 21600 },
-      "AutomaticBlindSpotCamera":        { "interval_seconds": 21600, "minimum_delta": 1 },
-      "SpeedLimitMode":                  { "interval_seconds": 21600, "minimum_delta": 1 },
-      "SpeedLimitWarning":               { "interval_seconds": 21600, "minimum_delta": 1 },
-      "SentryMode":                      { "interval_seconds": 21600, "minimum_delta": 1 },
-      "AutomaticEmergencyBrakingOff":    { "interval_seconds": 21600, "minimum_delta": 1 },
-      "BlindSpotCollisionWarningChime":  { "interval_seconds": 21600, "minimum_delta": 1 },
-      "EmergencyLaneDepartureAvoidance": { "interval_seconds": 21600, "minimum_delta": 1 },
-      "PinToDriveEnabled":               { "interval_seconds": 21600, "minimum_delta": 1 }
+      "Trim":                            { "interval_seconds": 21600 },
+      "AutomaticBlindSpotCamera":        { "interval_seconds": 21600 },
+      "SpeedLimitMode":                  { "interval_seconds": 21600 },
+      "SpeedLimitWarning":               { "interval_seconds": 21600 },
+      "SentryMode":                      { "interval_seconds": 21600 },
+      "AutomaticEmergencyBrakingOff":    { "interval_seconds": 21600 },
+      "BlindSpotCollisionWarningChime":  { "interval_seconds": 21600 },
+      "EmergencyLaneDepartureAvoidance": { "interval_seconds": 21600 },
+      "PinToDriveEnabled":               { "interval_seconds": 21600 }
     }
   }
 }

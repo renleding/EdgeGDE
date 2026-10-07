@@ -189,7 +189,9 @@ async function main() {
   const rawIpLeaked = JSON.stringify(consentRow).includes('203.0.113.42')
   check('raw IP never stored', rawIpLeaked, 'false')
   check('ip_hash is a sha256', /^[0-9a-f]{64}$/.test(String(consentRow.ip_hash)), 'true')
-  check('field set recorded', JSON.parse(String(consentRow.collected_fields)).length, 14)
+  // Migration 0013 adds Trim, so the collection set is 15. Pinned so an accidental
+  // change to the set requires a considered edit rather than passing unnoticed.
+  check('field set recorded', JSON.parse(String(consentRow.collected_fields)).length, 15)
 
   // F01 AC6 (Must): the catalog's collected set and CONSENTED_FIELDS are two
   // independent representations of the same decision. R-10 was raised because

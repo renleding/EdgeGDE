@@ -20,6 +20,7 @@
 import { Hono } from 'hono'
 import type { Context, Next } from 'hono'
 import { timingSafeEqual } from './store'
+import { modelYearFromVin, variantFromEfficiencyPackage } from './analytics'
 
 export interface AdminEnv {
   OAUTH_SESSIONS: KVNamespace
@@ -245,6 +246,63 @@ function modelName(raw: unknown): string {
 }
 
 /**
+ * Render the vehicle's model identity as "Model 3 Performance 2025".
+ *
+ * Composed from three separate sources, because no single field carries it:
+ *   model    <- CarType            (collected; "CarTypeModel3")
+ *   variant  <- EfficiencyPackage  (collected; "M3POPPYSEED2024" -> Performance)
+ *   year     <- VIN position 10    (derived; Tesla exposes no model-year field)
+ *
+ * Each part is optional and each degrades honestly: an unmapped code shows the raw
+ * value rather than a guess, and a component we do not have is simply omitted rather
+ * than rendered as a misleading dash. The raw inputs are shown beneath so the
+ * composition is auditable and a wrong mapping is visible rather than plausible.
+ */
+function vehicleIdentity(r: Record<string, unknown>): string {
+  const model = modelName(r.car_type)
+
+  // Trim is Tesla's authoritative variant badge; the EfficiencyPackage codename is
+  // the fallback for vehicles that streamed before Trim was collected (migration
+  // 0013). Prefer the reported value and say which was used, so a fallback is never
+  // mistaken for a report.
+  const reportedTrim = r.trim === null || r.trim === undefined ? null : String(r.trim).trim()
+  const variant =
+    reportedTrim && reportedTrim.length > 0
+      ? reportedTrim
+      : variantFromEfficiencyPackage(
+          r.efficiency_package === null || r.efficiency_package === undefined
+            ? null
+            : String(r.efficiency_package),
+        )
+
+  const { year } = r.vin ? modelYearFromVin(String(r.vin)) : { year: null }
+
+  // Model 3 Performance 2025 — omitting any part we could not resolve.
+  const parts = [model, variant, year === null ? null : String(year)].filter(
+    (p): p is string => Boolean(p),
+  )
+  const headline = parts.join(' ') || '—'
+
+  const raw: string[] = []
+  if (r.car_type) raw.push(String(r.car_type))
+  if (r.trim) raw.push(`trim=${String(r.trim)}`)
+  if (r.efficiency_package) raw.push(String(r.efficiency_package))
+  const rawNote = raw.length
+    ? ` <span class="meta" title="raw values reported by the vehicle">${escapeHtml(raw.join(' · '))}</span>`
+    : ''
+  const yearNote =
+    year === null
+      ? ' <span class="meta">year not derivable from VIN</span>'
+      : ''
+  const variantNote =
+    !reportedTrim && variant
+      ? ' <span class="meta">variant from efficiency package (Trim not yet received)</span>'
+      : ''
+
+  return `${escapeHtml(headline)}${yearNote}${variantNote}${rawNote}`
+}
+
+/**
  * Renders the connections table showing per-member Tesla connections
  * with their vehicle details, virtual key pairing status, and consent history.
  * Supports filtering by status (active/inactive/all) and search.
@@ -292,6 +350,12 @@ async function renderActiveConnections(
          ORDER BY t3.created_at DESC LIMIT 1) AS config_last_error,
        (SELECT COUNT(*) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS fact_count,
        (SELECT MAX(f.observed_at) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS last_fact_at,
+       (SELECT value_text FROM tesla_vehicle_snapshot s
+         WHERE s.vin = v.vin AND s.field_key = 'CarType') AS car_type,
+       (SELECT value_text FROM tesla_vehicle_snapshot s
+         WHERE s.vin = v.vin AND s.field_key = 'EfficiencyPackage') AS efficiency_package,
+       (SELECT value_text FROM tesla_vehicle_snapshot s
+         WHERE s.vin = v.vin AND s.field_key = 'Trim') AS trim,
        c.consent_id, c.policy_version, c.granted_at, c.revoked_at, c.revoke_reason,
        c.collected_fields, c.recipients, c.ip_hash, c.user_agent
      FROM tesla_member m
@@ -407,14 +471,7 @@ async function renderActiveConnections(
           <table style="font-size:13px;width:100%">
             <tbody>
               <tr><td class="meta" style="width:170px">Display Name</td><td>${escapeHtml(r.display_name ?? '—')}</td></tr>
-              <tr><td class="meta">Model</td><td>${
-                // CarType is the vehicle model. It was absent because the relay
-                // dropped the enum wrapper; if it is still missing, say so rather
-                // than rendering a bare dash that reads as "no model exists".
-                r.car_type
-                  ? `${escapeHtml(modelName(r.car_type))} <span class="meta">${escapeHtml(r.car_type)}</span>`
-                  : '<span class="meta">not received</span>'
-              }</td></tr>
+              <tr><td class="meta">Model</td><td>${vehicleIdentity(r)}</td></tr>
               <tr><td class="meta">Last Seen</td><td class="meta">${escapeHtml(r.last_seen_at ?? '—')}</td></tr>
               <tr><td class="meta">Virtual Key</td><td><span class="pill ${r.key_state === 'paired' ? 'ok' : r.key_state === 'fault' ? 'bad' : 'warn'}">${escapeHtml(r.key_state ?? 'unpaired')}</span>${
                 // Show WHY a key is unpaired. "unpaired" alone cannot distinguish a
@@ -639,9 +696,14 @@ adminApp.get('/telemetry', async (c) => {
   const columns: Array<{ key: string; label: string; kind: 'num' | 'bool' | 'text' }> = [
     { key: 'observed_at', label: 'Observed (UTC)', kind: 'text' },
     { key: 'received_at', label: 'Received (UTC)', kind: 'text' },
-    { key: 'odometer', label: 'Odometer (mi)', kind: 'num' },
-    { key: 'miles_since_reset', label: 'Miles since reset', kind: 'num' },
-    { key: 'self_driving_miles_since_reset', label: 'FSD miles since reset', kind: 'num' },
+    // Miles as reported, and the converted kilometres beside it. km is derived from
+    // the same factor as src/derive.ts so the two cannot disagree.
+    { key: 'odometer_mi', label: 'Odometer (mi)', kind: 'num' },
+    { key: 'odometer_km', label: 'Odometer (km)', kind: 'num' },
+    { key: 'miles_since_reset_mi', label: 'Miles since reset (mi)', kind: 'num' },
+    { key: 'miles_since_reset_km', label: 'Miles since reset (km)', kind: 'num' },
+    { key: 'self_driving_miles_since_reset_mi', label: 'FSD miles since reset (mi)', kind: 'num' },
+    { key: 'self_driving_miles_since_reset_km', label: 'FSD miles since reset (km)', kind: 'num' },
     { key: 'sentry_mode', label: 'Sentry mode', kind: 'text' },
     { key: 'speed_limit_mode', label: 'Speed limit mode', kind: 'bool' },
     { key: 'speed_limit_warning', label: 'Speed limit warning', kind: 'text' },
@@ -698,14 +760,17 @@ adminApp.get('/telemetry', async (c) => {
   </div>` : `
   <h2>Vehicle attributes <span class="meta">(constant unless firmware or hardware changes)</span></h2>
   <table style="font-size:13px;margin-bottom:20px">
-    <thead><tr><th>Car type</th><th>Firmware</th><th>Efficiency package</th><th>Observed</th></tr></thead>
+    <thead><tr><th>Model</th><th>Firmware</th><th>Efficiency package</th><th>Observed</th></tr></thead>
     <tbody><tr>
       <td>${
-        // CarType is the model. Show the friendly name plus the raw label the
-        // vehicle sent, so the mapping is auditable rather than hidden.
-        attrs?.car_type
-          ? `${escapeHtml(modelName(attrs.car_type))} <span class="meta">${escapeHtml(attrs.car_type)}</span>`
-          : '<span class="meta">not received</span>'
+        // Same composition as the overview, so the two pages cannot disagree —
+        // model (CarType) + variant (EfficiencyPackage) + year (derived from VIN).
+        vehicleIdentity({
+          vin: selected,
+          car_type: attrs?.car_type ?? null,
+          efficiency_package: attrs?.efficiency_package ?? null,
+          trim: attrs?.trim ?? null,
+        })
       }</td>
       <td class="mono">${escapeHtml(attrs?.version ?? '—')}</td>
       <td>${escapeHtml(attrs?.efficiency_package ?? '—')}</td>
