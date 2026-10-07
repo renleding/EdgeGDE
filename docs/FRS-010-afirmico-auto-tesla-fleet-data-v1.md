@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  
-**Version:** 2.0  
+**Version:** 2.1  
 **Status:** Draft  
 **Author:** Hermes (Director)  
 **Date:** 2026-10-07
