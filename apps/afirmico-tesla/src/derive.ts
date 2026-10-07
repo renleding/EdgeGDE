@@ -34,8 +34,81 @@
 
 import { newId } from './store'
 
-/** Bumped whenever the arithmetic below changes, so old profiles stay explainable (F05-R12). */
-export const DERIVATION_VERSION = '1.0.0'
+/**
+ * Bumped whenever the arithmetic below changes, so old profiles stay explainable
+ * (F05-R12).
+ *
+ * THE INVARIANT, AND WHY IT IS TRACKED AS A PENDING ITEM
+ * -----------------------------------------------------
+ * One DERIVATION_VERSION must describe exactly ONE derivation behaviour. A value
+ * written into `tesla_driver_profile.derivation_version` and carried into the release
+ * package is the only way a profile derived last month can be explained today — so two
+ * different behaviours sharing one version makes that impossible, and a bump before the
+ * behaviour changes makes the version meaningless.
+ *
+ * `Trim` is currently MID-MIGRATION into this derivation. The state at the time of
+ * writing:
+ *
+ *   - migration 0013 enables the `Trim` field in the catalog,
+ *   - but `tesla_vehicle_snapshot.trim` is still NULL until the next telemetry config
+ *     apply asks the vehicle for it,
+ *   - so the next payload that arrives changes what `resolveSegment` can produce —
+ *     from `Model 3` to `Model 3 Performance` — WITHOUT any change to this file.
+ *
+ * That is the dangerous case: the arithmetic here is published and consumed, yet an
+ * upstream input silently gains a value. If the bump is forgotten, profiles before and
+ * after Trim carries "1.0.0" while meaning different things.
+ *
+ * DECISION (owner-approved, option C): hold the bump and land it WITH the change that
+ * alters derivation behaviour — so one version maps to one behaviour rather than bumping
+ * ahead of a change that has not happened.
+ *
+ * THE BUMP HAS NOW HAPPENED, WITH THE CHANGE
+ * ------------------------------------------
+ * Two things reached the derivation at once **2026-10-07**, so the version moved:
+ *
+ *   1. `Trim` enters the vehicle segment. Migration 0013 enabled the field; the value
+ *      arrives with the next telemetry config apply, after which `resolveSegment` can
+ *      return "Model 3 Performance" where it previously returned "Model 3".
+ *   2. **The FSD share stopped being computed across mismatched spans.** The two
+ *      distance counters are independently change-gated, so they can open at different
+ *      instants; `ΔSelfDriving / ΔTotal` was dividing travel over one period by travel
+ *      over another and reporting the result as `measured`. That is a fabricated figure
+ *      in a client-facing document, and a 180-second interval would have made it
+ *      routine rather than rare.
+ *
+ * Both are behaviour changes, so both are covered by this one bump. Version history:
+ *
+ *   1.0.0  the original arithmetic
+ *   1.1.0  Trim in the segment; FSD share refused when the spans do not align
+ */
+export const DERIVATION_VERSION = '1.1.0'
+
+/**
+ * Derivation-affecting changes that are known, expected, and NOT yet reflected in
+ * `DERIVATION_VERSION`.
+ *
+ * EMPTY, and it should stay empty between releases. A non-empty list is a deliberate,
+ * tracked state: it is how a known change is carried without either bumping ahead of it
+ * (which makes the version meaningless) or leaving it adrift (which lets two behaviours
+ * share one version). The owner's option C was to bundle the bump with the change, and
+ * that is what happened on 2026-10-07.
+ *
+ * Each entry records the version it was declared against so DRIFT can be detected: if a
+ * change becomes `effective` while the version still equals `declaredAgainstVersion`, the
+ * invariant "one version = one behaviour" has been broken, and
+ * `test/derive-version.test.ts` fails.
+ */
+export interface PendingDerivationChange {
+  readonly change: string
+  /** True once the input or arithmetic has actually changed behaviour. */
+  readonly effective: boolean
+  /** The DERIVATION_VERSION in force when this change was declared. */
+  readonly declaredAgainstVersion: string
+  readonly note: string
+}
+
+export const PENDING_DERIVATION_CHANGES: ReadonlyArray<PendingDerivationChange> = []
 
 /** Tesla reports distance in miles; underwriters and members are metric. */
 export const MILES_TO_KM = 1.609344
@@ -103,20 +176,45 @@ function valueAt(points: FactPoint[], atOrBefore: string): number | null {
 }
 
 /**
- * Opening value for a window.
+ * Opening value for a window, WITH the instant it came from.
  *
  * Normally the latest reading at or before the boundary. If collection began
  * *inside* the window there is no such reading — and returning null there would
  * mean a member who connected mid-month can never be given a profile at all.
  * The earliest reading within the window is the correct opening value in that
  * case, and it is why this is separate from `valueAt`.
+ *
+ * The instant is returned because two counters paired for a ratio must be compared
+ * over the SAME span. Without it, `ΔSelfDriving / ΔTotal` can divide travel over one
+ * period by travel over another and still be reported as a measured share — see
+ * `fsdSpansComparable`.
  */
-function windowOpen(points: FactPoint[], periodStart: string): number | null {
-  const atBoundary = valueAt(points, periodStart)
-  if (atBoundary !== null) return atBoundary
+function windowOpenWithInstant(
+  points: FactPoint[],
+  periodStart: string,
+): { value: number; observedAt: string } | null {
+  const atBoundary = valueAtPoint(points, periodStart)
+  if (atBoundary) return atBoundary
   const inWindow = points.filter((p) => p.observedAt >= periodStart)
   if (!inWindow.length) return null
-  return inWindow.reduce((earliest, p) => (p.observedAt < earliest.observedAt ? p : earliest)).value
+  const earliest = inWindow.reduce((e, p) => (p.observedAt < e.observedAt ? p : e))
+  return { value: earliest.value, observedAt: earliest.observedAt }
+}
+
+/** As `valueAt`, but keeping the winning point so its instant is available. */
+function valueAtPoint(points: FactPoint[], atOrBefore: string): FactPoint | null {
+  let best: FactPoint | null = null
+  for (const point of points) {
+    if (point.observedAt <= atOrBefore) {
+      if (!best || point.observedAt > best.observedAt) best = point
+    }
+  }
+  return best
+}
+
+/** As `windowOpen`, discarding the instant. Retained for callers that only need a value. */
+function windowOpen(points: FactPoint[], periodStart: string): number | null {
+  return windowOpenWithInstant(points, periodStart)?.value ?? null
 }
 
 /** Readings at distinct instants, which is what a delta requires. */
@@ -207,6 +305,13 @@ export function deriveProfile(options: {
   const fsdLast = valueAt(fsdResetSeries, periodEnd)
   const fsdResets = detectResets('SelfDrivingMilesSinceReset', fsdResetSeries)
 
+  // The OPENING INSTANTS, so the two deltas can be checked for span alignment. Both
+  // counters are independently change-gated (minimum_delta = 1 mile each), so they drift
+  // apart whenever one moves without the other — and at a 180-second interval that
+  // becomes routine rather than rare.
+  const milesOpen = windowOpenWithInstant(milesResetSeries, periodStart)
+  const fsdOpen = windowOpenWithInstant(fsdResetSeries, periodStart)
+
   let fsdPercent: number | null = null
   let fsdKm: number | null = null
   let fsdAvailability: DerivedProfile['fsdAvailability'] = 'unavailable'
@@ -226,10 +331,38 @@ export function deriveProfile(options: {
   } else {
     const deltaMiles = milesLast - milesFirst
     const deltaFsd = (fsdLast ?? 0) - (fsdFirst ?? 0)
-    if (deltaMiles > 0 && fsdFirst !== null && fsdLast !== null) {
+
+    // The FSD window must not START LATER than the total-distance window.
+    //
+    // `windowOpen` deliberately falls back to the earliest in-window reading when no
+    // reading exists at the boundary, so a member who connected mid-month still gets a
+    // profile. The two counters can therefore open at DIFFERENT instants, and
+    // `ΔSelfDriving / ΔTotal` would then divide travel over one period by travel over
+    // another — reporting, as `measured`, a share that describes no single window.
+    //
+    // A LATER FSD start is the unsafe direction: the denominator covers more time than
+    // the numerator, so the share is understated and the span difference is unbounded.
+    // An EARLIER FSD start is safe in the sense that the numerator's span contains the
+    // denominator's, and the counters only ever increase, so the share is an upper
+    // bound rather than a misstatement of a different period.
+    const fsdStartsAfterTotal =
+      fsdOpen !== null && milesOpen !== null && fsdOpen.observedAt > milesOpen.observedAt
+
+    if (deltaMiles > 0 && fsdFirst !== null && fsdLast !== null && !fsdStartsAfterTotal) {
       fsdPercent = deltaFsd / deltaMiles
       fsdKm = deltaFsd * MILES_TO_KM
       fsdAvailability = 'measured'
+    } else if (deltaMiles > 0 && fsdStartsAfterTotal) {
+      // Refuse the ratio rather than publish one that covers two different periods. The
+      // FSD distance since its first observation is still defensible and is reported;
+      // only the SHARE — which needs a common denominator — is withheld.
+      fsdAvailability = 'partial'
+      fsdKm = deltaFsd * MILES_TO_KM
+      fsdNote =
+        'Full Self-Driving distance and total distance were first observed at different times ' +
+        `(${fsdOpen?.observedAt} and ${milesOpen?.observedAt}), so the two cover different periods. ` +
+        'A share would compare travel over one span against travel over another, so it is not reported. ' +
+        'Full Self-Driving distance since its first observation is given instead.'
     } else if (deltaMiles === 0) {
       fsdAvailability = 'partial'
       fsdNote = 'The vehicle did not move during this window, so Full Self-Driving usage is not meaningful.'
