@@ -1,10 +1,10 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  
-**Version:** 1.29  
+**Version:** 2.0  
 **Status:** Draft  
 **Author:** Hermes (Director)  
-**Date:** 2026-10-05
+**Date:** 2026-10-07
 **Source:** Requirements interview with Warren (TOCA/AFIRMICO), 2026-09-29 (22 numbered questions answered);
 `apps/EdgeGDE - Document DB/Tesla APP DB/fleet_streaming_fields.csv` (239 fields) and `alert_dictionary.csv`
 (18,436 alerts); https://developer.tesla.com/docs/fleet-api/getting-started/what-is-fleet-api
@@ -33,6 +33,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.0 | 2026-10-07 | **Phase boundary: the telemetry configuration becomes operator-configurable at global, group and per-vehicle scope. New FEATURE-12.** Configuration was global by construction and only changeable by deploy — `SYNC_INTERVAL_SECONDS` is one constant in `src/vehicle-config.ts` applied to every field of every vehicle, and no fleet-wide config row exists. The operator could not configure one vehicle differently from the rest, could not see what any vehicle was actually running, and could not change an interval without a code change, a PR and a merge. FEATURE-12 adds the **Vehicle Telemetry Configurator** with a **most-specific-wins, sparse** resolution (`vehicle > group > global`), per-field `interval_seconds` / `minimum_delta` / enabled, and a console that shows the **effective** value and its **provenance** for every field (F12-R01..R12). **Four decisions recorded, all owner-made 2026-10-07.** (1) **Sparse, not replacement** — a level specifies only the fields it changes, because a whole-config override would make a fleet-wide interval change silently skip every vehicle that had overridden anything. (2) **Staged-and-applied-through-CI, not direct write** — this is the point that matters most: the console gains no mutation route. F09 and the console are built on "no admin route writes state", and a test asserts it. The operator sets a target; the target is committed and applied by the pipeline. (3) **Canary required for global and group, not for vehicle** — a scoped change has a blast radius of N or M; a vehicle change is single-vehicle and is its own canary. The canary MUST be **eligible** (F12-R07): it must not carry an override for a field the change touches, because under sparse resolution an override **shadows** the scoped value, so a canary on an overridden vehicle would show no effect and be misread as a successful test. (4) **No `Pull`/`Push` controls** (F12-R12) — the reference product's column models a polling transport; Fleet Telemetry is push-only and the artifact carries only `interval_seconds` and `minimum_delta`. **One hard constraint the enabled flag makes necessary:** per-field on/off (F12-R03) collides with F01 AC6, which pins the enabled set equal to `CONSENTED_FIELDS` and is enforced by `verify-store.ts` and `/healthz`. **F12-R04** therefore makes the gate explicit — **overrides MAY narrow the collected set and MUST NOT widen it**. Collecting less is consent-safe; collecting a field outside the consented set is a compliance event, not a configuration mistake, so the refusal is a hard gate before an artifact is built rather than a warning. **Also corrected at this revision:** the stale 6-hour interval claims. §5 stated "Telemetry is throttled to a 6-hour refresh by design" and §8 phase 4 carried a gate to "confirm `interval_seconds` accepts 6 h" — the interval is **180 seconds** (reduced from 21600 on 2026-10-07, PR #194) and the 60-second-floor suspicion recorded in `vehicle-config.ts` was withdrawn as wrong (21600 had been accepted in production for days). **Documentation only — no code in this revision**; FEATURE-12 is specified here and built under its own approval. | — |
 | 1.29 | 2026-10-05 | **Telemetry config signing scope requirement identified and enforced.** The `fleet_telemetry_config` endpoint (and by extension the `tesla-http-proxy` that signs it) requires the `vehicle_cmds` scope on the member's access token, because the proxy uses the same token to forward the signed config to Tesla. The original OAuth consent only requested `openid offline_access vehicle_device_data`, so the stored refresh tokens lacked `vehicle_cmds`. **Added F02-R16** (MUST include `vehicle_cmds` in OAuth consent scope). Members who consented before this revision MUST re-consent to obtain a token with the updated scope. Added re-consent mechanism: the dashboard detects missing `vehicle_cmds` scope and prompts the member to re-authorize via `/toca-connect`. | Must |
 | 1.28 | 2026-10-05 | **Design flaw in virtual key pairing detection identified and resolved.** A test member completed OAuth consent and approved the virtual key in the Tesla app, but the platform never detected the approval — `key_state` remained `null` and no telemetry config was sent. Root cause: F02-R09 required detecting `paired`/`removed`/`unknown` states but **did not specify how the `paired` state is detected**. The platform relied on telemetry ingest to set `key_state='paired'`, but telemetry ingest requires a paired key to function — a circular dependency. Tesla Fleet API does not provide webhooks for `key_paired` events; the only documented detection method is polling `fleet_telemetry_config` or `fleet_status` for `key_paired: true`. **Added F02-R09a** (MUST detect key approval via polling within 5 minutes, independent of telemetry ingest) and **F02-R09b** (MUST surface key state on dashboard with deep link). Added AC6/AC7 to verify polling works and dashboard shows correct state. This closes the gap that left the test member's vehicles stuck in `key_state=null` with no telemetry flowing. | Must |
 | 1.27 | 2026-10-03 | **The config signer is confirmed to be a separate host, and two unverified claims about it are withdrawn.** The owner challenged the arrangement recorded in SDD-010 §2 ("both share ONE private key", both components on the relay) and asked for a sourced answer before any further work. Three passes over Tesla's own documentation were run: the Fleet Telemetry developer page, the `fleet-telemetry` README, and the `vehicle-command` README. **(1) Co-location is not required by any Tesla source, and Tesla's only related guidance points the other way.** The Fleet Telemetry server is required to be *publicly exposed* (vehicles dial in on :443), while Tesla's `fleet-telemetry` security notes state the configuration-signing key "should be kept offline" and "should be kept in an HSM", and the `vehicle-command` README warns the proxy must not listen on a network interface without client authentication. The relay is the one component that must be internet-facing; the signer needs no inbound port at all. Co-locating them would place the irreplaceable key behind the same network boundary as the public port for no functional gain, so **the signer is its own host (Tier 2b, zero inbound ports)**. This does **not** change any requirement text — F02-R11 already named only the signing role and never placed it on the relay. SDD-010 is corrected to rev 1.11. **(2) A factual error is withdrawn: `fleet-telemetry` does not use the application private key.** It terminates vehicle mTLS with its own Let's Encrypt server certificate; only the signer holds the application key. "Both share ONE private key" was wrong regardless of host layout. **(3) A fabricated rationale is withdrawn.** This FRS (v1.14, below) and SDD-010 §10.3/§10.6 justified the signer's location by a "Tesla partner allowlist" requiring a stable outbound IP. No Tesla source states such an allowlist is required. The rationale is withdrawn and the underlying question is left as the open item it always was (§9 O-4); SDD-010 gains O-5 (how Tier 1 reaches a signer with no inbound port) and O-6 (signer host provisioning). **(4) Consequence:** the signer host does not exist yet, so F02-R11 still terminates at `pending`/`proxy_not_configured` and R-07 remains a launch blocker. No collected field, consent text, policy version or code changes. |
@@ -196,8 +197,9 @@ file ahead of the SPA fallback already exists in this repo: `apps/edge-runtime/s
 
 **The MVP uses Tesla Fleet Telemetry as its sole transport** (owner decision, v1.4). `vehicle_data`
 polling is withdrawn: it is explicitly documented by Tesla as not recommended and expensive, and it
-cannot return FSD usage at all. Vehicles push to a self-hosted `fleet-telemetry` server on a **6-hour
-refresh**, and the vehicle sleeps between sends.
+cannot return FSD usage at all. Vehicles push to a self-hosted `fleet-telemetry` server on a per-field
+`interval_seconds` (currently **180 s**; see FEATURE-12 for operator-configurable scope), and the vehicle
+sleeps between sends — it transmits **on change**, so the interval is a ceiling rather than a rate.
 
 This **reinstates** the previously identified hosting constraint: a `fleet-telemetry` server must
 terminate client-certificate mTLS on port 443 and is a long-lived stateful process, so it cannot run on
@@ -243,8 +245,11 @@ outside it may be collected without a change to this section and the consent it 
 | `BlindSpotCollisionWarningChime` | `on_change` | ADAS configuration. |
 | `EmergencyLaneDepartureAvoidance` | `on_change` | ADAS configuration. |
 | `PinToDriveEnabled` | `on_change` | Vehicle state. |
+| `Trim` | `once` | Variant/trim, so the console and F06 segmentation can name the vehicle variant (e.g. "Model 3 Performance"). **Enabled 2026-10-07** (PR #189); the value arrives with the next telemetry config apply. |
 
-Total: **14 fields** — 3 `event`, 3 `once`, 8 `on_change`.
+Total: **15 fields** — 3 `event`, 4 `once`, 8 `on_change`.
+
+*(This section said 14 until v2.0. `Trim` was added on 2026-10-07 and is live in the catalog — `/healthz` reports `collected_fields: 15`. The historical changelog rows below still record 14, which was correct at the time.)*
 
 **The set mixes the distance measurement with vehicle configuration.** Three fields carry the distance
 figures the profile is built from (`Odometer`, `MilesSinceReset`, `SelfDrivingMilesSinceReset`); the
@@ -440,13 +445,13 @@ AC8: A vehicle alert for a Model 3 resolves to the Model 3 variant of its signal
 
 ---
 
-### 4.4 FEATURE-04: Vehicle Telemetry Collection (Push, 6-Hour Refresh)
+### 4.4 FEATURE-04: Vehicle Telemetry Collection (Push, Per-Field Refresh)
 
 **Priority:** P0  \
 **Effort:** Large (~6 days) — **ingest built and live 2026-10-02** in `apps/afirmico-tesla/src/telemetry.ts` with `POST /ingest/telemetry`, R2 raw-payload archive, tier routing, consent gating, cost metering and the run log. **The relay is the remaining half** (F02-R10/R11) and is gated on Oracle PAYG; without it nothing calls this endpoint except tests.
 
 **User Story:** As the operator, the platform receives Tesla vehicle telemetry pushed by every consented
-member's vehicle on a 6-hour refresh, using the minimum field set that supports insurance underwriting,
+member's vehicle on a per-field refresh, using the minimum field set that supports insurance underwriting,
 and logs every ingest with its signal cost.
 
 **Functional Requirements:**
@@ -454,8 +459,8 @@ and logs every ingest with its signal cost.
 | ID | Requirement | Must/Should |
 |----|------------|-------------|
 | F04-R01 | The system MUST collect vehicle data via Tesla **Fleet Telemetry push** to a self-hosted receiver, and MUST NOT poll `vehicle_data` at MVP. | Must |
-| F04-R01a | The collected field set MUST be limited to the **14 fields the owner specified** (`MilesSinceReset`, `SelfDrivingMilesSinceReset`, `Odometer`, `CarType`, `Version`, `AutomaticBlindSpotCamera`, `SpeedLimitMode`, `SpeedLimitWarning`, `SentryMode`, `AutomaticEmergencyBrakingOff`, `BlindSpotCollisionWarningChime`, `EmergencyLaneDepartureAvoidance`, `PinToDriveEnabled`, `EfficiencyPackage`), exactly as enumerated in §3.7 and seeded in `tesla_field_catalog` with `collected = 1`. **Corrected (v1.15)** — until this revision the requirement named a five-item set (odometer, miles-since-reset, FSD miles-since-reset, battery level, located-at-home/work) that was carried over from the v1.4 transport pivot; *battery level* and *located-at-home/work* are not on the owner's list and have never been collected, so the requirement described a field set that did not exist. | Must |
-| F04-R01b | Every collected field MUST carry an explicit `interval_seconds` no shorter than 6 hours except where Tesla imposes a tighter floor, and MUST carry an explicit `minimum_delta` where the field type supports it. | Must |
+| F04-R01a | The collected field set MUST be limited to the fields enumerated in **§3.7** and seeded in `tesla_field_catalog` with `collected = 1` — currently **15**: `MilesSinceReset`, `SelfDrivingMilesSinceReset`, `Odometer`, `CarType`, `Version`, `AutomaticBlindSpotCamera`, `SpeedLimitMode`, `SpeedLimitWarning`, `SentryMode`, `AutomaticEmergencyBrakingOff`, `BlindSpotCollisionWarningChime`, `EmergencyLaneDepartureAvoidance`, `PinToDriveEnabled`, `EfficiencyPackage`, `Trim`. **§3.7 is the normative list; this row names it rather than restating it**, because a second copy is a second thing to keep in step. **Corrected (v1.15)** — until that revision the requirement named a five-item set (odometer, miles-since-reset, FSD miles-since-reset, battery level, located-at-home/work) carried over from the v1.4 transport pivot; *battery level* and *located-at-home/work* are not on the owner's list and have never been collected, so the requirement described a field set that did not exist. **Corrected (v2.0)** — the count moved 14 → 15 when `Trim` was enabled (2026-10-07). | Must |
+| F04-R01b | Every collected field MUST carry an explicit `interval_seconds` and MUST carry an explicit `minimum_delta` where the field type supports it. The value is **per field and operator-configurable** (F12); it is **NOT** floored at 6 hours. **Corrected (v2.0)** — this requirement previously read "no shorter than 6 hours", which was never a Tesla constraint: the platform ran `interval_seconds: 21600` in production for days and now runs **180 s** (PR #194, 2026-10-07). Tesla accepts well above 60 s (its own examples use 60 s and 10 minutes); the earlier 1–60 s range claim recorded in `vehicle-config.ts` was wrong and has been withdrawn. | Must |
 | F04-R02 | The system MUST support a configurable collection cadence of at least weekly and monthly, set per member or globally. | Must |
 | F04-R03 | The collection field set MUST be declared explicitly and stored in configuration, not hardcoded, so cadence and field scope can change without a code release. | Must |
 | F04-R04 | The default collected set MUST be the underwriting-relevant subset drawn from `vehicle_data` groups: charge_state, climate_state, drive_state, vehicle_config, vehicle_state, and gui_settings. | Must |
@@ -842,13 +847,96 @@ AC4: Two /healthz reads in immediate succession return the same version, with no
 ---
 
 
+### 4.12 FEATURE-12: Vehicle Telemetry Configurator (Global, Group & Per-Vehicle)
+
+**Priority:** P1  \
+**Effort:** Large (~8 days) — new write surface, resolution engine, canary stage and audit trail
+
+**User Story:** As the operator, I can see and change the telemetry configuration of the whole fleet,
+a group of members, or one vehicle, from the admin console — with every change staged, reviewed and
+applied through CI, and with a canary proving the change worked before it reaches the fleet.
+
+**Why this exists.** Configuration is currently **global by construction and unreachable without a
+deploy**: `SYNC_INTERVAL_SECONDS` is a single constant in `src/vehicle-config.ts` applied to every
+field of every vehicle (F02-R11), and there is no fleet-wide config row at all. Changing the interval
+takes a code change, a PR and a merge; there is no way to configure one vehicle differently from the
+rest, and no way to see what any vehicle is actually running. A reference product ("Auto API for
+Tesla") treats the field catalog as an operator-configurable grid with per-field sampling frequency.
+This feature brings that capability without giving the admin console an unguarded write path.
+
+**Resolution order (MUST).** Configuration resolves **most-specific-wins**:
+
+```text
+vehicle override  >  group override  >  global default
+```
+
+Resolution is **sparse**: a level specifies only the fields it changes, and every other field inherits
+from the level above (owner decision, 2026-10-07). A non-sparse (whole-config-replacement) override was
+rejected because a fleet-wide interval change would then silently skip every vehicle that had overridden
+anything, defeating the purpose of having a global default.
+
+**Functional Requirements:**
+
+| ID | Requirement | Must/Should |
+|----|------------|-------------|
+| F12-R01 | The platform MUST support telemetry configuration at three scopes: **global** (all vehicles), **group** (a named set of members), and **vehicle** (one VIN). Resolution MUST be most-specific-wins and MUST be **sparse**, so that a field not specified at a more specific level inherits the value from the level above rather than reverting to a hard-coded default. | Must |
+| F12-R02 | The **global** scope MUST define every configurable field explicitly — there MUST be no implicit default below it. A field absent from every scope is a **configuration error**, not a field that silently keeps whatever Tesla last held. (*Rationale:* an ambiguous bottom of the stack is how a vehicle ends up running a config nobody can account for; the sparse model is safe only because the base is total.) | Must |
+| F12-R03 | The configurable surface per field MUST be `interval_seconds`, `minimum_delta`, and an enabled/disabled flag. The enabled flag exists so a field can be **turned off** from the console; without it the grid can only ever add fields. | Must |
+| F12-R04 | **The effective configuration MUST NOT collect any field outside `CONSENTED_FIELDS`.** Overrides MAY narrow the collected set and MUST NOT widen it. This is a **hard gate**, enforced before an artifact is built and asserted in CI (**F12 AC4**). (*Rationale:* F01 AC6 pins the enabled set equal to `CONSENTED_FIELDS`; collecting a field outside the consented set is a consent breach, which is a compliance event rather than a configuration mistake.) | Must |
+| F12-R05 | Changes MUST be **staged in the console and applied through CI** — the operator MUST NOT be able to change a vehicle's configuration and have it reach the fleet without a reviewed, audited apply. Concretely: the operator sets a target configuration; the target is committed and applied by the pipeline. This preserves the property F09 and the console are built on — that no admin route mutates state — while still giving the operator the console-driven workflow. | Must |
+| F12-R06 | Every applied change MUST be **audited**: scope, field(s), prior value, new value, operator, timestamp, and the resulting per-vehicle outcome. A change whose application cannot be evidenced from the audit trail MUST NOT be reported as applied. | Must |
+| F12-R07 | A **global** or **group** change MUST be **canaried** — applied to exactly one eligible vehicle, verified, and only then extended to the remaining vehicles. The canary MUST be **eligible**: it MUST NOT carry an override for any field the change touches, because an override shadows the scoped value and a canary on an overridden vehicle would show no effect and be misread as a successful test. A **vehicle-scoped** change does not require a canary — the apply is single-vehicle and is therefore its own canary. | Must |
+| F12-R08 | Canary verification MUST be **evidence-based, not response-based**: the vehicle's config MUST be confirmed adopted at Tesla (`synced: true`) **and** new telemetry MUST be observed afterwards. A config that applies but stops the stream is worse than the stale one it replaced, and "the request succeeded" does not distinguish the two (F02-R11). | Must |
+| F12-R09 | A failed canary MUST halt the rollout and MUST NOT proceed to the remaining vehicles. Partial application MUST be reported per vehicle, and re-running MUST be idempotent — a re-apply MUST NOT double-apply or leave a vehicle in an indeterminate state. | Must |
+| F12-R10 | The console MUST show, per vehicle, the **effective** resolved configuration and the **provenance** of each value (global / group / vehicle), so an operator can answer "where did this value come from" without reading the database. | Must |
+| F12-R11 | The console MUST show each vehicle's **applied vs. desired** state, so drift — a staged change not yet applied, or a vehicle running an older config — is a visible state rather than something discovered from missing data. | Must |
+| F12-R12 | The configurator MUST NOT expose `Pull`/`Push` transport controls. Fleet Telemetry is push-only; the platform's config artifact carries only `interval_seconds` and `minimum_delta` per field. Presenting a transport control that has no effect at the vehicle would be an operator-facing lie. (*Owner decision, 2026-10-07 — the reference product's Pull/Push column models a polling transport this platform does not use.*) | Must |
+
+**Non-Functional Requirements:**
+
+| ID | Requirement | Target |
+|----|------------|--------|
+| F12-N01 | Resolution determinism | the same scope stack resolves to a byte-identical artifact; the artifact is built in sorted key order so a change is a reviewable diff |
+| F12-N02 | Blast-radius control | no single unscoped action can change every vehicle's config without a canary + verification intervening |
+| F12-N03 | Staging isolation | a staged-but-unapplied target MUST have no effect on any vehicle |
+| F12-N04 | Apply throughput at target scale | 1,000 vehicles must be appliable within the worker's request limits — the per-VIN loop MUST be batched or scheduled rather than executed in a single request |
+| F12-N05 | Audit completeness | every applied change is reconstructable from the audit trail alone |
+
+**Acceptance Criteria:**
+
+```text
+AC1: A vehicle with no override resolves to exactly the global configuration; a vehicle with an
+     override resolves to global+group+vehicle with the most specific value winning per field, and
+     every other field inheriting rather than reverting to a default.
+AC2: A field absent from every scope is reported as a configuration error and no artifact is sent.
+AC3: An override that disables a field removes it from that vehicle's artifact while the global
+     default for every other vehicle is unchanged.
+AC4: An override that would ENABLE a field outside CONSENTED_FIELDS is refused before an artifact is
+     built, and CI fails on it.
+AC5: Editing a scope in the console does not change any vehicle's configuration until the change is
+     applied through CI.
+AC6: A global interval change applies to one eligible canary vehicle, confirms synced: true and a
+     subsequent telemetry observation, and only then extends to the fleet.
+AC7: A canary vehicle carrying an override for the changed field is excluded from canary selection.
+AC8: A canary that fails to adopt halts the rollout; the remaining vehicles are untouched and the
+     per-vehicle outcome is reported.
+AC9: The console shows the effective value and its provenance (global/group/vehicle) for every field
+     of a selected vehicle.
+AC10: A staged change not yet applied is visible as drift and has no effect on the vehicle.
+```
+
+**Out of scope for this feature:** editing the field catalog itself (adding a field to the universe is
+F03/F08), editing consent, and any per-field transport choice (F12-R12).
+
+---
+
 ## 5. Out of Scope
 
 - **Member-facing mobile app.** There is no TOCA member app at MVP; the platform is the connector plus an admin dashboard.
 - **Vehicle Commands, Energy Product Commands, and Enterprise management.** The endpoint families are catalogued but seeded disabled and MUST NOT be called.
 - **`vehicle_data` polling.** Withdrawn at v1.4; Fleet Telemetry is the sole transport. No scheduled polling lane is specified.
 - **High-frequency behaviour capture.** Lateral/longitudinal acceleration, brake-pedal position, and similar high-rate fields are excluded on cost grounds — they are ~39× the cost of the selected field set.
-- **Real-time data.** Telemetry is throttled to a 6-hour refresh by design; the platform is not a live-tracking system.
+- **Real-time data.** Telemetry is push-on-change gated by a per-field `interval_seconds`, currently **180 s** (reduced from 21600 s on 2026-10-07, FRS v2.0). The platform is not a live-tracking system: a changed value may take up to the interval to arrive, and a parked vehicle reports nothing because every field is change-gated. *(This line previously said "throttled to a 6-hour refresh by design"; the interval is per-field and operator-configurable — FEATURE-12.)*
 - **Kafka/Redis/streaming dispatch and any messaging fabric.** The relay forwards batched records to the application directly; no intermediate broker is specified at MVP.
 - **`media_info` / `media_detail`.** Excluded from collection.
 - **Pre-2018 Model S/X without infotainment upgrade.** Cannot be supported.
@@ -856,6 +944,7 @@ AC4: Two /healthz reads in immediate succession return the same version, with no
 - **Insurer reporting requirements.** Deferred until insurers provide their specifications; only the MVP visualisation set is specified.
 - **Non-TOCA tier pricing/product design.** The tier exists (same data access, membership incentive) but its commercial design is not specified here.
 - **Telemetry hosting high availability.** The relay is a single host by design at MVP (SDD-010); failover, multi-region relay, and horizontal scaling are not specified.
+- **Telemetry configuration editing from the console via a direct write path.** FEATURE-12 makes the configuration operator-configurable, but staging is separated from application: the console sets a target and the pipeline applies it (F12-R05). An admin route that mutates a vehicle's configuration directly remains out of scope, because it would break the no-write property F09 is built on.
 - **Payment, billing, and premium collection.** Out of scope.
 - **Multi-region.** AU only, via the NA region base URL.
 
@@ -865,7 +954,8 @@ AC4: Two /healthz reads in immediate succession return the same version, with no
 
 | Artifact | Relation |
 |----------|----------|
-| `apps/afirmico-tesla/src/consent-policy.ts` | **Authoritative consent text** (F01-R03). Versioned; the seeded D1 copy must hash-match it (F01 AC5) |
+| `apps/afirmico-tesla/src/vehicle-config.ts` | **Config artifact builder (F02-R11, generalised by FEATURE-12).** Today `SYNC_INTERVAL_SECONDS` is a single constant applied to every field of every vehicle; F12 replaces that with per-field scopes (global/group/vehicle) while keeping this module as the artifact builder |
+| `apps/afirmico-tesla/src/consent-policy.ts` | **Authoritative consent text** (F01-R03). Versioned; the seeded D1 copy must hash-match it (F01 AC5). `CONSENTED_FIELDS` is the ceiling FEATURE-12 overrides may narrow but not widen (F12-R04) |
 | `apps/afirmico-tesla/migrations/` | D1 schema and catalogs (F03, F08). Applied by the `tesla-schema` CI job |
 | `apps/afirmico-tesla/scripts/verify-schema.sh` | Asserts the schema meets FRS-010's acceptance criteria, incl. D1 statement limits |
 | `apps/afirmico-tesla/scripts/verify-store.ts` | Asserts `src/store.ts` agrees with the schema and that guard triggers fire |
@@ -913,6 +1003,10 @@ AC4: Two /healthz reads in immediate succession return the same version, with no
 | R-14 | **Public-key `Content-Type` — RESOLVED (v1.6).** FRS F02-R01 specified `application/x-pem-file`; SDD-010 previously said `text/plain`. Settled empirically: Tesla's own registration call downloaded the key successfully with `application/x-pem-file`, and the partner record was created. F02-R01's wording stands. The related "excluded from the SPA fallback" phrasing is also settled — the worker is attached by **Route**, so the splash worker never sees the key path at all. | Was a possible registration blocker; closed by the successful registration | **RESOLVED (v1.6)** |
 | R-15 | **Consent text, `CONSENTED_FIELDS` and the catalog described three different field sets (raised v1.15 — RESOLVED v1.16 by owner decision).** The catalog collected **14** fields (the owner's list, §3.7); the authorisation text said "**Only two numbers are collected**"; `CONSENTED_FIELDS` held **three**. Twelve of the fourteen collected fields were therefore not described in the text the member agreed to — including `SentryMode`, `PinToDriveEnabled`, `SpeedLimitMode` and five ADAS settings. The text's exclusion list was accurate for all 14, so the collection was under-described rather than secretive, but it was a weaker position than the authorisation claimed for itself. **Resolution (owner decision, 2026-10-03): widen the disclosure, do not shrink the collection.** The owner's instruction was that the authorisation "needs to be broad enough to cover any of the fields" and "we don't have to list specific fields". The text now grants the **enabled data stream** rather than a named subset (F01-R02a), and `CONSENTED_FIELDS` was redefined from *consent scope* to *current collection set* and filled to the 14, so it no longer claims to be the limit of the grant. **The gate that was missing now exists:** F01 AC6 requires the catalog's collected set and `CONSENTED_FIELDS` to agree by field name, enforced in `verify-store.ts` (build-fails) and reported at `/healthz`; previously nothing compared them, which is why this shipped. Policy version moved `2026-10-02.1` → `2026-10-03.1` (new SHA-256, so the change is a versioned consent event and not a silent edit); migration `0011` seeds the new text and supersedes the old, which is retained for members who consented under it. The two remaining consequences are accepted, not overlooked: (1) the non-`event` fields are still disclosed to underwriters only as vehicle description, so the *disclosure* to underwriters remains distance + FSD distance; the broader text is about *authority*, not about what is sent; (2) members who consented under `2026-10-02.1` must re-accept the new version. | **RESOLVED (v1.16)** |
 
+| R-16 | **A scoped config change is a fleet-wide write to member vehicles (raised v2.0).** FEATURE-12 lets the operator change the telemetry configuration of the whole fleet or a group, and the config is applied by POSTing to Tesla per vehicle. Three failure modes follow, and each is addressed by a requirement rather than left to operator care: (1) a bad config reaches every vehicle at once — F12-R07 requires an **eligible canary** before any global/group rollout, where "eligible" means the canary carries no override for the fields being changed, because under sparse resolution an override **shadows** the scoped value and a canary on an overridden vehicle would appear unaffected and be misread as a pass; (2) a config can apply successfully and yet **stop the stream** — F12-R08 requires evidence-based verification (`synced: true` **and** a subsequent telemetry observation), because the 2026-10-07 Drogon apply showed the two are independent: the config flipped `synced` true→false on update and the car had not yet adopted it; (3) an override could **widen** collection beyond the consented set — F12-R04 makes that a hard gate before an artifact is built. | **Medium** — mitigated by design, but the mitigation is untested until FEATURE-12 is built | OPEN — FEATURE-12 |
+| R-17 | **Group scope has no definition and FEATURE-12 depends on it (raised v2.0).** F12-R01 specifies a `group` scope but the platform has no group/segment entity — F06 segmentation is derived at export time from postcode + model + model year (`tesla_vehicle_attribute`), and is not a stored, named set of members that a config scope could reference. Either a group becomes a first-class stored entity (owner-curated) or the scope binds to the existing derived segment keys, which are not stable across an export. This is a design decision with a real consequence: a config scope bound to a derived key would silently stop applying when the derivation changes. | Blocks the `group` third of FEATURE-12 | **OPEN — design decision required before FEATURE-12 build** |
+| R-18 | **Apply throughput at target scale (raised v2.0).** `POST /admin/telemetry/apply` loops every VIN sequentially inside one Worker request. That works for the current two vehicles and will not work for the 1,000-vehicle target: the request will exceed the Worker's limits long before the loop completes. F12-N04 requires the loop to be batched or scheduled. Measured on the 2026-10-07 canary: one VIN ≈ 3 s, dominated by the member token exchange. | Affects any global/group apply | OPEN — FEATURE-12 |
+
 ---
 
 ## 8. Suggested Phasing
@@ -923,9 +1017,10 @@ AC4: Two /healthz reads in immediate succession return the same version, with no
 | 1 | FEATURE-02: public key route, partner registration, token lifecycle — the hard gate |
 | 2 | FEATURE-03: full field, endpoint, and alert catalogs loaded and verified |
 | 3 | FEATURE-08: D1 schema and migrations; R2 raw payload storage |
-| 4 | FEATURE-04: telemetry relay + config push, one vehicle, then the consented fleet. **Gate: confirm `interval_seconds` accepts 6 h (SDD-010 §9 O-1).** |
+| 4 | FEATURE-04: telemetry relay + config push, one vehicle, then the consented fleet. **Gate: closed** — `interval_seconds` accepted 21600 in production, and the value is now **180 s** (FRS v2.0); the earlier 1–60 s floor suspicion was withdrawn as wrong. |
 | 5 | FEATURE-05: driver profile derivation incl. FSD usage |
 | 6 | FEATURE-09: admin dashboard, Australia map, fleet and quality visualisation |
+| 6b | **FEATURE-12 (FRS v2.0): Vehicle Telemetry Configurator** — resolution engine (sparse, most-specific-wins), three scopes, staged-target + CI apply, canary for global/group, effective-value and provenance display. Depends on FEATURE-09 (the console it extends) and on the config-apply path (F02-R11) it generalises. |
 | 7 | FEATURE-06 + FEATURE-07: group-tier aggregates and individual quote packages with secure delivery |
 | 8 | FEATURE-10: revocation, deletion, and retention lifecycle |
 | 9 | Insurer requirements received → separate reporting FRS |
