@@ -213,6 +213,17 @@ check "once-tier fields absent from series" \
 check "once-tier fields present as attributes" \
   "$(q "SELECT count(*) FROM pragma_table_info('tesla_vehicle_attribute') WHERE name IN ('car_type','version','efficiency_package','trim')")" 4
 
+# The attribute view must report an observed-at RANGE, not a single instant: a partial
+# payload advances only the fields it carries, so one MAX() implied all attributes were
+# observed together when they were not. `observed_at` must be GONE -- leaving the old
+# name available would let a caller keep making the wrong claim by accident.
+check "attribute view has oldest_observed_at" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_vehicle_attribute') WHERE name='oldest_observed_at'")" 1
+check "attribute view has newest_observed_at" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_vehicle_attribute') WHERE name='newest_observed_at'")" 1
+check "the misleading single observed_at is gone" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_vehicle_attribute') WHERE name='observed_at'")" 0
+
 # The pivot must collapse to one row per (vin, observed_at) -- the grain that makes
 # it a true record rather than an approximation. Three facts sharing one instant
 # must yield exactly one row.

@@ -21,6 +21,7 @@ import { Hono } from 'hono'
 import type { Context, Next } from 'hono'
 import { timingSafeEqual } from './store'
 import { modelYearFromVin, variantFromEfficiencyPackage } from './analytics'
+import { formatDualTime, formatTimeColumns, stateFromPostcode, timeZoneForPostcode } from './timezone'
 
 export interface AdminEnv {
   OAUTH_SESSIONS: KVNamespace
@@ -364,7 +365,7 @@ async function renderActiveConnections(
   // join is for the consent history, not a source of per-vehicle rows.
   const connections = await db.prepare(
     `SELECT
-       m.member_id, m.tesla_email, m.created_at as member_since,
+       m.member_id, m.tesla_email, m.created_at as member_since, m.postcode,
        v.vin, v.display_name, v.model, v.last_seen_at,
        vk.key_state, vk.paired_at, vk.last_error AS key_last_error,
        (SELECT state FROM tesla_telemetry_config t2 WHERE t2.vin = v.vin
@@ -432,6 +433,13 @@ async function renderActiveConnections(
     }
     const vehicles = Array.from(vehicleByVin.values())
 
+    // The member's own zone, resolved from their postcode. Each member block renders its
+    // vehicles' times in that member's local zone, because that is the zone the owner
+    // reasons in — a Queensland member must not be shown NSW daylight time.
+    const memberZone = timeZoneForPostcode(
+      first.postcode === null || first.postcode === undefined ? null : String(first.postcode),
+    )
+
     // The member-level pill must not speak for one vehicle and imply all of them.
     // It previously read `first.key_state`, so a member with one paired and one
     // unpaired vehicle showed a single green "paired" pill -- the unpaired vehicle
@@ -495,7 +503,7 @@ async function renderActiveConnections(
             <tbody>
               <tr><td class="meta" style="width:170px">Display Name</td><td>${escapeHtml(r.display_name ?? '—')}</td></tr>
               <tr><td class="meta">Model</td><td>${vehicleIdentity(r)}</td></tr>
-              <tr><td class="meta">Last Seen</td><td class="meta">${escapeHtml(r.last_seen_at ?? '—')}</td></tr>
+              <tr><td class="meta">Last Seen</td><td class="meta">${formatDualTime(r.last_seen_at === null || r.last_seen_at === undefined ? null : String(r.last_seen_at), memberZone)}</td></tr>
               <tr><td class="meta">Virtual Key</td><td><span class="pill ${r.key_state === 'paired' ? 'ok' : r.key_state === 'fault' ? 'bad' : 'warn'}">${escapeHtml(r.key_state ?? 'unpaired')}</span>${
                 // Show WHY a key is unpaired. "unpaired" alone cannot distinguish a
                 // key the member never added from one removed at the car from a
@@ -504,7 +512,7 @@ async function renderActiveConnections(
                   ? ` <span class="meta">${escapeHtml(keyReason(r.key_last_error))}</span>`
                   : ''
               }</td></tr>
-              <tr><td class="meta">Paired At</td><td class="meta">${escapeHtml(r.paired_at ?? '—')}</td></tr>
+              <tr><td class="meta">Paired At</td><td class="meta">${formatDualTime(r.paired_at === null || r.paired_at === undefined ? null : String(r.paired_at), memberZone)}</td></tr>
               <tr><td class="meta">Telemetry Config</td><td><span class="pill ${
                 r.config_state === 'active' ? 'ok' : r.config_state === 'failed' ? 'bad' : 'warn'
               }">${escapeHtml(r.config_state ?? 'none')}</span>${
@@ -517,7 +525,12 @@ async function renderActiveConnections(
                   ? r.config_state === 'active'
                     ? '<span class="pill bad">no data yet</span> <span class="meta">config active but nothing captured — check the relay</span>'
                     : '<span class="meta">none yet</span>'
-                  : `<strong>${Number(r.fact_count)}</strong> <span class="meta">records, latest ${escapeHtml(String(r.last_fact_at ?? '—').slice(0, 19).replace('T', ' '))}</span>`
+                  : `<strong>${Number(r.fact_count)}</strong> <span class="meta">records, latest ${
+                      // This is the row that caused the confusion: it carried a bare
+                      // timestamp with NO zone label, so `02:28:15` read as 2:28 AM local
+                      // and contradicted the owner's account of their own trip.
+                      formatDualTime(r.last_fact_at === null || r.last_fact_at === undefined ? null : String(r.last_fact_at), memberZone)
+                    }</span>`
               }</td></tr>
             </tbody>
           </table>
@@ -683,16 +696,37 @@ adminApp.get('/telemetry', async (c) => {
   const limit = Math.min(Number(c.req.query('limit') ?? '100'), 500)
 
   // VIN list for the selector, plus the `once`-tier vehicle attributes so the
-  // firmware/config context is visible next to the time series.
+  // firmware/config context is visible next to the time series. The member's postcode
+  // comes along so times render in that member's own zone (state-aware: QLD is AEST
+  // year-round while NSW/VIC/ACT/TAS observe AEDT).
   const vinRows = await c.env.D1_TESLA.prepare(
-    `SELECT v.vin, v.display_name,
+    `SELECT v.vin, v.display_name, m.postcode,
             (SELECT COUNT(*) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS facts,
             (SELECT MAX(f.observed_at) FROM tesla_telemetry_fact f WHERE f.vin = v.vin) AS last_at
-       FROM tesla_vehicle v ORDER BY v.first_seen_at DESC`,
+       FROM tesla_vehicle v
+       LEFT JOIN tesla_member m ON m.member_id = v.member_id
+      ORDER BY v.first_seen_at DESC`,
   ).all<Record<string, unknown>>()
   const vins = vinRows.results ?? []
 
   const selected = vinFilter || (vins[0]?.vin ? String(vins[0].vin) : '')
+
+  // The zone for the selected vehicle's member, resolved from their postcode. Null
+  // postcode or an unmatched range degrades to UTC-only rendering, which is correct
+  // everywhere rather than a plausible local time for the wrong zone.
+  const selectedRow = vins.find((v) => String(v.vin) === selected)
+  const selectedPostcode =
+    selectedRow?.postcode === null || selectedRow?.postcode === undefined
+      ? null
+      : String(selectedRow.postcode)
+  const zone = timeZoneForPostcode(selectedPostcode)
+  // Naming the state beside the times is not decoration: whether daylight saving applies
+  // is a juristictional fact ("note location state - eg, QLD, NSW etc" per the owner), and
+  // a reader cannot tell AEDT from AEST without knowing the state.
+  const state = stateFromPostcode(selectedPostcode)
+  const stateNote = state
+    ? ` <span class="meta">(${state}${selectedPostcode ? ` ${escapeHtml(selectedPostcode)}` : ''} — times shown in this member's local zone)</span>`
+    : ' <span class="meta">(no postcode on record — times shown in UTC)</span>'
 
   const [records, attrs] = selected
     ? await Promise.all([
@@ -716,9 +750,14 @@ adminApp.get('/telemetry', async (c) => {
   // means the null-rendering rule is applied in exactly one place -- a NULL is a
   // signal not reported in that payload, and must not render as "0" or a blank
   // that reads as zero.
-  const columns: Array<{ key: string; label: string; kind: 'num' | 'bool' | 'text' }> = [
-    { key: 'observed_at', label: 'Observed (UTC)', kind: 'text' },
-    { key: 'received_at', label: 'Received (UTC)', kind: 'text' },
+  const columns: Array<{ key: string; label: string; kind: 'num' | 'bool' | 'text' | 'time' | 'time-local' }> = [
+    { key: 'observed_at', label: 'Observed (UTC)', kind: 'time' },
+    { key: 'received_at', label: 'Received (UTC)', kind: 'time' },
+    // Local equivalents, in the member's own state zone. Two columns rather than one
+    // combined string because the UTC value must stay sortable and the local value
+    // readable, and a reader must be able to tell which is which without inference.
+    { key: 'observed_at', label: `Observed (local${state ? `, ${state}` : ''})`, kind: 'time-local' },
+    { key: 'received_at', label: 'Received (local)', kind: 'time-local' },
     // Miles as reported, and the converted kilometres beside it. km is derived from
     // the same factor as src/derive.ts so the two cannot disagree.
     //
@@ -759,14 +798,21 @@ adminApp.get('/telemetry', async (c) => {
     // can never be mistaken for a measured 0 -- the same distinction the schema
     // makes with value_kind = 'invalid'.
     if (v === null || v === undefined || v === '') return '<span class="meta">—</span>'
+
+    // Timestamps: UTC in one column, the member's state-local equivalent in the next,
+    // both 24-hour. Sourced from the shared formatter so every surface agrees and no
+    // page can drift back to an unlabelled string.
+    if (col.kind === 'time' || col.kind === 'time-local') {
+      const { utc, local } = formatTimeColumns(String(v), zone)
+      const shown = col.kind === 'time' ? utc : local
+      return `<span class="mono">${escapeHtml(shown)}</span>`
+    }
+
     if (col.kind === 'bool') {
       const on = Number(v) === 1
       return `<span class="pill ${on ? 'ok' : 'warn'}">${on ? 'yes' : 'no'}</span>`
     }
     if (col.kind === 'num') return `<span class="mono">${escapeHtml(v)}</span>`
-    if (col.key === 'observed_at' || col.key === 'received_at') {
-      return `<span class="mono">${escapeHtml(String(v).slice(0, 19).replace('T', ' '))}</span>`
-    }
     return escapeHtml(v)
   }
 
@@ -774,6 +820,7 @@ adminApp.get('/telemetry', async (c) => {
 
   return c.html(shell('Admin — Telemetry', `
   <h1>Telemetry <span class="meta">${selected ? `— ${escapeHtml(selected)}` : ''}</span></h1>
+  <p class="meta" style="margin-top:-8px">${stateNote}</p>
 
   <form method="GET" action="/admin/telemetry" style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
     <select name="vin" style="padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;font-size:14px">
@@ -812,7 +859,16 @@ adminApp.get('/telemetry', async (c) => {
       }</td>
       <td class="mono">${escapeHtml(attrs?.version ?? '—')}</td>
       <td>${escapeHtml(attrs?.efficiency_package ?? '—')}</td>
-      <td class="meta">${escapeHtml(String(attrs?.observed_at ?? '—').slice(0, 19).replace('T', ' '))}</td>
+      <td class="meta">${formatDualTime(attrs?.newest_observed_at == null ? null : String(attrs.newest_observed_at), zone)}${
+        // "as last reported" rather than a bare timestamp, and an explicit note when the
+        // attributes were NOT all observed together (oldest != newest) — because a
+        // partial payload advances only the fields it carries. Stating the range prevents
+        // a reader assuming the model was observed as recently as the odometer.
+        attrs?.oldest_observed_at && attrs?.newest_observed_at &&
+        String(attrs.oldest_observed_at) !== String(attrs.newest_observed_at)
+          ? ` <span class="meta">as last reported — attributes observed between ${formatDualTime(String(attrs.oldest_observed_at), zone)}</span>`
+          : ' <span class="meta">as last reported</span>'
+      }</td>
     </tr></tbody>
   </table>
 
