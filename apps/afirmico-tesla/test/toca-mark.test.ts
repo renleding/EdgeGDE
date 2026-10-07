@@ -16,18 +16,23 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import app from '../src/index'
+import { createSqliteD1 } from './helpers/sqlite-d1'
 
 const PUBLIC = join(__dirname, '..', 'public')
 const ASSET = join(PUBLIC, 'toca-logo.png')
 
+/**
+ * Real SQLite with the migrations applied, not a permissive stub.
+ *
+ * This suite only checks a served asset, so the database is incidental to it — but the stub
+ * that used to sit here (`prepare: () => d1`) accepted any SQL, and that pattern is what let
+ * a production 500 ship from another suite. Using the real double keeps one harness across
+ * the repo so the permissive shape cannot be copied forward from here.
+ */
 function env() {
-  const d1 = {
-    prepare: () => d1, bind: () => d1,
-    first: async () => null, all: async () => ({ results: [] }), run: async () => ({ success: true }),
-  }
   return {
     OAUTH_SESSIONS: { get: async () => null, put: async () => {}, delete: async () => {} },
-    D1_TESLA: d1,
+    D1_TESLA: createSqliteD1(),
     RAW_PAYLOADS: { put: async () => {}, get: async () => null },
     TESLA_CLIENT_ID: 'x', TESLA_CLIENT_SECRET: 'x', OAUTH_STATE_SECRET: 'x',
     TOKEN_ENCRYPTION_KEY: 'dGVzdC1rZXktdGVzdC1rZXktdGVzdC1rZXk=',
