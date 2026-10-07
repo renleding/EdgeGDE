@@ -71,7 +71,7 @@ async function isAuthenticated(c: Context<{ Bindings: AdminEnv }>): Promise<bool
   return (await c.env.OAUTH_SESSIONS.get(`admin:${sessionId}`)) === 'ok'
 }
 
-function shell(title: string, body: string, nav = true): string {
+function shell(title: string, body: string, nav = true, liveVin?: string): string {
   const navBar = nav
     ? `<div class="nav">
     <a href="/admin/overview">Overview</a>
@@ -122,17 +122,120 @@ function shell(title: string, body: string, nav = true): string {
   .err{background:#1a0808;border-left:3px solid #ff5c5c;color:#ffb3b3;padding:12px;border-radius:8px;margin-bottom:16px}
   .meta{color:#8a8a8a;font-size:13px}
   footer{margin-top:40px;color:#666;font-size:13px;border-top:1px solid #1e1e1e;padding-top:16px}
+  .live{display:flex;align-items:center;gap:10px;margin:14px 0 4px;padding:9px 12px;border-radius:9px;background:#111;border:1px solid #1f1f1f;font-size:13px;color:#8a8a8a}
+  .live .dot{width:9px;height:9px;border-radius:50%;background:#5a5a5a;flex:0 0 9px}
+  .live[data-state=ok] .dot{background:#42ff8c}
+  .live[data-state=idle] .dot{background:#f5c542}
+  .live[data-state=new] .dot{background:#8ab4ff;animation:pulse 1s infinite}
+  .live[data-state=new]{color:#cfe0ff;border-color:#26364d}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="logo">AFIRMICO Auto <span>Admin</span></div>
   ${navBar}
+  ${nav ? liveBar(liveVin) : ''}
   ${body}
   <footer>Operator console · read-only · access is audited</footer>
 </div>
 </body>
 </html>`
+}
+
+/**
+ * The live-freshness bar (F02-R14).
+ *
+ * The console is server-rendered, so there is nothing to "push": the data is always in D1
+ * the moment ingest commits, and the only reason an operator had to ask for a nudge was
+ * that the PAGE never re-fetched. This polls a freshness probe and reloads when the newest
+ * received instant changes.
+ *
+ * Reload rather than in-browser patching, deliberately: the tables are rendered server-side
+ * by `columns`/`cell`, and re-rendering them in JavaScript would be a second implementation
+ * of the same formatting that could drift from the first. A reload runs the same code path
+ * that produced the page.
+ *
+ * `<` is avoided throughout the script so no HTML parser can mistake it for a tag, and no
+ * backticks or `${}` appear so this cannot collide with the surrounding template literal.
+ */
+function liveBar(liveVin?: string): string {
+  const scope = liveVin ? ` data-vin="${escapeHtml(liveVin)}"` : ''
+  return `
+<div class="live" id="live-bar" data-state="pending"${scope}>
+  <span class="dot"></span>
+  <span id="live-text">Checking for new telemetry…</span>
+</div>
+<script>
+(function(){
+  var el = document.getElementById('live-bar');
+  if (!el) return;
+  var vin = el.getAttribute('data-vin');
+  var base = '/admin/api/telemetry/latest';
+  var url = vin ? base + '?vin=' + encodeURIComponent(vin) : base;
+  var lastSeen = null;
+  // Auto-reload must not fight the reader. At fleet scale (1,000 vehicles sending on
+  // change) new data arrives continuously, so an unconditional reload would refresh the
+  // page every poll and make it unreadable rather than live. So: reload when the operator
+  // is idle, and hold the refresh behind a click when they are actively working. The
+  // "automatic" requirement is met either way — nobody has to ask for the data.
+  var lastTouch = Date.now();
+  ['scroll', 'click', 'keydown'].forEach(function(ev){
+    window.addEventListener(ev, function(){ lastTouch = Date.now(); }, { passive: true });
+  });
+  var IDLE_MS = 45000;
+  function pad(n){ return ('0' + n).slice(-2); }
+  function fmt(iso){
+    if (!iso) return 'never';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate())
+      + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()) + ' UTC';
+  }
+  var pending = false;
+  function paint(j){
+    var t = document.getElementById('live-text');
+    if (!t) return;
+    var obs = j.newest_observed_at, rec = j.newest_received_at;
+    if (!obs && !rec) {
+      el.setAttribute('data-state', 'idle');
+      t.textContent = 'No telemetry received yet for this scope. Auto-checking every 30s.';
+      return;
+    }
+    if (lastSeen !== null && rec !== lastSeen) {
+      pending = true;
+      if (Date.now() - lastTouch > IDLE_MS) {
+        el.setAttribute('data-state', 'new');
+        t.textContent = 'New telemetry received (' + fmt(rec) + ') — refreshing…';
+        setTimeout(function(){ window.location.reload(); }, 1200);
+        return;
+      }
+      // New data, but the operator is reading. Offer it rather than yanking the page.
+      el.setAttribute('data-state', 'new');
+      el.style.cursor = 'pointer';
+      el.title = 'Click to load the new telemetry';
+      t.textContent = 'New telemetry received (' + fmt(rec) + ') — click to refresh now, '
+        + 'or this page refreshes when idle for 45s';
+      return;
+    }
+    lastSeen = rec;
+    el.setAttribute('data-state', 'ok');
+    t.textContent = 'Last observed ' + fmt(obs) + ' · last received ' + fmt(rec)
+      + ' · auto-checking every 30s' + (pending ? ' · click to refresh' : '');
+  }
+  el.addEventListener('click', function(){
+    if (el.getAttribute('data-state') === 'new') window.location.reload();
+  });
+  function poll(){
+    fetch(url, { cache: 'no-store', headers: { accept: 'application/json' } })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ if (j) paint(j); })
+      .catch(function(){});
+  }
+  poll();
+  setInterval(poll, 30000);
+})();
+</script>`
 }
 
 function loginPage(error: string | null): string {
@@ -840,8 +943,9 @@ adminApp.get('/telemetry', async (c) => {
     ${selected ? `One row appears here per payload received for ${escapeHtml(selected)}.
       A verified config with nothing captured means collection is not reaching Tier 1 —
       check the relay's <code>log_level</code> (must be <code>info</code>) and its forwarded-line
-      counters. A parked vehicle legitimately produces nothing: every configured field is
-      change-gated at 6 hours.` : 'No vehicle on record.'}
+      counters. A parked vehicle legitimately produces nothing: fields are change-gated and a
+      value that has not changed is not sent, at any interval (configured interval 180 s, which
+      bounds how often a changed value may be sent rather than guaranteeing a rate).` : 'No vehicle on record.'}
   </div>` : `
   <h2>Vehicle attributes <span class="meta">(constant unless firmware or hardware changes)</span></h2>
   <table style="font-size:13px;margin-bottom:20px">
@@ -886,7 +990,7 @@ adminApp.get('/telemetry', async (c) => {
     measured zero. Storage is narrow (one row per field per instant) and this table is the
     pivot of it (migration 0012); the raw payload for every row is retained in R2.
   </p>`}
-  `))
+  `, true, selected))
 })
 
 adminApp.get('/consent', async (c) => {
@@ -978,6 +1082,76 @@ adminApp.get('/api/telemetry/health', async (c) => {
     vehicles: vehicles ?? { total: 0 },
   })
 })
+/**
+ * Live-freshness probe (F02-R14).
+ *
+ * Why this exists: the admin console is server-rendered HTML with no refresh, so an
+ * operator could not tell a quiet pipeline from a stale page and had to ask for a manual
+ * nudge to see new data. Two things were wrong, and both are fixed here rather than by
+ * documentation:
+ *
+ *   1. Nothing in the page ever re-fetched. A tab left open showed the moment it loaded.
+ *   2. The only freshness figure available was day-scoped (`/api/telemetry/health` counts
+ *      from 00:00 UTC) — which advances daily rather than per payload, so a poller watching
+ *      it cannot detect an arriving batch at all.
+ *
+ * This endpoint returns the newest OBSERVED instant (the vehicle's own clock) and the
+ * newest RECEIVED instant (when we stored it). Both, because they answer different
+ * questions: `observed` moves when the car sends, `received` moves when we ingest, and a
+ * gap between them is the pipeline's latency rather than the car's silence.
+ *
+ * Scope: `?vin=` narrows to one vehicle; omitted, it is fleet-wide. Fleet-wide is what the
+ * overview needs, and `COUNT(*)` there is bounded by D1's own query cost rather than by
+ * the number of vehicles.
+ */
+adminApp.get('/api/telemetry/latest', async (c) => {
+  const vin = (c.req.query('vin') ?? '').trim()
+
+  // `no-store` is the point of the endpoint: a cached freshness check reports stale data
+  // as current, which is worse than not checking at all.
+  c.header('cache-control', 'no-store, no-cache, must-revalidate, private')
+
+  if (vin) {
+    const [facts, batches, last] = await Promise.all([
+      c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_fact WHERE vin = ?')
+        .bind(vin)
+        .first<{ n: number }>(),
+      c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_batch WHERE vin = ?')
+        .bind(vin)
+        .first<{ n: number }>(),
+      c.env.D1_TESLA.prepare(
+        'SELECT MAX(observed_at) AS newest_observed_at, MAX(received_at) AS newest_received_at FROM tesla_telemetry_batch WHERE vin = ?',
+      )
+        .bind(vin)
+        .first<{ newest_observed_at: string | null; newest_received_at: string | null }>(),
+    ])
+    return c.json({
+      vin,
+      facts: facts?.n ?? 0,
+      batches: batches?.n ?? 0,
+      newest_observed_at: last?.newest_observed_at ?? null,
+      newest_received_at: last?.newest_received_at ?? null,
+      checked_at: new Date().toISOString(),
+    })
+  }
+
+  const [facts, batches, last] = await Promise.all([
+    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_fact').first<{ n: number }>(),
+    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_batch').first<{ n: number }>(),
+    c.env.D1_TESLA.prepare(
+      'SELECT MAX(observed_at) AS newest_observed_at, MAX(received_at) AS newest_received_at FROM tesla_telemetry_batch',
+    ).first<{ newest_observed_at: string | null; newest_received_at: string | null }>(),
+  ])
+  return c.json({
+    vin: null,
+    facts: facts?.n ?? 0,
+    batches: batches?.n ?? 0,
+    newest_observed_at: last?.newest_observed_at ?? null,
+    newest_received_at: last?.newest_received_at ?? null,
+    checked_at: new Date().toISOString(),
+  })
+})
+
 /** The icon is served by the worker at /favicon.svg; this is only a fallback. */
 adminApp.get('/favicon.svg', (c) =>
   c.body(FAVICON_SVG, 200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=3600' }),

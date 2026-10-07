@@ -66,7 +66,7 @@ async function login(env: ReturnType<typeof makeEnv>): Promise<string> {
 }
 
 const PAGES = ['/admin/overview', '/admin/members', '/admin/vehicles', '/admin/telemetry', '/admin/consent', '/admin/audit']
-const APIS = ['/admin/api/members', '/admin/api/telemetry/health']
+const APIS = ['/admin/api/members', '/admin/api/telemetry/health', '/admin/api/telemetry/latest']
 
 /**
  * Every table and view the migrations create, as the source of truth for the
@@ -94,6 +94,7 @@ const MIGRATION_TABLES = [
   'tesla_policy', 'tesla_quote_request', 'tesla_quote_response', 'tesla_release',
   'tesla_release_access', 'tesla_signal_counter', 'tesla_state_change',
   'tesla_telemetry_batch', 'tesla_telemetry_config', 'tesla_telemetry_fact',
+  'tesla_telemetry_config_archive',
   'tesla_vehicle', 'tesla_vehicle_key', 'tesla_vehicle_snapshot',
   'tesla_vehicle_snapshot_history',
   // Views (migration 0012)
@@ -306,5 +307,115 @@ describe('operator console: query/schema agreement', () => {
     // Prove the scan actually looked at something, so a regex that stopped matching
     // cannot make this test pass by finding no tables at all.
     expect(checked.size, 'at least one real table must be checked').toBeGreaterThan(0)
+  })
+})
+
+/**
+ * F02-R14: new telemetry must appear without an operator asking.
+ *
+ * The owner's report was precise and structural: "so far i have had to ask you to push data
+ * their. it needs to be automatic." Two things caused that, and these tests pin both, so a
+ * future refactor cannot quietly reintroduce the need for a nudge.
+ *
+ *   1. The console pages were static HTML — no script, no refresh — so a tab left open
+ *      showed the instant it was loaded, forever.
+ *   2. The only freshness figure available was day-scoped, which advances once a day and
+ *      therefore cannot signal an arriving payload to a poller.
+ */
+describe('operator console: telemetry arrives without an operator asking (F02-R14)', () => {
+  let env: ReturnType<typeof makeEnv>
+  beforeEach(() => { env = makeEnv() })
+
+  it('every page that shows telemetry can detect new data on its own', async () => {
+    const cookie = await login(env)
+    for (const path of PAGES) {
+      const html = await (await app.fetch(
+        new Request(`https://auto.afirmi.co${path}`, { headers: { accept: 'text/html', cookie } }),
+        env,
+      )).text()
+
+      // The poller must be present and must actually reach the freshness endpoint.
+      expect(html, `${path} must poll for freshness`).toContain('/admin/api/telemetry/latest')
+      // Reload is the mechanism: the tables are rendered server-side, and re-rendering
+      // them in JavaScript would be a second formatting implementation that can drift.
+      expect(html, `${path} must reload on new data`).toContain('location.reload')
+      expect(html, `${path} must poll on a timer`).toContain('setInterval(poll, 30000)')
+      expect(html, `${path} must bypass the cache when polling`).toContain("cache: 'no-store'")
+    }
+  })
+
+  it('the sign-in page does not poll, because there is nothing behind it to poll for', async () => {
+    const html = await (await app.fetch(
+      new Request('https://auto.afirmi.co/admin', { headers: { accept: 'text/html' } }),
+      env,
+    )).text()
+    expect(html).not.toContain('/admin/api/telemetry/latest')
+    expect(html).not.toContain('setInterval')
+  })
+
+  it('renders the script so no HTML parser can mistake it for a tag', async () => {
+    // The polling script is inlined into a template literal that also builds HTML. A bare
+    // '<' inside it (for example `i < n`) is parsed as a tag by the HTML tokenizer, which
+    // truncates the script and silently disables the refresh — the exact failure this
+    // feature exists to remove. The script avoids '<' entirely; assert that.
+    const cookie = await login(env)
+    const html = await (await app.fetch(
+      new Request('https://auto.afirmi.co/admin/overview', { headers: { accept: 'text/html', cookie } }),
+      env,
+    )).text()
+
+    const script = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'))
+    expect(script.length, 'script must be present').toBeGreaterThan(100)
+    expect(script.includes('<'), 'inlined script must contain no "<"').toBe(false)
+    // A backtick or ${ would terminate the surrounding template literal at build time.
+    expect(script.includes('`'), 'inlined script must contain no backtick').toBe(false)
+    expect(script.includes('${'), 'inlined script must contain no "${"').toBe(false)
+  })
+
+  it('the freshness endpoint reports both observed and received, and is not cacheable', async () => {
+    const res = await app.fetch(
+      new Request('https://auto.afirmi.co/admin/api/telemetry/latest', { headers: { 'x-admin-secret': SECRET } }),
+      env,
+    )
+    expect(res.status).toBe(200)
+
+    // A cached freshness check reports stale data as current, which is worse than not
+    // checking at all.
+    expect(res.headers.get('cache-control') ?? '').toContain('no-store')
+
+    const body = await res.json() as Record<string, unknown>
+    // Both instants, because they answer different questions: `observed` moves when the
+    // vehicle sends, `received` moves when we ingest, and the gap between them is our
+    // latency rather than the car's silence.
+    for (const key of ['newest_observed_at', 'newest_received_at', 'checked_at', 'facts', 'batches']) {
+      expect(Object.prototype.hasOwnProperty.call(body, key), `response must carry ${key}`).toBe(true)
+    }
+    // Scope is explicit rather than implied: null means fleet-wide.
+    expect(body).toHaveProperty('vin')
+  })
+
+  it('the freshness endpoint accepts a per-vehicle scope', async () => {
+    const res = await app.fetch(
+      new Request('https://auto.afirmi.co/admin/api/telemetry/latest?vin=LRW3F7ET1SC584656', {
+        headers: { 'x-admin-secret': SECRET },
+      }),
+      env,
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.vin).toBe('LRW3F7ET1SC584656')
+  })
+
+  it('the telemetry page scopes its poller to the selected vehicle', async () => {
+    const cookie = await login(env)
+    const html = await (await app.fetch(
+      new Request('https://auto.afirmi.co/admin/telemetry?vin=LRW3F7ET1SC584656', {
+        headers: { accept: 'text/html', cookie },
+      }),
+      env,
+    )).text()
+    // Scoped, so the alert is about the vehicle being viewed rather than the fleet: a
+    // fleet-wide "new data" on a page showing one vehicle would reload for someone else's car.
+    expect(html).toContain('data-vin="LRW3F7ET1SC584656"')
   })
 })
