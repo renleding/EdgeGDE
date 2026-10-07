@@ -521,7 +521,10 @@ async function main() {
   const profileId = await saveProfile(d1, { memberId, vin: 'VIN0000000000001', profile, nowIso: '2026-12-01T00:00:00.000Z' })
   const saved = db.query('SELECT distance_km, fsd_availability, derivation_version FROM tesla_driver_profile WHERE profile_id = ?').get(profileId) as { distance_km: number; fsd_availability: string; derivation_version: string }
   check('profile persisted', saved.fsd_availability, 'measured')
-  check('derivation version stored (F05-R12)', saved.derivation_version, '1.0.0')
+  // 1.1.0: Trim enters the vehicle segment, and the FSD share is refused when the two
+  // counters cover different spans. Both alter what a derived profile can contain, so the
+  // version moved with them (option C: the bump lands WITH the change, never ahead of it).
+  check('derivation version stored (F05-R12)', saved.derivation_version, '1.1.0')
 
   /* ---- raw payload archive (F04 AC7) ----------------------------------- */
   console.log('\nRaw payload retrievability (F04-R15, F04 AC7)')
