@@ -231,8 +231,18 @@ function keyReason(code: unknown): string {
  * is a presentation mapping only -- the stored value stays the raw label the
  * vehicle sent, so nothing here can change what we claim was observed.
  */
-function modelName(raw: unknown): string {
-  const v = String(raw)
+export function modelName(raw: unknown): string {
+  // An absent CarType must produce nothing, not the string "null". Before this
+  // guard the console rendered "null Performance 2025" for a vehicle whose CarType
+  // had not yet arrived — String(null) is "null", which is truthy and fell through
+  // the identity map to be printed verbatim. A missing component must be omitted;
+  // rendering the word "null" as a model name is worse than rendering nothing.
+  if (raw === null || raw === undefined) return ''
+  const v = String(raw).trim()
+  // Case-insensitive: the string "null" reaches here from several directions (a
+  // serialised null, an empty column read as text) and any casing of it is never a
+  // model name.
+  if (!v || v.toLowerCase() === 'null') return ''
   const map: Record<string, string> = {
     CarTypeModelS: 'Model S',
     CarTypeModel3: 'Model 3',
@@ -240,7 +250,10 @@ function modelName(raw: unknown): string {
     CarTypeModelY: 'Model Y',
     CarTypeSemiTruck: 'Semi',
     CarTypeCybertruck: 'Cybertruck',
-    CarTypeUnknown: 'unknown',
+    // Tesla explicitly reporting that it does not know the model. Resolves to nothing
+    // rather than the word "unknown", which would appear as a model name and merge
+    // genuinely different vehicles into one segment.
+    CarTypeUnknown: '',
   }
   return map[v] ?? v
 }
@@ -258,7 +271,7 @@ function modelName(raw: unknown): string {
  * than rendered as a misleading dash. The raw inputs are shown beneath so the
  * composition is auditable and a wrong mapping is visible rather than plausible.
  */
-function vehicleIdentity(r: Record<string, unknown>): string {
+export function vehicleIdentity(r: Record<string, unknown>): string {
   const model = modelName(r.car_type)
 
   // Trim is Tesla's authoritative variant badge; the EfficiencyPackage codename is
@@ -277,11 +290,12 @@ function vehicleIdentity(r: Record<string, unknown>): string {
 
   const { year } = r.vin ? modelYearFromVin(String(r.vin)) : { year: null }
 
-  // Model 3 Performance 2025 — omitting any part we could not resolve.
-  const parts = [model, variant, year === null ? null : String(year)].filter(
-    (p): p is string => Boolean(p),
-  )
-  const headline = parts.join(' ') || '—'
+  // The identity is what the VEHICLE reported: model and variant. The year is
+  // derived from the VIN and is tracked separately, because conflating them made the
+  // "nothing received yet" branch unreachable — a vehicle with only a VIN still
+  // produced a non-empty `parts` (the year), so the console showed a bare year with
+  // no model instead of saying no attributes had arrived.
+  const identity = [model, variant].filter((p): p is string => Boolean(p))
 
   const raw: string[] = []
   if (r.car_type) raw.push(String(r.car_type))
@@ -299,7 +313,16 @@ function vehicleIdentity(r: Record<string, unknown>): string {
       ? ' <span class="meta">variant from efficiency package (Trim not yet received)</span>'
       : ''
 
-  return `${escapeHtml(headline)}${yearNote}${variantNote}${rawNote}`
+  // Nothing reported yet: say so plainly rather than printing just a year. The year
+  // alone is still shown, because it is genuinely derivable from the VIN and is
+  // useful — but it must not masquerade as a model identity.
+  if (identity.length === 0) {
+    const yearSuffix = year === null ? '' : ` <span class="meta">(${year} from VIN)</span>`
+    return `<span class="meta">no vehicle attributes received yet</span>${yearSuffix}${yearNote}`
+  }
+
+  const parts = year === null ? identity : [...identity, String(year)]
+  return `${escapeHtml(parts.join(' '))}${yearNote}${variantNote}${rawNote}`
 }
 
 /**
