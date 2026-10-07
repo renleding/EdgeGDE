@@ -1111,43 +1111,46 @@ adminApp.get('/api/telemetry/latest', async (c) => {
   // as current, which is worse than not checking at all.
   c.header('cache-control', 'no-store, no-cache, must-revalidate, private')
 
-  if (vin) {
-    const [facts, batches, last] = await Promise.all([
-      c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_fact WHERE vin = ?')
-        .bind(vin)
-        .first<{ n: number }>(),
-      c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_batch WHERE vin = ?')
-        .bind(vin)
-        .first<{ n: number }>(),
-      c.env.D1_TESLA.prepare(
-        'SELECT MAX(observed_at) AS newest_observed_at, MAX(received_at) AS newest_received_at FROM tesla_telemetry_batch WHERE vin = ?',
-      )
-        .bind(vin)
-        .first<{ newest_observed_at: string | null; newest_received_at: string | null }>(),
-    ])
-    return c.json({
-      vin,
-      facts: facts?.n ?? 0,
-      batches: batches?.n ?? 0,
-      newest_observed_at: last?.newest_observed_at ?? null,
-      newest_received_at: last?.newest_received_at ?? null,
-      checked_at: new Date().toISOString(),
-    })
-  }
+  const where = vin ? ' WHERE vin = ?' : ''
+  const bind = <T extends unknown[]>(stmt: D1PreparedStatement, ...args: T) =>
+    args.length ? stmt.bind(...args) : stmt
 
-  const [facts, batches, last] = await Promise.all([
-    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_fact').first<{ n: number }>(),
-    c.env.D1_TESLA.prepare('SELECT COUNT(*) AS n FROM tesla_telemetry_batch').first<{ n: number }>(),
-    c.env.D1_TESLA.prepare(
-      'SELECT MAX(observed_at) AS newest_observed_at, MAX(received_at) AS newest_received_at FROM tesla_telemetry_batch',
-    ).first<{ newest_observed_at: string | null; newest_received_at: string | null }>(),
+  // The two instants come from DIFFERENT tables, and that is not incidental:
+  //
+  //   observed_at  the vehicle's own clock for a reading — tesla_telemetry_fact
+  //   received_at  when the payload reached us — tesla_telemetry_batch
+  //
+  // `tesla_telemetry_batch` has NO `observed_at` column. Reading both from the batch
+  // table is a 500 (SQLITE_ERROR: no such column), which is what shipped in the first
+  // version of this endpoint. A gap between the two is the pipeline's latency rather than
+  // the car's silence, which is the distinction an operator needs when a vehicle looks
+  // quiet.
+  //
+  // They are deliberately NOT both read from the fact table: a batch can be received and
+  // its facts not yet written, and `received_at` on the batch IS the reception event.
+  const observedStmt = c.env.D1_TESLA.prepare(
+    `SELECT MAX(observed_at) AS newest_observed_at FROM tesla_telemetry_fact${where}`,
+  )
+  const receivedStmt = c.env.D1_TESLA.prepare(
+    `SELECT MAX(received_at) AS newest_received_at FROM tesla_telemetry_batch${where}`,
+  )
+  const factsStmt = c.env.D1_TESLA.prepare(`SELECT COUNT(*) AS n FROM tesla_telemetry_fact${where}`)
+  const batchesStmt = c.env.D1_TESLA.prepare(`SELECT COUNT(*) AS n FROM tesla_telemetry_batch${where}`)
+  const args = vin ? [vin] : []
+
+  const [observed, received, facts, batches] = await Promise.all([
+    bind(observedStmt, ...args).first<{ newest_observed_at: string | null }>(),
+    bind(receivedStmt, ...args).first<{ newest_received_at: string | null }>(),
+    bind(factsStmt, ...args).first<{ n: number }>(),
+    bind(batchesStmt, ...args).first<{ n: number }>(),
   ])
+
   return c.json({
-    vin: null,
+    vin: vin || null,
     facts: facts?.n ?? 0,
     batches: batches?.n ?? 0,
-    newest_observed_at: last?.newest_observed_at ?? null,
-    newest_received_at: last?.newest_received_at ?? null,
+    newest_observed_at: observed?.newest_observed_at ?? null,
+    newest_received_at: received?.newest_received_at ?? null,
     checked_at: new Date().toISOString(),
   })
 })
