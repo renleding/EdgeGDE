@@ -191,6 +191,20 @@ check "miles columns present" \
 check "km columns present" \
   "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record') WHERE name IN ('odometer_km','miles_since_reset_km','self_driving_miles_since_reset_km')")" 3
 
+# The owner asked specifically for the since-reset distance with km. It is easy to
+# read as "already covered" because the FSD column also says "since reset", so pin the
+# pair explicitly: both reset counters must carry a km column, and the conversion must
+# actually be applied to the reported value.
+check "total-since-reset km = mi x 1.609344" \
+  "$(q "SELECT CASE WHEN ABS(miles_since_reset_km - (miles_since_reset_mi * 1.609344)) < 0.000001 THEN 'ok' ELSE 'mismatch' END FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "ok"
+check "FSD-since-reset km = mi x 1.609344" \
+  "$(q "SELECT CASE WHEN ABS(self_driving_miles_since_reset_km - (self_driving_miles_since_reset_mi * 1.609344)) < 0.000001 THEN 'ok' ELSE 'mismatch' END FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "ok"
+# The reset counters must be DISTINCT columns with independent values -- if a view
+# edit ever aliased one to the other, the FSD share would read as 1.0 and be silently
+# wrong. 1000 total vs 400 FSD is the fixture above.
+check "the two reset counters are independent" \
+  "$(q "SELECT CASE WHEN miles_since_reset_mi <> self_driving_miles_since_reset_mi THEN 'distinct' ELSE 'aliased' END FROM tesla_telemetry_record WHERE vin='TESTVIN' AND observed_at='2026-10-01T00:00:00Z'")" "distinct"
+
 # The `once` tier is a vehicle attribute, not a time series, and must NOT be
 # pivoted into the record stream -- presenting a constant as if it were observed
 # at every instant is the defect this guards.
