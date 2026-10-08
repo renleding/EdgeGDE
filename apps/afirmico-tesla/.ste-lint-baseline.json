@@ -1,0 +1,8 @@
+{
+  "baselines": {
+    "docs/FRS-010-afirmico-auto-tesla-fleet-data-v1.md": 410,
+    "docs/SDD-010-afirmico-auto-telemetry-architecture-v1.md": 85,
+    "docs/SDD-011-afirmico-auto-config-scopes-v1.md": 35
+  },
+  "note": "Historical changelog rows are logs, not prose to improve (STE guidance). Baselines set at current hard violation counts. New sections must pass with baseline 0."
+}
