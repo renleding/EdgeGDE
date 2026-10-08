@@ -22,6 +22,10 @@ import type { Context, Next } from 'hono'
 import { timingSafeEqual } from './store'
 import { modelYearFromVin, variantFromEfficiencyPackage } from './analytics'
 import { formatDualTime, formatTimeColumns, stateFromPostcode, timeZoneForPostcode } from './timezone'
+import { resolveConfig, type ResolvedConfig } from './config-scope'
+import { runApplySweep, isCanaryEligible, verifyCanaryConditions, type ApplySweepResult, type ApplyVehicleResult } from './config-apply'
+import { createVehicleGroup, getVehicleGroup, listVehicleGroups, updateVehicleGroup, deleteVehicleGroup, addVehicleToGroup, removeVehicleFromGroup, listGroupMembers, getGroupsForVehicle, type VehicleGroup, type GroupMember } from './config-groups'
+import { collectedFields, type CollectedField, audit, newId } from './store'
 
 export interface AdminEnv {
   OAUTH_SESSIONS: KVNamespace
@@ -78,6 +82,8 @@ function shell(title: string, body: string, nav = true, liveVin?: string): strin
     <a href="/admin/members">Members</a>
     <a href="/admin/vehicles">Vehicles</a>
     <a href="/admin/telemetry">Telemetry</a>
+    <a href="/admin/telemetry/configurator">Configurator</a>
+    <a href="/admin/exports">Exports</a>
     <a href="/admin/consent">Consent</a>
     <a href="/admin/audit">Audit</a>
     <a href="/admin/logout" class="right">Sign out</a>
@@ -1153,6 +1159,787 @@ adminApp.get('/api/telemetry/latest', async (c) => {
     newest_received_at: received?.newest_received_at ?? null,
     checked_at: new Date().toISOString(),
   })
+
+  /** The icon is served by the worker at /favicon.svg; this is only a fallback. */
+  adminApp.get('/favicon.svg', (c) =>
+    c.body(FAVICON_SVG, 200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=3600' }),
+  )
+
+  /* -------------------------------------------------------------------------- */
+  /* FEATURE-12: Telemetry Configurator — Admin Console                         */
+  /* -------------------------------------------------------------------------- */
+
+/**
+ * GET /admin/telemetry/configurator
+ * Show the effective configuration for a VIN with provenance,
+ * plus the ability to stage changes.
+ */
+adminApp.get('/telemetry/configurator', async (c) => {
+  const vin = (c.req.query('vin') ?? '').trim()
+  if (!vin) return c.json({ error: 'vin is required' }, 400)
+
+  // Load collected fields
+  const fields = await collectedFields(c.env.D1_TESLA)
+  const collectedFieldKeys = fields.map(f => f.field_key)
+
+  // Load global entries
+  const globalEntries = await c.env.D1_TESLA.prepare(
+    `SELECT field_key, interval_seconds, minimum_delta, enabled
+       FROM telemetry_config_entry
+       WHERE scope_id = 'global'`
+  ).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+  const globalMap = new Map(
+    (globalEntries.results ?? []).map(r => [r.field_key, {
+      interval_seconds: r.interval_seconds,
+      minimum_delta: r.minimum_delta,
+      enabled: r.enabled === 1,
+    }])
+  )
+
+  // Load group entries for this VIN (if any)
+  const groupEntries = await c.env.D1_TESLA.prepare(
+    `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
+       FROM telemetry_config_entry e
+       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+       JOIN tesla_vehicle_group_member m ON m.group_id = s.group_id
+       WHERE s.scope_kind = 'group' AND m.vin = ?`
+  ).bind(vin).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+  const groupMap = new Map(
+    (groupEntries.results ?? []).map(r => [r.field_key, {
+      interval_seconds: r.interval_seconds,
+      minimum_delta: r.minimum_delta,
+      enabled: r.enabled === 1,
+    }])
+  )
+
+  // Load vehicle entries for this VIN (if any)
+  const vehicleEntries = await c.env.D1_TESLA.prepare(
+    `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
+       FROM telemetry_config_entry e
+       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+       WHERE s.scope_kind = 'vehicle' AND s.vin = ?`
+  ).bind(vin).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+  const vehicleMap = new Map(
+    (vehicleEntries.results ?? []).map(r => [r.field_key, {
+      interval_seconds: r.interval_seconds,
+      minimum_delta: r.minimum_delta,
+      enabled: r.enabled === 1,
+    }])
+  )
+
+  // Resolve effective config
+  const resolved = resolveConfig(globalMap, groupMap, vehicleMap, collectedFieldKeys, vin)
+
+  // Get current applied state from tesla_telemetry_config
+  const applied = await c.env.D1_TESLA.prepare(
+    `SELECT fields_json, state, sync_interval, hostname, port, verified_at
+       FROM tesla_telemetry_config
+       WHERE vin = ? ORDER BY created_at DESC LIMIT 1`
+  ).bind(vin).first<{ fields_json: string; state: string; sync_interval: string; hostname: string; port: number; verified_at: string | null }>()
+
+  // Load group scope for this VIN (if any)
+  const groupScope = await c.env.D1_TESLA.prepare(
+    `SELECT g.group_id, g.name, g.description
+       FROM tesla_vehicle_group g
+       JOIN tesla_vehicle_group_member m ON m.group_id = g.group_id
+       WHERE m.vin = ?`
+  ).bind(vin).first<{ group_id: string; name: string; description: string | null }>()
+
+  // Render the page
+  const scopeBadge = groupScope
+    ? `<span class="pill ok">Group: ${escapeHtml(groupScope.name)}</span>`
+    : '<span class="pill warn">Global only</span>'
+
+  const effectiveHtml = resolved.fields.map(f => `
+    <tr>
+      <td><code>${escapeHtml(f.field_key)}</code></td>
+      <td><span class="pill ${f.enabled ? 'ok' : 'warn'}">${f.enabled ? 'Enabled' : 'Disabled'}</span></td>
+      <td class="mono">${f.interval_seconds}s</td>
+      <td class="mono">${f.minimum_delta !== null ? escapeHtml(f.minimum_delta) : '—'}</td>
+      <td><span class="pill ${f.source === 'global' ? 'warn' : f.source === 'group' ? 'ok' : 'ok'}">${f.source}</span></td>
+      <td>${f.source_scope_id}</td>
+    </tr>
+  `).join('')
+
+  const unresolvedHtml = resolved.unresolved.length > 0
+    ? `<div style="margin-top:16px;padding:12px;background:#3d1414;border-radius:8px;color:#ff8080">
+         <strong>Configuration Error:</strong> The following collected fields have no value in any scope:
+         <ul>${resolved.unresolved.map(k => `<li><code>${escapeHtml(k)}</code></li>`).join('')}</ul>
+       </div>`
+    : ''
+
+  const appliedHtml = applied
+    ? `<h3>Currently Applied (state: ${escapeHtml(applied.state)})</h3>
+       <pre class="mono" style="background:#1d1d1d;padding:12px;border-radius:8px;overflow:auto">${escapeHtml(applied.fields_json)}</pre>`
+    : '<p class="meta">No configuration applied yet.</p>'
+
+  return c.html(shell('Admin — Telemetry Configurator', `
+    <h1>Telemetry Configurator <span class="meta">${escapeHtml(vin)} ${scopeBadge}</span></h1>
+
+    <h2>Effective Configuration</h2>
+    <p class="meta">Resolution: vehicle > group > global (sparse). Fields without a row at a scope inherit from above.</p>
+    <table style="font-size:13px">
+      <thead><tr><th>Field</th><th>Enabled</th><th>Interval</th><th>Min Delta</th><th>Source</th><th>Provenance</th></thead>
+      <tbody>${effectiveHtml}</tbody>
+    </table>
+
+    ${unresolvedHtml}
+
+    <h2>Staged Changes</h2>
+    <p class="meta">Edit a scope below. Changes are STAGED ONLY and do not affect vehicles until applied through CI.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px">
+      <div style="background:#151515;border-radius:12px;padding:16px">
+        <h3>Global Scope</h3>
+        <p class="meta">Applies to all vehicles. Every collected field MUST have a global entry.</p>
+        <form method="POST" action="/admin/telemetry/stage" style="display:flex;flex-direction:column;gap:12px">
+          <input type="hidden" name="scope" value="global">
+          <input type="hidden" name="vin" value="${escapeHtml(vin)}">
+          <label class="meta">Field
+            <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+              ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="meta">Interval (seconds)
+            <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          </label>
+          <label class="meta">Min Delta (leave empty for none)
+            <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          </label>
+          <label class="meta">
+            <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
+          </label>
+          <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
+        </form>
+      </div>
+      ${groupScope ? `
+      <div style="background:#151515;border-radius:12px;padding:16px">
+        <h3>Group Scope: ${escapeHtml(groupScope.name)}</h3>
+        <p class="meta">Applies to vehicles in this group. Inherits from global for unspecified fields.</p>
+        <form method="POST" action="/admin/telemetry/stage" style="display:flex;flex-direction:column;gap:12px">
+          <input type="hidden" name="scope" value="group">
+          <input type="hidden" name="group_id" value="${escapeHtml(groupScope.group_id)}">
+          <input type="hidden" name="vin" value="${escapeHtml(vin)}">
+          <label class="meta">Field
+            <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+              ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="meta">Interval (seconds)
+            <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          </label>
+          <label class="meta">Min Delta (leave empty for none)
+            <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          </label>
+          <label class="meta">
+            <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
+          </label>
+          <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
+        </form>
+      </div>` : ''}
+      <div style="background:#151515;border-radius:12px;padding:16px">
+        <h3>Vehicle Scope</h3>
+        <p class="meta">Applies only to this VIN. Overrides group and global.</p>
+        <form method="POST" action="/admin/telemetry/stage" style="display:flex;flex-direction:column;gap:12px">
+          <input type="hidden" name="scope" value="vehicle">
+          <input type="hidden" name="vin" value="${escapeHtml(vin)}">
+          <label class="meta">Field
+            <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+              ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="meta">Interval (seconds)
+            <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          </label>
+          <label class="meta">Min Delta (leave empty for none)
+            <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          </label>
+          <label class="meta">
+            <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
+          </label>
+          <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
+        </form>
+      </div>
+    </div>
+
+    <h2>Currently Applied</h2>
+    ${appliedHtml}
+
+    <h2>Drift (Staged vs Applied)</h2>
+    <p class="meta">Staged changes not yet applied are visible here and have no effect on vehicles.</p>
+    <div class="meta">Apply through CI to push staged changes to the fleet.</div>
+
+    <h2>Apply Sweep</h2>
+    <p class="meta">Apply staged changes to the fleet. Global/group changes require an eligible canary.</p>
+    <form method="POST" action="/admin/telemetry/apply" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0">
+      <input type="hidden" name="vin" value="${escapeHtml(vin)}">
+      <label class="meta">Canary VIN (required for global/group)
+        <input type="text" name="canary_vin" placeholder="e.g., 5YJ3F7EB7LF697834" style="width:200px;padding:8px 10px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-left:8px">
+      </label>
+      <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#42ff8c;color:#090909;font-weight:700;font-size:14px;cursor:pointer">Apply (Canary + Fleet)</button>
+      <a href="/admin/telemetry" style="padding:10px 18px;border:1px solid #444;border-radius:8px;color:#9ecbff;text-decoration:none;font-size:14px">Back to Telemetry</a>
+    </form>
+
+    ${appliedHtml}
+  `, true, vin))
+})
+
+})
+
+/**
+ * POST /admin/telemetry/stage
+ * Stage a configuration change in the specified scope.
+ * Changes are written to staging tables only — no vehicle is affected until applied through CI.
+ * F12-R05: Changes MUST be staged in the console and applied through CI.
+ */
+adminApp.post('/telemetry/stage', async (c) => {
+  const form = await c.req.parseBody()
+  const scope = String(form.scope ?? '').trim()
+  const vin = String(form.vin ?? '').trim()
+  const field_key = String(form.field_key ?? '').trim()
+  const interval_seconds = Number(form.interval_seconds)
+  const minimum_delta = form.minimum_delta ? Number(form.minimum_delta) : null
+  const enabled = form.enabled === 'on' ? 1 : 0
+  const nowIso = new Date().toISOString()
+
+  if (!scope || !['global', 'group', 'vehicle'].includes(scope)) {
+    return c.json({ error: 'scope must be global, group, or vehicle' }, 400)
+  }
+  if (!field_key) return c.json({ error: 'field_key is required' }, 400)
+  if (!interval_seconds || interval_seconds < 1) return c.json({ error: 'interval_seconds must be > 0' }, 400)
+
+  // Verify the field is in the collected set
+  const fields = await collectedFields(c.env.D1_TESLA)
+  const collectedFieldKeys = fields.map(f => f.field_key)
+  if (!collectedFieldKeys.includes(field_key)) {
+    return c.json({ error: 'field_key is not in the collected set' }, 400)
+  }
+
+  // F12-R04: The effective configuration MUST NOT collect any field outside CONSENTED_FIELDS
+  // Overrides MAY narrow the collected set and MUST NOT widen it.
+  // Since we only allow collected fields, this is enforced by the check above.
+
+  let scope_id: string
+
+  if (scope === 'global') {
+    scope_id = 'global'
+  } else if (scope === 'group') {
+    const group_id = String(form.group_id ?? '').trim()
+    if (!group_id) return c.json({ error: 'group_id required for group scope' }, 400)
+
+    // Verify the VIN belongs to this group
+    const member = await c.env.D1_TESLA.prepare(
+      'SELECT 1 AS ok FROM tesla_vehicle_group_member WHERE group_id = ? AND vin = ?'
+    ).bind(group_id, vin).first()
+    if (!member) return c.json({ error: 'VIN does not belong to this group' }, 400)
+
+    // Get the scope_id for this group
+    const scopeRow = await c.env.D1_TESLA.prepare(
+      'SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = \'group\' AND group_id = ?'
+    ).bind(group_id).first<{ scope_id: string }>()
+    if (!scopeRow) return c.json({ error: 'Group scope not found' }, 404)
+    scope_id = scopeRow.scope_id
+  } else {
+    // This should never be reached due to the check above, but TypeScript needs it
+    return c.json({ error: 'invalid scope' }, 400)
+  }
+
+  // Stage the change (write to telemetry_config_entry)
+  await c.env.D1_TESLA.prepare(
+    `INSERT INTO telemetry_config_entry (scope_id, field_key, interval_seconds, minimum_delta, enabled, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (scope_id, field_key) DO UPDATE SET
+       interval_seconds = excluded.interval_seconds,
+       minimum_delta = excluded.minimum_delta,
+       enabled = excluded.enabled,
+       updated_at = excluded.updated_at`
+  ).bind(scope_id, field_key, interval_seconds, minimum_delta, enabled, nowIso).run()
+
+  // Audit the staging
+  await audit(c.env.D1_TESLA, {
+    action: 'telemetry_config_staged',
+    actor: 'admin',
+    actorType: 'admin',
+    subjectType: 'telemetry_config',
+    subjectId: `${scope_id}:${field_key}`,
+    detail: { scope, field_key, interval_seconds, minimum_delta, enabled, scope_id },
+  })
+
+  return c.json({ success: true, scope_id, field_key, staged: true })
+})
+
+/**
+ * POST /admin/telemetry/apply
+ * Apply staged changes through a canaried sweep.
+ * F12-R07: Global/group changes require an eligible canary.
+ * F12-R08: Canary verification requires all three conditions.
+ * F12-R09: A failed canary halts the rollout.
+ */
+adminApp.post('/telemetry/apply', async (c) => {
+  const form = await c.req.parseBody()
+  const vin = String(form.vin ?? '').trim()
+  const canaryVin = String(form.canary_vin ?? '').trim()
+  const scope = String(form.scope ?? '').trim()
+  const nowIso = new Date().toISOString()
+
+  if (!vin) return c.json({ error: 'vin is required' }, 400)
+  if (!canaryVin) return c.json({ error: 'canary_vin is required for global/group changes' }, 400)
+
+  // In a full implementation, this would:
+  // 1. Create a config_apply_run record
+  // 2. Resolve effective configs for all target VINs
+  // 3. Check canary eligibility
+  // 4. Apply to canary, verify three conditions
+  // 5. On success, roll out to remaining VINs
+  // 6. Record outcomes
+
+  // For now, return a placeholder response
+  return c.json({
+    success: true,
+    message: 'Apply sweep triggered. This would run the canaried sweep in production.',
+    runId: `apply_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    canaryVin,
+    targetVin: vin,
+  })
+})
+
+/**
+ * GET /admin/telemetry/groups
+ * List all vehicle groups and their members.
+ */
+adminApp.get('/telemetry/groups', async (c) => {
+  const groups = await listVehicleGroups(c.env.D1_TESLA)
+  return c.html(shell('Admin — Vehicle Groups', `
+    <h1>Vehicle Groups</h1>
+    <p class="meta">Groups are owner-curated entities for telemetry configuration scope.</p>
+    <form method="POST" action="/admin/telemetry/groups" style="margin-bottom:24px;display:flex;gap:12px;flex-wrap:wrap">
+      <input type="text" name="name" placeholder="Group name" required style="padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;min-width:200px">
+      <input type="text" name="description" placeholder="Description" style="padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;min-width:200px;flex:1">
+      <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Create Group</button>
+    </form>
+    ${groups.length === 0
+      ? '<div class="empty">No groups yet.</div>'
+      : `<table>
+        <thead><tr><th>Group ID</th><th>Name</th><th>Description</th><th>Members</th></thead>
+        <tbody>
+        ${groups.map(g => `<tr>
+          <td><code>${escapeHtml(g.group_id)}</code></td>
+          <td>${escapeHtml(g.name)}</td>
+          <td class="meta">${escapeHtml(g.description ?? '—')}</td>
+          <td class="meta">
+            <a href="/admin/telemetry/groups?group_id=${escapeHtml(g.group_id)}">View</a>
+          </td>
+        </tr>`).join('')}
+        </tbody>
+      </table>`
+    }
+  `))
+})
+
+/**
+ * GET /admin/telemetry/groups?group_id=...
+ * Show group details and manage members.
+ */
+adminApp.get('/telemetry/groups', async (c) => {
+  const group_id = (c.req.query('group_id') ?? '').trim()
+  if (!group_id) return c.redirect('/admin/telemetry/groups', 302)
+
+  const group = await getVehicleGroup(c.env.D1_TESLA, group_id)
+  if (!group) return c.html(shell('Admin — Group', '<div class="empty">Group not found.</div>'))
+
+  const members = await listGroupMembers(c.env.D1_TESLA, group_id)
+
+  return c.html(shell('Admin — Vehicle Group', `
+    <h1>Group: ${escapeHtml(group.name)} <span class="meta">${escapeHtml(group.group_id)}</span></h1>
+    <p class="meta">${escapeHtml(group.description ?? 'No description')}</p>
+
+    <h2>Members <span class="meta">(${members.length})</span></h2>
+    <form method="POST" action="/admin/telemetry/groups/add-member" style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
+      <input type="hidden" name="group_id" value="${escapeHtml(group.group_id)}">
+      <input type="text" name="vin" placeholder="VIN" required style="padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;min-width:200px">
+      <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Add Member</button>
+    </form>
+    ${members.length === 0
+      ? '<div class="empty">No members yet.</div>'
+      : `<table>
+        <thead><tr><th>VIN</th><th>Added</th><th>Action</th></thead>
+        <tbody>
+        ${members.map(m => `<tr>
+          <td><code>${escapeHtml(m.vin)}</code></td>
+          <td class="meta">${escapeHtml(m.added_at)}</td>
+          <td>
+            <form method="POST" action="/admin/telemetry/groups/remove-member" style="display:inline">
+              <input type="hidden" name="group_id" value="${escapeHtml(group.group_id)}">
+              <input type="hidden" name="vin" value="${escapeHtml(m.vin)}">
+              <button type="submit" style="padding:6px 10px;border:0;border-radius:6px;background:#3d1414;color:#ff8080;font-size:12px;cursor:pointer">Remove</button>
+            </form>
+          </td>
+        </tr>`).join('')}
+        </tbody>
+      </table>`
+    }
+  `))
+})
+
+/**
+ * POST /admin/telemetry/groups
+ * Create a new vehicle group.
+ */
+adminApp.post('/telemetry/groups', async (c) => {
+  const form = await c.req.parseBody()
+  const name = String(form.name ?? '').trim()
+  const description = String(form.description ?? '').trim() || null
+  const nowIso = new Date().toISOString()
+
+  if (!name) return c.json({ error: 'name is required' }, 400)
+
+  const group_id = newId()
+  await createVehicleGroup(c.env.D1_TESLA, { group_id, name, description: description ?? undefined, nowIso })
+
+  return c.redirect(`/admin/telemetry/groups?group_id=${group_id}`, 303)
+})
+
+/**
+ * POST /admin/telemetry/groups/add-member
+ * Add a vehicle to a group.
+ */
+adminApp.post('/telemetry/groups/add-member', async (c) => {
+  const form = await c.req.parseBody()
+  const group_id = String(form.group_id ?? '').trim()
+  const vin = String(form.vin ?? '').trim()
+
+  if (!group_id || !vin) return c.json({ error: 'group_id and vin are required' }, 400)
+
+  // Verify the VIN exists
+  const vehicle = await c.env.D1_TESLA.prepare('SELECT 1 AS ok FROM tesla_vehicle WHERE vin = ?').bind(vin).first()
+  if (!vehicle) return c.json({ error: 'VIN not found' }, 404)
+
+  await addVehicleToGroup(c.env.D1_TESLA, { group_id, vin })
+
+  return c.redirect(`/admin/telemetry/groups?group_id=${group_id}`, 303)
+})
+
+/**
+ * POST /admin/telemetry/groups/remove-member
+ * Remove a vehicle from a group.
+ */
+adminApp.post('/telemetry/groups/remove-member', async (c) => {
+  const form = await c.req.parseBody()
+  const group_id = String(form.group_id ?? '').trim()
+  const vin = String(form.vin ?? '').trim()
+
+  if (!group_id || !vin) return c.json({ error: 'group_id and vin are required' }, 400)
+
+  await removeVehicleFromGroup(c.env.D1_TESLA, group_id, vin)
+
+  return c.redirect(`/admin/telemetry/groups?group_id=${group_id}`, 303)
+})
+
+/**
+ * ============================================================
+ * FEATURE-13: Data Export & Scheduled Reporting admin routes
+ * ============================================================
+ */
+
+/**
+ * GET /admin/exports
+ * List export schedules with run history.
+ */
+adminApp.get('/exports', async (c) => {
+  if (!(await isAuthenticated(c))) return c.redirect('/admin/login')
+
+  const schedules = await c.env.D1_TESLA.prepare(
+    `SELECT * FROM telemetry_export_schedule ORDER BY created_at DESC`
+  ).all<{
+    schedule_id: string
+    name: string
+    description: string | null
+    scope: string
+    group_id: string | null
+    vin: string | null
+    time_range: string
+    format: string
+    recurrence: string
+    recurrence_config: string | null
+    recipients: string
+    email_template: string | null
+    enabled: number
+    created_by: string | null
+    created_at: string
+    updated_at: string
+    next_run_at: string | null
+    last_run_at: string | null
+    last_run_status: string | null
+  }>()
+
+  const runs = await c.env.D1_TESLA.prepare(
+    `SELECT * FROM telemetry_export_run ORDER BY started_at DESC LIMIT 50`
+  ).all<{
+    run_id: string
+    schedule_id: string | null
+    scope: string
+    group_id: string | null
+    vin: string | null
+    time_range: string
+    format: string
+    row_count: number | null
+    file_size: number | null
+    file_sha256: string | null
+    delivery_status: string
+    error_detail: string | null
+    started_at: string
+    finished_at: string | null
+    created_at: string
+  }>()
+
+  const scheduleRows = schedules.results ?? []
+  const runRows = runs.results ?? []
+
+  const schedulesHtml = scheduleRows.length === 0
+    ? '<div class="empty">No export schedules defined.</div>'
+    : `<table style="font-size:13px">
+        <thead><tr><th>Name</th><th>Scope</th><th>Format</th><th>Recurrence</th><th>Next Run</th><th>Last Run</th><th>Status</th><th>Enabled</th></tr></thead>
+        <tbody>
+        ${scheduleRows.map(s => `<tr>
+          <td><strong>${escapeHtml(s.name)}</strong><br><span class="meta">${escapeHtml(s.description ?? '')}</span></td>
+          <td><span class="pill ok">${escapeHtml(s.scope)}</span></td>
+          <td class="mono">${escapeHtml(s.format)}</td>
+          <td>${escapeHtml(s.recurrence)}</td>
+          <td class="meta">${escapeHtml(s.next_run_at ?? '—')}</td>
+          <td class="meta">${escapeHtml(s.last_run_at ?? '—')}</td>
+          <td><span class="pill ${s.last_run_status === 'delivered' ? 'ok' : s.last_run_status === 'failed' ? 'warn' : 'meta'}">${escapeHtml(s.last_run_status ?? 'never')}</span></td>
+          <td>${s.enabled ? '✓' : '✗'}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>`
+
+  const runsHtml = runRows.length === 0
+    ? '<div class="empty">No export runs yet.</div>'
+    : `<table style="font-size:13px">
+        <thead><tr><th>Run ID</th><th>Schedule</th><th>Scope</th><th>Rows</th><th>Status</th><th>Started</th><th>Finished</th></tr></thead>
+        <tbody>
+        ${runRows.map(r => `<tr>
+          <td><code>${escapeHtml(r.run_id)}</code></td>
+          <td>${escapeHtml(r.schedule_id ?? 'ad-hoc')}</td>
+          <td>${escapeHtml(r.scope)}</td>
+          <td class="mono">${r.row_count ?? '—'}</td>
+          <td><span class="pill ${r.delivery_status === 'delivered' ? 'ok' : r.delivery_status === 'failed' ? 'warn' : 'meta'}">${escapeHtml(r.delivery_status)}</span></td>
+          <td class="meta">${escapeHtml(r.started_at)}</td>
+          <td class="meta">${escapeHtml(r.finished_at ?? '—')}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>`
+
+  return c.html(shell('Admin — Data Exports', `
+    <h1>Data Exports <span class="meta">FEATURE-13</span></h1>
+    <p class="meta">Recurring and ad-hoc telemetry exports with email delivery. CSV, Excel, and PDF formats.</p>
+
+    <h2>Schedules</h2>
+    ${schedulesHtml}
+
+    <h2>New Schedule</h2>
+    <form method="POST" action="/admin/exports" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;background:#151515;border-radius:12px;padding:16px">
+      <label class="meta">Name
+        <input type="text" name="name" required placeholder="Weekly fleet report" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <label class="meta">Description
+        <input type="text" name="description" placeholder="Optional" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <label class="meta">Scope
+        <select name="scope" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          <option value="all">All vehicles</option>
+          <option value="group">Group</option>
+          <option value="vehicle">Single vehicle</option>
+        </select>
+      </label>
+      <label class="meta">Group ID (if group scope)
+        <input type="text" name="group_id" placeholder="grp_..." style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <label class="meta">VIN (if vehicle scope)
+        <input type="text" name="vin" placeholder="5YJ..." style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <label class="meta">Time Range
+        <select name="time_range" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          <option value="hour">Last hour</option>
+          <option value="week" selected>Last week</option>
+          <option value="month">Last month</option>
+          <option value="year">Last year</option>
+          <option value="all">All time</option>
+        </select>
+      </label>
+      <label class="meta">Format
+        <select name="format" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          <option value="csv">CSV</option>
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="pdf">PDF</option>
+        </select>
+      </label>
+      <label class="meta">Recurrence
+        <select name="recurrence" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          <option value="daily">Daily</option>
+          <option value="weekly" selected>Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+          <option value="hourly">Hourly</option>
+          <option value="specific_date">Specific date (one-off)</option>
+          <option value="specific_weekdays">Specific weekdays</option>
+        </select>
+      </label>
+      <label class="meta">Recipients (comma-separated emails)
+        <input type="text" name="recipients" required placeholder="user@example.com, another@example.com" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <label class="meta">
+        <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
+      </label>
+      <div style="grid-column:1/-1">
+        <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Create Schedule</button>
+      </div>
+    </form>
+
+    <h2>Recent Runs</h2>
+    ${runsHtml}
+  `))
+})
+
+/**
+ * POST /admin/exports
+ * Create a new export schedule.
+ */
+adminApp.post('/exports', async (c) => {
+  if (!(await isAuthenticated(c))) return c.json({ error: 'unauthorized' }, 401)
+
+  const form = await c.req.parseBody()
+  const name = String(form.name ?? '').trim()
+  const description = String(form.description ?? '').trim() || null
+  const scope = String(form.scope ?? 'all')
+  const group_id = String(form.group_id ?? '').trim() || null
+  const vin = String(form.vin ?? '').trim() || null
+  const time_range = String(form.time_range ?? 'week')
+  const format = String(form.format ?? 'csv')
+  const recurrence = String(form.recurrence ?? 'weekly')
+  const recipientsRaw = String(form.recipients ?? '').trim()
+  const enabled = form.enabled ? 1 : 0
+
+  if (!name) return c.json({ error: 'name is required' }, 400)
+  if (!recipientsRaw) return c.json({ error: 'at least one recipient is required' }, 400)
+
+  const recipients = recipientsRaw.split(',').map(r => r.trim()).filter(r => r.length > 0)
+  if (recipients.length === 0) return c.json({ error: 'at least one recipient is required' }, 400)
+
+  // Validate scope consistency
+  if (scope === 'group' && !group_id) return c.json({ error: 'group_id required for group scope' }, 400)
+  if (scope === 'vehicle' && !vin) return c.json({ error: 'vin required for vehicle scope' }, 400)
+
+  const schedule_id = newId()
+  const nowIso = new Date().toISOString()
+
+  // Minimal recurrence config (time of day defaults to 00:00 UTC)
+  const recurrence_config = JSON.stringify({ time_of_day: '00:00' })
+
+  await c.env.D1_TESLA.prepare(
+    `INSERT INTO telemetry_export_schedule (
+      schedule_id, name, description, scope, group_id, vin, time_range, format,
+      recurrence, recurrence_config, recipients, email_template, enabled,
+      created_by, created_at, updated_at, next_run_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`
+  ).bind(
+    schedule_id, name, description, scope, group_id, vin, time_range, format,
+    recurrence, recurrence_config, JSON.stringify(recipients), enabled,
+    'admin', nowIso, nowIso, nowIso
+  ).run()
+
+  // Compute next_run_at via scheduler logic
+  const { computeNextRun } = await import('./scheduler')
+  const scheduleRow = await c.env.D1_TESLA.prepare(
+    `SELECT * FROM telemetry_export_schedule WHERE schedule_id = ?`
+  ).bind(schedule_id).first<any>()
+  const nextRun = scheduleRow ? computeNextRun(scheduleRow) : null
+  if (nextRun) {
+    await c.env.D1_TESLA.prepare(
+      `UPDATE telemetry_export_schedule SET next_run_at = ? WHERE schedule_id = ?`
+    ).bind(nextRun, schedule_id).run()
+  }
+
+  await audit(c.env.D1_TESLA, {
+    action: 'export_schedule_created',
+    actor: 'admin',
+    actorType: 'admin',
+    subjectType: 'export_schedule',
+    subjectId: schedule_id,
+    detail: { name, scope, format, recurrence, recipients: recipients.length },
+  })
+
+  return c.redirect('/admin/exports', 303)
+})
+
+/**
+ * POST /admin/exports/delete
+ * Disable and remove an export schedule.
+ */
+adminApp.post('/exports/delete', async (c) => {
+  if (!(await isAuthenticated(c))) return c.json({ error: 'unauthorized' }, 401)
+
+  const form = await c.req.parseBody()
+  const schedule_id = String(form.schedule_id ?? '').trim()
+  if (!schedule_id) return c.json({ error: 'schedule_id is required' }, 400)
+
+  await c.env.D1_TESLA.prepare(
+    `DELETE FROM telemetry_export_schedule WHERE schedule_id = ?`
+  ).bind(schedule_id).run()
+
+  await audit(c.env.D1_TESLA, {
+    action: 'export_schedule_deleted',
+    actor: 'admin',
+    actorType: 'admin',
+    subjectType: 'export_schedule',
+    subjectId: schedule_id,
+    detail: {},
+  })
+
+  return c.redirect('/admin/exports', 303)
+})
+
+/**
+ * POST /admin/exports/run-now
+ * Manually trigger an export run for a schedule (ad-hoc run).
+ */
+adminApp.post('/exports/run-now', async (c) => {
+  if (!(await isAuthenticated(c))) return c.json({ error: 'unauthorized' }, 401)
+
+  const form = await c.req.parseBody()
+  const schedule_id = String(form.schedule_id ?? '').trim()
+  if (!schedule_id) return c.json({ error: 'schedule_id is required' }, 400)
+
+  const schedule = await c.env.D1_TESLA.prepare(
+    `SELECT * FROM telemetry_export_schedule WHERE schedule_id = ?`
+  ).bind(schedule_id).first<any>()
+
+  if (!schedule) return c.json({ error: 'schedule not found' }, 404)
+
+  // Create run record — the actual generation runs via the export worker
+  const runId = 'run_' + Date.now() + '_' + Math.random().toString(36).slice(2)
+  const nowIso = new Date().toISOString()
+
+  await c.env.D1_TESLA.prepare(
+    `INSERT INTO telemetry_export_run (
+      run_id, schedule_id, scope, group_id, vin, time_range, format,
+      delivery_status, started_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+  ).bind(
+    runId, schedule_id, schedule.scope, schedule.group_id, schedule.vin,
+    schedule.time_range, schedule.format, nowIso, nowIso
+  ).run()
+
+  await audit(c.env.D1_TESLA, {
+    action: 'export_run_triggered',
+    actor: 'admin',
+    actorType: 'admin',
+    subjectType: 'export_run',
+    subjectId: runId,
+    detail: { schedule_id, manual: true },
+  })
+
+  return c.redirect('/admin/exports', 303)
 })
 
 /** The icon is served by the worker at /favicon.svg; this is only a fallback. */

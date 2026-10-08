@@ -491,6 +491,8 @@ export async function collectedFields(db: D1Database): Promise<
   return res.results ?? []
 }
 
+export type CollectedField = { field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null }
+
 /** The relay hostname + port Tesla is pointed at (F02-R10). */
 export async function telemetryTarget(db: D1Database): Promise<{ hostname: string; port: number }> {
   // Read from the existing config rows when present, so a hostname change is a
