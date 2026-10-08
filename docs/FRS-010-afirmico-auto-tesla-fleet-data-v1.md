@@ -931,6 +931,75 @@ F03/F08), editing consent, and any per-field transport choice (F12-R12).
 
 ---
 
+### 4.13 FEATURE-13: Data Export & Scheduled Reporting
+
+**Priority:** P1  \
+**Effort:** Medium (~5 days) — extends the admin console with export and scheduling capabilities
+
+**User Story:** As the operator, I can export telemetry and driver-profile data for all vehicles, a group,
+or an individual vehicle in CSV, Excel, or PDF format; choose a time range (hour, week, month, year,
+all); schedule recurring exports with calendar-style recurrence (hourly, daily, weekly, monthly,
+yearly, specific date, or specific weekdays); have the export emailed as an attachment with
+templated text; and manage all settings in the admin console.
+
+**Why this exists.** The operator currently has no way to extract the collected telemetry and
+driver-profile data for external analysis, insurer reporting, or regulatory compliance. The admin
+dashboard shows data visually but provides no export capability. This feature adds a flexible,
+auditable export pipeline with scheduling and email delivery.
+
+**Functional Requirements:**
+
+| ID | Requirement | Must/Should |
+|----|------------|-------------|
+| F13-R01 | The platform MUST support exporting telemetry and driver-profile data in **CSV**, **Excel (.xlsx)**, and **PDF** formats. | Must |
+| F13-R02 | Exports MUST be scopeable to **all vehicles**, a **group** (as defined in FEATURE-12), or an **individual vehicle** (by VIN). | Must |
+| F13-R03 | Exports MUST support configurable time ranges: **hour** (last hour), **week** (last 7 days), **month** (last 30 days), **year** (last 365 days), and **all** (entire history). | Must |
+| F13-R04 | The platform MUST support **scheduled exports** with calendar-style recurrence: **hourly**, **daily**, **weekly**, **monthly**, **yearly**, **on a specific date**, or **on specific days of the week** (e.g., "every Monday and Friday at 09:00"). | Must |
+| F13-R05 | Scheduled exports MUST be delivered by **email** with the export file as an **attachment** and **templated text** (subject and body) configurable by the operator. | Must |
+| F13-R06 | All export settings (scope, time range, format, schedule, recipients, email template) MUST be **visible and editable** in the admin console, in a dedicated section accessible to the manager. | Must |
+| F13-R13 | Scheduled exports MUST be audited: each run records the schedule ID, run timestamp, scope, format, row count, file size, delivery status, and any error detail. | Must |
+| F13-R14 | A failed scheduled export MUST be retried up to **3 times** with exponential backoff (5 min, 15 min, 60 min); after all retries are exhausted, the failure is recorded and an alert is sent to the operator. | Should |
+| F13-R15 | The export file MUST include a **header/metadata section** recording: generation timestamp (UTC and local), scope (all/group/vehicle), time range, row count, and SHA-256 hash of the data payload for integrity verification. | Must |
+| F13-R16 | PDF exports MUST include a **cover page** with the report title, generation timestamp, scope, time range, and a data-quality disclaimer noting any caveats (e.g., "FSD share derived from since-reset counters; counter resets on firmware update"). | Should |
+
+**Non-Functional Requirements:**
+
+| ID | Requirement | Target |
+|----|------------|--------|
+| F13-N01 | Export generation time | < 30 s for 100,000 rows; < 2 min for 1,000,000 rows |
+| F13-N02 | Scheduled export reliability | 99.9% of scheduled runs complete successfully or are retried within the retry window |
+| F13-N03 | Email delivery | attachment size < 25 MB (SMTP limit); larger exports are split into multiple emails with part numbering |
+| F13-N04 | Schedule reliability | missed schedules (e.g., during downtime) are detected and run at next opportunity with a "catch-up" flag |
+| F13-N05 | Audit completeness | every export run (ad-hoc or scheduled) is recorded in the audit trail with full metadata |
+
+**Acceptance Criteria:**
+
+```text
+AC1: An ad-hoc export for all vehicles, "month" range, CSV format, returns a valid .csv file with
+     correct headers, row count matching the query, and a metadata header row.
+AC2: An ad-hoc export for a single vehicle, "week" range, PDF format, returns a valid .pdf with
+     a cover page showing the vehicle VIN, time range, and data-quality disclaimer.
+AC3: A scheduled export configured as "daily at 02:00 UTC, CSV, all vehicles, last day" runs at the
+     scheduled time, generates the file, emails it to the configured recipients with the templated
+     subject/body, and records the audit row with status "delivered".
+AC4: A scheduled export that fails (e.g., SMTP timeout) is retried 3 times with exponential backoff;
+     after 3 failures the audit record shows "failed" and an alert is sent to the operator.
+AC5: An export for a group (FEATURE-12 group scope) returns only the vehicles in that group.
+AC6: An export with "all" time range includes all historical data up to the generation timestamp.
+AC7: The admin console shows a list of all schedules with their next run time, last run status,
+     and allows editing/enabling/disabling/deleting each schedule.
+AC8: The email template supports placeholders: {{scope}}, {{time_range}}, {{timestamp}}, {{row_count}}, {{file_name}}.
+AC9: An export exceeding 25 MB is split into multiple emails with part numbering (Part 1 of N...).
+AC10: A missed scheduled run (e.g., due to downtime) is detected on startup and re-run with a
+      "catch-up" flag in the audit record.
+```
+
+**Out of scope for this feature:** editing the field catalog (F03/F08), editing consent, modifying
+the telemetry configuration (FEATURE-12), and real-time streaming exports (the platform is not a
+live-tracking system).
+
+---
+
 ## 5. Out of Scope
 
 - **Member-facing mobile app.** There is no TOCA member app at MVP; the platform is the connector plus an admin dashboard.
@@ -1007,12 +1076,14 @@ F03/F08), editing consent, and any per-field transport choice (F12-R12).
 | R-16 | **A scoped config change is a fleet-wide write to member vehicles (raised v2.0).** FEATURE-12 lets the operator change the telemetry configuration of the whole fleet or a group, and the config is applied by POSTing to Tesla per vehicle. Three failure modes follow, and each is addressed by a requirement rather than left to operator care: (1) a bad config reaches every vehicle at once — F12-R07 requires an **eligible canary** before any global/group rollout, where "eligible" means the canary carries no override for the fields being changed, because under sparse resolution an override **shadows** the scoped value and a canary on an overridden vehicle would appear unaffected and be misread as a pass; (2) a config can apply successfully and yet **stop the stream** — F12-R08 requires evidence-based verification (`synced: true` **and** a subsequent telemetry observation), because the 2026-10-07 Drogon apply showed the two are independent: the config flipped `synced` true→false on update and the car had not yet adopted it; (3) an override could **widen** collection beyond the consented set — F12-R04 makes that a hard gate before an artifact is built. | **Medium** — mitigated by design, but the mitigation is untested until FEATURE-12 is built | OPEN — FEATURE-12 |
 | R-17 | **Group scope had no definition (raised v2.0 — RESOLVED v2.1 by owner decision).** F12-R01 specified a `group` scope while the platform had no group entity: F06 segmentation is derived at export time from postcode + model + model year, not a stored, named set a config scope could reference. **Resolution: a group becomes a first-class stored, owner-curated entity** (`tesla_vehicle_group` + `tesla_vehicle_group_member`), **not** a binding to derived segment keys. The reason is the failure mode: a derived key is an *output*, recomputed per export, so a config scope bound to it would silently stop applying whenever the derivation changed — the same silent-drift class this document has repeatedly had to repair (R-15, and the F06 'Unknown' segmentation defect at v1.12). | Was the blocker on the group third of FEATURE-12 | **RESOLVED (v2.1)** |
 | R-18 | **Apply throughput at target scale (raised v2.0 — RESOLVED v2.1 by owner decision).** `POST /admin/telemetry/apply` loops every VIN sequentially inside one Worker request (~3 s/VIN measured on the 2026-10-07 canary, dominated by the member token exchange). That works for two vehicles and will exceed the Worker's limits long before 1,000. **Resolution: apply becomes a scheduled/queue-driven sweep**, so it is asynchronous with per-vehicle progress recorded, rather than all-or-nothing inside one request (F12-N04). Accepted consequence: "apply" no longer returns a final result synchronously, so the console must show progress and completion rather than a single response. | Affected any global/group apply | **RESOLVED (v2.1)** |
+| R-19 | **Scheduled export reliability depends on email delivery (raised v2.1).** FEATURE-13 relies on outbound SMTP for scheduled report delivery. If the mail provider throttles, rejects, or delays, the schedule is "delivered" from our perspective but the operator never sees it. This is a classic silent-failure class. Mitigation: the export itself is audited and stored regardless of email outcome; the audit record distinguishes "file generated" from "email sent"; a persistent email failure triggers an operator alert but does not block future runs. | Medium — the report exists in storage even if email fails; operator can download manually | OPEN — FEATURE-13 |
+| R-20 | **Export PII handling and consent scope (raised v2.1).** FEATURE-13 exports telemetry and driver-profile data, which includes PII (member mobile, postcode, VIN). The export scope must respect consent: a revoked consent MUST block that member's data from any export (ad-hoc or scheduled). The export audit must record the consent status of each included member at generation time. | High — regulatory exposure if PII is exported after revocation | OPEN — FEATURE-13 |
 
 ---
 
 ## 8. Suggested Phasing
 
-| Phase | Scope |
+|| Phase | Scope |
 |-------|-------|
 | 0 | Resolve R-01 (create Tesla developer app), **R-02 FSD decision (a/b/c — gates F05-R03 and whether a telemetry host is needed at all)**, R-03/R-04 (auth + pairing UX), R-06 (consent wording), R-09 (postcode mapping) |
 | 1 | FEATURE-02: public key route, partner registration, token lifecycle — the hard gate |
@@ -1022,6 +1093,7 @@ F03/F08), editing consent, and any per-field transport choice (F12-R12).
 | 5 | FEATURE-05: driver profile derivation incl. FSD usage |
 | 6 | FEATURE-09: admin dashboard, Australia map, fleet and quality visualisation |
 | 6b | **FEATURE-12 (FRS v2.0): Vehicle Telemetry Configurator** — resolution engine (sparse, most-specific-wins), three scopes, staged-target + CI apply, canary for global/group, effective-value and provenance display. Depends on FEATURE-09 (the console it extends) and on the config-apply path (F02-R11) it generalises. |
+| 6c | **FEATURE-13 (FRS v2.1): Data Export & Scheduled Reporting** — CSV/Excel/PDF export for all, group, or individual vehicles; configurable time ranges (hour, week, month, year, all); scheduled exports with calendar-style recurrence (hourly, daily, weekly, monthly, yearly, specific date, or specific weekdays); email delivery with attachment and templated text; all settings visible and editable in the admin console for the manager. |
 | 7 | FEATURE-06 + FEATURE-07: group-tier aggregates and individual quote packages with secure delivery |
 | 8 | FEATURE-10: revocation, deletion, and retention lifecycle |
 | 9 | Insurer requirements received → separate reporting FRS |
