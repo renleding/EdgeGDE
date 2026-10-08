@@ -284,7 +284,7 @@ adminApp.post('/login', async (c) => {
     status: 303,
     headers: {
       location: '/admin/overview',
-      'set-cookie': `${ADMIN_SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${ADMIN_SESSION_TTL}`,
+      'set-cookie': `${ADMIN_SESSION_COOKIE}=${sessionId}; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=${ADMIN_SESSION_TTL}`,
       'cache-control': 'no-store',
     },
   })
@@ -297,7 +297,7 @@ adminApp.get('/logout', async (c) => {
     status: 303,
     headers: {
       location: '/admin',
-      'set-cookie': `${ADMIN_SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
+      'set-cookie': `${ADMIN_SESSION_COOKIE}=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0`,
       'cache-control': 'no-store',
     },
   })
