@@ -14,6 +14,7 @@ import { collectedFields, type CollectedField } from './store'
 
 export interface Env {
   D1_TESLA: D1Database
+  [key: string]: unknown
 }
 
 interface ExportScheduleRow {

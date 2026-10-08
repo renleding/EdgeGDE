@@ -1287,7 +1287,7 @@ adminApp.get('/telemetry/configurator', async (c) => {
 
     <h2>Staged Changes</h2>
     <p class="meta">Edit a scope below. Changes are STAGED ONLY and do not affect vehicles until applied through CI.</p>
-    
+
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px">
       <div style="background:#151515;border-radius:12px;padding:16px">
         <h3>Global Scope</h3>
@@ -1426,13 +1426,13 @@ adminApp.post('/telemetry/stage', async (c) => {
   } else if (scope === 'group') {
     const group_id = String(form.group_id ?? '').trim()
     if (!group_id) return c.json({ error: 'group_id required for group scope' }, 400)
-    
+
     // Verify the VIN belongs to this group
     const member = await c.env.D1_TESLA.prepare(
       'SELECT 1 AS ok FROM tesla_vehicle_group_member WHERE group_id = ? AND vin = ?'
     ).bind(group_id, vin).first()
     if (!member) return c.json({ error: 'VIN does not belong to this group' }, 400)
-    
+
     // Get the scope_id for this group
     const scopeRow = await c.env.D1_TESLA.prepare(
       'SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = \'group\' AND group_id = ?'

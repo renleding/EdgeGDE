@@ -1,6 +1,6 @@
 /**
  * FEATURE-12: Vehicle Telemetry Configurator — Group Management
- * 
+ *
  * Group scope is a first-class, owner-curated entity (R-17 resolution),
  * NOT a binding to F06's derived segment keys. The derived key is an OUTPUT,
  * recomputed per export; a scope bound to it would silently stop applying
@@ -35,7 +35,7 @@ export async function createVehicleGroup(
   }
 ): Promise<VehicleGroup> {
   const nowIso = params.nowIso ?? new Date().toISOString()
-  
+
   await db
     .prepare(
       `INSERT INTO tesla_vehicle_group (group_id, name, description, created_at, updated_at)

@@ -1,6 +1,6 @@
 /**
  * FEATURE-12: Vehicle Telemetry Configurator — Apply Engine
- * 
+ *
  * Scheduled sweep with canary, eligibility verification,
  * three-condition verification, and idempotent re-runs.
  *
@@ -14,7 +14,7 @@
 
 import type { ResolvedConfig } from './config-scope'
 
-/** 
+/**
  * Check if a nominated canary vehicle is eligible.
  * F12-R07: The canary MUST NOT carry an override for any field the change touches.
  * An override shadows the scoped value, so a canary on an overridden vehicle
@@ -158,7 +158,7 @@ export async function runApplySweep(
     }
   } else {
     const canaryVin = targetVins[0]
-    
+
     for (const vin of targetVins) {
       const resolved = resolvedPerVin.get(vin)
       if (!resolved) {

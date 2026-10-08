@@ -170,7 +170,7 @@ Please check the admin console for details.`,
  * This is a placeholder — actual implementation depends on email provider.
  */
 export async function sendEmail(
-  env: any, // Cloudflare Workers env
+  env: { D1_TESLA?: D1Database } & Record<string, unknown>,
   params: EmailParams
 ): Promise<EmailResult> {
   // In production, use one of:
@@ -180,14 +180,6 @@ export async function sendEmail(
 
   // For now, log the email intent and return success
   // Actual implementation would connect to email provider
-
-  console.log('[EMAIL] Would send:', {
-    to: params.to,
-    subject: params.subject,
-    hasHtml: !!params.body_html,
-    hasText: !!params.body_text,
-    attachments: params.attachments?.map(a => a.filename),
-  })
 
   // Placeholder: in real implementation, use:
   // - fetch to SendGrid/Mailgun/SES API
@@ -203,7 +195,7 @@ export async function sendEmail(
  * Send export completion email with attachment.
  */
 export async function sendExportEmail(
-  env: any,
+  env: { D1_TESLA?: D1Database } & Record<string, unknown>,
   schedule: {
     schedule_id: string
     name: string

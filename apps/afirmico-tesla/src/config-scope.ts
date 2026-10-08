@@ -1,6 +1,6 @@
 /**
  * FEATURE-12: Vehicle Telemetry Configurator — Resolution Engine
- * 
+ *
  * Pure resolution function: global > group > vehicle, sparse inheritance.
  * Deterministic and testable without a database.
  */
