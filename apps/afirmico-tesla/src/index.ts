@@ -2397,6 +2397,18 @@ app.get('/healthz', async (c) => {
 })
 
 /**
+ /* -------------------------------------------------------------------------- */
+/* INEOS QLD splash (partner variant)                                         */
+/* -------------------------------------------------------------------------- */
+
+app.get('/ineos-qld', (c) => c.html(ineosSplashPage()))
+
+app.route('/admin', adminApp)
+
+/* -------------------------------------------------------------------------- */
+/* Not-found fallback — serves the splash asset from this worker              */
+/* -------------------------------------------------------------------------- */
+/*
  * Anything not handled above is served the splash out of this worker's own
  * asset layer (F01-R12).
  *
@@ -2413,14 +2425,6 @@ app.notFound(async (c) => {
   )
   return new Response(splash.body, { status: 404, headers: splash.headers })
 })
-
-/* -------------------------------------------------------------------------- */
-/* INEOS QLD splash (partner variant)                                         */
-/* -------------------------------------------------------------------------- */
-
-app.get('/ineos-qld', (c) => c.html(ineosSplashPage()))
-
-app.route('/admin', adminApp)
 
 /* -------------------------------------------------------------------------- */
 /* Scheduled event handler (Cron Triggers)                                    */
