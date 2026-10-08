@@ -1,6 +1,6 @@
 /**
  * FEATURE-13: Data Export & Scheduled Reporting — Scheduler
- * 
+ *
  * Calendar-style recurrence engine for export schedules.
  * Supports hourly, daily, weekly, monthly, yearly, specific date, and specific weekdays.
  * Computes next_run_at for each enabled schedule.
@@ -129,7 +129,7 @@ export function computeNextRun(
         const weekdayTime = config.time_of_day || '00:00'
         const [wdH, wdM] = weekdayTime.split(':').map(Number)
         const targetWeekdays = config.weekdays.sort((a, b) => a - b)
-        
+
         // Find next matching weekday
         let found = false
         for (let i = 0; i < 7; i++) {
@@ -201,9 +201,9 @@ export async function updateScheduleAfterRun(
   if (s) {
     const nextRun = computeNextRun(s)
     await db.prepare(
-      `UPDATE telemetry_export_schedule 
-       SET next_run_at = ?, 
-           last_run_at = ?, 
+      `UPDATE telemetry_export_schedule
+       SET next_run_at = ?,
+           last_run_at = ?,
            last_run_status = ?,
            updated_at = ?
        WHERE schedule_id = ?`
@@ -234,7 +234,7 @@ export async function createExportSchedule(
   }
 ): Promise<void> {
   const now = new Date().toISOString()
-  
+
   // Create temporary schedule object to compute next_run
   const tempSchedule: ScheduleWithNextRun = {
     ...params,

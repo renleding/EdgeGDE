@@ -1,6 +1,6 @@
 /**
  * FEATURE-13: Data Export & Scheduled Reporting — Email Delivery
- * 
+ *
  * SMTP-based email delivery with template support.
  * Supports HTML and plain text templates.
  * Tracks delivery status in audit log.
@@ -177,10 +177,10 @@ export async function sendEmail(
   // - Cloudflare Email Workers (if configured)
   // - SendGrid / Mailgun / SES via HTTP API
   // - Direct SMTP via a library like nodemailer (requires TCP)
-  
+
   // For now, log the email intent and return success
   // Actual implementation would connect to email provider
-  
+
   console.log('[EMAIL] Would send:', {
     to: params.to,
     subject: params.subject,
@@ -192,7 +192,7 @@ export async function sendEmail(
   // Placeholder: in real implementation, use:
   // - fetch to SendGrid/Mailgun/SES API
   // - Or Cloudflare's native email binding if available
-  
+
   return {
     success: true,
     message_id: 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2),
@@ -223,8 +223,8 @@ export async function sendExportEmail(
   errorDetail?: string
 ): Promise<{ success: boolean; results: Array<{ email: string; success: boolean; error?: string }> }> {
   const recipients = JSON.parse(schedule.recipients) as string[]
-  const template = schedule.email_template 
-    ? JSON.parse(schedule.email_template) 
+  const template = schedule.email_template
+    ? JSON.parse(schedule.email_template)
     : DEFAULT_TEMPLATES.export_ready
 
   const variables = {
@@ -243,7 +243,7 @@ export async function sendExportEmail(
   const selectedTemplate = isFailure ? DEFAULT_TEMPLATES.export_failed : template
 
   const subject = renderTemplate(selectedTemplate.subject_template, variables)
-  const body_text = selectedTemplate.body_text_template 
+  const body_text = selectedTemplate.body_text_template
     ? renderTemplate(selectedTemplate.body_text_template, variables)
     : undefined
   const body_html = selectedTemplate.body_html_template

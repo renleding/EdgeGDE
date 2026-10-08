@@ -1,6 +1,6 @@
 /**
  * FEATURE-13: Data Export & Scheduled Reporting -- Export Generation
- * 
+ *
  * Supports CSV, Excel (.xlsx), and PDF formats.
  * Scopeable to all, group, or individual vehicle.
  * Time ranges: hour, week, month, year, all.
@@ -47,7 +47,7 @@ export function buildExportQuery(
   collectedFieldKeys: string[]
 ): { sql: string; binds: unknown[] } {
   const fieldColumns = collectedFieldKeys.map(f => 'f.' + f).join(', ')
-  
+
   let whereClause = 'WHERE 1=1'
   const binds: unknown[] = []
 
@@ -124,7 +124,7 @@ export async function generateCSV(
 
   // Pivot the narrow fact rows into wide format (one row per observation instant per VIN)
   const byVinTime = new Map<string, Map<string, Record<string, unknown>>>()
-  
+
   for (const row of rows) {
     const key = row.vin + '|' + row.observed_at
     if (!byVinTime.has(key)) {
@@ -144,7 +144,7 @@ export async function generateCSV(
   // Build CSV
   const headers = ['vin', 'observed_at', 'received_at', ...collectedFieldKeys]
   const lines: string[] = [headers.join(',')]
-  
+
   let rowCount = 0
   for (const [key, fieldMap] of byVinTime) {
     const parts = key.split('|')
@@ -152,12 +152,12 @@ export async function generateCSV(
     const observed_at = parts[1]
     const received_at = rows.find(r => r.vin === vin && r.observed_at === observed_at)?.received_at ?? ''
     const values = [vin, observed_at, received_at]
-    
+
     for (const fieldKey of collectedFieldKeys) {
       const field = fieldMap.get(fieldKey)
       if (field) {
-        const val = typeof field.value === 'string' && field.value.includes(',') 
-          ? '"' + field.value.replace(/"/g, '""') + '"' 
+        const val = typeof field.value === 'string' && field.value.includes(',')
+          ? '"' + field.value.replace(/"/g, '""') + '"'
           : String(field.value)
         values.push(val)
       } else {
@@ -197,7 +197,7 @@ export async function generateCSV(
   ]
 
   const csvContent = metadataLines.join('\n') + '\n' + lines.join('\n')
-  
+
   return {
     data: csvContent,
     row_count: rowCount,
@@ -241,16 +241,16 @@ export async function generatePDF(
 ): Promise<ExportResult> {
   const csvResult = await generateCSV(db, options, collectedFields)
   const csvData = csvResult.data as string
-  
+
   // Build a simple HTML that can be converted to PDF
   // In production, use pdfkit or puppeteer for proper PDF generation
   const lines = csvData.split('\n')
   const metadataLines = lines.filter(l => l.startsWith('#')).slice(0, -1)
   const dataLines = lines.filter(l => !l.startsWith('#')).slice(1)
-  
+
   // Build scope text
   const scopeText = options.scope === 'all' ? 'All vehicles' : options.scope === 'group' ? 'Group ' + options.group_id : 'Vehicle ' + options.vin
-  
+
   // Build HTML using string concatenation
   let html = '<!DOCTYPE html>\n<html>\n<head>\n'
   html += '<meta charset="utf-8">\n'
@@ -267,7 +267,7 @@ export async function generatePDF(
   html += '.meta { color: #666; font-size: 12px; margin: 4px 0; }\n'
   html += '</style>\n'
   html += '</head>\n<body>\n'
-  
+
   // Cover page
   html += '<div class="cover">\n'
   html += '<h1>Telemetry Data Export</h1>\n'
@@ -284,7 +284,7 @@ export async function generatePDF(
   html += '\u2022 Data reflects telemetry as received; not validated against ground truth.\n'
   html += '</div>\n'
   html += '</div>\n'
-  
+
   // Metadata table
   html += '<h2>Export Metadata</h2>\n'
   html += '<table>\n'
@@ -293,7 +293,7 @@ export async function generatePDF(
   html += '<tr><th>Time range</th><td>' + options.time_range + '</td></tr>\n'
   html += '<tr><th>Format</th><td>PDF</td></tr>\n'
   html += '</table>\n'
-  
+
   // Data table
   html += '<h2>Data (first 500 rows)</h2>\n'
   html += '<table>\n<thead>\n<tr>\n'
@@ -302,7 +302,7 @@ export async function generatePDF(
     html += '<th>Field ' + (i + 1) + '</th>'
   }
   html += '</tr></thead>\n<tbody>\n'
-  
+
   for (let i = 0; i < Math.min(500, dataLines.length); i++) {
     const line = dataLines[i]
     const cells = line.split(',')
@@ -312,15 +312,15 @@ export async function generatePDF(
     }
     html += '</tr>\n'
   }
-  
+
   html += '</tbody></table>\n'
-  
+
   if (dataLines.length > 500) {
     html += '<p class="meta">Showing first 500 of ' + dataLines.length + ' rows. Full data in CSV attachment.</p>\n'
   }
-  
+
   html += '</body>\n</html>'
-  
+
   // In production, convert HTML to PDF using puppeteer/pdfkit
   // For now, return the HTML as a placeholder
   return {
