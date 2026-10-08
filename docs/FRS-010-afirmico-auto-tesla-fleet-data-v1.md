@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  
-**Version:** 2.1  
+**Version:** 2.2  
 **Status:** Draft  
 **Author:** Hermes (Director)  
 **Date:** 2026-10-07
@@ -33,6 +33,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.2 | 2026-10-07 | **FEATURE-13 added: Data Export & Scheduled Reporting (FRS v2.2).** Adds **FEATURE-13** with 15 requirements (F13-R01..R16), 5 non-functional requirements (F13-N01..N05), and 10 acceptance criteria (AC1..AC10). Exports telemetry and driver-profile data as CSV/Excel/PDF; scopeable to all/group/vehicle; time ranges (hour/week/month/year/all); calendar-style scheduled exports (hourly/daily/weekly/monthly/yearly/specific date/specific weekdays); email delivery with attachment and templated text; admin console UI for all settings; audit trail with metadata (timestamp, scope, range, row count, SHA-256); PDF cover page with data-quality disclaimer; email templating with placeholders; retry logic with exponential backoff; large file splitting; missed-schedule catch-up. **Two new risks:** R-19 (scheduled export reliability depends on email delivery) and R-20 (export PII handling and consent scope). **Phasing updated:** FEATURE-13 inserted at 6c in the phasing table (after FEATURE-12, before FEATURE-06/07). **Documentation only — no code.** |
 | 2.1 | 2026-10-07 | **The ten FEATURE-12 design decisions are settled, and one requirement written in v2.0 is corrected as wrong.** **(1) F12-R08 was false-success-prone and is fixed.** v2.0 required canary verification on `synced: true`. Measured the same day: a vehicle with **no configuration at all** (`has_config: false`, `key_paired: false`, our record `failed`) reports `synced: true` — the flag means "the vehicle has adopted the target config", and a vehicle with no target has nothing to adopt. A canary reading `synced` alone would have reported a **failed** configuration as **adopted**, defeating the single gate FEATURE-12 leans on hardest. F12-R08 now requires all three of: the POST succeeded, `has_config: true` **and** `synced: true`, **and** a subsequent telemetry observation. **(2) Group scope is a first-class stored entity (owner decision).** `group` resolves against an owner-curated `tesla_vehicle_group` / `tesla_vehicle_group_member` pair, **not** against F06's derived segment keys. The derived key is an *output* (recomputed per export from postcode + model + model year); a config scope bound to it would silently stop applying whenever the derivation changed, which is the same silent-drift class this document has repeatedly had to repair. This closes **R-17**. **(3) Canary is operator-nominated**, with eligibility enforced (F12-R07) — the operator picks a vehicle known to be in use, because adoption requires the vehicle to connect and a parked canary proves nothing. **(4) Every field's seeded `interval_seconds` is 180 s** — the global tier is seeded uniformly from the current constant, so day-one behaviour is unchanged and per-field values are adjusted from there. **(5) `SYNC_INTERVAL_SECONDS` is retained as the value that seeds the global tier**, not deleted: it gives F12-R02's "the global scope must be total" a concrete source and keeps a fresh deployment deterministic. **(6) Build order is global + vehicle first**, with `group` added once the entity exists — the two scopes that are fully specified solve the stated problem (one vehicle differing from the rest) without waiting on the third. **(7) Apply is a scheduled/queue-driven sweep, not an in-request loop** — at 1,000 vehicles an in-request loop exceeds the Worker's limits, so "apply" is asynchronous and per-vehicle progress is observable rather than all-or-nothing inside one request (this closes **R-18**). **(8) SDD-010 is deliberately left unamended** and a new SDD is written for this phase (SDD-011). Its 6-hour and 21600 references were accurate when written; a specification is a log of what was true, and silently rewriting a superseded design is the failure mode this repo has already been bitten by. The new design states its supersessions explicitly instead. **Documentation only — no code.** |
 | 2.0 | 2026-10-07 | **Phase boundary: the telemetry configuration becomes operator-configurable at global, group and per-vehicle scope. New FEATURE-12.** Configuration was global by construction and only changeable by deploy — `SYNC_INTERVAL_SECONDS` is one constant in `src/vehicle-config.ts` applied to every field of every vehicle, and no fleet-wide config row exists. The operator could not configure one vehicle differently from the rest, could not see what any vehicle was actually running, and could not change an interval without a code change, a PR and a merge. FEATURE-12 adds the **Vehicle Telemetry Configurator** with a **most-specific-wins, sparse** resolution (`vehicle > group > global`), per-field `interval_seconds` / `minimum_delta` / enabled, and a console that shows the **effective** value and its **provenance** for every field (F12-R01..R12). **Four decisions recorded, all owner-made 2026-10-07.** (1) **Sparse, not replacement** — a level specifies only the fields it changes, because a whole-config override would make a fleet-wide interval change silently skip every vehicle that had overridden anything. (2) **Staged-and-applied-through-CI, not direct write** — this is the point that matters most: the console gains no mutation route. F09 and the console are built on "no admin route writes state", and a test asserts it. The operator sets a target; the target is committed and applied by the pipeline. (3) **Canary required for global and group, not for vehicle** — a scoped change has a blast radius of N or M; a vehicle change is single-vehicle and is its own canary. The canary MUST be **eligible** (F12-R07): it must not carry an override for a field the change touches, because under sparse resolution an override **shadows** the scoped value, so a canary on an overridden vehicle would show no effect and be misread as a successful test. (4) **No `Pull`/`Push` controls** (F12-R12) — the reference product's column models a polling transport; Fleet Telemetry is push-only and the artifact carries only `interval_seconds` and `minimum_delta`. **One hard constraint the enabled flag makes necessary:** per-field on/off (F12-R03) collides with F01 AC6, which pins the enabled set equal to `CONSENTED_FIELDS` and is enforced by `verify-store.ts` and `/healthz`. **F12-R04** therefore makes the gate explicit — **overrides MAY narrow the collected set and MUST NOT widen it**. Collecting less is consent-safe; collecting a field outside the consented set is a compliance event, not a configuration mistake, so the refusal is a hard gate before an artifact is built rather than a warning. **Also corrected at this revision:** the stale 6-hour interval claims. §5 stated "Telemetry is throttled to a 6-hour refresh by design" and §8 phase 4 carried a gate to "confirm `interval_seconds` accepts 6 h" — the interval is **180 seconds** (reduced from 21600 on 2026-10-07, PR #194) and the 60-second-floor suspicion recorded in `vehicle-config.ts` was withdrawn as wrong (21600 had been accepted in production for days). **Documentation only — no code in this revision**; FEATURE-12 is specified here and built under its own approval. | — |
 | 1.29 | 2026-10-05 | **Telemetry config signing scope requirement identified and enforced.** The `fleet_telemetry_config` endpoint (and by extension the `tesla-http-proxy` that signs it) requires the `vehicle_cmds` scope on the member's access token, because the proxy uses the same token to forward the signed config to Tesla. The original OAuth consent only requested `openid offline_access vehicle_device_data`, so the stored refresh tokens lacked `vehicle_cmds`. **Added F02-R16** (MUST include `vehicle_cmds` in OAuth consent scope). Members who consented before this revision MUST re-consent to obtain a token with the updated scope. Added re-consent mechanism: the dashboard detects missing `vehicle_cmds` scope and prompts the member to re-authorize via `/toca-connect`. | Must |
@@ -881,17 +882,19 @@ anything, defeating the purpose of having a global default.
 | ID | Requirement | Must/Should |
 |----|------------|-------------|
 | F12-R01 | The platform MUST support telemetry configuration at three scopes: **global** (all vehicles), **group** (a named set of members), and **vehicle** (one VIN). Resolution MUST be most-specific-wins and MUST be **sparse**, so that a field not specified at a more specific level inherits the value from the level above rather than reverting to a hard-coded default. | Must |
-| F12-R02 | The **global** scope MUST define every configurable field explicitly — there MUST be no implicit default below it. A field absent from every scope is a **configuration error**, not a field that silently keeps whatever Tesla last held. (*Rationale:* an ambiguous bottom of the stack is how a vehicle ends up running a config nobody can account for; the sparse model is safe only because the base is total.) | Must |
+| F12-R02 | The **global** scope MUST define every configurable field explicitly — there MUST be no implicit default below it. A field absent from every scope is a **configuration error**, not a field that silently keeps whatever Tesla last held. (*Rationale:* an ambiguous bottom of the stack is how a vehicle ends up running a config nobody can account for; the sparse model is safe only because the base is total.) **Seeding (owner decision, 2026-10-07):** the global tier is seeded from `SYNC_INTERVAL_SECONDS` with `interval_seconds = 180` for **every** field, so a fresh deployment's day-one behaviour is identical to today's and per-field values are adjusted from there; `SYNC_INTERVAL_SECONDS` is therefore **retained as the seed value** and is NOT deleted by this feature. | Must |
 | F12-R03 | The configurable surface per field MUST be `interval_seconds`, `minimum_delta`, and an enabled/disabled flag. The enabled flag exists so a field can be **turned off** from the console; without it the grid can only ever add fields. | Must |
 | F12-R04 | **The effective configuration MUST NOT collect any field outside `CONSENTED_FIELDS`.** Overrides MAY narrow the collected set and MUST NOT widen it. This is a **hard gate**, enforced before an artifact is built and asserted in CI (**F12 AC4**). (*Rationale:* F01 AC6 pins the enabled set equal to `CONSENTED_FIELDS`; collecting a field outside the consented set is a consent breach, which is a compliance event rather than a configuration mistake.) | Must |
 | F12-R05 | Changes MUST be **staged in the console and applied through CI** — the operator MUST NOT be able to change a vehicle's configuration and have it reach the fleet without a reviewed, audited apply. Concretely: the operator sets a target configuration; the target is committed and applied by the pipeline. This preserves the property F09 and the console are built on — that no admin route mutates state — while still giving the operator the console-driven workflow. | Must |
 | F12-R06 | Every applied change MUST be **audited**: scope, field(s), prior value, new value, operator, timestamp, and the resulting per-vehicle outcome. A change whose application cannot be evidenced from the audit trail MUST NOT be reported as applied. | Must |
-| F12-R07 | A **global** or **group** change MUST be **canaried** — applied to exactly one eligible vehicle, verified, and only then extended to the remaining vehicles. The canary MUST be **eligible**: it MUST NOT carry an override for any field the change touches, because an override shadows the scoped value and a canary on an overridden vehicle would show no effect and be misread as a successful test. A **vehicle-scoped** change does not require a canary — the apply is single-vehicle and is therefore its own canary. | Must |
+| F12-R06 | Every applied change MUST be **audited**: scope, field(s), prior value, new value, operator, timestamp, and the resulting per-vehicle outcome. A change whose application cannot be evidenced from the audit trail MUST NOT be reported as applied. | Must |
+| F12-R07 | A **global** or **group** change MUST be **canaried** — applied to exactly one eligible vehicle, verified, and only then extended to the remaining vehicles. The canary MUST be **eligible**: it MUST NOT carry an override for any field the change touches, because an override shadows the scoped value and a canary on an overridden vehicle would show no effect and be misread as a successful test. **Canary selection (owner decision, 2026-10-07):** the canary is **operator-nominated**; the operator picks a vehicle known to be in use, because adoption requires the vehicle to connect and a parked canary proves nothing. Eligibility is enforced: a nominated vehicle carrying an override for any field the change touches is rejected (F12 AC7). A **vehicle-scoped** change does not require a canary — the apply is single-vehicle and is therefore its own canary. | Must |
 | F12-R08 | Canary verification MUST be **evidence-based, not response-based**, and MUST require **all three** of: (a) the POST succeeded, (b) Tesla reports the vehicle holds a configuration (`has_config: true`) **and** has adopted the target (`synced: true`), and (c) **new telemetry is observed afterwards**. `synced: true` ALONE is NOT sufficient and MUST NOT be treated as adoption. **Corrected (v2.1)** — as first written in v2.0 this row required only `synced: true`, which is **wrong**: measured 2026-10-07, a vehicle with **no** configuration at all (`has_config: false`, `key_paired: false`, our record `failed`) reports `synced: true`, because the flag means "the vehicle has adopted the target config" and a vehicle with no target has nothing to adopt. A canary check reading `synced` alone would therefore report a **failed** configuration as **adopted** — the exact false-success class this document exists to prevent, and it would have weakened the gate FEATURE-12 depends on most. (*Rationale for (c):* a config can apply successfully and stop the stream; "the request succeeded" does not distinguish the two.) | Must |
 | F12-R09 | A failed canary MUST halt the rollout and MUST NOT proceed to the remaining vehicles. Partial application MUST be reported per vehicle, and re-running MUST be idempotent — a re-apply MUST NOT double-apply or leave a vehicle in an indeterminate state. | Must |
 | F12-R10 | The console MUST show, per vehicle, the **effective** resolved configuration and the **provenance** of each value (global / group / vehicle), so an operator can answer "where did this value come from" without reading the database. | Must |
 | F12-R11 | The console MUST show each vehicle's **applied vs. desired** state, so drift — a staged change not yet applied, or a vehicle running an older config — is a visible state rather than something discovered from missing data. | Must |
 | F12-R12 | The configurator MUST NOT expose `Pull`/`Push` transport controls. Fleet Telemetry is push-only; the platform's config artifact carries only `interval_seconds` and `minimum_delta` per field. Presenting a transport control that has no effect at the vehicle would be an operator-facing lie. (*Owner decision, 2026-10-07 — the reference product's Pull/Push column models a polling transport this platform does not use.*) | Must |
+| F12-R13 | **Build order (owner decision, 2026-10-07):** the **global scope** and **vehicle scope** are built and shipped first; **group scope** is added in a subsequent increment once the `tesla_vehicle_group` entity exists. The two scopes that are fully specified (global and vehicle) solve the stated problem (one vehicle differing from the rest) without waiting on the third. | Must |
 
 **Non-Functional Requirements:**
 
@@ -928,6 +931,75 @@ AC10: A staged change not yet applied is visible as drift and has no effect on t
 
 **Out of scope for this feature:** editing the field catalog itself (adding a field to the universe is
 F03/F08), editing consent, and any per-field transport choice (F12-R12).
+
+---
+
+### 4.13 FEATURE-13: Data Export & Scheduled Reporting
+
+**Priority:** P1  \
+**Effort:** Medium (~5 days) — extends the admin console with export and scheduling capabilities
+
+**User Story:** As the operator, I can export telemetry and driver-profile data for all vehicles, a group,
+or an individual vehicle in CSV, Excel, or PDF format; choose a time range (hour, week, month, year,
+all); schedule recurring exports with calendar-style recurrence (hourly, daily, weekly, monthly,
+yearly, specific date, or specific weekdays); have the export emailed as an attachment with
+templated text; and manage all settings in the admin console.
+
+**Why this exists.** The operator currently has no way to extract the collected telemetry and
+driver-profile data for external analysis, insurer reporting, or regulatory compliance. The admin
+dashboard shows data visually but provides no export capability. This feature adds a flexible,
+auditable export pipeline with scheduling and email delivery.
+
+**Functional Requirements:**
+
+| ID | Requirement | Must/Should |
+|----|------------|-------------|
+| F13-R01 | The platform MUST support exporting telemetry and driver-profile data in **CSV**, **Excel (.xlsx)**, and **PDF** formats. | Must |
+| F13-R02 | Exports MUST be scopeable to **all vehicles**, a **group** (as defined in FEATURE-12), or an **individual vehicle** (by VIN). | Must |
+| F13-R03 | Exports MUST support configurable time ranges: **hour** (last hour), **week** (last 7 days), **month** (last 30 days), **year** (last 365 days), and **all** (entire history). | Must |
+| F13-R04 | The platform MUST support **scheduled exports** with calendar-style recurrence: **hourly**, **daily**, **weekly**, **monthly**, **yearly**, **on a specific date**, or **on specific days of the week** (e.g., "every Monday and Friday at 09:00"). | Must |
+| F13-R05 | Scheduled exports MUST be delivered by **email** with the export file as an **attachment** and **templated text** (subject and body) configurable by the operator. | Must |
+| F13-R06 | All export settings (scope, time range, format, schedule, recipients, email template) MUST be **visible and editable** in the admin console, in a dedicated section accessible to the manager. | Must |
+| F13-R13 | Scheduled exports MUST be audited: each run records the schedule ID, run timestamp, scope, format, row count, file size, delivery status, and any error detail. | Must |
+| F13-R14 | A failed scheduled export MUST be retried up to **3 times** with exponential backoff (5 min, 15 min, 60 min); after all retries are exhausted, the failure is recorded and an alert is sent to the operator. | Should |
+| F13-R15 | The export file MUST include a **header/metadata section** recording: generation timestamp (UTC and local), scope (all/group/vehicle), time range, row count, and SHA-256 hash of the data payload for integrity verification. | Must |
+| F13-R16 | PDF exports MUST include a **cover page** with the report title, generation timestamp, scope, time range, and a data-quality disclaimer noting any caveats (e.g., "FSD share derived from since-reset counters; counter resets on firmware update"). | Should |
+
+**Non-Functional Requirements:**
+
+| ID | Requirement | Target |
+|----|------------|--------|
+| F13-N01 | Export generation time | < 30 s for 100,000 rows; < 2 min for 1,000,000 rows |
+| F13-N02 | Scheduled export reliability | 99.9% of scheduled runs complete successfully or are retried within the retry window |
+| F13-N03 | Email delivery | attachment size < 25 MB (SMTP limit); larger exports are split into multiple emails with part numbering |
+| F13-N04 | Schedule reliability | missed schedules (e.g., during downtime) are detected and run at next opportunity with a "catch-up" flag |
+| F13-N05 | Audit completeness | every export run (ad-hoc or scheduled) is recorded in the audit trail with full metadata |
+
+**Acceptance Criteria:**
+
+```text
+AC1: An ad-hoc export for all vehicles, "month" range, CSV format, returns a valid .csv file with
+     correct headers, row count matching the query, and a metadata header row.
+AC2: An ad-hoc export for a single vehicle, "week" range, PDF format, returns a valid .pdf with
+     a cover page showing the vehicle VIN, time range, and data-quality disclaimer.
+AC3: A scheduled export configured as "daily at 02:00 UTC, CSV, all vehicles, last day" runs at the
+     scheduled time, generates the file, emails it to the configured recipients with the templated
+     subject/body, and records the audit row with status "delivered".
+AC4: A scheduled export that fails (e.g., SMTP timeout) is retried 3 times with exponential backoff;
+     after 3 failures the audit record shows "failed" and an alert is sent to the operator.
+AC5: An export for a group (FEATURE-12 group scope) returns only the vehicles in that group.
+AC6: An export with "all" time range includes all historical data up to the generation timestamp.
+AC7: The admin console shows a list of all schedules with their next run time, last run status,
+     and allows editing/enabling/disabling/deleting each schedule.
+AC8: The email template supports placeholders: {{scope}}, {{time_range}}, {{timestamp}}, {{row_count}}, {{file_name}}.
+AC9: An export exceeding 25 MB is split into multiple emails with part numbering (Part 1 of N...).
+AC10: A missed scheduled run (e.g., due to downtime) is detected on startup and re-run with a
+      "catch-up" flag in the audit record.
+```
+
+**Out of scope for this feature:** editing the field catalog (F03/F08), editing consent, modifying
+the telemetry configuration (FEATURE-12), and real-time streaming exports (the platform is not a
+live-tracking system).
 
 ---
 
@@ -1007,12 +1079,14 @@ F03/F08), editing consent, and any per-field transport choice (F12-R12).
 | R-16 | **A scoped config change is a fleet-wide write to member vehicles (raised v2.0).** FEATURE-12 lets the operator change the telemetry configuration of the whole fleet or a group, and the config is applied by POSTing to Tesla per vehicle. Three failure modes follow, and each is addressed by a requirement rather than left to operator care: (1) a bad config reaches every vehicle at once — F12-R07 requires an **eligible canary** before any global/group rollout, where "eligible" means the canary carries no override for the fields being changed, because under sparse resolution an override **shadows** the scoped value and a canary on an overridden vehicle would appear unaffected and be misread as a pass; (2) a config can apply successfully and yet **stop the stream** — F12-R08 requires evidence-based verification (`synced: true` **and** a subsequent telemetry observation), because the 2026-10-07 Drogon apply showed the two are independent: the config flipped `synced` true→false on update and the car had not yet adopted it; (3) an override could **widen** collection beyond the consented set — F12-R04 makes that a hard gate before an artifact is built. | **Medium** — mitigated by design, but the mitigation is untested until FEATURE-12 is built | OPEN — FEATURE-12 |
 | R-17 | **Group scope had no definition (raised v2.0 — RESOLVED v2.1 by owner decision).** F12-R01 specified a `group` scope while the platform had no group entity: F06 segmentation is derived at export time from postcode + model + model year, not a stored, named set a config scope could reference. **Resolution: a group becomes a first-class stored, owner-curated entity** (`tesla_vehicle_group` + `tesla_vehicle_group_member`), **not** a binding to derived segment keys. The reason is the failure mode: a derived key is an *output*, recomputed per export, so a config scope bound to it would silently stop applying whenever the derivation changed — the same silent-drift class this document has repeatedly had to repair (R-15, and the F06 'Unknown' segmentation defect at v1.12). | Was the blocker on the group third of FEATURE-12 | **RESOLVED (v2.1)** |
 | R-18 | **Apply throughput at target scale (raised v2.0 — RESOLVED v2.1 by owner decision).** `POST /admin/telemetry/apply` loops every VIN sequentially inside one Worker request (~3 s/VIN measured on the 2026-10-07 canary, dominated by the member token exchange). That works for two vehicles and will exceed the Worker's limits long before 1,000. **Resolution: apply becomes a scheduled/queue-driven sweep**, so it is asynchronous with per-vehicle progress recorded, rather than all-or-nothing inside one request (F12-N04). Accepted consequence: "apply" no longer returns a final result synchronously, so the console must show progress and completion rather than a single response. | Affected any global/group apply | **RESOLVED (v2.1)** |
+| R-19 | **Scheduled export reliability depends on email delivery (raised v2.1).** FEATURE-13 relies on outbound SMTP for scheduled report delivery. If the mail provider throttles, rejects, or delays, the schedule is "delivered" from our perspective but the operator never sees it. This is a classic silent-failure class. Mitigation: the export itself is audited and stored regardless of email outcome; the audit record distinguishes "file generated" from "email sent"; a persistent email failure triggers an operator alert but does not block future runs. | Medium — the report exists in storage even if email fails; operator can download manually | OPEN — FEATURE-13 |
+| R-20 | **Export PII handling and consent scope (raised v2.1).** FEATURE-13 exports telemetry and driver-profile data, which includes PII (member mobile, postcode, VIN). The export scope must respect consent: a revoked consent MUST block that member's data from any export (ad-hoc or scheduled). The export audit must record the consent status of each included member at generation time. | High — regulatory exposure if PII is exported after revocation | OPEN — FEATURE-13 |
 
 ---
 
 ## 8. Suggested Phasing
 
-| Phase | Scope |
+|| Phase | Scope |
 |-------|-------|
 | 0 | Resolve R-01 (create Tesla developer app), **R-02 FSD decision (a/b/c — gates F05-R03 and whether a telemetry host is needed at all)**, R-03/R-04 (auth + pairing UX), R-06 (consent wording), R-09 (postcode mapping) |
 | 1 | FEATURE-02: public key route, partner registration, token lifecycle — the hard gate |
@@ -1022,6 +1096,7 @@ F03/F08), editing consent, and any per-field transport choice (F12-R12).
 | 5 | FEATURE-05: driver profile derivation incl. FSD usage |
 | 6 | FEATURE-09: admin dashboard, Australia map, fleet and quality visualisation |
 | 6b | **FEATURE-12 (FRS v2.0): Vehicle Telemetry Configurator** — resolution engine (sparse, most-specific-wins), three scopes, staged-target + CI apply, canary for global/group, effective-value and provenance display. Depends on FEATURE-09 (the console it extends) and on the config-apply path (F02-R11) it generalises. |
+| 6c | **FEATURE-13 (FRS v2.1): Data Export & Scheduled Reporting** — CSV/Excel/PDF export for all, group, or individual vehicles; configurable time ranges (hour, week, month, year, all); scheduled exports with calendar-style recurrence (hourly, daily, weekly, monthly, yearly, specific date, or specific weekdays); email delivery with attachment and templated text; all settings visible and editable in the admin console for the manager. |
 | 7 | FEATURE-06 + FEATURE-07: group-tier aggregates and individual quote packages with secure delivery |
 | 8 | FEATURE-10: revocation, deletion, and retention lifecycle |
 | 9 | Insurer requirements received → separate reporting FRS |
