@@ -1,10 +1,10 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  
-**Version:** 2.2  
+**Version:** 2.3  
 **Status:** Draft  
 **Author:** Hermes (Director)  
-**Date:** 2026-10-07
+**Date:** 2026-10-09
 **Source:** Requirements interview with Warren (TOCA/AFIRMICO), 2026-09-29 (22 numbered questions answered);
 `apps/EdgeGDE - Document DB/Tesla APP DB/fleet_streaming_fields.csv` (239 fields) and `alert_dictionary.csv`
 (18,436 alerts); https://developer.tesla.com/docs/fleet-api/getting-started/what-is-fleet-api
@@ -33,6 +33,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.3 | 2026-10-09 | **Dual-transport re-establishes `vehicle_data` polling as a bounded second lane (owner decision). The FEATURE-12 configurator gains field-level controls, catalog enrolment and platform UX requirements.** The owner answered every decision on 2026-10-09. **(1) New FEATURE-14: Dual-Transport Collection, requirements F14-R01..R10.** One Tesla vehicle now fans out to Fleet Telemetry (high-value streaming fields) and Fleet API Polling (low-frequency and static fields). The catalog derives the transport for each field rather than an operator choosing it. A field with a `vehicle_data_equivalent` may poll. A field without one streams. **`MilesSinceReset` and `SelfDrivingMilesSinceReset` have no REST equivalent and stay telemetry-only** — the catalog states this, and v1.4/R-02 already made the point. The polling revival does not reopen it. **Identity fields (`CarType`, `EfficiencyPackage`, `Version`) poll exactly once** at first sync to build the member profile. They are stable afterwards. **Odometer polls weekly** (owner decision). The eight on_change state fields (`SentryMode`, `SpeedLimitMode`, `PinToDriveEnabled`, `SpeedLimitWarning`, the four ADAS) keep telemetry on_change (owner: state change ok, telemetry). **Polling never wakes a sleeping vehicle (F14-R02).** REST polling fires only as a co-processor on a telemetry ingest. The car is awake and data is flowing, so no poll spends a wake signal. **F14-R07: revocation stops both lanes.** The consent text already carries "The information collected may vary from time to time as AFIRMICO's products and services evolve". The operator may enrol new catalog fields under that authorisation (owner decision). F14-R06 records the gate this change needs. **(2) FEATURE-12 amended (F12-R14..R18).** The configurator table adopts the reference product's column model: Name/Capability/Property/Type/Description from real catalog data. A **read-only transport badge** (`PUSH`/`PULL`) derives from the field's REST equivalent. It is not an operator toggle, so F12-R12 closes on honest terms rather than losing the column. `Tesla Package` maps to `collection_tier`. `Sampling Frequency` maps to `interval_seconds`. **Every telemetry field gets a per-field Enabled toggle.** **Low-volatility fields seed at 21600 s (6 h) instead of 180 s** — `PinToDriveEnabled` is the owner's example — and every seed stays overridable per scope. **The vehicle dropdown lists paired vehicles only.** The unpaired test unit "Walter" no longer appears. **Group and vehicle scopes gain search.** **Nav marks the active item bold** on every admin page. **(3) Catalog enrolment (F12-R18).** The operator may add catalog fields (`collected = 1`) from the configurator under the broad authorisation above. Enrolment writes an audit row with the operator, field and timestamp. **(4) Out of Scope §5 rewritten.** The line "`vehicle_data` polling. Withdrawn at v1.4" now defers to FEATURE-14's bounded lane. No other polling is in scope. §3.6 gains a supersession note. **(5) Phasing:** FEATURE-14 added as 6d. **Documentation only — no code in this revision.** |
 | 2.2 | 2026-10-07 | **FEATURE-13 added: Data Export & Scheduled Reporting (FRS v2.2).** Adds **FEATURE-13** with 15 requirements (F13-R01..R16), 5 non-functional requirements (F13-N01..N05), and 10 acceptance criteria (AC1..AC10). Exports telemetry and driver-profile data as CSV/Excel/PDF; scopeable to all/group/vehicle; time ranges (hour/week/month/year/all); calendar-style scheduled exports (hourly/daily/weekly/monthly/yearly/specific date/specific weekdays); email delivery with attachment and templated text; admin console UI for all settings; audit trail with metadata (timestamp, scope, range, row count, SHA-256); PDF cover page with data-quality disclaimer; email templating with placeholders; retry logic with exponential backoff; large file splitting; missed-schedule catch-up. **Two new risks:** R-19 (scheduled export reliability depends on email delivery) and R-20 (export PII handling and consent scope). **Phasing updated:** FEATURE-13 inserted at 6c in the phasing table (after FEATURE-12, before FEATURE-06/07). **Documentation only — no code.** |
 | 2.1 | 2026-10-07 | **The ten FEATURE-12 design decisions are settled, and one requirement written in v2.0 is corrected as wrong.** **(1) F12-R08 was false-success-prone and is fixed.** v2.0 required canary verification on `synced: true`. Measured the same day: a vehicle with **no configuration at all** (`has_config: false`, `key_paired: false`, our record `failed`) reports `synced: true` — the flag means "the vehicle has adopted the target config", and a vehicle with no target has nothing to adopt. A canary reading `synced` alone would have reported a **failed** configuration as **adopted**, defeating the single gate FEATURE-12 leans on hardest. F12-R08 now requires all three of: the POST succeeded, `has_config: true` **and** `synced: true`, **and** a subsequent telemetry observation. **(2) Group scope is a first-class stored entity (owner decision).** `group` resolves against an owner-curated `tesla_vehicle_group` / `tesla_vehicle_group_member` pair, **not** against F06's derived segment keys. The derived key is an *output* (recomputed per export from postcode + model + model year); a config scope bound to it would silently stop applying whenever the derivation changed, which is the same silent-drift class this document has repeatedly had to repair. This closes **R-17**. **(3) Canary is operator-nominated**, with eligibility enforced (F12-R07) — the operator picks a vehicle known to be in use, because adoption requires the vehicle to connect and a parked canary proves nothing. **(4) Every field's seeded `interval_seconds` is 180 s** — the global tier is seeded uniformly from the current constant, so day-one behaviour is unchanged and per-field values are adjusted from there. **(5) `SYNC_INTERVAL_SECONDS` is retained as the value that seeds the global tier**, not deleted: it gives F12-R02's "the global scope must be total" a concrete source and keeps a fresh deployment deterministic. **(6) Build order is global + vehicle first**, with `group` added once the entity exists — the two scopes that are fully specified solve the stated problem (one vehicle differing from the rest) without waiting on the third. **(7) Apply is a scheduled/queue-driven sweep, not an in-request loop** — at 1,000 vehicles an in-request loop exceeds the Worker's limits, so "apply" is asynchronous and per-vehicle progress is observable rather than all-or-nothing inside one request (this closes **R-18**). **(8) SDD-010 is deliberately left unamended** and a new SDD is written for this phase (SDD-011). Its 6-hour and 21600 references were accurate when written; a specification is a log of what was true, and silently rewriting a superseded design is the failure mode this repo has already been bitten by. The new design states its supersessions explicitly instead. **Documentation only — no code.** |
 | 2.0 | 2026-10-07 | **Phase boundary: the telemetry configuration becomes operator-configurable at global, group and per-vehicle scope. New FEATURE-12.** Configuration was global by construction and only changeable by deploy — `SYNC_INTERVAL_SECONDS` is one constant in `src/vehicle-config.ts` applied to every field of every vehicle, and no fleet-wide config row exists. The operator could not configure one vehicle differently from the rest, could not see what any vehicle was actually running, and could not change an interval without a code change, a PR and a merge. FEATURE-12 adds the **Vehicle Telemetry Configurator** with a **most-specific-wins, sparse** resolution (`vehicle > group > global`), per-field `interval_seconds` / `minimum_delta` / enabled, and a console that shows the **effective** value and its **provenance** for every field (F12-R01..R12). **Four decisions recorded, all owner-made 2026-10-07.** (1) **Sparse, not replacement** — a level specifies only the fields it changes, because a whole-config override would make a fleet-wide interval change silently skip every vehicle that had overridden anything. (2) **Staged-and-applied-through-CI, not direct write** — this is the point that matters most: the console gains no mutation route. F09 and the console are built on "no admin route writes state", and a test asserts it. The operator sets a target; the target is committed and applied by the pipeline. (3) **Canary required for global and group, not for vehicle** — a scoped change has a blast radius of N or M; a vehicle change is single-vehicle and is its own canary. The canary MUST be **eligible** (F12-R07): it must not carry an override for a field the change touches, because under sparse resolution an override **shadows** the scoped value, so a canary on an overridden vehicle would show no effect and be misread as a successful test. (4) **No `Pull`/`Push` controls** (F12-R12) — the reference product's column models a polling transport; Fleet Telemetry is push-only and the artifact carries only `interval_seconds` and `minimum_delta`. **One hard constraint the enabled flag makes necessary:** per-field on/off (F12-R03) collides with F01 AC6, which pins the enabled set equal to `CONSENTED_FIELDS` and is enforced by `verify-store.ts` and `/healthz`. **F12-R04** therefore makes the gate explicit — **overrides MAY narrow the collected set and MUST NOT widen it**. Collecting less is consent-safe; collecting a field outside the consented set is a compliance event, not a configuration mistake, so the refusal is a hard gate before an artifact is built rather than a warning. **Also corrected at this revision:** the stale 6-hour interval claims. §5 stated "Telemetry is throttled to a 6-hour refresh by design" and §8 phase 4 carried a gate to "confirm `interval_seconds` accepts 6 h" — the interval is **180 seconds** (reduced from 21600 on 2026-10-07, PR #194) and the 60-second-floor suspicion recorded in `vehicle-config.ts` was withdrawn as wrong (21600 had been accepted in production for days). **Documentation only — no code in this revision**; FEATURE-12 is specified here and built under its own approval. | — |
@@ -196,6 +197,12 @@ file ahead of the SPA fallback already exists in this repo: `apps/edge-runtime/s
 `GET /.well-known/mcp.json` as an explicit Hono route before the catch-all.
 
 ### 3.6 Telemetry transport decision
+
+> **Superseded in part by FEATURE-14 (FRS v2.3, 2026-10-09).** Fleet Telemetry remains the sole
+> transport for the streaming/behaviour fields, but a **bounded second lane** now re-establishes
+> `vehicle_data` polling for low-frequency and static fields (identity at first sync, Odometer
+> weekly). FSD counters stay telemetry-only — they have no REST equivalent. The analysis below
+> is retained as the record of why telemetry is the primary transport.
 
 **The MVP uses Tesla Fleet Telemetry as its sole transport** (owner decision, v1.4). `vehicle_data`
 polling is withdrawn: it is explicitly documented by Tesla as not recommended and expensive, and it
@@ -895,6 +902,11 @@ anything, defeating the purpose of having a global default.
 | F12-R11 | The console MUST show each vehicle's **applied vs. desired** state, so drift — a staged change not yet applied, or a vehicle running an older config — is a visible state rather than something discovered from missing data. | Must |
 | F12-R12 | The configurator MUST NOT expose `Pull`/`Push` transport controls. Fleet Telemetry is push-only; the platform's config artifact carries only `interval_seconds` and `minimum_delta` per field. Presenting a transport control that has no effect at the vehicle would be an operator-facing lie. (*Owner decision, 2026-10-07 — the reference product's Pull/Push column models a polling transport this platform does not use.*) | Must |
 | F12-R13 | **Build order (owner decision, 2026-10-07):** the **global scope** and **vehicle scope** are built and shipped first; **group scope** is added in a subsequent increment once the `tesla_vehicle_group` entity exists. The two scopes that are fully specified (global and vehicle) solve the stated problem (one vehicle differing from the rest) without waiting on the third. | Must |
+| F12-R14 | **The configurator table MUST present each field with its catalog metadata** — columns for Name (`field_key`), Capability (`category`), Property (`collection_group`), Type (`value_type` + `proto_enum_name`), and Description (`description`) — so the operator sees what a field is before changing it. The data MUST come from `tesla_field_catalog`, never from copy typed into the console. | Must |
+| F12-R15 | The table MUST show a **read-only transport badge** per field: `PUSH` for a field with no `vehicle_data_equivalent`, `PULL` for a field that may be polled (FEATURE-14). The badge is derived from the catalog and MUST NOT be an operator toggle — the operator configures interval and enabled state, not transport. This satisfies F12-R12's intent (no control that has no effect) while presenting the reference product's column honestly now that two transports exist. The `Tesla Package` column maps to `collection_tier` and the `Sampling Frequency` column to `interval_seconds` (editable in place). | Must |
+| F12-R16 | **Every collected field MUST carry a per-field Enabled toggle at every scope** — the on/off state stages through the same path as interval and minimum-delta (F12-R05) and resolves through the same sparse engine (F12-R01). **Seeding (owner decision, 2026-10-09):** low-volatility fields seed at `interval_seconds = 21600` (6 h) rather than 180 s — at minimum `PinToDriveEnabled` and the other static/settings fields — while volatile streaming fields (`MilesSinceReset`, `SelfDrivingMilesSinceReset`) seed at 180 s. `Odometer` seeds at 21600 s: its interval is the weekly poll cadence F14-R04 defines, not a streaming ceiling. Every seeded value remains overridable at every scope. | Must |
+| F12-R17 | The scope selectors MUST support **search**: the group selector searches group names, the vehicle selector searches VIN and display name and lists **paired vehicles only** — a vehicle whose `key_state` is not `paired` MUST NOT appear in the configurator's vehicle dropdown, because it cannot receive a configuration. The nav bar MUST mark the **active** item (bold) on every admin page, so the operator always knows which surface is rendered. | Must |
+| F12-R18 | The operator MUST be able to **enrol additional catalog fields** (`collected = 1`) from the configurator, under the standing authorisation recorded at F14-R06. Enrolment MUST write an audit row (operator, field, timestamp), MUST add the field's global-scope seed row so F12-R02's totality holds, and MUST NOT require a consent-policy bump. Enrolment is the one operation in this feature that widens the collected set — every other control MAY only narrow it (F12-R04). | Must |
 
 **Non-Functional Requirements:**
 
@@ -1003,11 +1015,97 @@ live-tracking system).
 
 ---
 
+### 4.14 FEATURE-14: Dual-Transport Collection (Fleet Telemetry + REST Polling)
+
+**Priority:** P1  
+**Effort:** Medium (~4 days) — adds a bounded REST polling lane beside telemetry  
+**Status:** Specified at FRS v2.3; no code exists for this feature.
+
+**User Story:** As the operator, I see every collected field carried on the transport that can
+actually deliver it — streaming fields over Fleet Telemetry, low-frequency and static fields over
+periodic Fleet API polling — without the platform ever waking a sleeping vehicle, and with
+revocation stopping both lanes at once.
+
+**Why this exists.** The transport tree the owner specified on 2026-10-09:
+
+```text
+Tesla Vehicle
+       │
+       ├─ Fleet Telemetry
+       │        ↓
+       │   High-value streaming fields
+       │
+       └─ Fleet API Polling
+                ↓
+       Low-frequency / static fields
+       VIN, Model, Year, car_type, trim_badging, car_special_type
+       Vehicle configuration and telemetry:
+       MilesSinceReset, SelfDrivingMilesSinceReset, Odometer
+```
+
+The tree names both transports; the catalog decides which one carries each field (F14-R01). The
+historical position (v1.4: polling withdrawn; this document's §3.6) stands for the streaming fields
+and is superseded only for the bounded low-frequency lane below.
+
+**Functional Requirements:**
+
+| ID | Requirement | Must/Should |
+|----|------------|-------------|
+| F14-R01 | The transport for each field MUST be **derived from the catalog, never chosen by an operator**: a field with a non-empty `vehicle_data_equivalent` MAY be polled; a field without one MUST ride Fleet Telemetry and MUST NOT be polled. `MilesSinceReset` and `SelfDrivingMilesSinceReset` have no REST equivalent; they MUST stay on telemetry at the configured interval, and no configuration, route or enrolment may assign them to polling. | Must |
+| F14-R02 | REST polling MUST fire **only as a co-processor of a telemetry ingest**: the platform MUST issue poll requests solely in the window immediately following a received telemetry batch for that vehicle. The platform MUST NOT send `wake_up` for a poll. A vehicle producing no telemetry produces no polls, whatever the configured poll interval says. | Must |
+| F14-R03 | The identity fields (`CarType`, `EfficiencyPackage`, `Version`, `Trim`) MUST be polled **exactly once per member connection** — on first sync, to build the member profile. The platform MUST NOT re-poll these fields on schedule; model, variant and trim are stable for a vehicle's life and are read thereafter from stored values and the VIN decode. | Must |
+| F14-R04 | `Odometer` MUST be polled on a **weekly cadence** at its configured `interval_seconds` (default 21600 s), subject to F14-R02: a week with no telemetry produces no poll. A poll that lands more than its interval since the last successful poll is overdue and MUST run at the next telemetry-triggered opportunity. | Must |
+| F14-R05 | The eight on-change state fields (`SentryMode`, `SpeedLimitMode`, `PinToDriveEnabled`, `SpeedLimitWarning`, `AutomaticBlindSpotCamera`, `AutomaticEmergencyBrakingOff`, `BlindSpotCollisionWarningChime`, `EmergencyLaneDepartureAvoidance`) MUST stay on Fleet Telemetry with `on_change` semantics and the configured interval; they are **not** polled even though `SentryMode` and `SpeedLimitMode` have REST equivalents. | Must |
+| F14-R06 | The operator MUST be able to enrol additional catalog fields (`collected = 1`) from the configurator without a consent-policy bump, under the standing authorisation in `CONSENT_TEXT` — specifically the clause *"The information collected may vary from time to time as AFIRMICO's products and services evolve"*. Every enrolment MUST write an audit row recording the operator, the field, and the timestamp, so the widening of the collected set is reconstructable from the audit trail alone. The consent set gate (F01 AC6 / F12-R04) MUST accept the enrolled set as consented the moment the enrolment is committed. | Must |
+| F14-R07 | Revoking a member's consent MUST stop **both lanes**: telemetry configuration teardown (F02-R12) **and** REST polling for that member's vehicles. A member whose revocation leaves polling running would be collected from after withdrawal, which the authorisation does not permit. | Must |
+| F14-R08 | Each REST poll MUST reuse the member's stored refresh-token machinery (F02 token lifecycle), MUST carry only consented fields, and MUST write rows through the same ingest normalisation path as telemetry, so a polled value and a streamed value are indistinguishable downstream except by their recorded source. | Must |
+| F14-R09 | Every poll attempt MUST be metered against the billing guard (F02-R13): `data_requests` counts per F02-R13's own accounting, and a poll cadence that would breach the account credit MUST be reported by `/healthz` as a projected breach before it happens. | Should |
+| F14-R10 | Every polled row MUST record its source (`poll` vs `telemetry`) in the fact storage, so an insurer query, an export (FEATURE-13) and a driver profile (FEATURE-05) can attribute any value to the transport that delivered it. | Must |
+
+**Non-Functional Requirements:**
+
+| ID | Requirement | Target |
+|----|------------|--------|
+| F14-N01 | Poll cadence cost | ≤ 1 poll per vehicle per week at steady state; 0 polls for a vehicle with no telemetry |
+| F14-N02 | Wake signals consumed by polling | 0 — F14-R02 is enforced by code, not by convention |
+| F14-N03 | First-sync identity build | identity fields populated before the member's first dashboard render |
+
+**Acceptance Criteria:**
+
+```text
+AC1: A vehicle whose catalog row for a field has no `vehicle_data_equivalent` never receives a REST
+     poll for that field. The configurator shows the PUSH badge for it.
+AC2: A sleeping vehicle receives no REST request from the platform for 24 h. When it streams one
+     telemetry batch, poll requests may follow immediately after — never before.
+AC3: A new member's first sync populates CarType, EfficiencyPackage, Version and Trim. No scheduled
+     job re-polls them in the following 8 days.
+AC4: The platform polls Odometer within its weekly window only when telemetry flowed in that window.
+     A week with zero telemetry batches produces zero polls and the poll reads "overdue" rather than
+     "skipped".
+AC5: Revoking consent produces a telemetry config teardown AND zero subsequent REST polls for that
+     member's vehicles. Both events appear in the audit trail.
+AC6: An operator enrols a catalog field from the configurator. The audit row records operator, field
+     and timestamp. F01 AC6's consent-set gate passes with the enrolled field included.
+AC7: A polled row and a streamed row for the same field and instant are distinguishable only by
+     their recorded source.
+AC8: `/healthz` reports the month's projected `data_requests` spend. The report degrades when the
+     projected poll cadence threatens the 10x billing margin.
+```
+
+**Out of scope for this feature:** waking vehicles for any purpose, operator choice of transport
+per field (F12-R18 renders the transport, it does not set it), scheduled polling of identity fields
+beyond the first sync, and any field outside `CONSENTED_FIELDS`.
+
+---
+
 ## 5. Out of Scope
 
 - **Member-facing mobile app.** There is no TOCA member app at MVP; the platform is the connector plus an admin dashboard.
 - **Vehicle Commands, Energy Product Commands, and Enterprise management.** The endpoint families are catalogued but seeded disabled and MUST NOT be called.
-- **`vehicle_data` polling.** Withdrawn at v1.4; Fleet Telemetry is the sole transport. No scheduled polling lane is specified.
+- **`vehicle_data` polling — superseded (FRS v2.3).** The v1.4 withdrawal is replaced by
+  **FEATURE-14**: a bounded polling lane for low-frequency and static fields, fired only as a
+  co-processor of telemetry ingest, never waking a vehicle, and stopped by revocation. No other
+  polling lane (commands, energy, scheduled polling of streaming fields) is specified.
 - **High-frequency behaviour capture.** Lateral/longitudinal acceleration, brake-pedal position, and similar high-rate fields are excluded on cost grounds — they are ~39× the cost of the selected field set.
 - **Real-time data.** Telemetry is push-on-change gated by a per-field `interval_seconds`, currently **180 s** (reduced from 21600 s on 2026-10-07, FRS v2.0). The platform is not a live-tracking system: a changed value may take up to the interval to arrive, and a parked vehicle reports nothing because every field is change-gated. *(This line previously said "throttled to a 6-hour refresh by design"; the interval is per-field and operator-configurable — FEATURE-12.)*
 - **Kafka/Redis/streaming dispatch and any messaging fabric.** The relay forwards batched records to the application directly; no intermediate broker is specified at MVP.
@@ -1097,6 +1195,7 @@ live-tracking system).
 | 6 | FEATURE-09: admin dashboard, Australia map, fleet and quality visualisation |
 | 6b | **FEATURE-12 (FRS v2.0): Vehicle Telemetry Configurator** — resolution engine (sparse, most-specific-wins), three scopes, staged-target + CI apply, canary for global/group, effective-value and provenance display. Depends on FEATURE-09 (the console it extends) and on the config-apply path (F02-R11) it generalises. |
 | 6c | **FEATURE-13 (FRS v2.1): Data Export & Scheduled Reporting** — CSV/Excel/PDF export for all, group, or individual vehicles; configurable time ranges (hour, week, month, year, all); scheduled exports with calendar-style recurrence (hourly, daily, weekly, monthly, yearly, specific date, or specific weekdays); email delivery with attachment and templated text; all settings visible and editable in the admin console for the manager. |
+| 6d | **FEATURE-14 (FRS v2.3): Dual-Transport Collection** — REST polling lane beside telemetry: transport derived per field from the catalog, identity polled once at first sync, Odometer weekly, polls fired only on telemetry ingest (no wake signals), revocation stops both lanes, source recorded on every row. Depends on FEATURE-02 (token lifecycle) and FEATURE-04 (the ingest that triggers polls). |
 | 7 | FEATURE-06 + FEATURE-07: group-tier aggregates and individual quote packages with secure delivery |
 | 8 | FEATURE-10: revocation, deletion, and retention lifecycle |
 | 9 | Insurer requirements received → separate reporting FRS |

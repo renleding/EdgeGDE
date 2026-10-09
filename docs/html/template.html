@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$title$</title>
+$if(css)$<link rel="stylesheet" href="$css$">$endif$
+</head>
+<body>
+<div class="page">
+$if(metaheader)$
+<header class="doc-title">
+<h1>$title$</h1>
+<div class="meta-block">$metaheader$</div>
+</header>
+$else$
+<header class="doc-title"><h1>$title$</h1></header>
+$endif$
+$if(toc)$
+<nav id="TOC" role="doc-toc">
+<p><strong>Contents</strong></p>
+$toc$
+</nav>
+$endif$
+$body$
+<footer>Generated from markdown source by <code>scripts/md2html.py</code> — the .md file in git remains the source of truth.</footer>
+</div>
+</body>
+</html>

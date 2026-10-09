@@ -42,3 +42,7 @@ my-agent/
 *-private-key.pem
 private-key.pem
 apps/edge-runtime/public/.well-known/appspecific/*.private.pem
+
+# HTML build artifacts (source of truth = docs/*.md)
+docs/html/*.html
+!docs/html/template.html
