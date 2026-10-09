@@ -80,17 +80,35 @@ async function isAuthenticated(c: Context<{ Bindings: AdminEnv }>): Promise<bool
   return (await c.env.OAUTH_SESSIONS.get(`admin:${sessionId}`)) === 'ok'
 }
 
-function shell(title: string, body: string, nav = true, liveVin?: string): string {
+function shell(title: string, body: string, nav = true, liveVin?: string, active?: string): string {
+  // F12-R17: the active nav item renders bold. Keyed off the page title rather
+  // than a per-call argument, so a new surface cannot forget to pass its key —
+  // a title that maps to no key simply renders no item bold, which is visible
+  // in review, whereas a missed argument is invisible.
+  const ACTIVE_BY_TITLE: Record<string, string> = {
+    'Admin — Overview': 'overview',
+    'Admin — Members': 'members',
+    'Admin — Vehicles': 'vehicles',
+    'Admin — Telemetry': 'telemetry',
+    'Admin — Telemetry Configurator': 'configurator',
+    'Admin — Data Exports': 'exports',
+    'Admin — Consent': 'consent',
+    'Admin — Audit': 'audit',
+    'Admin — Vehicle Groups': 'telemetry',
+    'Admin — Vehicle Group': 'telemetry',
+    'Admin — Group': 'telemetry',
+  }
+  const activeKey = active ?? ACTIVE_BY_TITLE[title]
   const navBar = nav
     ? `<div class="nav">
-    <a href="/admin/overview">Overview</a>
-    <a href="/admin/members">Members</a>
-    <a href="/admin/vehicles">Vehicles</a>
-    <a href="/admin/telemetry">Telemetry</a>
-    <a href="/admin/telemetry/configurator">Configurator</a>
-    <a href="/admin/exports">Exports</a>
-    <a href="/admin/consent">Consent</a>
-    <a href="/admin/audit">Audit</a>
+    ${navItem('/admin/overview', 'Overview', 'overview', activeKey)}
+    ${navItem('/admin/members', 'Members', 'members', activeKey)}
+    ${navItem('/admin/vehicles', 'Vehicles', 'vehicles', activeKey)}
+    ${navItem('/admin/telemetry', 'Telemetry', 'telemetry', activeKey)}
+    ${navItem('/admin/telemetry/configurator', 'Configurator', 'configurator', activeKey)}
+    ${navItem('/admin/exports', 'Exports', 'exports', activeKey)}
+    ${navItem('/admin/consent', 'Consent', 'consent', activeKey)}
+    ${navItem('/admin/audit', 'Audit', 'audit', activeKey)}
     <a href="/admin/logout" class="right">Sign out</a>
   </div>`
     : ''
@@ -112,6 +130,7 @@ function shell(title: string, body: string, nav = true, liveVin?: string): strin
   a{color:#8ab4ff}
   .nav{display:flex;gap:18px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid #222;margin-bottom:8px;font-size:15px}
   .nav a{text-decoration:none;color:#9ecbff}
+  .nav a.active{color:#42ff8c;font-weight:700}
   .nav a.right{margin-left:auto;color:#ff9a9a}
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:18px 0}
   .card{background:#151515;border-radius:12px;padding:16px}
@@ -152,6 +171,16 @@ function shell(title: string, body: string, nav = true, liveVin?: string): strin
 </div>
 </body>
 </html>`
+}
+
+/**
+ * One nav link. The active item renders bold (F12-R17): the operator always knows
+ * which surface is rendered. `key` is the route's identity, not its path — the
+ * group pages share Telemetry's key because they are Telemetry's sub-surfaces.
+ */
+function navItem(href: string, label: string, key: string, active?: string): string {
+  const cls = active === key ? ' class="active"' : ''
+  return `<a href="${href}"${cls}>${label}</a>`
 }
 
 /**
@@ -1185,90 +1214,129 @@ adminApp.get('/api/telemetry/latest', async (c) => {
 adminApp.get('/telemetry/configurator', async (c) => {
   if (!(await isAuthenticated(c))) return c.redirect('/admin/login')
 
-  // Parse query params
   const scope = (c.req.query('scope') ?? 'global').trim() // global | group | vehicle
   const vin = (c.req.query('vin') ?? '').trim()
   const group_id = (c.req.query('group_id') ?? '').trim()
-  const field_key = (c.req.query('field_key') ?? '').trim()
+  const search = (c.req.query('search') ?? '').trim()
+  const q = (c.req.query('q') ?? '').trim().toLowerCase()
+  const staged = (c.req.query('staged') ?? '').trim()
 
-  // Load collected fields
+  // F12-R14: every row's data comes from tesla_field_catalog. The console holds
+  // no copy of what a field is — capability, type and description are catalog
+  // facts joined at render time, so the table cannot drift from the catalog.
+  const catalog = (await c.env.D1_TESLA.prepare(
+    `SELECT field_key, category, value_type, proto_enum_name, description,
+            collection_group, collection_tier, vehicle_data_equivalent
+       FROM tesla_field_catalog
+      WHERE collected = 1
+      ORDER BY field_key`
+  ).all<{
+    field_key: string
+    category: string
+    value_type: string
+    proto_enum_name: string | null
+    description: string | null
+    collection_group: string | null
+    collection_tier: string
+    vehicle_data_equivalent: string | null
+  }>()).results ?? []
+
   const fields = await collectedFields(c.env.D1_TESLA)
   const collectedFieldKeys = fields.map(f => f.field_key)
 
-  // Load all groups for dropdown
-  const groups = await c.env.D1_TESLA.prepare(
-    `SELECT group_id, name, description FROM tesla_vehicle_group ORDER BY name`
-  ).all<{ group_id: string; name: string; description: string | null }>()
+  // F12-R17: paired vehicles only. An unpaired vehicle cannot receive a
+  // configuration — its own key row says so — so listing one invites a staged
+  // change that can never apply. Search filters server-side, capped at 50 rows:
+  // a fleet at a thousand vehicles exceeds a dropdown's useful length.
+  const like = search ? `%${search}%` : '%'
+  const groups = (await c.env.D1_TESLA.prepare(
+    'SELECT group_id, name, description FROM tesla_vehicle_group WHERE name LIKE ? ORDER BY name LIMIT 50'
+  ).bind(like).all<{ group_id: string; name: string; description: string | null }>()).results ?? []
+  const vehicles = (await c.env.D1_TESLA.prepare(
+    `SELECT v.vin, v.display_name
+       FROM tesla_vehicle v
+       JOIN tesla_vehicle_key vk ON vk.vin = v.vin AND vk.key_state = 'paired'
+      WHERE v.vin LIKE ? OR COALESCE(v.display_name, '') LIKE ?
+      ORDER BY v.vin LIMIT 50`
+  ).bind(like, like).all<{ vin: string; display_name: string | null }>()).results ?? []
 
-  // Load all vehicles for dropdown
-  const vehicles = await c.env.D1_TESLA.prepare(
-    `SELECT vin, display_name FROM tesla_vehicle ORDER BY vin`
-  ).all<{ vin: string; display_name: string | null }>()
-
-  // Load config entries based on scope
-  let configEntries: Array<{
-    field_key: string
-    interval_seconds: number
-    minimum_delta: number | null
-    enabled: number
-    scope_id: string
-    scope_kind: string
-  }> = []
-
-  if (scope === 'global') {
-    const entries = await c.env.D1_TESLA.prepare(
-      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled,
-              e.scope_id, s.scope_kind
-       FROM telemetry_config_entry e
-       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
-       WHERE s.scope_kind = 'global'
-       ORDER BY e.field_key`
-    ).all<{
-      field_key: string
-      interval_seconds: number
-      minimum_delta: number | null
-      enabled: number
-      scope_id: string
-      scope_kind: string
-    }>()
-    configEntries = entries.results ?? []
-  } else if (scope === 'group' && group_id) {
-    const entries = await c.env.D1_TESLA.prepare(
-      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled,
-              e.scope_id, s.scope_kind
-       FROM telemetry_config_entry e
-       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
-       WHERE s.scope_kind = 'group' AND s.group_id = ?
-       ORDER BY e.field_key`
-    ).bind(group_id).all<{
-      field_key: string
-      interval_seconds: number
-      minimum_delta: number | null
-      enabled: number
-      scope_id: string
-      scope_kind: string
-    }>()
-    configEntries = entries.results ?? []
-  } else if (scope === 'vehicle' && vin) {
-    const entries = await c.env.D1_TESLA.prepare(
-      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled,
-              e.scope_id, s.scope_kind
-       FROM telemetry_config_entry e
-       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
-       WHERE s.scope_kind = 'vehicle' AND s.vin = ?
-       ORDER BY e.field_key`
-    ).bind(vin).all<{
-      field_key: string
-      interval_seconds: number
-      minimum_delta: number | null
-      enabled: number
-      scope_id: string
-      scope_kind: string
-    }>()
-    configEntries = entries.results ?? []
+  // A search that hides the current selection must not silently drop it: the
+  // operator's chosen scope survives a filter that no longer matches it.
+  if (scope === 'group' && group_id && !groups.some(g => g.group_id === group_id)) {
+    const row = await c.env.D1_TESLA.prepare(
+      'SELECT group_id, name, description FROM tesla_vehicle_group WHERE group_id = ?'
+    ).bind(group_id).first<{ group_id: string; name: string; description: string | null }>()
+    if (row) groups.unshift(row)
+  }
+  if (scope === 'vehicle' && vin && !vehicles.some(v => v.vin === vin)) {
+    const row = await c.env.D1_TESLA.prepare(
+      'SELECT vin, display_name FROM tesla_vehicle WHERE vin = ?'
+    ).bind(vin).first<{ vin: string; display_name: string | null }>()
+    if (row) vehicles.unshift(row)
   }
 
-  // If VIN provided, resolve effective config for that VIN
+  // --- sparse resolution: vehicle > group > global --------------------------
+  type EntryRow = { field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }
+  type Resolved = { interval_seconds: number; minimum_delta: number | null; enabled: boolean }
+  const toResolved = (r: EntryRow): Resolved => ({
+    interval_seconds: r.interval_seconds,
+    minimum_delta: r.minimum_delta,
+    enabled: r.enabled === 1,
+  })
+
+  const globalRows = (await c.env.D1_TESLA.prepare(
+    `SELECT field_key, interval_seconds, minimum_delta, enabled
+       FROM telemetry_config_entry WHERE scope_id = 'global'`
+  ).all<EntryRow>()).results ?? []
+  const globalMap = new Map(globalRows.map(r => [r.field_key, toResolved(r)]))
+
+  const groupRows = scope === 'group' && group_id
+    ? ((await c.env.D1_TESLA.prepare(
+        `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
+           FROM telemetry_config_entry e
+           JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+          WHERE s.scope_kind = 'group' AND s.group_id = ?`
+      ).bind(group_id).all<EntryRow>()).results ?? [])
+    : []
+  const selectedGroupMap = new Map(groupRows.map(r => [r.field_key, toResolved(r)]))
+
+  // Group membership and vehicle overrides load whenever a VIN is selected —
+  // they feed the effective-config table and the vehicle-scope row overlay.
+  const memberGroupRows = vin
+    ? ((await c.env.D1_TESLA.prepare(
+        `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
+           FROM telemetry_config_entry e
+           JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+           JOIN tesla_vehicle_group_member m ON m.group_id = s.group_id
+          WHERE s.scope_kind = 'group' AND m.vin = ?`
+      ).bind(vin).all<EntryRow>()).results ?? [])
+    : []
+  const memberGroupMap = new Map(memberGroupRows.map(r => [r.field_key, toResolved(r)]))
+
+  const vehicleRows = vin
+    ? ((await c.env.D1_TESLA.prepare(
+        `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
+           FROM telemetry_config_entry e
+           JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+          WHERE s.scope_kind = 'vehicle' AND s.vin = ?`
+      ).bind(vin).all<EntryRow>()).results ?? [])
+    : []
+  const vehicleMap = new Map(vehicleRows.map(r => [r.field_key, toResolved(r)]))
+
+  // Effective values rendered per row for the CURRENT scope. Every collected
+  // field renders (F12-R14), so the map is seeded first and the scope overlays
+  // punch through: the seed covers a field whose global row does not exist yet,
+  // which is the state a just-enrolled field is in before its seed lands.
+  const displayMap = new Map<string, Resolved>()
+  for (const r of catalog) displayMap.set(r.field_key, { interval_seconds: 180, minimum_delta: null, enabled: true })
+  for (const [k, v] of globalMap) displayMap.set(k, v)
+  if (scope === 'group') for (const [k, v] of selectedGroupMap) displayMap.set(k, v)
+  if (scope === 'vehicle') {
+    for (const [k, v] of memberGroupMap) displayMap.set(k, v)
+    for (const [k, v] of vehicleMap) displayMap.set(k, v)
+  }
+
+  // Effective config for the VIN (provenance table below the main one).
   let effectiveConfig: Array<{
     field_key: string
     enabled: boolean
@@ -1281,92 +1349,73 @@ adminApp.get('/telemetry/configurator', async (c) => {
   let unresolved: string[] = []
 
   if (vin) {
-    // Load global entries
-    const globalEntries = await c.env.D1_TESLA.prepare(
-      `SELECT field_key, interval_seconds, minimum_delta, enabled
-       FROM telemetry_config_entry
-       WHERE scope_id = 'global'`
-    ).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
-    const globalMap = new Map(
-      (globalEntries.results ?? []).map(r => [r.field_key, {
-        interval_seconds: r.interval_seconds,
-        minimum_delta: r.minimum_delta,
-        enabled: r.enabled === 1,
-      }])
-    )
-
-    // Load group entries for this VIN
-    const groupEntries = await c.env.D1_TESLA.prepare(
-      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
-       FROM telemetry_config_entry e
-       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
-       JOIN tesla_vehicle_group_member m ON m.group_id = s.group_id
-       WHERE s.scope_kind = 'group' AND m.vin = ?`
-    ).bind(vin).all<{
-      field_key: string
-      interval_seconds: number
-      minimum_delta: number | null
-      enabled: number
-    }>()
-    const groupMap = new Map(
-      (groupEntries.results ?? []).map(r => [r.field_key, {
-        interval_seconds: r.interval_seconds,
-        minimum_delta: r.minimum_delta,
-        enabled: r.enabled === 1,
-      }])
-    )
-
-    // Load vehicle entries
-    const vehicleEntries = await c.env.D1_TESLA.prepare(
-      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
-       FROM telemetry_config_entry e
-       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
-       WHERE s.scope_kind = 'vehicle' AND s.vin = ?`
-    ).bind(vin).all<{
-      field_key: string
-      interval_seconds: number
-      minimum_delta: number | null
-      enabled: number
-    }>()
-    const vehicleMap = new Map(
-      (vehicleEntries.results ?? []).map(r => [r.field_key, {
-        interval_seconds: r.interval_seconds,
-        minimum_delta: r.minimum_delta,
-        enabled: r.enabled === 1,
-      }])
-    )
-
-    // Resolve effective config
-    const resolved = resolveConfig(globalMap, groupMap, vehicleMap, collectedFieldKeys, vin)
+    const resolved = resolveConfig(globalMap, memberGroupMap, vehicleMap, collectedFieldKeys, vin)
     effectiveConfig = resolved.fields
     unresolved = resolved.unresolved
-
-    // Load group scope for this VIN
     groupScope = await c.env.D1_TESLA.prepare(
       `SELECT g.group_id, g.name, g.description
-       FROM tesla_vehicle_group g
-       JOIN tesla_vehicle_group_member m ON m.group_id = g.group_id
-       WHERE m.vin = ?`
+         FROM tesla_vehicle_group g
+         JOIN tesla_vehicle_group_member m ON m.group_id = g.group_id
+        WHERE m.vin = ?`
     ).bind(vin).first<{ group_id: string; name: string; description: string | null }>()
   }
 
-  // Render config entries table
-  const configEntriesHtml = configEntries.length === 0
-    ? '<div class="empty">No config entries for this scope.</div>'
-    : `<table style="font-size:13px">
-        <thead><tr><th>Field</th><th>Enabled</th><th>Interval</th><th>Min Delta</th><th>Scope</th></tr></thead>
-        <tbody>
-        ${configEntries.map(e => `<tr>
-          <td><code>${escapeHtml(e.field_key)}</code></td>
-          <td><span class="pill ${e.enabled ? 'ok' : 'warn'}">${e.enabled ? 'Enabled' : 'Disabled'}</span></td>
-          <td class="mono">${e.interval_seconds}s</td>
-          <td class="mono">${e.minimum_delta !== null ? escapeHtml(e.minimum_delta) : '—'}</td>
-          <td><span class="pill ${e.scope_kind === 'global' ? 'warn' : e.scope_kind === 'group' ? 'ok' : 'ok'}">${e.scope_kind}</span></td>
-        </tr>`).join('')}
-        </tbody>
-      </table>`
+  // --- the table (F12-R14/R15/R16) -----------------------------------------
+  const matchesQuery = (r: typeof catalog[number]) =>
+    !q ||
+    r.field_key.toLowerCase().includes(q) ||
+    (r.category ?? '').toLowerCase().includes(q) ||
+    (r.description ?? '').toLowerCase().includes(q)
+  const visible = catalog.filter(matchesQuery)
 
-  // Render effective config for VIN
+  const rowsHtml = visible.map(r => {
+    const v = displayMap.get(r.field_key) ?? { interval_seconds: 180, minimum_delta: null, enabled: true }
+    const transport = r.vehicle_data_equivalent ? 'PULL' : 'PUSH'
+    const formId = 'sfr_' + r.field_key.replace(/[^A-Za-z0-9]/g, '_')
+    const typeLabel = r.proto_enum_name ? `${r.value_type} · ${r.proto_enum_name}` : r.value_type
+    const highlight = staged === r.field_key ? ' style="outline:1px solid #42ff8c"' : ''
+    return `<tr${highlight}>
+      <td><code>${escapeHtml(r.field_key)}</code></td>
+      <td>${escapeHtml(r.category ?? '—')}</td>
+      <td class="mono">${escapeHtml(r.collection_group ?? '—')}</td>
+      <td><span class="pill">${escapeHtml(typeLabel)}</span></td>
+      <td class="meta" style="max-width:280px">${escapeHtml(r.description ?? '—')}</td>
+      <td><span class="pill ${transport === 'PULL' ? '' : 'ok'}">${transport}</span></td>
+      <td><span class="pill">${escapeHtml(r.collection_tier)}</span></td>
+      <td><input type="number" name="interval_seconds" form="${formId}" min="1" value="${v.interval_seconds}" title="seconds" style="width:86px;padding:6px;border-radius:6px;border:1px solid #333;background:#0d0d0d;color:#fff"></td>
+      <td style="text-align:center"><input type="checkbox" form="${formId}" name="enabled" ${v.enabled ? 'checked' : ''} title="Enabled"></td>
+      <td><button type="submit" form="${formId}" style="padding:6px 12px;border:0;border-radius:6px;background:#0b5ed7;color:#fff;font-weight:700;font-size:13px;cursor:pointer">Save</button></td>
+    </tr>`
+  }).join('')
+
+  // One hidden form per row. Inputs live in the row's cells and associate via
+  // the `form` attribute — a <form> cannot wrap <tr>, and one form per table
+  // would let a stray field_key input in another row collide on parse.
+  const rowForms = visible.map(r => {
+    const v = displayMap.get(r.field_key) ?? { interval_seconds: 180, minimum_delta: null, enabled: true }
+    const formId = 'sfr_' + r.field_key.replace(/[^A-Za-z0-9]/g, '_')
+    return `<form id="${formId}" method="POST" action="/admin/telemetry/stage">
+      <input type="hidden" name="scope" value="${escapeHtml(scope)}">
+      ${scope === 'group' ? `<input type="hidden" name="group_id" value="${escapeHtml(group_id)}">` : ''}
+      ${scope === 'vehicle' ? `<input type="hidden" name="vin" value="${escapeHtml(vin)}">` : ''}
+      <input type="hidden" name="field_key" value="${escapeHtml(r.field_key)}">
+      <input type="hidden" name="minimum_delta" value="${v.minimum_delta ?? ''}">
+    </form>`
+  }).join('')
+
+  const tableHtml = visible.length === 0
+    ? '<div class="empty">No fields match.</div>'
+    : `<table style="font-size:13px">
+        <thead><tr>
+          <th>Name</th><th>Capability</th><th>Property</th><th>Type</th><th>Description</th>
+          <th title="Derived from catalog: PUSH = Fleet Telemetry, PULL = Fleet API polling (read-only)">Transport</th>
+          <th>Tesla Package</th><th>Sampling (s)</th><th>Enabled</th><th></th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      ${rowForms}`
+
+  // --- provenance table (existing design, unchanged) ------------------------
   let effectiveHtml = ''
   let unresolvedHtml = ''
   let scopeBadge = ''
@@ -1407,10 +1456,10 @@ adminApp.get('/telemetry/configurator', async (c) => {
 
   return c.html(shell('Admin — Telemetry Configurator', `
     <h1>Telemetry Configurator</h1>
-    <p class="meta">Manage telemetry configuration at global, group, and vehicle scope. Resolution: vehicle > group > global (sparse).</p>
+    <p class="meta">Configure collection per field at global, group, or vehicle scope. Transport is derived from the Tesla catalog and is not selectable (F12-R15). Vehicle selector lists paired vehicles only (F12-R17).</p>
 
-    <!-- Scope Selector -->
-    <form method="GET" action="/admin/telemetry/configurator" style="display:flex;gap:16px;flex-wrap:wrap;margin:24px 0;padding:16px;background:#151515;border-radius:12px">
+    <!-- Scope + search selector (F12-R17) -->
+    <form method="GET" action="/admin/telemetry/configurator" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin:24px 0;padding:16px;background:#151515;border-radius:12px">
       <label class="meta">Scope
         <select name="scope" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
           <option value="global" ${scope === 'global' ? 'selected' : ''}>Global</option>
@@ -1419,51 +1468,37 @@ adminApp.get('/telemetry/configurator', async (c) => {
         </select>
       </label>
       ${scope === 'group' ? `
-        <label class="meta">Group
-          <select name="group_id" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-            <option value="">Select group</option>
-            ${(groups.results ?? []).map(g => `<option value="${escapeHtml(g.group_id)}" ${g.group_id === group_id ? 'selected' : ''}>${escapeHtml(g.name)} (${g.group_id})</option>`).join('')}
-          </select>
-        </label>
-      ` : ''}
-      ${scope === 'vehicle' ? `
-        <label class="meta">Vehicle
-          <select name="vin" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-            <option value="">Select vehicle</option>
-            ${(vehicles.results ?? []).map(v => `<option value="${escapeHtml(v.vin)}" ${v.vin === vin ? 'selected' : ''}>${escapeHtml(v.vin)}${v.display_name ? ' — ' + escapeHtml(v.display_name) : ''}</option>`).join('')}
-          </select>
-        </label>
-      ` : ''}
-    </form>
-
-    <!-- Config Entries Table -->
-    <h2>${scope === 'global' ? 'Global Configuration' : scope === 'group' ? 'Group Configuration: ' + (groups.results?.find(g => g.group_id === group_id)?.name ?? group_id) : 'Vehicle Configuration: ' + escapeHtml(vin)}</h2>
-    ${configEntriesHtml}
-
-    <!-- Add/Edit Config Entry Form -->
-    <h2>Stage Change</h2>
-    <form method="POST" action="/admin/telemetry/stage" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;background:#151515;border-radius:12px;padding:16px;margin-top:16px">
-      <input type="hidden" name="scope" value="${escapeHtml(scope)}">
-      ${scope === 'group' ? `<input type="hidden" name="group_id" value="${escapeHtml(group_id)}">` : ''}
-      ${scope === 'vehicle' ? `<input type="hidden" name="vin" value="${escapeHtml(vin)}">` : ''}
-      <label class="meta">Field
-        <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-          ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}" ${k === field_key ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
+      <label class="meta">Group
+        <select name="group_id" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          <option value="">Select group</option>
+          ${groups.map(g => `<option value="${escapeHtml(g.group_id)}" ${g.group_id === group_id ? 'selected' : ''}>${escapeHtml(g.name)} (${escapeHtml(g.group_id)})</option>`).join('')}
         </select>
       </label>
-      <label class="meta">Interval (seconds)
-        <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      <label class="meta">Search groups
+        <input name="search" value="${escapeHtml(search)}" placeholder="name" style="width:160px;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
       </label>
-      <label class="meta">Min Delta (leave empty for none)
-        <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      ` : ''}
+      ${scope === 'vehicle' ? `
+      <label class="meta">Vehicle (paired only)
+        <select name="vin" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          <option value="">Select vehicle</option>
+          ${vehicles.map(v => `<option value="${escapeHtml(v.vin)}" ${v.vin === vin ? 'selected' : ''}>${escapeHtml(v.vin)}${v.display_name ? ' — ' + escapeHtml(v.display_name) : ''}</option>`).join('')}
+        </select>
       </label>
-      <label class="meta">
-        <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
+      <label class="meta">Search vehicles
+        <input name="search" value="${escapeHtml(search)}" placeholder="VIN or name" style="width:160px;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
       </label>
-      <div style="grid-column:1/-1">
-        <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
-      </div>
+      ` : ''}
+      <label class="meta">Search fields
+        <input name="q" value="${escapeHtml(c.req.query('q') ?? '')}" placeholder="name, capability, description" style="width:220px;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Apply filters</button>
     </form>
+
+    <!-- Catalog-driven config table (F12-R14..R16) -->
+    <h2>${scope === 'global' ? 'Global Configuration' : scope === 'group' ? 'Group Configuration: ' + (groups.find(g => g.group_id === group_id)?.name ?? group_id) : 'Vehicle Configuration: ' + escapeHtml(vin)}</h2>
+    <p class="meta">Transport: <span class="pill ok">PUSH</span> = Fleet Telemetry · <span class="pill">PULL</span> = Fleet API polling. Read-only — derived from the catalog (F12-R15). Edit the interval and the toggle, then Save. ${scope !== 'global' ? 'Values shown are effective: inherited from a broader scope unless overridden here.' : ''}</p>
+    ${tableHtml}
 
     ${effectiveHtml}
     ${unresolvedHtml}
