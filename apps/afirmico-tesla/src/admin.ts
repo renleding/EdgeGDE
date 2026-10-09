@@ -33,6 +33,11 @@ export interface AdminEnv {
   INGEST_SHARED_SECRET?: string
 }
 
+/**
+ * The admin Hono app (FRS-010 F09). Mounted under `/admin` by the worker:
+ * login/logout, a catch-all auth guard, the HTML operator pages, and the
+ * header-authenticated JSON API for tooling.
+ */
 export const adminApp = new Hono<{ Bindings: AdminEnv }>()
 
 const ADMIN_SESSION_COOKIE = 'afirmico_admin'
@@ -1170,218 +1175,303 @@ adminApp.get('/api/telemetry/latest', async (c) => {
   /* -------------------------------------------------------------------------- */
 
 /**
+ * ============================================================
+ * FEATURE-12: Telemetry Configurator — Admin Console (redesigned)
+ * ============================================================
+ * Single page with search/filter like exports page.
+ * No required VIN parameter — scope selector + VIN picker.
+ */
+
+/**
  * GET /admin/telemetry/configurator
- * Show the effective configuration for a VIN with provenance,
- * plus the ability to stage changes.
+ * Main configurator page with search, filter, and staging forms.
  */
 adminApp.get('/telemetry/configurator', async (c) => {
+  if (!(await isAuthenticated(c))) return c.redirect('/admin/login')
+
+  // Parse query params
+  const scope = (c.req.query('scope') ?? 'global').trim() // global | group | vehicle
   const vin = (c.req.query('vin') ?? '').trim()
-  if (!vin) return c.json({ error: 'vin is required' }, 400)
+  const group_id = (c.req.query('group_id') ?? '').trim()
+  const field_key = (c.req.query('field_key') ?? '').trim()
 
   // Load collected fields
   const fields = await collectedFields(c.env.D1_TESLA)
   const collectedFieldKeys = fields.map(f => f.field_key)
 
-  // Load global entries
-  const globalEntries = await c.env.D1_TESLA.prepare(
-    `SELECT field_key, interval_seconds, minimum_delta, enabled
+  // Load all groups for dropdown
+  const groups = await c.env.D1_TESLA.prepare(
+    `SELECT group_id, name, description FROM tesla_vehicle_group ORDER BY name`
+  ).all<{ group_id: string; name: string; description: string | null }>()
+
+  // Load all vehicles for dropdown
+  const vehicles = await c.env.D1_TESLA.prepare(
+    `SELECT vin, display_name FROM tesla_vehicle ORDER BY vin`
+  ).all<{ vin: string; display_name: string | null }>()
+
+  // Load config entries based on scope
+  let configEntries: Array<{
+    field_key: string
+    interval_seconds: number
+    minimum_delta: number | null
+    enabled: number
+    scope_id: string
+    scope_kind: string
+  }> = []
+
+  if (scope === 'global') {
+    const entries = await c.env.D1_TESLA.prepare(
+      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled,
+              e.scope_id, s.scope_kind
+       FROM telemetry_config_entry e
+       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+       WHERE s.scope_kind = 'global'
+       ORDER BY e.field_key`
+    ).all<{
+      field_key: string
+      interval_seconds: number
+      minimum_delta: number | null
+      enabled: number
+      scope_id: string
+      scope_kind: string
+    }>()
+    configEntries = entries.results ?? []
+  } else if (scope === 'group' && group_id) {
+    const entries = await c.env.D1_TESLA.prepare(
+      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled,
+              e.scope_id, s.scope_kind
+       FROM telemetry_config_entry e
+       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+       WHERE s.scope_kind = 'group' AND s.group_id = ?
+       ORDER BY e.field_key`
+    ).bind(group_id).all<{
+      field_key: string
+      interval_seconds: number
+      minimum_delta: number | null
+      enabled: number
+      scope_id: string
+      scope_kind: string
+    }>()
+    configEntries = entries.results ?? []
+  } else if (scope === 'vehicle' && vin) {
+    const entries = await c.env.D1_TESLA.prepare(
+      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled,
+              e.scope_id, s.scope_kind
+       FROM telemetry_config_entry e
+       JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
+       WHERE s.scope_kind = 'vehicle' AND s.vin = ?
+       ORDER BY e.field_key`
+    ).bind(vin).all<{
+      field_key: string
+      interval_seconds: number
+      minimum_delta: number | null
+      enabled: number
+      scope_id: string
+      scope_kind: string
+    }>()
+    configEntries = entries.results ?? []
+  }
+
+  // If VIN provided, resolve effective config for that VIN
+  let effectiveConfig: Array<{
+    field_key: string
+    enabled: boolean
+    interval_seconds: number
+    minimum_delta: number | null
+    source: 'global' | 'group' | 'vehicle'
+    source_scope_id: string
+  }> | null = null
+  let groupScope: { group_id: string; name: string; description: string | null } | null = null
+  let unresolved: string[] = []
+
+  if (vin) {
+    // Load global entries
+    const globalEntries = await c.env.D1_TESLA.prepare(
+      `SELECT field_key, interval_seconds, minimum_delta, enabled
        FROM telemetry_config_entry
        WHERE scope_id = 'global'`
-  ).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
-  const globalMap = new Map(
-    (globalEntries.results ?? []).map(r => [r.field_key, {
-      interval_seconds: r.interval_seconds,
-      minimum_delta: r.minimum_delta,
-      enabled: r.enabled === 1,
-    }])
-  )
+    ).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+    const globalMap = new Map(
+      (globalEntries.results ?? []).map(r => [r.field_key, {
+        interval_seconds: r.interval_seconds,
+        minimum_delta: r.minimum_delta,
+        enabled: r.enabled === 1,
+      }])
+    )
 
-  // Load group entries for this VIN (if any)
-  const groupEntries = await c.env.D1_TESLA.prepare(
-    `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
+    // Load group entries for this VIN
+    const groupEntries = await c.env.D1_TESLA.prepare(
+      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
        FROM telemetry_config_entry e
        JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
        JOIN tesla_vehicle_group_member m ON m.group_id = s.group_id
        WHERE s.scope_kind = 'group' AND m.vin = ?`
-  ).bind(vin).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
-  const groupMap = new Map(
-    (groupEntries.results ?? []).map(r => [r.field_key, {
-      interval_seconds: r.interval_seconds,
-      minimum_delta: r.minimum_delta,
-      enabled: r.enabled === 1,
-    }])
-  )
+    ).bind(vin).all<{
+      field_key: string
+      interval_seconds: number
+      minimum_delta: number | null
+      enabled: number
+    }>()
+    const groupMap = new Map(
+      (groupEntries.results ?? []).map(r => [r.field_key, {
+        interval_seconds: r.interval_seconds,
+        minimum_delta: r.minimum_delta,
+        enabled: r.enabled === 1,
+      }])
+    )
 
-  // Load vehicle entries for this VIN (if any)
-  const vehicleEntries = await c.env.D1_TESLA.prepare(
-    `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
+    // Load vehicle entries
+    const vehicleEntries = await c.env.D1_TESLA.prepare(
+      `SELECT e.field_key, e.interval_seconds, e.minimum_delta, e.enabled
        FROM telemetry_config_entry e
        JOIN telemetry_config_scope s ON s.scope_id = e.scope_id
        WHERE s.scope_kind = 'vehicle' AND s.vin = ?`
-  ).bind(vin).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
-  const vehicleMap = new Map(
-    (vehicleEntries.results ?? []).map(r => [r.field_key, {
-      interval_seconds: r.interval_seconds,
-      minimum_delta: r.minimum_delta,
-      enabled: r.enabled === 1,
-    }])
-  )
+    ).bind(vin).all<{
+      field_key: string
+      interval_seconds: number
+      minimum_delta: number | null
+      enabled: number
+    }>()
+    const vehicleMap = new Map(
+      (vehicleEntries.results ?? []).map(r => [r.field_key, {
+        interval_seconds: r.interval_seconds,
+        minimum_delta: r.minimum_delta,
+        enabled: r.enabled === 1,
+      }])
+    )
 
-  // Resolve effective config
-  const resolved = resolveConfig(globalMap, groupMap, vehicleMap, collectedFieldKeys, vin)
+    // Resolve effective config
+    const resolved = resolveConfig(globalMap, groupMap, vehicleMap, collectedFieldKeys, vin)
+    effectiveConfig = resolved.fields
+    unresolved = resolved.unresolved
 
-  // Get current applied state from tesla_telemetry_config
-  const applied = await c.env.D1_TESLA.prepare(
-    `SELECT fields_json, state, sync_interval, hostname, port, verified_at
-       FROM tesla_telemetry_config
-       WHERE vin = ? ORDER BY created_at DESC LIMIT 1`
-  ).bind(vin).first<{ fields_json: string; state: string; sync_interval: string; hostname: string; port: number; verified_at: string | null }>()
-
-  // Load group scope for this VIN (if any)
-  const groupScope = await c.env.D1_TESLA.prepare(
-    `SELECT g.group_id, g.name, g.description
+    // Load group scope for this VIN
+    groupScope = await c.env.D1_TESLA.prepare(
+      `SELECT g.group_id, g.name, g.description
        FROM tesla_vehicle_group g
        JOIN tesla_vehicle_group_member m ON m.group_id = g.group_id
        WHERE m.vin = ?`
-  ).bind(vin).first<{ group_id: string; name: string; description: string | null }>()
+    ).bind(vin).first<{ group_id: string; name: string; description: string | null }>()
+  }
 
-  // Render the page
-  const scopeBadge = groupScope
-    ? `<span class="pill ok">Group: ${escapeHtml(groupScope.name)}</span>`
-    : '<span class="pill warn">Global only</span>'
+  // Render config entries table
+  const configEntriesHtml = configEntries.length === 0
+    ? '<div class="empty">No config entries for this scope.</div>'
+    : `<table style="font-size:13px">
+        <thead><tr><th>Field</th><th>Enabled</th><th>Interval</th><th>Min Delta</th><th>Scope</th></tr></thead>
+        <tbody>
+        ${configEntries.map(e => `<tr>
+          <td><code>${escapeHtml(e.field_key)}</code></td>
+          <td><span class="pill ${e.enabled ? 'ok' : 'warn'}">${e.enabled ? 'Enabled' : 'Disabled'}</span></td>
+          <td class="mono">${e.interval_seconds}s</td>
+          <td class="mono">${e.minimum_delta !== null ? escapeHtml(e.minimum_delta) : '—'}</td>
+          <td><span class="pill ${e.scope_kind === 'global' ? 'warn' : e.scope_kind === 'group' ? 'ok' : 'ok'}">${e.scope_kind}</span></td>
+        </tr>`).join('')}
+        </tbody>
+      </table>`
 
-  const effectiveHtml = resolved.fields.map(f => `
-    <tr>
-      <td><code>${escapeHtml(f.field_key)}</code></td>
-      <td><span class="pill ${f.enabled ? 'ok' : 'warn'}">${f.enabled ? 'Enabled' : 'Disabled'}</span></td>
-      <td class="mono">${f.interval_seconds}s</td>
-      <td class="mono">${f.minimum_delta !== null ? escapeHtml(f.minimum_delta) : '—'}</td>
-      <td><span class="pill ${f.source === 'global' ? 'warn' : f.source === 'group' ? 'ok' : 'ok'}">${f.source}</span></td>
-      <td>${f.source_scope_id}</td>
-    </tr>
-  `).join('')
+  // Render effective config for VIN
+  let effectiveHtml = ''
+  let unresolvedHtml = ''
+  let scopeBadge = ''
 
-  const unresolvedHtml = resolved.unresolved.length > 0
-    ? `<div style="margin-top:16px;padding:12px;background:#3d1414;border-radius:8px;color:#ff8080">
-         <strong>Configuration Error:</strong> The following collected fields have no value in any scope:
-         <ul>${resolved.unresolved.map(k => `<li><code>${escapeHtml(k)}</code></li>`).join('')}</ul>
-       </div>`
-    : ''
+  if (effectiveConfig !== null) {
+    if (groupScope) {
+      scopeBadge = `<span class="pill ok">Group: ${escapeHtml(groupScope.name)}</span>`
+    } else {
+      scopeBadge = '<span class="pill warn">Global only</span>'
+    }
 
-  const appliedHtml = applied
-    ? `<h3>Currently Applied (state: ${escapeHtml(applied.state)})</h3>
-       <pre class="mono" style="background:#1d1d1d;padding:12px;border-radius:8px;overflow:auto">${escapeHtml(applied.fields_json)}</pre>`
-    : '<p class="meta">No configuration applied yet.</p>'
+    effectiveHtml = `
+      <h2>Effective Configuration for ${escapeHtml(vin)} ${scopeBadge}</h2>
+      <p class="meta">Resolution: vehicle > group > global (sparse). Fields without a row at a scope inherit from above.</p>
+      <table style="font-size:13px">
+        <thead><tr><th>Field</th><th>Enabled</th><th>Interval</th><th>Min Delta</th><th>Source</th><th>Provenance</th></tr></thead>
+        <tbody>
+        ${effectiveConfig.map(f => `
+          <tr>
+            <td><code>${escapeHtml(f.field_key)}</code></td>
+            <td><span class="pill ${f.enabled ? 'ok' : 'warn'}">${f.enabled ? 'Enabled' : 'Disabled'}</span></td>
+            <td class="mono">${f.interval_seconds}s</td>
+            <td class="mono">${f.minimum_delta !== null ? escapeHtml(f.minimum_delta) : '—'}</td>
+            <td><span class="pill ${f.source === 'global' ? 'warn' : f.source === 'group' ? 'ok' : 'ok'}">${f.source}</span></td>
+            <td>${f.source_scope_id}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    `
+
+    if (unresolved.length > 0) {
+      unresolvedHtml = `<div style="margin-top:16px;padding:12px;background:#3d1414;border-radius:8px;color:#ff8080">
+        <strong>Configuration Error:</strong> The following collected fields have no value in any scope:
+        <ul>${unresolved.map(k => `<li><code>${escapeHtml(k)}</code></li>`).join('')}</ul>
+      </div>`
+    }
+  }
 
   return c.html(shell('Admin — Telemetry Configurator', `
-    <h1>Telemetry Configurator <span class="meta">${escapeHtml(vin)} ${scopeBadge}</span></h1>
+    <h1>Telemetry Configurator <span class="meta">FEATURE-12</span></h1>
+    <p class="meta">Manage telemetry configuration at global, group, and vehicle scope. Resolution: vehicle > group > global (sparse).</p>
 
-    <h2>Effective Configuration</h2>
-    <p class="meta">Resolution: vehicle > group > global (sparse). Fields without a row at a scope inherit from above.</p>
-    <table style="font-size:13px">
-      <thead><tr><th>Field</th><th>Enabled</th><th>Interval</th><th>Min Delta</th><th>Source</th><th>Provenance</th></thead>
-      <tbody>${effectiveHtml}</tbody>
-    </table>
-
-    ${unresolvedHtml}
-
-    <h2>Staged Changes</h2>
-    <p class="meta">Edit a scope below. Changes are STAGED ONLY and do not affect vehicles until applied through CI.</p>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:16px">
-      <div style="background:#151515;border-radius:12px;padding:16px">
-        <h3>Global Scope</h3>
-        <p class="meta">Applies to all vehicles. Every collected field MUST have a global entry.</p>
-        <form method="POST" action="/admin/telemetry/stage" style="display:flex;flex-direction:column;gap:12px">
-          <input type="hidden" name="scope" value="global">
-          <input type="hidden" name="vin" value="${escapeHtml(vin)}">
-          <label class="meta">Field
-            <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-              ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
-            </select>
-          </label>
-          <label class="meta">Interval (seconds)
-            <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-          </label>
-          <label class="meta">Min Delta (leave empty for none)
-            <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-          </label>
-          <label class="meta">
-            <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
-          </label>
-          <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
-        </form>
-      </div>
-      ${groupScope ? `
-      <div style="background:#151515;border-radius:12px;padding:16px">
-        <h3>Group Scope: ${escapeHtml(groupScope.name)}</h3>
-        <p class="meta">Applies to vehicles in this group. Inherits from global for unspecified fields.</p>
-        <form method="POST" action="/admin/telemetry/stage" style="display:flex;flex-direction:column;gap:12px">
-          <input type="hidden" name="scope" value="group">
-          <input type="hidden" name="group_id" value="${escapeHtml(groupScope.group_id)}">
-          <input type="hidden" name="vin" value="${escapeHtml(vin)}">
-          <label class="meta">Field
-            <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-              ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
-            </select>
-          </label>
-          <label class="meta">Interval (seconds)
-            <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-          </label>
-          <label class="meta">Min Delta (leave empty for none)
-            <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-          </label>
-          <label class="meta">
-            <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
-          </label>
-          <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
-        </form>
-      </div>` : ''}
-      <div style="background:#151515;border-radius:12px;padding:16px">
-        <h3>Vehicle Scope</h3>
-        <p class="meta">Applies only to this VIN. Overrides group and global.</p>
-        <form method="POST" action="/admin/telemetry/stage" style="display:flex;flex-direction:column;gap:12px">
-          <input type="hidden" name="scope" value="vehicle">
-          <input type="hidden" name="vin" value="${escapeHtml(vin)}">
-          <label class="meta">Field
-            <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-              ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join('')}
-            </select>
-          </label>
-          <label class="meta">Interval (seconds)
-            <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-          </label>
-          <label class="meta">Min Delta (leave empty for none)
-            <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
-          </label>
-          <label class="meta">
-            <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
-          </label>
-          <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
-        </form>
-      </div>
-    </div>
-
-    <h2>Currently Applied</h2>
-    ${appliedHtml}
-
-    <h2>Drift (Staged vs Applied)</h2>
-    <p class="meta">Staged changes not yet applied are visible here and have no effect on vehicles.</p>
-    <div class="meta">Apply through CI to push staged changes to the fleet.</div>
-
-    <h2>Apply Sweep</h2>
-    <p class="meta">Apply staged changes to the fleet. Global/group changes require an eligible canary.</p>
-    <form method="POST" action="/admin/telemetry/apply" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0">
-      <input type="hidden" name="vin" value="${escapeHtml(vin)}">
-      <label class="meta">Canary VIN (required for global/group)
-        <input type="text" name="canary_vin" placeholder="e.g., 5YJ3F7EB7LF697834" style="width:200px;padding:8px 10px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-left:8px">
+    <!-- Scope Selector -->
+    <form method="GET" action="/admin/telemetry/configurator" style="display:flex;gap:16px;flex-wrap:wrap;margin:24px 0;padding:16px;background:#151515;border-radius:12px">
+      <label class="meta">Scope
+        <select name="scope" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          <option value="global" ${scope === 'global' ? 'selected' : ''}>Global</option>
+          <option value="group" ${scope === 'group' ? 'selected' : ''}>Group</option>
+          <option value="vehicle" ${scope === 'vehicle' ? 'selected' : ''}>Vehicle</option>
+        </select>
       </label>
-      <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#42ff8c;color:#090909;font-weight:700;font-size:14px;cursor:pointer">Apply (Canary + Fleet)</button>
-      <a href="/admin/telemetry" style="padding:10px 18px;border:1px solid #444;border-radius:8px;color:#9ecbff;text-decoration:none;font-size:14px">Back to Telemetry</a>
+      ${scope === 'group' ? `
+        <label class="meta">Group
+          <select name="group_id" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+            <option value="">Select group</option>
+            ${(groups.results ?? []).map(g => `<option value="${escapeHtml(g.group_id)}" ${g.group_id === group_id ? 'selected' : ''}>${escapeHtml(g.name)} (${g.group_id})</option>`).join('')}
+          </select>
+        </label>
+      ` : ''}
+      ${scope === 'vehicle' ? `
+        <label class="meta">Vehicle
+          <select name="vin" onchange="this.form.submit()" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+            <option value="">Select vehicle</option>
+            ${(vehicles.results ?? []).map(v => `<option value="${escapeHtml(v.vin)}" ${v.vin === vin ? 'selected' : ''}>${escapeHtml(v.vin)}${v.display_name ? ' — ' + escapeHtml(v.display_name) : ''}</option>`).join('')}
+          </select>
+        </label>
+      ` : ''}
     </form>
 
-    ${appliedHtml}
-  `, true, vin))
+    <!-- Config Entries Table -->
+    <h2>${scope === 'global' ? 'Global Configuration' : scope === 'group' ? 'Group Configuration: ' + (groups.results?.find(g => g.group_id === group_id)?.name ?? group_id) : 'Vehicle Configuration: ' + escapeHtml(vin)}</h2>
+    ${configEntriesHtml}
+
+    <!-- Add/Edit Config Entry Form -->
+    <h2>Stage Change</h2>
+    <form method="POST" action="/admin/telemetry/stage" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;background:#151515;border-radius:12px;padding:16px;margin-top:16px">
+      <input type="hidden" name="scope" value="${escapeHtml(scope)}">
+      ${scope === 'group' ? `<input type="hidden" name="group_id" value="${escapeHtml(group_id)}">` : ''}
+      ${scope === 'vehicle' ? `<input type="hidden" name="vin" value="${escapeHtml(vin)}">` : ''}
+      <label class="meta">Field
+        <select name="field_key" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+          ${collectedFieldKeys.map(k => `<option value="${escapeHtml(k)}" ${k === field_key ? 'selected' : ''}>${escapeHtml(k)}</option>`).join('')}
+        </select>
+      </label>
+      <label class="meta">Interval (seconds)
+        <input type="number" name="interval_seconds" min="1" value="180" required style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <label class="meta">Min Delta (leave empty for none)
+        <input type="number" name="minimum_delta" step="any" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #333;background:#0d0d0d;color:#fff;margin-top:4px">
+      </label>
+      <label class="meta">
+        <input type="checkbox" name="enabled" checked style="margin-right:8px"> Enabled
+      </label>
+      <div style="grid-column:1/-1">
+        <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#0b5ed7;color:#fff;font-weight:700;font-size:14px;cursor:pointer">Stage Change</button>
+      </div>
+    </form>
+
+    ${effectiveHtml}
+    ${unresolvedHtml}
+  `))
 })
 
 })
