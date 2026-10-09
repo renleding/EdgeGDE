@@ -268,10 +268,19 @@ export async function persistDatums(
     datums: NormalisedDatum[]
     receivedAt: string
     isResend?: boolean
+    /**
+     * Which transport delivered these rows (F14-R10): 'telemetry' (default) or
+     * 'poll'. The poll coordinator passes 'poll' so every fact row records its
+     * source; a streamed row needs no argument and keeps the honest default.
+     * Snapshot rows carry no source — the snapshot is a current-value table,
+     * and `once` fields arrive over both lanes (identity poll, telemetry).
+     */
+    source?: 'telemetry' | 'poll'
   },
 ): Promise<{ factsWritten: number; snapshotsWritten: number; snapshotHistoryWritten: number }> {
   const { batchId, vin, datums, receivedAt } = options
   const isResend = options.isResend ? 1 : 0
+  const source = options.source ?? 'telemetry'
 
   if (!vin) throw new TelemetryParseError('payload carried no VIN')
 
@@ -349,8 +358,8 @@ export async function persistDatums(
           `INSERT INTO tesla_telemetry_fact
              (fact_id, vin, field_key, observed_at, received_at,
               value_real, value_int, value_text, value_bool, value_json,
-              value_kind, collection_tier, batch_id, is_resend)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              value_kind, collection_tier, batch_id, is_resend, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           newId(),
@@ -370,6 +379,7 @@ export async function persistDatums(
           datum.tier ?? 'event',
           batchId,
           isResend,
+          source,
         ),
     )
     factsWritten++
