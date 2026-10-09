@@ -1164,15 +1164,11 @@ adminApp.get('/api/telemetry/latest', async (c) => {
     newest_received_at: received?.newest_received_at ?? null,
     checked_at: new Date().toISOString(),
   })
+})
 
-  /** The icon is served by the worker at /favicon.svg; this is only a fallback. */
-  adminApp.get('/favicon.svg', (c) =>
-    c.body(FAVICON_SVG, 200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=3600' }),
-  )
-
-  /* -------------------------------------------------------------------------- */
-  /* FEATURE-12: Telemetry Configurator — Admin Console                         */
-  /* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+/* FEATURE-12: Telemetry Configurator — Admin Console                         */
+/* -------------------------------------------------------------------------- */
 
 /**
  * ============================================================
@@ -1472,8 +1468,6 @@ adminApp.get('/telemetry/configurator', async (c) => {
     ${effectiveHtml}
     ${unresolvedHtml}
   `))
-})
-
 })
 
 /**
