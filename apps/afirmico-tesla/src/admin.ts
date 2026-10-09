@@ -1511,21 +1511,46 @@ adminApp.post('/telemetry/stage', async (c) => {
     const group_id = String(form.group_id ?? '').trim()
     if (!group_id) return c.json({ error: 'group_id required for group scope' }, 400)
 
-    // Verify the VIN belongs to this group
-    const member = await c.env.D1_TESLA.prepare(
-      'SELECT 1 AS ok FROM tesla_vehicle_group_member WHERE group_id = ? AND vin = ?'
-    ).bind(group_id, vin).first()
-    if (!member) return c.json({ error: 'VIN does not belong to this group' }, 400)
+    // Group staging is scoped to the group itself — no VIN membership check.
+    // The configurator's group form has no VIN field; a group-scope change
+    // applies to every member of the group, not to one vehicle.
 
     // Get the scope_id for this group
     const scopeRow = await c.env.D1_TESLA.prepare(
       'SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = \'group\' AND group_id = ?'
     ).bind(group_id).first<{ scope_id: string }>()
-    if (!scopeRow) return c.json({ error: 'Group scope not found' }, 404)
-    scope_id = scopeRow.scope_id
+    if (!scopeRow) {
+      // Find-or-create: staging a group scope must work the first time,
+      // not only after a scope row already exists.
+      scope_id = 'grp_' + group_id
+      await c.env.D1_TESLA.prepare(
+        `INSERT INTO telemetry_config_scope (scope_id, scope_kind, group_id, created_at, updated_at, created_by)
+         VALUES (?, 'group', ?, ?, ?, 'admin')`
+      ).bind(scope_id, group_id, nowIso, nowIso).run()
+    } else {
+      scope_id = scopeRow.scope_id
+    }
   } else {
-    // This should never be reached due to the check above, but TypeScript needs it
-    return c.json({ error: 'invalid scope' }, 400)
+    // Vehicle scope: find-or-create the scope row for this VIN.
+    if (!vin) return c.json({ error: 'vin required for vehicle scope' }, 400)
+
+    const vehicleExists = await c.env.D1_TESLA.prepare(
+      'SELECT 1 AS ok FROM tesla_vehicle WHERE vin = ?'
+    ).bind(vin).first()
+    if (!vehicleExists) return c.json({ error: 'VIN not found' }, 404)
+
+    const vehicleScopeRow = await c.env.D1_TESLA.prepare(
+      `SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = 'vehicle' AND vin = ?`
+    ).bind(vin).first<{ scope_id: string }>()
+    if (vehicleScopeRow) {
+      scope_id = vehicleScopeRow.scope_id
+    } else {
+      scope_id = 'veh_' + vin
+      await c.env.D1_TESLA.prepare(
+        `INSERT INTO telemetry_config_scope (scope_id, scope_kind, vin, created_at, updated_at, created_by)
+         VALUES (?, 'vehicle', ?, ?, ?, 'admin')`
+      ).bind(scope_id, vin, nowIso, nowIso).run()
+    }
   }
 
   // Stage the change (write to telemetry_config_entry)
@@ -1549,7 +1574,13 @@ adminApp.post('/telemetry/stage', async (c) => {
     detail: { scope, field_key, interval_seconds, minimum_delta, enabled, scope_id },
   })
 
-  return c.json({ success: true, scope_id, field_key, staged: true })
+  // The configurator is a browser form: redirect back so the operator sees the
+  // freshly staged value in the config-entries table instead of raw JSON.
+  const back = new URLSearchParams({ scope, staged: field_key })
+  const formGroup = String(form.group_id ?? '').trim()
+  if (formGroup) back.set('group_id', formGroup)
+  if (vin) back.set('vin', vin)
+  return c.redirect(`/admin/telemetry/configurator?${back.toString()}`, 303)
 })
 
 /**
