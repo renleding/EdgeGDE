@@ -193,26 +193,38 @@ async function main() {
   // change to the set requires a considered edit rather than passing unnoticed.
   check('field set recorded', JSON.parse(String(consentRow.collected_fields)).length, 15)
 
-  // F01 AC6 (Must): the catalog's collected set and CONSENTED_FIELDS are two
-  // independent representations of the same decision. R-10 was raised because
-  // nothing compared them — the disclosure said two numbers, the catalog said
-  // fourteen, and every gate passed. This is the gate that was missing.
+  // F01 AC6 (Must), as amended by F12-R18 (enrolment). The catalog's collected
+  // set and CONSENTED_FIELDS are two independent representations of the same
+  // decision. R-10 was raised because nothing compared them — the disclosure
+  // said two numbers, the catalog said fourteen, and every gate passed.
+  //
+  // Under operator enrolment the catalog may GROW past CONSENTED_FIELDS: the
+  // consent text authorises a set that "may vary from time to time". So the gate
+  // is no longer equality. Two invariants replace it:
+  //   1. every CONSENTED_FIELD is still collected — a declared field vanishing
+  //      from the catalog is stale declaration, the drift R-10 exists for;
+  //   2. the consent row's set (recorded at grant time) is a SUBSET of the
+  //      current catalog set — a member can never hold consent for a field we
+  //      no longer collect, and enrolled fields are covered by the same text.
   const catalogCollected = (
     db.query('SELECT field_key FROM tesla_field_catalog WHERE collected = 1 ORDER BY field_key').all() as Array<{
       field_key: string
     }>
   ).map((r) => r.field_key)
   const declared = [...CONSENTED_FIELDS].sort()
-  check('catalog collected count', catalogCollected.length, declared.length)
-  check('catalog collected set == CONSENTED_FIELDS (F01 AC6)', catalogCollected.join(','), declared.join(','))
-
-  // The row written above records the set under the CURRENT policy version, so it
-  // must agree too — otherwise a member who consented today holds a consent row
-  // describing a different set from the one being collected.
+  const catalogSet = new Set(catalogCollected)
+  const missingDeclared = declared.filter((f) => !catalogSet.has(f))
   check(
-    'consent row field set == CONSENTED_FIELDS',
-    JSON.parse(String(consentRow.collected_fields)).sort().join(','),
-    declared.join(','),
+    'every CONSENTED_FIELD still collected (F01 AC6 / F12-R18)',
+    missingDeclared.join(',') || 'none',
+    'none',
+  )
+  const rowSet = JSON.parse(String(consentRow.collected_fields)) as string[]
+  const rowNotCollected = rowSet.filter((f) => !catalogSet.has(f))
+  check(
+    'consent row field set is a subset of the catalog collected set',
+    rowNotCollected.join(',') || 'none',
+    'none',
   )
 
   // F01 AC5: the stored text must be reproducible and hash-identical.

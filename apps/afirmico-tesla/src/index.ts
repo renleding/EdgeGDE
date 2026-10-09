@@ -2265,27 +2265,32 @@ app.get('/healthz', async (c) => {
     checks.consent_text = 'unavailable'
   }
 
-  // F01 AC6: the catalog's collected set and CONSENTED_FIELDS are two independent
-  // representations of the same decision. R-10 is exactly what happens when
-  // nothing compares them — the catalog and CONSENTED_FIELDS said
-  // fourteen, and both gates passed. Asserted in the build (verify-store.ts) and
-  // reported here so the drift is visible in production, not only in CI.
+  // F01 AC6 (as amended by F12-R18): the catalog's collected set and
+  // CONSENTED_FIELDS are two representations of the same decision, and under
+  // operator enrolment the catalog may legitimately GROW past the declaration —
+  // the consent text authorises a varying set ("may vary from time to time").
+  // The invariant is therefore: every CONSENTED_FIELD is still collected (the
+  // declared set never narrows silently), and any extra collected fields are
+  // the result of enrolment — recorded in the audit trail. A DECLARED field
+  // missing from the catalog means the declaration is stale and is the real
+  // drift this gate exists to catch (R-10).
   try {
     const rows = await c.env.D1_TESLA.prepare(
       'SELECT field_key FROM tesla_field_catalog WHERE collected = 1 ORDER BY field_key',
     ).all<{ field_key: string }>()
-    const catalog = rows.results
-      .map((r) => r.field_key)
-      .sort()
-      .join(',')
-    const declared = [...CONSENTED_FIELDS].sort().join(',')
+    const catalogSet = new Set(rows.results.map((r) => r.field_key))
+    const declared = [...CONSENTED_FIELDS]
+    const missing = declared.filter((f) => !catalogSet.has(f))
+    const extra = rows.results.length - declared.length
     checks.collected_fields = String(rows.results.length)
     checks.consent_field_set =
-      catalog === declared
-        ? 'ok'
-        : `MISMATCH catalog=${rows.results.length} declared=${CONSENTED_FIELDS.length}`
-    if (catalog !== declared) {
-      problems.push('F01 AC6: the catalog collected set and CONSENTED_FIELDS disagree')
+      missing.length === 0
+        ? extra > 0
+          ? `ok+enrolled:${extra}`
+          : 'ok'
+        : `STALE_DECLARED missing=${missing.join(',')}`
+    if (missing.length > 0) {
+      problems.push(`F01 AC6: declared CONSENTED_FIELDS missing from catalog: ${missing.join(',')}`)
     }
   } catch {
     checks.consent_field_set = 'unavailable'
