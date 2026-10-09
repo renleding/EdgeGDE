@@ -1,12 +1,14 @@
 # System Design Document (SDD): AFIRMICO Auto — Telemetry Configuration Scopes
 
 **Document ID:** SDD-011  
-**Version:** 1.0  
+**Version:** 1.1  
 **Status:** Draft  
 **Author:** Hermes (Director)  
-**Date:** 2026-10-07  
-**FRS Reference:** [FRS-010 v2.1](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md) — FEATURE-12 (F12-R01..R12, F12-N01..N05)  
-**Source:** Owner decisions 2026-10-07 (ten numbered answers); reference UI review ("Auto API for Tesla — Admin Global Configurator" screenshot, OCR-extracted, `apps/afirmico-tesla/`); measured against the live Tesla surface (`/admin/telemetry/diagnose`, Drogon `LRW3F7ET1SC584656`).
+**Date:** 2026-10-09  
+**FRS Reference:** [FRS-010 v2.3](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md) — FEATURE-12 (F12-R01..R18, F12-N01..N05)  
+**Source:** Owner decisions 2026-10-07 (ten numbered answers) and 2026-10-09 (configurator UX answers 1–12); reference UI review ("Auto API for Tesla — Admin Global Configurator" screenshot, OCR-extracted, `apps/afirmico-tesla/`); measured against the live Tesla surface (`/admin/telemetry/diagnose`, Drogon `LRW3F7ET1SC584656`).
+
+**Revision note (v1.1, 2026-10-09).** Five requirements join the FRS (F12-R14..R18) and this design answers each of them. The scope engine, the apply sweep and the wire artifact from v1.0 do not change. The amendments cover the console's table model, the transport badge, the seed values, the selectors and catalog enrolment. §12 records them as a delta so the v1.0 text stays readable as written.
 
 ---
 
@@ -433,4 +435,92 @@ the earlier phases' lesson was that one externally-gated step can re-gate a whol
 | `apps/afirmico-tesla/src/vehicle-config.ts` | `buildTelemetryConfig()` and `buildFieldConfig()` — the artifact builder this design feeds; wire shape unchanged |
 | `apps/afirmico-tesla/src/consent-policy.ts` | `CONSENTED_FIELDS` — the ceiling overrides may narrow and must not widen (F12-R04) |
 | `apps/afirmico-tesla/scripts/verify-schema.sh` | Schema assertions incl. the D1 statement-size gate the new migrations must pass |
-| `apps/afirmico-tesla/Tesla Fleet API Example - Admin Global Configurator.png` | Reference UI reviewed for this feature; its Pull/Push column is **deliberately not adopted** (F12-R12) |
+| `apps/afirmico-tesla/Tesla Fleet API Example - Admin Global Configurator.png` | Reference UI reviewed for this feature. Its Pull/Push column was not adopted at v1.0 (F12-R12). **v1.1 adopts the column as a read-only badge** (§12.1, F12-R15) — a badge reports transport, it does not control it |
+
+---
+
+## 12. Delta (v1.1) — console amendments F12-R14..R18
+
+This section records the design of the five requirements added at FRS v2.3. Sections 1–11 stay as
+written at v1.0. Where a delta changes a v1.0 element, the delta wins.
+
+### 12.1 The table model (F12-R14, F12-R15)
+
+The config-entries table joins the scope's entries against `tesla_field_catalog` on `field_key` and
+renders one row per collected field with the reference product's column set:
+
+| Column | Source | Widget |
+|---|---|---|
+| Name | `field_key` | plain text, monospace |
+| Capability | `category` | plain text |
+| Property | `collection_group` | plain text |
+| Type | `value_type`, with `proto_enum_name` appended when non-empty | colour chip keyed on `value_type` |
+| Description | `description` | plain text, truncated with title attribute |
+| Transport | `vehicle_data_equivalent` non-empty ⇒ `PULL`, else `PUSH` | **read-only badge** |
+| Tesla Package | `collection_tier` | plain text badge |
+| Sampling Frequency | `interval_seconds` from the resolved entry | inline number input |
+| Enabled | `enabled` from the resolved entry | checkbox toggle |
+
+The transport badge derives from the catalog on read. It is never written and never posted. An
+attempt to post `transport` in the stage form is ignored, so no code path can treat operator intent
+as a transport decision (F12-R15, F14-R01).
+
+The catalog join runs once per page render against `tesla_field_catalog`, which is small (239 rows)
+and static between catalog migrations. No cache layer.
+
+### 12.2 Seed values (F12-R16)
+
+Migration 0017's uniform 180 s seed is superseded by a **tiered seed** at the next migration:
+
+| Seed | Fields | `interval_seconds` |
+|---|---|---|
+| fast | `MilesSinceReset`, `SelfDrivingMilesSinceReset` | 180 |
+| poll | `Odometer` | 604800 — this value IS the weekly poll cadence (F14-R04) |
+| slow | every other collected field — `PinToDriveEnabled`, `Trim`, `Version`, `CarType`, `EfficiencyPackage`, the ADAS settings, `SentryMode`, `SpeedLimitMode`, `SpeedLimitWarning` | 21600 |
+
+The seed sets **existing global rows only**. It never overwrites a row an operator edited, because
+the migration updates rows where `updated_at` still equals the seed's own write timestamp. A fresh
+deployment seeds the same values a fresh `SYNC_INTERVAL_SECONDS` path would. `SYNC_INTERVAL_SECONDS`
+stays as the constant the fast tier reads, so v1.0's decision (5) survives.
+
+The enabled toggle uses the existing `telemetry_config_entry.enabled` column (added at v1.0).
+`enabled = 0` is an entry, not a deletion — the sparse-inheritance rule from §4.2 is unchanged.
+
+### 12.3 Selectors (F12-R17)
+
+**Paired-only filter.** The vehicle dropdown query gains
+`JOIN tesla_vehicle_key vk ON vk.vin = v.vin AND vk.key_state = 'paired'`. An unpaired vehicle
+cannot receive a configuration (F02-R09's own logic reads it as `unpaired`), so listing one invites
+the operator to stage a change that cannot apply. The Vehicles page and the group-member add form
+keep their current behaviour — they show fleet inventory, not config targets.
+
+**Search.** Both selectors become server-filtered inputs: `?search=` on the configurator route
+filters `tesla_vehicle_group.name LIKE` for groups and `v.vin LIKE OR v.display_name LIKE` for
+vehicles, case-insensitive, capped at 50 rows. Client-side filtering was rejected because the fleet
+at 1,000 vehicles exceeds a dropdown's useful length.
+
+**Active nav.** `shell()` gains an `active` parameter set by each route. The nav item matching
+`active` renders `font-weight:700` with the green accent; every other item renders at default
+weight. One source of truth in `shell()`, not per-page markup.
+
+### 12.4 Catalog enrolment (F12-R18)
+
+`POST /admin/telemetry/enrol` accepts a `field_key` from `tesla_field_catalog`. The handler runs
+four steps in one transaction:
+
+1. Verify the field exists and `collected = 0`. Enrolling an enrolled field is a no-op 200.
+2. Set `collected = 1` and `collection_tier` to the field's catalog default (`once` when the tier
+   is `never`).
+3. Insert the global-scope entry at the fast-tier seed, so F12-R02's totality holds the moment the
+   field joins the set.
+4. Write an audit row: action `telemetry_field_enrolled`, actor, `field_key`, timestamp.
+
+The consent-set gate (F01 AC6, F12-R04) reads `CONSENTED_FIELDS` — which is `collected = 1` at
+query time — so the gate accepts the field as soon as step 2 commits. No consent-policy bump: the
+authorisation text at F14-R06 already covers a varying set. Enrolment is the only route in this
+feature that widens the collected set, so it carries its own guard and its own audit action rather
+than hiding inside the stage route.
+
+**New invariant (11): enrolment is transactional and audited.** Steps 1–4 either all commit or none
+do. A partial enrolment — a field marked collected with no global entry — is the exact state
+F12-R02 calls an error, so the transaction boundary is the mechanism that prevents it.
