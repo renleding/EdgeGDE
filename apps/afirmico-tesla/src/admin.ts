@@ -1415,6 +1415,31 @@ adminApp.get('/telemetry/configurator', async (c) => {
       </table>
       ${rowForms}`
 
+  // --- F12-R18: enrolment panel ---------------------------------------------
+  // The operator may widen the collected set from the console, under the
+  // standing authorisation ("The information collected may vary from time to
+  // time..."). Broken and deprecated catalog rows are excluded: enrolling a
+  // field the catalog itself marks unusable would land data Tesla cannot send.
+  const enrolable = (await c.env.D1_TESLA.prepare(
+    `SELECT field_key, category, description
+       FROM tesla_field_catalog
+      WHERE collected = 0 AND is_broken = 0 AND is_deprecated = 0
+      ORDER BY field_key`
+  ).all<{ field_key: string; category: string; description: string | null }>()).results ?? []
+
+  const enrolHtml = enrolable.length === 0
+    ? '<p class="meta">Every usable catalog field is already collected.</p>'
+    : enrolable.map(f => {
+        const id = 'enr_' + f.field_key.replace(/[^A-Za-z0-9]/g, '_')
+        return `<form id="${id}" method="POST" action="/admin/telemetry/enrol" style="display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid #1c1c1c">
+          <input type="hidden" name="field_key" value="${escapeHtml(f.field_key)}">
+          <strong style="min-width:240px"><code>${escapeHtml(f.field_key)}</code></strong>
+          <span class="pill">${escapeHtml(f.category)}</span>
+          <span class="meta" style="flex:1">${escapeHtml(f.description ?? '')}</span>
+          <button type="submit" style="padding:6px 14px;border:0;border-radius:6px;background:#0b5ed7;color:#fff;font-weight:700;font-size:13px;cursor:pointer">Enrol</button>
+        </form>`
+      }).join('')
+
   // --- provenance table (existing design, unchanged) ------------------------
   let effectiveHtml = ''
   let unresolvedHtml = ''
@@ -1499,6 +1524,11 @@ adminApp.get('/telemetry/configurator', async (c) => {
     <h2>${scope === 'global' ? 'Global Configuration' : scope === 'group' ? 'Group Configuration: ' + (groups.find(g => g.group_id === group_id)?.name ?? group_id) : 'Vehicle Configuration: ' + escapeHtml(vin)}</h2>
     <p class="meta">Transport: <span class="pill ok">PUSH</span> = Fleet Telemetry · <span class="pill">PULL</span> = Fleet API polling. Read-only — derived from the catalog (F12-R15). Edit the interval and the toggle, then Save. ${scope !== 'global' ? 'Values shown are effective: inherited from a broader scope unless overridden here.' : ''}</p>
     ${tableHtml}
+
+    <!-- Catalog enrolment (F12-R18) -->
+    <h2>Add fields from the Tesla catalog</h2>
+    <p class="meta">Enrolling widens the collected set under the standing authorisation — no re-consent. Each enrolment writes an audit row and seeds the field into the global scope so no configuration error appears. Broken and deprecated fields are not offered.</p>
+    <div style="background:#151515;border-radius:12px;padding:8px 16px">${enrolHtml}</div>
 
     ${effectiveHtml}
     ${unresolvedHtml}
@@ -1616,6 +1646,90 @@ adminApp.post('/telemetry/stage', async (c) => {
   if (formGroup) back.set('group_id', formGroup)
   if (vin) back.set('vin', vin)
   return c.redirect(`/admin/telemetry/configurator?${back.toString()}`, 303)
+})
+
+/**
+ * POST /admin/telemetry/enrol
+ * Enrol a catalog field into the collected set (F12-R18, F14-R06).
+ *
+ * This is the ONE operation in FEATURE-12 that widens the collected set — every
+ * other control may only narrow it (F12-R04) — so it gets its own route rather
+ * than hiding inside /telemetry/stage, and it writes its own audit action so the
+ * widening is reconstructable from the audit trail alone.
+ *
+ * Consent: no bump and no re-consent. CONSENT_TEXT already authorises a set that
+ * "may vary from time to time as AFIRMICO's products and services evolve", and
+ * the consent-row set recorded at grant time is a SUBSET of the current set —
+ * checked as such at /healthz and verify-store (F01 AC6 under F12-R18).
+ *
+ * Transactional: catalog flip, global seed, and audit either all land or none
+ * does. A field marked collected with no global entry is exactly the state
+ * F12-R02 calls a configuration error (SDD-011 §12.4, invariant 11).
+ */
+adminApp.post('/telemetry/enrol', async (c) => {
+  const form = await c.req.parseBody()
+  const field_key = String(form.field_key ?? '').trim()
+  if (!field_key) return c.json({ error: 'field_key is required' }, 400)
+
+  const field = await c.env.D1_TESLA.prepare(
+    `SELECT field_key, collected, collection_tier, min_delta, is_broken, is_deprecated
+       FROM tesla_field_catalog WHERE field_key = ?`
+  ).bind(field_key).first<{
+    field_key: string
+    collected: number
+    collection_tier: string
+    min_delta: number | null
+    is_broken: number
+    is_deprecated: number
+  }>()
+  if (!field) return c.json({ error: 'field not in catalog' }, 404)
+  if (field.is_broken || field.is_deprecated) {
+    return c.json({ error: 'field is broken or deprecated in the catalog' }, 409)
+  }
+  if (field.collected === 1) {
+    return c.json({ ok: true, field_key, note: 'already collected' })
+  }
+
+  // A tier of 'never' would violate the catalog CHECK once collected flips, so
+  // the tier moves with it: 'once' for attribute-like fields (snapshot storage),
+  // otherwise the catalog's own tier already carries the value.
+  const newTier = field.collection_tier === 'never' ? 'once' : field.collection_tier
+  const nowIso = new Date().toISOString()
+  const minDelta = field.min_delta !== null && field.min_delta > 0 && newTier !== 'once'
+    ? field.min_delta
+    : null
+
+  // The seed interval follows the tiered rule from migration 0019 / F12-R16:
+  // 'once' fields carry no streaming cadence (21600 default), 'event' fields
+  // are volatile (180), everything else 21600. A global entry at any value
+  // satisfies F12-R02's totality the moment the field joins the set.
+  const seedInterval = newTier === 'event' ? 180 : 21600
+
+  await c.env.D1_TESLA.batch([
+    c.env.D1_TESLA.prepare(
+      'UPDATE tesla_field_catalog SET collected = 1, collection_tier = ? WHERE field_key = ? AND collected = 0'
+    ).bind(newTier, field_key),
+    c.env.D1_TESLA.prepare(
+      `INSERT INTO telemetry_config_entry (scope_id, field_key, interval_seconds, minimum_delta, enabled, updated_at)
+       VALUES ('global', ?, ?, ?, 1, ?)
+       ON CONFLICT (scope_id, field_key) DO UPDATE SET updated_at = excluded.updated_at`
+    ).bind(field_key, seedInterval, minDelta, nowIso),
+    // detail_json carries the field_key so the widening is reconstructable
+    // without joining the audit table to the catalog.
+    c.env.D1_TESLA.prepare(
+      `INSERT INTO tesla_audit_event
+         (event_id, occurred_at, actor, actor_type, action, subject_type, subject_id, detail_json)
+       VALUES (?, ?, 'admin', 'admin', 'telemetry_field_enrolled', 'tesla_field_catalog', ?, ?)`
+    ).bind(
+      // newId() is imported at module scope for the stage route — reuse it.
+      newId(),
+      nowIso,
+      field_key,
+      JSON.stringify({ field_key, seed_interval: seedInterval, collection_tier: newTier }),
+    ),
+  ])
+
+  return c.redirect('/admin/telemetry/configurator?scope=global', 303)
 })
 
 /**
