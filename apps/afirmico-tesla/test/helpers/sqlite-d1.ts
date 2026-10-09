@@ -102,7 +102,7 @@ export interface SqliteD1Statement {
   bind: (...args: unknown[]) => SqliteD1Statement
   first: <T = unknown>() => Promise<T | null>
   all: <T = unknown>() => Promise<{ results: T[] }>
-  run: () => Promise<{ success: boolean }>
+  run: () => Promise<{ success: boolean; meta?: { changes: number } }>
 }
 
 /** D1 returns `null` for a missing row; `DatabaseSync.get` does the same. */
@@ -128,8 +128,13 @@ export function createSqliteD1(db?: DatabaseSync): SqliteD1 {
         return { results: rows }
       },
       async run() {
-        database.prepare(sql).run(...(args as never[]))
-        return { success: true }
+        // D1's real `run()` returns meta.changes (the affected-row count), and
+        // application code depends on it — `revokeConsent` and
+        // `clearPollEligibility` both read `result.meta.changes`. A harness that
+        // omitted it made those functions throw `Cannot read properties of
+        // undefined`, so the return shape is modelled, not stubbed.
+        const info = database.prepare(sql).run(...(args as never[]))
+        return { success: true, meta: { changes: Number(info.changes ?? 0) } }
       },
     }
     return statement

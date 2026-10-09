@@ -108,6 +108,7 @@ import {
   type KeyPairingResult,
 } from './key-pairing'
 import { openToken } from './crypto'
+import { runPollCoordinator, clearPollEligibility } from './poll-coordinator'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
@@ -901,6 +902,24 @@ app.post('/auth/revoke', async (c) => {
   // member-facing text below has always claimed "collection has stopped"; this
   // is what makes that true at the source rather than at our boundary.
   const vins = await vinsForMember(c.env.D1_TESLA, member.member_id)
+
+  // F14-R07: revocation stops BOTH lanes. The consent revocation above already
+  // gates ingest (which gates polling), but deleting the poll state makes
+  // eligibility itself absent rather than merely refused — no lingering row can
+  // be re-armed by a race, and the audit records the count cleared.
+  const clearedPolls = await clearPollEligibility(c.env.D1_TESLA, vins)
+  if (clearedPolls > 0) {
+    await audit(c.env.D1_TESLA, {
+      action: 'poll.eligibility_cleared',
+      actorType: 'member',
+      actor: member.member_id,
+      subjectType: 'member',
+      subjectId: member.member_id,
+      detail: { vins, rows_cleared: clearedPolls, lane: 'fleet_api_polling' },
+      nowIso,
+    })
+  }
+
   const removals = await Promise.all(
     vins.map(async (vin) => {
       const removed = await markConfigRemoved(c.env.D1_TESLA, vin, nowIso)
@@ -1100,6 +1119,17 @@ app.post('/ingest/telemetry', async (c) => {
         receivedAt: nowIso,
       })
       await recordSignals(c.env.D1_TESLA, { vin, datumCount: extracted.length, nowIso })
+
+      // FEATURE-14 dual-transport (F14-R02): the poll lane runs ONLY here —
+      // after this vehicle's batch committed, inside the consent gate above.
+      // A sleeping vehicle produces no batches, so it produces no polls, and
+      // no code path in this module can send `wake_up`. The coordinator never
+      // throws: its failures are recorded on telemetry_poll_state and surfaced
+      // below as errors, so a REST hiccup cannot fail an already-paid batch.
+      const poll = await runPollCoordinator(c.env, vin, { nowIso, runId })
+      if (poll.lastError) {
+        errors.push({ vin, code: poll.lastError })
+      }
     } catch (error) {
       // One vehicle's failure must not lose the run (F04-R11).
       errors.push({ vin, code: `persist_failed: ${(error as Error).message.slice(0, 80)}` })
