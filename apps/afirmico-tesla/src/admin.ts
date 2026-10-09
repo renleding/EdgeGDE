@@ -1406,7 +1406,7 @@ adminApp.get('/telemetry/configurator', async (c) => {
   }
 
   return c.html(shell('Admin — Telemetry Configurator', `
-    <h1>Telemetry Configurator <span class="meta">FEATURE-12</span></h1>
+    <h1>Telemetry Configurator</h1>
     <p class="meta">Manage telemetry configuration at global, group, and vehicle scope. Resolution: vehicle > group > global (sparse).</p>
 
     <!-- Scope Selector -->
