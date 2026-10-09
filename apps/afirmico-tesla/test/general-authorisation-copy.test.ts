@@ -47,9 +47,20 @@ const BANNED: Array<[string, RegExp]> = [
   ['negative enumeration of excluded signal classes', /no speed, acceleration, pedal/i],
 ]
 
-/** Historical records, which must be able to quote what was retired. */
+/**
+ * Historical records, which must be able to quote what was retired.
+ *
+ * `docs/html/*.html` is a GENERATED mirror of the .md sources (gitignored, local
+ * only). The .md file is scanned directly, and this file's historical exemptions
+ * are markdown syntax (`| 1.x |` changelog rows, `**Revision note (` blocks), so
+ * an HTML render of the same content cannot be exempted by them — a stale render
+ * would flag lines the markdown scan already accepted. Scanning the mirror could
+ * therefore only ever add false positives on content that is already covered.
+ */
 function isHistoricalFile(path: string): boolean {
-  return /\/test\//.test(path) || path.endsWith('general-authorisation-copy.test.ts')
+  return /\/test\//.test(path) ||
+    path.endsWith('general-authorisation-copy.test.ts') ||
+    /\/docs\/html\//.test(path)
 }
 
 function isHistoricalLine(line: string): boolean {

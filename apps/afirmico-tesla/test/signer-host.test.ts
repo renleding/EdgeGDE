@@ -95,6 +95,12 @@ const files = roots
     }
   })
   .filter((f) => !/\/test\//.test(f))
+  // docs/html/*.html is a generated, gitignored mirror of the .md sources. The
+  // historical exemptions in historicalLines() are markdown syntax, so an HTML
+  // render can never be exempted by them: a stale render flags lines the .md
+  // scan already accepted. The .md file itself is in `files`, so the mirror can
+  // only add false positives on content already covered.
+  .filter((f) => !/\/docs\/html\//.test(f))
 
 describe('the signer is not co-located with the relay (SDD-010 §2, rev 1.11)', () => {
   it('finds the documents it is supposed to be checking', () => {
