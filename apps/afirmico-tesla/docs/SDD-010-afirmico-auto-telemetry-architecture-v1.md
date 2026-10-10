@@ -1,12 +1,14 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.11  \
+**Version:** 1.12  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
-**Date:** 2026-10-02  \
+**Date:** 2026-10-10  \
 **FRS Reference:** [FRS-010](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md)  \
 **Source:** Requirements interview + architecture review (owner decisions 2026-09-29)
+
+**Revision note (v1.12, 2026-10-10).** **The telemetry relay's log rotation handling was fixed.** The `journalctl -f` sidecar keeps its file descriptor open across podman log rotation and continues appending to the OLD inode. This meant the old log file kept growing, so `readline()` in `relay.py` kept returning data from the rotated file while the path pointed to a new inode. The original rotation detection only checked when the handle was idle — it never triggered. The fix (`relay.py` `tail_forever()`) checks rotation on EVERY loop iteration, drains the old handle to EOF before switching, then seeks to END of the new file. **Evidence:** on 2026-10-10, 165 `record_payload` lines (191 datums, Oct 9 23:55 – Oct 10 10:58 UTC) were stuck in the rotated `fleet-telemetry.log.1`; a replay script recovered them and the forwarder now processes live data. The SDD now documents this failure mode and the corrected algorithm.
 
 **Revision note (v1.11, 2026-10-03).** **The config signer moves to its own host, and a wrong claim
 about the private key is removed.** §2 previously drew `tesla-http-proxy` *inside* the relay box and

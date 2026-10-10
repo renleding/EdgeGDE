@@ -466,6 +466,12 @@ def tail_forever() -> None:
     --log-opt max-file=3` rotates it, so the inode can change underneath us; the
     file is re-opened when the open handle stops growing and the path's inode
     differs.
+
+    CRITICAL: The journalctl sidecar keeps its file descriptor open across podman
+    rotation and continues appending to the OLD inode. This means the old file
+    keeps growing, so readline() keeps returning data. We must check rotation on
+    EVERY iteration, not just when the handle is idle. When rotation is detected,
+    we finish reading the old handle to EOF, THEN switch to the new file.
     """
     if not INGEST_SECRET:
         log("fatal", reason="INGEST_SHARED_SECRET not set")
@@ -485,8 +491,48 @@ def tail_forever() -> None:
     batch_opened = time.monotonic()
     inode = os.stat(CONTAINER_LOG).st_ino
     last_heartbeat = time.monotonic()
+    rotation_detected = False
 
     while True:
+        # Check rotation on EVERY iteration, not just when idle.
+        # The journalctl sidecar keeps writing to the old inode after podman rotates,
+        # so readline() keeps returning data from the old file.
+        try:
+            current_inode = os.stat(CONTAINER_LOG).st_ino
+        except FileNotFoundError:
+            current_inode = inode
+
+        if current_inode != inode:
+            # Rotation detected. Finish reading old handle to EOF first.
+            if not rotation_detected:
+                log("log_rotated", old_inode=inode, new_inode=current_inode)
+                rotation_detected = True
+
+            # Drain the old handle completely before switching.
+            while True:
+                line = handle.readline()
+                if not line:
+                    break
+                payload = line_to_payload(line.strip())
+                if payload is not None:
+                    encoded = len(json.dumps(payload, separators=(",", ":")))
+                    if batch and batch_bytes + encoded > MAX_BATCH_BYTES:
+                        flush(batch, time.monotonic())
+                        batch, batch_bytes = [], 0
+                        batch_opened = time.monotonic()
+                    batch.append(payload)
+                    batch_bytes += encoded
+
+            # Now switch to the new file.
+            try:
+                handle.close()
+            except Exception:  # noqa: BLE001
+                pass
+            handle = open(CONTAINER_LOG, "r", encoding="utf-8", errors="replace")
+            handle.seek(0, os.SEEK_END)
+            inode = current_inode
+            rotation_detected = False
+
         line = handle.readline()
         now = time.monotonic()
 
@@ -514,20 +560,6 @@ def tail_forever() -> None:
         if now - last_heartbeat >= HEARTBEAT_SECONDS:
             log("heartbeat", **STATS.snapshot())
             last_heartbeat = now
-
-        # Handle log rotation: the path now points at a new inode.
-        try:
-            current_inode = os.stat(CONTAINER_LOG).st_ino
-        except FileNotFoundError:
-            current_inode = inode
-        if current_inode != inode:
-            log("log_rotated", old_inode=inode, new_inode=current_inode)
-            try:
-                handle.close()
-            except Exception:  # noqa: BLE001
-                pass
-            handle = open(CONTAINER_LOG, "r", encoding="utf-8", errors="replace")
-            inode = current_inode
 
         time.sleep(POLL_INTERVAL_SECONDS)
 

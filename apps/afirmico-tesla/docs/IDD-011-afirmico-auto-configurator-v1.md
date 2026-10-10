@@ -5,7 +5,7 @@
 **Status:** Draft  
 **Author:** Hermes (Director)  
 **Date:** 2026-10-10  
-**Spec:** FRS-010 v2.4 (FEATURE-15, FEATURE-12)  
+**Spec:** FRS-010 v2.5 (FEATURE-15, FEATURE-12, FEATURE-13, FEATURE-14)  
 **Design:** SDD-011
 
 ---
