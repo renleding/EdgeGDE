@@ -159,6 +159,7 @@ function shell(title: string, body: string, nav = true, liveVin?: string, active
   .live[data-state=idle] .dot{background:#f5c542}
   .live[data-state=new] .dot{background:#8ab4ff;animation:pulse 1s infinite}
   .live[data-state=new]{color:#cfe0ff;border-color:#26364d}
+  .sort-indicator{display:inline-block;margin-left:4px;color:#8ab4ff;font-size:10px;vertical-align:middle}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 </style>
 </head>
