@@ -1405,11 +1405,17 @@ adminApp.get('/telemetry/configurator', async (c) => {
 
   const tableHtml = visible.length === 0
     ? '<div class="empty">No fields match.</div>'
-    : `<table style="font-size:13px">
+    : `<table style="font-size:13px" id="config-table">
         <thead><tr>
-          <th>Name</th><th>Capability</th><th>Property</th><th>Type</th><th>Description</th>
-          <th title="Derived from catalog: PUSH = Fleet Telemetry, PULL = Fleet API polling (read-only)">Transport</th>
-          <th>Tesla Package</th><th>Sampling (s)</th><th>Enabled</th><th></th>
+          <th data-sort="name">Name <span class="sort-indicator"></span></th>
+          <th data-sort="capability">Capability <span class="sort-indicator"></span></th>
+          <th data-sort="property">Property <span class="sort-indicator"></span></th>
+          <th data-sort="type">Type <span class="sort-indicator"></span></th>
+          <th data-sort="description">Description <span class="sort-indicator"></span></th>
+          <th title="Derived from catalog: PUSH = Fleet Telemetry, PULL = Fleet API polling (read-only)" data-sort="transport">Transport <span class="sort-indicator"></span></th>
+          <th data-sort="package">Tesla Package <span class="sort-indicator"></span></th>
+          <th data-sort="sampling">Sampling (s) <span class="sort-indicator"></span></th>
+          <th>Enabled</th><th></th>
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
@@ -1550,7 +1556,54 @@ adminApp.get('/telemetry/configurator', async (c) => {
 
     ${effectiveHtml}
     ${unresolvedHtml}
-  `))
+  ` + `
+<script>
+(function() {
+  function initTableSort(tableId) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const headers = table.querySelectorAll('th[data-sort]');
+    let currentSort = { column: null, asc: true };
+    function getCellValue(row, idx) {
+      return row.children[idx].textContent.trim();
+    }
+    function compare(a, b, idx, asc) {
+      const A = getCellValue(a, idx);
+      const B = getCellValue(b, idx);
+      const numA = parseFloat(A);
+      const numB = parseFloat(B);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return asc ? numA - numB : numB - numA;
+      }
+      return asc ? A.localeCompare(B) : B.localeCompare(A);
+    }
+    function sortTable(idx, key) {
+      const tbody = table.querySelector('tbody');
+      if (!tbody) return;
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const asc = currentSort.column === key ? !currentSort.asc : true;
+      currentSort = { column: key, asc };
+      rows.sort((a, b) => compare(a, b, idx, asc));
+      rows.forEach(r => tbody.appendChild(r));
+      headers.forEach(h => {
+        const ind = h.querySelector('.sort-indicator');
+        if (h.dataset.sort === key) {
+          ind.textContent = asc ? ' ▲' : ' ▼';
+        } else if (ind) {
+          ind.textContent = '';
+        }
+      });
+    }
+    const headers = table.querySelectorAll('th[data-sort]');
+    headers.forEach((h, idx) => {
+      h.style.cursor = 'pointer';
+      h.addEventListener('click', () => sortTable(idx, h.dataset.sort));
+    });
+  }
+  initTableSort('config-table');
+  initTableSort('enrol-table');
+})();
+</script>`))
 })
 
 /**
