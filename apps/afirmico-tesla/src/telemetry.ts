@@ -232,6 +232,65 @@ export function normalise(
   return { normalised, skippedUnknown, skippedUncollected, invalidValues }
 }
 
+/**
+ * Classify the shape of a telemetry payload (F15-R01).
+ *
+ * Tesla does not send one payload shape. A driving vehicle streams a full
+ * snapshot (odometer, both since-reset counters and the driver-assist
+ * settings together), while between drives it sends an odometer-only
+ * heartbeat and, at a slower cadence, a payload carrying just the two
+ * since-reset counters. Each shape is a legitimate payload — but without a
+ * label, each lands as its own row in tesla_telemetry_record with most
+ * columns NULL, which reads as data loss rather than a different payload.
+ *
+ * The classification is by field SET, so it is stable across firmware
+ * revisions that add fields: a payload is `full` when it carries any of the
+ * eight driver-assist/security settings (those are never sent alone); it is
+ * `odometer_heartbeat` when Odometer is the only collected field present;
+ * it is `trip_counters` when only the two since-reset distances are present.
+ * Anything else (mixed or unrecognised shapes) stays `unknown`, which the
+ * UI renders as "mixed payload" rather than guessing.
+ */
+export function classifyPayload(fieldKeys: string[]): 'full' | 'odometer_heartbeat' | 'trip_counters' | 'unknown' {
+  const set = new Set(fieldKeys)
+  const hasAssistSetting =
+    set.has('SentryMode') ||
+    set.has('SpeedLimitMode') ||
+    set.has('SpeedLimitWarning') ||
+    set.has('PinToDriveEnabled') ||
+    set.has('AutomaticBlindSpotCamera') ||
+    set.has('AutomaticEmergencyBrakingOff') ||
+    set.has('BlindSpotCollisionWarningChime') ||
+    set.has('EmergencyLaneDepartureAvoidance')
+
+  if (hasAssistSetting) return 'full'
+
+  const collectedKeys = [...set].filter((k) =>
+    [
+      'Odometer',
+      'MilesSinceReset',
+      'SelfDrivingMilesSinceReset',
+      'SentryMode',
+      'SpeedLimitMode',
+      'SpeedLimitWarning',
+      'PinToDriveEnabled',
+      'AutomaticBlindSpotCamera',
+      'AutomaticEmergencyBrakingOff',
+      'BlindSpotCollisionWarningChime',
+      'EmergencyLaneDepartureAvoidance',
+    ].includes(k),
+  )
+
+  if (collectedKeys.length === 1 && set.has('Odometer')) return 'odometer_heartbeat'
+  if (
+    collectedKeys.length <= 2 &&
+    collectedKeys.every((k) => k === 'MilesSinceReset' || k === 'SelfDrivingMilesSinceReset')
+  ) {
+    return 'trip_counters'
+  }
+  return 'unknown'
+}
+
 /* -------------------------------------------------------------------------- */
 /* Persistence                                                                */
 /* -------------------------------------------------------------------------- */
@@ -301,6 +360,17 @@ export async function persistDatums(
     deduped.set(key, datum)
   }
 
+  // Classify the payload shape (F15-R01): what the vehicle sent together is a
+  // fact about the payload, not about any single field. Tesla sends a full
+  // snapshot when driving, an odometer-only heartbeat at a slower cadence, and
+  // a trip-counters payload with just the two since-reset distances. Without
+  // this, each shape lands as its own row in tesla_telemetry_record and most
+  // columns read as "—", which looks like data loss rather than a different
+  // payload type. The classification is per-batch, so every fact in the batch
+  // carries the same label.
+  const keys = [...deduped.values()].map((d) => d.fieldKey)
+  const payloadType = classifyPayload(keys)
+
   let factsWritten = 0
   let snapshotsWritten = 0
   let snapshotHistoryWritten = 0
@@ -358,8 +428,8 @@ export async function persistDatums(
           `INSERT INTO tesla_telemetry_fact
              (fact_id, vin, field_key, observed_at, received_at,
               value_real, value_int, value_text, value_bool, value_json,
-              value_kind, collection_tier, batch_id, is_resend, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              value_kind, collection_tier, batch_id, is_resend, source, payload_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           newId(),
@@ -380,6 +450,7 @@ export async function persistDatums(
           batchId,
           isResend,
           source,
+          payloadType,
         ),
     )
     factsWritten++

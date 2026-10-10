@@ -218,8 +218,8 @@ echo "Wide read model (F04 — column-per-field pivot, migration 0012)"
 # The view must exist and expose one column per collected time-varying signal.
 check "telemetry_record view exists" "$(q "SELECT count(*) FROM sqlite_master WHERE type='view' AND name='tesla_telemetry_record'")" 1
 check "vehicle_attribute view exists" "$(q "SELECT count(*) FROM sqlite_master WHERE type='view' AND name='tesla_vehicle_attribute'")" 1
-check "record view exposes 11 signals + 5 provenance" \
-  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record')")" 19
+check "record view exposes 11 signals + 5 provenance + payload_type" \
+  "$(q "SELECT count(*) FROM pragma_table_info('tesla_telemetry_record')")" 20
 
 # The three distance signals appear twice: once as reported (miles) and once converted
 # (km). Both must be present — an analyst reading the record view must not have to
