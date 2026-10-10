@@ -28,6 +28,10 @@
       "bucket_name": "afirmico-tesla-raw"
     }
   ],
+  "send_email": {
+    "name": "afirmico-tesla-emails",
+    "binding": "EMAIL"
+  },
   "vars": {
     "TESLA_CLIENT_ID": "f03d04ed-a6b0-43b3-bda4-5c19dec5dd2b",
     "TESLA_BILLING_LIMIT_USD": "100"
