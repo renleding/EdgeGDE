@@ -1609,7 +1609,6 @@ adminApp.get('/telemetry/configurator', async (c) => {
         }
       });
     }
-    const headers = table.querySelectorAll('th[data-sort]');
     headers.forEach((h, idx) => {
       h.style.cursor = 'pointer';
       h.addEventListener('click', () => sortTable(idx, h.dataset.sort));
