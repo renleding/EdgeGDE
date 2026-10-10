@@ -98,8 +98,8 @@ export default {
 /**
  * Execute a single export schedule.
  */
-async function runExportSchedule(
-  env: Env,
+export async function runExportSchedule(
+  env: { D1_TESLA: D1Database } & Record<string, unknown>,
   schedule: ExportScheduleRow,
   ctx: ExecutionContext
 ): Promise<void> {

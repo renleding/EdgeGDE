@@ -165,29 +165,38 @@ Please check the admin console for details.`,
 }
 
 /**
- * Send email via SMTP.
- * Uses Cloudflare Workers' native email capability or external SMTP.
- * This is a placeholder — actual implementation depends on email provider.
+ * Send email via Cloudflare Email Workers.
+ * Uses the native `EMAIL` binding from wrangler.json.
  */
 export async function sendEmail(
-  env: { D1_TESLA?: D1Database } & Record<string, unknown>,
+  env: { EMAIL?: SendEmail } & Record<string, unknown>,
   params: EmailParams
 ): Promise<EmailResult> {
-  // In production, use one of:
-  // - Cloudflare Email Workers (if configured)
-  // - SendGrid / Mailgun / SES via HTTP API
-  // - Direct SMTP via a library like nodemailer (requires TCP)
+  if (!env.EMAIL) {
+    console.error('[email] EMAIL binding not configured')
+    return { success: false, error: 'EMAIL binding not configured' }
+  }
 
-  // For now, log the email intent and return success
-  // Actual implementation would connect to email provider
+  const attachments = params.attachments?.map(a => ({
+    disposition: 'attachment' as const,
+    filename: a.filename,
+    type: a.content_type,
+    content: a.content,
+  }))
 
-  // Placeholder: in real implementation, use:
-  // - fetch to SendGrid/Mailgun/SES API
-  // - Or Cloudflare's native email binding if available
-
-  return {
-    success: true,
-    message_id: 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+  try {
+    const result = await env.EMAIL.send({
+      from: 'AFIRMICO Tesla Fleet Data <noreply@afirmi.co>',
+      to: params.to,
+      subject: params.subject,
+      text: params.body_text,
+      html: params.body_html,
+      attachments,
+    })
+    return { success: true, message_id: result.messageId }
+  } catch (err) {
+    console.error('[email] Failed to send:', err)
+    return { success: false, error: String(err) }
   }
 }
 

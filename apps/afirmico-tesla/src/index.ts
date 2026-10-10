@@ -109,6 +109,8 @@ import {
 } from './key-pairing'
 import { openToken } from './crypto'
 import { runPollCoordinator, clearPollEligibility } from './poll-coordinator'
+import { getDueSchedules, updateAllNextRunTimes } from './scheduler'
+import { runExportSchedule } from './export-worker'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
@@ -1119,6 +1121,11 @@ app.post('/ingest/telemetry', async (c) => {
         receivedAt: nowIso,
       })
       await recordSignals(c.env.D1_TESLA, { vin, datumCount: extracted.length, nowIso })
+
+      // Mark batch as processed
+      await c.env.D1_TESLA.prepare(
+        `UPDATE tesla_telemetry_batch SET processed_at = ? WHERE batch_id = ?`
+      ).bind(nowIso, batchId).run()
 
       // FEATURE-14 dual-transport (F14-R02): the poll lane runs ONLY here —
       // after this vehicle's batch committed, inside the consent gate above.
@@ -2474,6 +2481,30 @@ export default {
       console.warn(`[cron] key-pairing-poll: checked=${result.checked} paired=${result.paired} unpaired=${result.unpaired} failed=${result.failed}`)
       if (result.errors.length) {
         console.error(`[cron] key-pairing-poll errors:`, result.errors)
+      }
+
+      // FEATURE-13: run due export schedules (F13-R17)
+      await updateAllNextRunTimes(env.D1_TESLA)
+      const dueSchedules = await getDueSchedules(env.D1_TESLA)
+      if (dueSchedules.length) {
+        console.warn(`[cron] export-scheduler: ${dueSchedules.length} schedule(s) due`)
+      }
+      for (const row of dueSchedules) {
+        const schedule = {
+          schedule_id: row.schedule_id,
+          name: row.name,
+          scope: row.scope,
+          group_id: row.group_id,
+          vin: row.vin,
+          time_range: row.time_range,
+          format: row.format,
+          recurrence: row.recurrence,
+          recurrence_config: row.recurrence_config,
+          recipients: row.recipients,
+          email_template: row.email_template,
+          enabled: row.enabled,
+        }
+        await runExportSchedule(env as unknown as { D1_TESLA: D1Database } & Record<string, unknown>, schedule, ctx)
       }
     }
   },
