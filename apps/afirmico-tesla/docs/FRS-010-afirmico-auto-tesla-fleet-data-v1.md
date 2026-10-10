@@ -1,10 +1,10 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  
-**Version:** 2.3  
+**Version:** 2.4  
 **Status:** Draft  
 **Author:** Hermes (Director)  
-**Date:** 2026-10-09
+**Date:** 2026-10-10
 **Source:** Requirements interview with Warren (TOCA/AFIRMICO), 2026-09-29 (22 numbered questions answered);
 `apps/EdgeGDE - Document DB/Tesla APP DB/fleet_streaming_fields.csv` (239 fields) and `alert_dictionary.csv`
 (18,436 alerts); https://developer.tesla.com/docs/fleet-api/getting-started/what-is-fleet-api
@@ -33,6 +33,7 @@ only a subset is collected at launch, so that scope can expand without a schema 
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.4 | 2026-10-10 | **FEATURE-15: Configurator Column Sorting (new).** The operator can sort both configurator tables by clicking column headers. The telemetry configuration table (config-table) sorts on all eight columns: Name, Capability, Property, Type, Description, Transport, Tesla Package, and Sampling (s). The catalog enrolment table (enrol-table) sorts on Field, Category, and Description. Sorting is client-side and deterministic (F15-R05). Numeric columns sort numerically, not lexicographically (F15-R03). Sort indicators (▲/▼) show the current sort state and are visible (F15-R04). **SDLC lesson recorded:** this feature shipped once already, with a JavaScript SyntaxError (duplicate `const` declaration) that prevented the entire sort script from executing — and every CI gate was green because the script lives inside a TypeScript template literal that no tool parsed as code. F15-R06 now requires that every inline script be syntax-checked, enforced by CI extracting all inline scripts from rendered admin pages and running a JavaScript syntax check. This revision also adds the IDD-011 interface contract for the configurator page. Documentation plus one new CI test — no collection, consent or scope change. |
 | 2.3 | 2026-10-09 | **Dual-transport re-establishes `vehicle_data` polling as a bounded second lane (owner decision). The FEATURE-12 configurator gains field-level controls, catalog enrolment and platform UX requirements.** The owner answered every decision on 2026-10-09. **(1) New FEATURE-14: Dual-Transport Collection, requirements F14-R01..R10.** One Tesla vehicle now fans out to Fleet Telemetry (high-value streaming fields) and Fleet API Polling (low-frequency and static fields). The catalog derives the transport for each field rather than an operator choosing it. A field with a `vehicle_data_equivalent` may poll. A field without one streams. **`MilesSinceReset` and `SelfDrivingMilesSinceReset` have no REST equivalent and stay telemetry-only** — the catalog states this, and v1.4/R-02 already made the point. The polling revival does not reopen it. **Identity fields (`CarType`, `EfficiencyPackage`, `Version`) poll exactly once** at first sync to build the member profile. They are stable afterwards. **Odometer polls weekly** (owner decision). The eight on_change state fields (`SentryMode`, `SpeedLimitMode`, `PinToDriveEnabled`, `SpeedLimitWarning`, the four ADAS) keep telemetry on_change (owner: state change ok, telemetry). **Polling never wakes a sleeping vehicle (F14-R02).** REST polling fires only as a co-processor on a telemetry ingest. The car is awake and data is flowing, so no poll spends a wake signal. **F14-R07: revocation stops both lanes.** The consent text already carries "The information collected may vary from time to time as AFIRMICO's products and services evolve". The operator may enrol new catalog fields under that authorisation (owner decision). F14-R06 records the gate this change needs. **(2) FEATURE-12 amended (F12-R14..R18).** The configurator table adopts the reference product's column model: Name/Capability/Property/Type/Description from real catalog data. A **read-only transport badge** (`PUSH`/`PULL`) derives from the field's REST equivalent. It is not an operator toggle, so F12-R12 closes on honest terms rather than losing the column. `Tesla Package` maps to `collection_tier`. `Sampling Frequency` maps to `interval_seconds`. **Every telemetry field gets a per-field Enabled toggle.** **Low-volatility fields seed at 21600 s (6 h) instead of 180 s** — `PinToDriveEnabled` is the owner's example — and every seed stays overridable per scope. **The vehicle dropdown lists paired vehicles only.** The unpaired test unit "Walter" no longer appears. **Group and vehicle scopes gain search.** **Nav marks the active item bold** on every admin page. **(3) Catalog enrolment (F12-R18).** The operator may add catalog fields (`collected = 1`) from the configurator under the broad authorisation above. Enrolment writes an audit row with the operator, field and timestamp. **(4) Out of Scope §5 rewritten.** The line "`vehicle_data` polling. Withdrawn at v1.4" now defers to FEATURE-14's bounded lane. No other polling is in scope. §3.6 gains a supersession note. **(5) Phasing:** FEATURE-14 added as 6d. **Documentation only — no code in this revision.** |
 | 2.2 | 2026-10-07 | **FEATURE-13 added: Data Export & Scheduled Reporting (FRS v2.2).** Adds **FEATURE-13** with 15 requirements (F13-R01..R16), 5 non-functional requirements (F13-N01..N05), and 10 acceptance criteria (AC1..AC10). Exports telemetry and driver-profile data as CSV/Excel/PDF; scopeable to all/group/vehicle; time ranges (hour/week/month/year/all); calendar-style scheduled exports (hourly/daily/weekly/monthly/yearly/specific date/specific weekdays); email delivery with attachment and templated text; admin console UI for all settings; audit trail with metadata (timestamp, scope, range, row count, SHA-256); PDF cover page with data-quality disclaimer; email templating with placeholders; retry logic with exponential backoff; large file splitting; missed-schedule catch-up. **Two new risks:** R-19 (scheduled export reliability depends on email delivery) and R-20 (export PII handling and consent scope). **Phasing updated:** FEATURE-13 inserted at 6c in the phasing table (after FEATURE-12, before FEATURE-06/07). **Documentation only — no code.** |
 | 2.1 | 2026-10-07 | **The ten FEATURE-12 design decisions are settled, and one requirement written in v2.0 is corrected as wrong.** **(1) F12-R08 was false-success-prone and is fixed.** v2.0 required canary verification on `synced: true`. Measured the same day: a vehicle with **no configuration at all** (`has_config: false`, `key_paired: false`, our record `failed`) reports `synced: true` — the flag means "the vehicle has adopted the target config", and a vehicle with no target has nothing to adopt. A canary reading `synced` alone would have reported a **failed** configuration as **adopted**, defeating the single gate FEATURE-12 leans on hardest. F12-R08 now requires all three of: the POST succeeded, `has_config: true` **and** `synced: true`, **and** a subsequent telemetry observation. **(2) Group scope is a first-class stored entity (owner decision).** `group` resolves against an owner-curated `tesla_vehicle_group` / `tesla_vehicle_group_member` pair, **not** against F06's derived segment keys. The derived key is an *output* (recomputed per export from postcode + model + model year); a config scope bound to it would silently stop applying whenever the derivation changed, which is the same silent-drift class this document has repeatedly had to repair. This closes **R-17**. **(3) Canary is operator-nominated**, with eligibility enforced (F12-R07) — the operator picks a vehicle known to be in use, because adoption requires the vehicle to connect and a parked canary proves nothing. **(4) Every field's seeded `interval_seconds` is 180 s** — the global tier is seeded uniformly from the current constant, so day-one behaviour is unchanged and per-field values are adjusted from there. **(5) `SYNC_INTERVAL_SECONDS` is retained as the value that seeds the global tier**, not deleted: it gives F12-R02's "the global scope must be total" a concrete source and keeps a fresh deployment deterministic. **(6) Build order is global + vehicle first**, with `group` added once the entity exists — the two scopes that are fully specified solve the stated problem (one vehicle differing from the rest) without waiting on the third. **(7) Apply is a scheduled/queue-driven sweep, not an in-request loop** — at 1,000 vehicles an in-request loop exceeds the Worker's limits, so "apply" is asynchronous and per-vehicle progress is observable rather than all-or-nothing inside one request (this closes **R-18**). **(8) SDD-010 is deliberately left unamended** and a new SDD is written for this phase (SDD-011). Its 6-hour and 21600 references were accurate when written; a specification is a log of what was true, and silently rewriting a superseded design is the failure mode this repo has already been bitten by. The new design states its supersessions explicitly instead. **Documentation only — no code.** |
@@ -1095,6 +1096,64 @@ AC8: `/healthz` reports the month's projected `data_requests` spend. The report 
 **Out of scope for this feature:** waking vehicles for any purpose, operator choice of transport
 per field (F12-R18 renders the transport, it does not set it), scheduled polling of identity fields
 beyond the first sync, and any field outside `CONSENTED_FIELDS`.
+
+---
+
+### 4.15 FEATURE-15: Configurator Column Sorting
+
+**Purpose:** the operator manages 15 collected fields and a 253-field enrolment catalog by
+reading column values. Unsorted tables force manual scanning; the reference product sorts every
+column. Sorting is a read-only presentation concern — it changes no stored configuration, no
+collected set, and no consent.
+
+**Requirements:**
+
+| ID | Requirement (SHALL/MUST) | Priority |
+|----|--------------------------|----------|
+| F15-R01 | The telemetry configuration table (`config-table`) SHALL support ascending and descending sort on every column: Name, Capability, Property, Type, Description, Transport, Tesla Package, and Sampling (s). Each sortable header MUST carry a `data-sort` attribute naming its sort key. | Must |
+| F15-R02 | The catalog enrolment table (`enrol-table`) SHALL support sorting on Field, Category, and Description. | Must |
+| F15-R03 | Columns with numeric content (Sampling (s)) SHALL sort numerically, not lexicographically: 180 < 21600 < 604800. | Must |
+| F15-R04 | Each sortable header SHALL display a visible indicator element. The active sort indicator MUST show ▲ (ascending) or ▼ (descending); inactive indicators MUST be empty. The indicator element MUST have CSS `display:inline-block` so it is rendered, not collapsed. | Must |
+| F15-R05 | Sorting SHALL execute client-side without a server request. The same table content SHALL produce the same sorted output for the same column and direction (deterministic). | Must |
+| F15-R06 | Every inline script delivered in admin pages SHALL parse as valid JavaScript. CI MUST extract all inline `<script>` blocks from rendered admin pages and syntax-check each one; the pipeline MUST fail if any script fails the check. | Must |
+| F15-R07 | Sortable headers SHALL display a pointer cursor to indicate clickability. | Should |
+| F15-N01 | Sorting SHALL complete within 50 ms for tables up to 500 rows. | Should |
+
+**Acceptance criteria:**
+
+```
+AC1: Clicking a sortable header on the configurator table re-orders the rows
+     by that column, ascending on first click.
+AC2: Clicking the same header again reverses the order and flips the indicator
+     from ▲ to ▼ (or the reverse).
+AC3: Sorting Sampling (s) with values 180, 21600 and 604800 ascending yields
+     180, 21600, 604800 — numeric, not lexicographic (lexicographic would
+     yield 180, 21600, 604800 only by coincidence of equal prefixes. A
+     set such as 900 vs 21600 distinguishes the two).
+AC4: The sort indicator is visible (not zero-height or hidden) on the active
+     column, and empty on the others.
+AC5: Sorting makes no network request and does not change the page URL.
+AC6: CI runs a JavaScript syntax check on every inline script extracted from
+     every rendered admin page. A script with a syntax error fails the build.
+     (Regression test for the 2026-10-10 incident: a duplicate const
+     declaration inside the sort script's IIFE prevented the whole script
+     from executing while every existing gate stayed green.)
+AC7: The enrolment table's Field, Category and Description headers are
+     sortable with the same behaviour.
+```
+
+**Why F15-R06 exists (recorded incident):** this feature shipped once already with a
+duplicate `const headers` declaration in the same function scope — a JavaScript
+`SyntaxError` that prevented the entire sort script from executing. No sort listener was
+ever attached, so clicking headers did nothing. Every CI gate stayed green because the
+script is a TypeScript template literal (tsc checks the string, not its contents) and
+the unit tests never parse inline scripts from HTML. The failure was only diagnosable by
+extracting the script from the live HTML and running a syntax check on it. F15-R06 turns
+that manual diagnostic into a build gate.
+
+**Out of scope for this feature:** server-side sorting, pagination, column reordering,
+persisted sort state across page loads, and any change to what the tables contain (the
+configurator's data model is FEATURE-12's; the enrolment catalog is F12-R18's).
 
 ---
 
