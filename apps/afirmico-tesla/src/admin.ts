@@ -1435,7 +1435,7 @@ adminApp.get('/telemetry/configurator', async (c) => {
             <input type="hidden" name="field_key" value="${escapeHtml(f.field_key)}">
             <strong style="min-width:240px"><code>${escapeHtml(f.field_key)}</code></strong>
             <span class="pill">${escapeHtml(f.category)}</span>
-            <span class="meta" style="flex:2;min-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.description ?? '')}</span>
+            <span class="meta" style="flex:2;min-width:300px">${escapeHtml(f.description ?? '')}</span>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
               <input type="checkbox" name="enrol" value="1" style="width:18px;height:18px;cursor:pointer">
               <span style="font-weight:700;color:#0b5ed7">Enrol</span>
