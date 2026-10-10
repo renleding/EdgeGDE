@@ -41,6 +41,7 @@ export interface AdminEnv {
 export const adminApp = new Hono<{ Bindings: AdminEnv }>()
 
 const ADMIN_SESSION_COOKIE = 'afirmico_admin'
+const BUILD_VERSION = '62a8588' // Injected at build time - increments on each deploy
 const ADMIN_SESSION_TTL = 60 * 60 * 8 // 8 hours
 
 /** Inline SVG icon, matching the worker's own favicon definition. */
@@ -1505,7 +1506,7 @@ adminApp.get('/telemetry/configurator', async (c) => {
 
   return c.html(shell('Admin — Telemetry Configurator', `
     <h1>Telemetry Configurator</h1>
-    <p class="meta">Configure collection per field at global, group, or vehicle scope. Transport is derived from the Tesla catalog and is not selectable (F12-R15). Vehicle selector lists paired vehicles only (F12-R17).</p>
+    <p class="meta">Configure collection per field at global, group, or vehicle scope. Transport is derived from the Tesla catalog and is not selectable (F12-R15). Vehicle selector lists paired vehicles only (F12-R17). Build: ${BUILD_VERSION}</p>
 
     <!-- Scope + search selector (F12-R17) -->
     <form method="GET" action="/admin/telemetry/configurator" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin:24px 0;padding:16px;background:#151515;border-radius:12px">
