@@ -1511,11 +1511,13 @@ adminApp.get('/telemetry/configurator', async (c) => {
 
     <!-- Clear cache button (forces service worker unregister + reload) -->
     <button id="clear-cache-btn" style="margin-bottom:16px;padding:8px 16px;border:0;border-radius:6px;background:#ff6b35;color:#fff;font-weight:700;font-size:13px;cursor:pointer" onclick="
-      navigator.serviceWorker.getRegistrations().then(regs => {
-        regs.forEach(reg => reg.unregister());
-      });
-      caches.keys().then(names => names.forEach(name => caches.delete(name)));
-      location.reload(true);
+      (async () => {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(reg => reg.unregister()));
+        const names = await caches.keys();
+        await Promise.all(names.map(name => caches.delete(name)));
+        location.reload(true);
+      })()
     ">
       Clear Cache & Reload
     </button>
