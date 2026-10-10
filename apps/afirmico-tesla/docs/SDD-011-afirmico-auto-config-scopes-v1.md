@@ -369,6 +369,48 @@ apps/afirmico-tesla/
 
 ---
 
+### 6.5 Sort Implementation (FEATURE-15)
+
+The configurator page exposes two sortable tables (`config-table` and `enrol-table`).
+Sorting is a client-side read-only operation with no server state change.
+
+**Architecture:**
+- The sort logic is a single IIFE appended to the page as an inline `<script>` block.
+- `initTableSort(tableId)` attaches click listeners to every `th[data-sort]`.
+- `sortTable(idx, key)` sorts the `<tbody>` rows in place via DOM re-append.
+- `compare(a, b, idx, asc)` handles numeric vs text columns:
+  - Numeric detection via `parseFloat` on trimmed cell text.
+  - Numeric columns sort numerically (e.g., 180 < 21600 < 604800).
+  - Text columns sort via `localeCompare`.
+- Sort indicators (`▲` / `▼`) update on the active header; others clear.
+
+**Why this design:**
+- No re-render: the server already built the full table; moving DOM nodes is faster
+  than re-requesting HTML and avoids the flash of a full page reload.
+- Deterministic: the same table content + same column + same direction always yields
+  the same row order. No server round-trip means no race condition.
+- Zero backend change: the FRS requirement is purely presentational.
+
+**Syntax guarantee (F15-R06):**
+Because the script is a TypeScript template literal, tsc cannot check it.
+A CI test (`test/scripts-syntax.test.ts`) renders every admin page, extracts all
+inline `<script>` blocks, and runs `node --check` on each. A syntax error fails
+the build. This gate was added after the 2026-10-10 incident where a duplicate
+`const headers` declaration prevented the entire sort script from executing
+while every other gate stayed green.
+
+**CSS contract (F15-R04):**
+The indicator span MUST have `display:inline-block` so it occupies layout space
+and is visible. Without this, the ▲/▼ are collapsed to zero width and the
+operator sees no indication of sort state.
+
+**Performance (F15-N01):**
+500 rows × 8 columns sorts in <50 ms on modern hardware. The algorithm is
+`Array.sort` with a comparison function — O(n log n) with minimal constant
+factor.
+
+---
+
 ## 7. Failure Modes
 
 | Failure | Detection | Handling |
