@@ -1437,12 +1437,12 @@ adminApp.get('/telemetry/configurator', async (c) => {
 
   const enrolHtml = enrolable.length === 0
       ? '<p class="meta">Every usable catalog field is already collected.</p>'
-      : `<table style="font-size:13px">
+      : `<table style="font-size:13px" id="enrol-table">
           <thead>
             <tr>
-              <th>Field</th>
-              <th>Category</th>
-              <th>Description</th>
+              <th data-sort="field">Field <span class="sort-indicator"></span></th>
+              <th data-sort="category">Category <span class="sort-indicator"></span></th>
+              <th data-sort="description">Description <span class="sort-indicator"></span></th>
               <th>Enrol</th>
             </tr>
           </thead>
