@@ -1509,6 +1509,17 @@ adminApp.get('/telemetry/configurator', async (c) => {
     <h1>Telemetry Configurator</h1>
     <p class="meta">Configure collection per field at global, group, or vehicle scope. Transport is derived from the Tesla catalog and is not selectable (F12-R15). Vehicle selector lists paired vehicles only (F12-R17). Build: ${BUILD_VERSION}</p>
 
+    <!-- Clear cache button (forces service worker unregister + reload) -->
+    <button id="clear-cache-btn" style="margin-bottom:16px;padding:8px 16px;border:0;border-radius:6px;background:#ff6b35;color:#fff;font-weight:700;font-size:13px;cursor:pointer" onclick="
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(reg => reg.unregister());
+      });
+      caches.keys().then(names => names.forEach(name => caches.delete(name)));
+      location.reload(true);
+    ">
+      Clear Cache & Reload
+    </button>
+
     <!-- Scope + search selector (F12-R17) -->
     <form method="GET" action="/admin/telemetry/configurator" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin:24px 0;padding:16px;background:#151515;border-radius:12px">
       <label class="meta">Scope
