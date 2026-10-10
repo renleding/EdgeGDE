@@ -1428,17 +1428,20 @@ adminApp.get('/telemetry/configurator', async (c) => {
   ).all<{ field_key: string; category: string; description: string | null }>()).results ?? []
 
   const enrolHtml = enrolable.length === 0
-    ? '<p class="meta">Every usable catalog field is already collected.</p>'
-    : enrolable.map(f => {
-        const id = 'enr_' + f.field_key.replace(/[^A-Za-z0-9]/g, '_')
-        return `<form id="${id}" method="POST" action="/admin/telemetry/enrol" style="display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid #1c1c1c">
-          <input type="hidden" name="field_key" value="${escapeHtml(f.field_key)}">
-          <strong style="min-width:240px"><code>${escapeHtml(f.field_key)}</code></strong>
-          <span class="pill">${escapeHtml(f.category)}</span>
-          <span class="meta" style="flex:1">${escapeHtml(f.description ?? '')}</span>
-          <button type="submit" style="padding:6px 14px;border:0;border-radius:6px;background:#0b5ed7;color:#fff;font-weight:700;font-size:13px;cursor:pointer">Enrol</button>
-        </form>`
-      }).join('')
+      ? '<p class="meta">Every usable catalog field is already collected.</p>'
+      : enrolable.map(f => {
+          const id = 'enr_' + f.field_key.replace(/[^A-Za-z0-9]/g, '_')
+          return `<form id="${id}" method="POST" action="/admin/telemetry/enrol" style="display:flex;gap:12px;align-items:center;padding:6px 0;border-bottom:1px solid #1c1c1c">
+            <input type="hidden" name="field_key" value="${escapeHtml(f.field_key)}">
+            <strong style="min-width:240px"><code>${escapeHtml(f.field_key)}</code></strong>
+            <span class="pill">${escapeHtml(f.category)}</span>
+            <span class="meta" style="flex:2;min-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(f.description ?? '')}</span>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" name="enrol" value="1" style="width:18px;height:18px;cursor:pointer">
+              <span style="font-weight:700;color:#0b5ed7">Enrol</span>
+            </label>
+          </form>`
+        }).join('')
 
   // --- provenance table (existing design, unchanged) ------------------------
   let effectiveHtml = ''
