@@ -162,7 +162,9 @@ describe('formatTimeColumns: sortable UTC beside readable local', () => {
   it('splits the two values so neither can be mistaken for the other', () => {
     const { utc, local } = formatTimeColumns(OBSERVED, 'Australia/Sydney')
     expect(utc).toBe('2026-10-07 02:28:15')
-    expect(local).toBe('13:28:15 AEDT')
+    // Local carries the full datetime so the date is unambiguous across
+    // UTC-midnight (owner-requested format: "2026-10-10 23:58:43 AEDT").
+    expect(local).toBe('2026-10-07 13:28:15 AEDT')
   })
 
   it('leaves local blank when the zone is unknown rather than echoing UTC', () => {
