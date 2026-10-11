@@ -866,11 +866,32 @@ adminApp.get('/telemetry', async (c) => {
       : String(selectedRow.postcode)
   const zone = timeZoneForPostcode(selectedPostcode)
   // Naming the state beside the times is not decoration: whether daylight saving applies
-  // is a juristictional fact ("note location state - eg, QLD, NSW etc" per the owner), and
+  // is a jurisdictional fact ("note location state - eg, QLD, NSW etc" per the owner), and
   // a reader cannot tell AEDT from AEST without knowing the state.
   const state = stateFromPostcode(selectedPostcode)
+  // Also get the timezone abbreviation for the label (AEDT, AEST, ACDT, ACST, AWST)
+  let tzAbbr = ''
+  if (zone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-AU', {
+        timeZone: zone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+        timeZoneName: 'short',
+      }).formatToParts(new Date())
+      const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+      tzAbbr = get('timeZoneName') || ''
+    } catch {
+      tzAbbr = ''
+    }
+  }
   const stateNote = state
-    ? ` <span class="meta">(${state}${selectedPostcode ? ` ${escapeHtml(selectedPostcode)}` : ''} — times shown in this member's local zone)</span>`
+    ? ` <span class="meta">(${state}${selectedPostcode ? ` ${escapeHtml(selectedPostcode)}` : ''}${tzAbbr ? ` ${tzAbbr}` : ''} — times shown in this member's local zone)</span>`
     : ' <span class="meta">(no postcode on record — times shown in UTC)</span>'
 
   const [records, attrs] = selected
@@ -901,8 +922,10 @@ adminApp.get('/telemetry', async (c) => {
     // Local equivalents, in the member's own state zone. Two columns rather than one
     // combined string because the UTC value must stay sortable and the local value
     // readable, and a reader must be able to tell which is which without inference.
-    { key: 'observed_at', label: `Observed (local${state ? `, ${state}` : ''})`, kind: 'time-local' },
-    { key: 'received_at', label: 'Received (local)', kind: 'time-local' },
+    // The timezone abbreviation (AEDT/AEST/ACST/ACDT/AWST) is included so the
+    // daylight-saving state is explicit, not inferred from the date.
+    { key: 'observed_at', label: `Observed (local${state ? `, ${state}` : ''}${tzAbbr ? ` ${tzAbbr}` : ''})`, kind: 'time-local' },
+    { key: 'received_at', label: `Received (local${tzAbbr ? ` ${tzAbbr}` : ''})`, kind: 'time-local' },
     // Miles as reported, and the converted kilometres beside it. km is derived from
     // the same factor as src/derive.ts so the two cannot disagree.
     //
