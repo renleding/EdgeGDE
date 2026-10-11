@@ -2484,7 +2484,8 @@ export default {
       }
 
       // FEATURE-13: run due export schedules (F13-R17)
-      await updateAllNextRunTimes(env.D1_TESLA)
+      // IMPORTANT: getDueSchedules must run BEFORE updateAllNextRunTimes, otherwise
+      // the next_run_at advancement pushes due schedules out of the window.
       const dueSchedules = await getDueSchedules(env.D1_TESLA)
       if (dueSchedules.length) {
         console.warn(`[cron] export-scheduler: ${dueSchedules.length} schedule(s) due`)
@@ -2506,6 +2507,7 @@ export default {
         }
         await runExportSchedule(env as unknown as { D1_TESLA: D1Database } & Record<string, unknown>, schedule, ctx)
       }
+      await updateAllNextRunTimes(env.D1_TESLA)
     }
   },
 } satisfies ExportedHandler<Env>
