@@ -167,12 +167,14 @@ Please check the admin console for details.`,
 /**
  * Send email via Cloudflare Email Workers.
  * Uses the native `EMAIL` binding from wrangler.json.
+ * Note: The binding name is 'afimico-tesla-emails' per wrangler.json send_email.name
  */
 export async function sendEmail(
-  env: { EMAIL?: SendEmail } & Record<string, unknown>,
+  env: { 'afirmico-tesla-emails'?: SendEmail } & Record<string, unknown>,
   params: EmailParams
 ): Promise<EmailResult> {
-  if (!env.EMAIL) {
+  const emailBinding = env['afirmico-tesla-emails']
+  if (!emailBinding) {
     console.error('[email] EMAIL binding not configured')
     return { success: false, error: 'EMAIL binding not configured' }
   }
@@ -185,7 +187,7 @@ export async function sendEmail(
   }))
 
   try {
-    const result = await env.EMAIL.send({
+    const result = await emailBinding.send({
       from: 'AFIRMICO Tesla Fleet Data <noreply@afirmi.co>',
       to: params.to,
       subject: params.subject,
