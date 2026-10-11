@@ -80,7 +80,7 @@ class MitmproxyClient:
 
         # Build mitmproxy command
         cmd = [
-            "mitmproxy",
+            "mitmdump",
             "--mode", "regular",
             "--listen-port", str(self.port),
             "--set", f"addon={self._get_addon_path()}",

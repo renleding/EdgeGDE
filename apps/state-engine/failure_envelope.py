@@ -1,13 +1,14 @@
 """Failure Envelope — structured error with page context."""
 from typing import Any, Optional
 
-class FailureEnvelope:
+class FailureEnvelope(Exception):
     def __init__(self, tier: str, action: str, reason: str, 
                  page_state: Optional[dict] = None,
                  errors_on_page: Optional[list] = None,
                  active_dialog: Optional[str] = None,
                  buttons_found: Optional[list] = None,
                  verification_result: Optional[dict] = None):
+        super().__init__(f"[{tier}] {action}: {reason}")
         self.tier = tier
         self.action = action
         self.reason = reason
