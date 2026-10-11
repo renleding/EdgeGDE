@@ -323,7 +323,7 @@ async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTe
   const rows = await db.all({ tenantId: sourceTenantId }, 'SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority, id', [sourceTenantId])
   const insertedAt = Math.floor(Date.now() / 1000)
   let count = 0
-  for (const row of rows.results || []) {
+  for (const row of (rows.results || []) as Array<Record<string, unknown>>) {
     const id = crypto.randomUUID()
     await db.insert({ tenantId: targetTenantId }, 'rules', {
       id,

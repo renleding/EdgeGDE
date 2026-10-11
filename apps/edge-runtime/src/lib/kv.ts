@@ -41,7 +41,8 @@ export function guardKV(rawKV: unknown) {
     throw new Error('KV binding not available')
   }
   const kv = rawKV as {
-    get(key: string, type?: 'json'): Promise<string | null>
+    get(key: string): Promise<string | null>
+    get(key: string, type: 'json'): Promise<unknown>
     put(key: string, value: string, options?: Record<string, unknown>): Promise<void>
     del(key: string): Promise<void>
   }
@@ -80,7 +81,10 @@ export function guardKV(rawKV: unknown) {
     async get<T = string | null>(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json'): Promise<T> {
       const ctx = typeof ctxOrType === 'object' ? ctxOrType : undefined
       const valueType = typeof ctxOrType === 'string' ? ctxOrType : type
-      return kv.get(validateRead(key, ctx), valueType) as Promise<T>
+      if (valueType === 'json') {
+        return kv.get(validateRead(key, ctx), 'json') as Promise<T>
+      }
+      return kv.get(validateRead(key, ctx)) as Promise<T>
     },
 
     async getJson<T = Record<string, unknown>>(key: string, ctx?: TenantCtx): Promise<T> {
