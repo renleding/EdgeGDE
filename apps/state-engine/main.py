@@ -13,6 +13,7 @@ from evidence_adapter import EvidenceAdapter
 from evidence_worker import EvidenceWorker
 from fact_registry_api import FactRegistryAPI
 from mission_runtime import MissionRuntime
+from mitmproxy_client import MitmproxyClient, install_ca_into_cft
 from resolver import Resolver
 from salestrekker_rules import get_salestrekker_rules
 from state_cache import StateCache, build_state_summary
@@ -36,6 +37,7 @@ class StateEngineMCP:
         self.evidence = None
         self.evidence_worker = None
         self.state_registry = None  # FRS-007 Phase 2
+        self.mitm_client = None  # APA mitmproxy layer
         self._ws_url = None
 
     async def start(self):
@@ -56,6 +58,18 @@ class StateEngineMCP:
             self._ws_url = ws_url
             self.cdp = CdpConnection(ws_url)
             await self.cdp.connect()
+
+            # APA: Start mitmproxy daemon alongside CDP
+            try:
+                self.mitm_client = MitmproxyClient(
+                    port=int(os.environ.get('MITMPROXY_PORT', '8080'))
+                )
+                await self.mitm_client.start()
+                await install_ca_into_cft(self.cdp)
+                logger.info("mitmproxy daemon started on port %d", self.mitm_client.port)
+            except Exception as e:
+                logger.warning("mitmproxy not started (degraded mode): %s", e)
+                self.mitm_client = None
 
             self.cache = StateCache(self.cdp)
 
@@ -258,6 +272,22 @@ class StateEngineMCP:
             return json.dumps({"error": "fact_not_found", "key": key})
 
         # ── FRS-007 Phase 2: State & Transition Registries ──────────────
+        @mcp.tool()
+        async def mcp_har(frame_id: str = "", summary_only: bool = False) -> str:
+            """HAR capture from mitmproxy.
+
+            frame_id       → entries correlated to a CDP frame ID
+            summary_only=true → aggregate stats (method/status counts)
+            No args        → all captured entries
+            """
+            if not self.mitm_client:
+                return json.dumps({"error": "mitmproxy_not_running"})
+            if summary_only:
+                return json.dumps(self.mitm_client.get_har_summary())
+            if frame_id:
+                return json.dumps(self.mitm_client.correlate(frame_id))
+            return json.dumps(self.mitm_client.get_all_har())
+
         @mcp.tool()
         async def mcp_object_state(object_id: str = "") -> str:
             """State Registry: read an object's current state, its history,
