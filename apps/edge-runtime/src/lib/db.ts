@@ -15,13 +15,22 @@ export type GuardedDB = ReturnType<typeof guardDB>
 /** Type of the guarded KV wrapper returned by guardKV. */
 export type GuardedKV = ReturnType<typeof guardKV>
 
-export function guardDB(rawDB: any) {
-  if (!rawDB || typeof rawDB.prepare !== 'function') {
+export function guardDB(rawDB: unknown) {
+  if (!rawDB || typeof (rawDB as { prepare?: unknown }).prepare !== 'function') {
     throw new Error('D1 binding not available')
   }
-
+  const db = rawDB as {
+    prepare(sql: string): {
+      bind(...params: unknown[]): {
+        first<T = unknown>(): Promise<T | null>
+        all<T = unknown>(): Promise<{ results: T[] }>
+        run(...params: unknown[]): Promise<unknown>
+      }
+      run(...params: unknown[]): Promise<unknown>
+    }
+  }
   function statement(sql: string) {
-    return rawDB.prepare(sql)
+    return db.prepare(sql)
   }
 
   async function trackMetrics<T>(label: string, fn: () => Promise<T>): Promise<T> {
@@ -54,29 +63,29 @@ export function guardDB(rawDB: any) {
       return statement(sql)
     },
 
-    async first<T = any>(ctx: any, sql: string, params: any[] = []): Promise<T | null> {
+    async first<T = unknown>(ctx: unknown, sql: string, params: unknown[] = []): Promise<T | null> {
       checkCircuit()
-      return trackMetrics('first', () => statement(sql).bind(...params).first()) as Promise<T | null>
+      return trackMetrics('first', async () => statement(sql).bind(...params).first<T>())
     },
 
-    async all<T = any>(ctx: any, sql: string, params: any[] = []): Promise<{ results: T[] }> {
+    async all<T = unknown>(ctx: unknown, sql: string, params: unknown[] = []): Promise<{ results: T[] }> {
       checkCircuit()
-      return trackMetrics('all', () => statement(sql).bind(...params).all()) as Promise<{ results: T[] }>
+      return trackMetrics('all', async () => statement(sql).bind(...params).all<T>())
     },
 
-    async insert(ctx: any, table: string, row: Record<string, any>): Promise<void> {
+    async insert(ctx: unknown, table: string, row: Record<string, unknown>): Promise<void> {
       checkCircuit()
       const keys = Object.keys(row)
       const values = keys.map(k => row[k])
-      return trackMetrics('insert', () => statement(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...values))
+      return trackMetrics('insert', async () => { await statement(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...values) })
     },
 
-    async update(ctx: any, table: string, updates: Record<string, any>, where: string, params: any[] = []): Promise<void> {
+    async update(ctx: unknown, table: string, updates: Record<string, unknown>, where: string, params: unknown[] = []): Promise<void> {
       checkCircuit()
       const keys = Object.keys(updates)
       const assignments = keys.map(k => `${k} = ?`)
       const values = keys.map(k => updates[k]).concat(params)
-      return trackMetrics('update', () => statement(`UPDATE ${table} SET ${assignments.join(', ')} WHERE ${where}`).run(...values))
+      return trackMetrics('update', async () => { await statement(`UPDATE ${table} SET ${assignments.join(', ')} WHERE ${where}`).run(...values) })
     },
 
     /** Expose circuit breaker stats for health endpoints */

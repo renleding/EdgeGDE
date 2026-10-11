@@ -36,9 +36,14 @@ function shortKey(key: string): string {
 /**
  * Build the guarded KV wrapper from the raw binding.
  */
-export function guardKV(rawKV: any) {
-  if (!rawKV || typeof rawKV.get !== 'function') {
+export function guardKV(rawKV: unknown) {
+  if (!rawKV || typeof (rawKV as { get?: unknown }).get !== 'function') {
     throw new Error('KV binding not available')
+  }
+  const kv = rawKV as {
+    get(key: string, type?: 'json'): Promise<string | null>
+    put(key: string, value: string, options?: Record<string, unknown>): Promise<void>
+    del(key: string): Promise<void>
   }
 
   function validateRead(key: string, ctx?: TenantCtx): string {
@@ -72,17 +77,17 @@ export function guardKV(rawKV: any) {
   }
 
   return {
-    async get(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json') {
+    async get<T = string | null>(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json'): Promise<T> {
       const ctx = typeof ctxOrType === 'object' ? ctxOrType : undefined
       const valueType = typeof ctxOrType === 'string' ? ctxOrType : type
-      return rawKV.get(validateRead(key, ctx), valueType)
+      return kv.get(validateRead(key, ctx), valueType) as Promise<T>
     },
 
-    async getJson(key: string, ctx?: TenantCtx) {
-      return rawKV.get(validateRead(key, ctx), 'json')
+    async getJson<T = Record<string, unknown>>(key: string, ctx?: TenantCtx): Promise<T> {
+      return kv.get(validateRead(key, ctx), 'json') as Promise<T>
     },
 
-    async put(key: string, value: string | object, ctx?: TenantCtx, options?: any) {
+    async put(key: string, value: string | object, ctx?: TenantCtx, options?: Record<string, unknown>) {
       const finalKey = validateWrite(key, ctx)
       const val = typeof value === 'string' ? value : JSON.stringify(value)
       const sk = shortKey(finalKey)
@@ -93,7 +98,7 @@ export function guardKV(rawKV: any) {
 
         if (isStructured) {
           // Structured keys MUST be valid JSON
-          let parsed: any
+          let parsed: Record<string, unknown>
           try {
             parsed = JSON.parse(val)
           } catch {
@@ -113,15 +118,16 @@ export function guardKV(rawKV: any) {
             }
           }
         }
-      } catch (err: any) {
-        throw new Error(`[Security Violation] KV write blocked for "${sk}": ${err.message}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        throw new Error(`[Security Violation] KV write blocked for "${sk}": ${msg}`)
       }
 
-      return rawKV.put(finalKey, val, options)
+      return kv.put(finalKey, val, options)
     },
 
     async del(key: string, ctx: TenantCtx) {
-      return rawKV.del(validateWrite(key, ctx))
+      return kv.del(validateWrite(key, ctx))
     },
   }
 }
