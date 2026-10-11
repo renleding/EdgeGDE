@@ -33,6 +33,7 @@ import {
   buildForecastSeriesInputFromMetricPoints,
   queryMetricSeriesPoints,
 } from '../lib/metric-series'
+import type { GuardedDB, GuardedKV } from '../lib/db'
 
 export interface ForecastRunMessage {
   type: 'forecast_run_requested'

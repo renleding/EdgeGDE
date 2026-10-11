@@ -18,6 +18,7 @@ import {
 import { guardDB } from '../lib/db'
 import { guardKV } from '../lib/kv'
 import type { ForecastRunnerEnv } from '../queues/forecast-runner'
+import type { GuardedDB, GuardedKV } from '../lib/db'
 
 /** Hono router for admin forecasting endpoints. */
 export const adminForecastingRouter = new Hono()
@@ -32,8 +33,8 @@ adminForecastingRouter.get('/latest', async (c) => {
     return c.json({ error: 'tenant and metric query params are required' }, 400)
   }
 
-  const db = guardDB(envFromContext(c).DB)
-  const run = await getLatestForecastRun(db, tenantId, metricName, seriesId)
+  const guardedDb = guardDB(envFromContext(c).DB)
+  const run = await getLatestForecastRun(guardedDb, tenantId, metricName, seriesId)
   if (!run) {
     return c.json({ error: 'No forecast run found' }, 404)
   }
@@ -50,8 +51,8 @@ adminForecastingRouter.get('/points', async (c) => {
     return c.json({ error: 'tenant and metric query params are required' }, 400)
   }
 
-  const db = guardDB(envFromContext(c).DB)
-  const points = await queryForecastPoints(db, tenantId, metricName, seriesId, limit)
+  const guardedDb = guardDB(envFromContext(c).DB)
+  const points = await queryForecastPoints(guardedDb, tenantId, metricName, seriesId, limit)
   return c.json({ points })
 })
 
@@ -68,10 +69,10 @@ adminForecastingRouter.post('/run', async (c) => {
     return c.json({ error: 'tenantId and metricName are required' }, 400)
   }
 
-  const db = guardDB(envFromContext(c).DB)
-  const kv = guardKV(envFromContext(c).TENANT_KV)
+  const guardedDb = guardDB(envFromContext(c).DB)
+  const guardedKv = guardKV(envFromContext(c).TENANT_KV)
   const queue = envFromContext(c).FORECASTING_QUEUE
-  const runId = await createForecastRun(db, kv, {
+  const runId = await createForecastRun(guardedDb, guardedKv, {
     tenantId,
     metricName,
     seriesId,
@@ -129,8 +130,8 @@ adminForecastingRouter.get('/pointer', async (c) => {
     return c.json({ error: 'tenant and metric query params are required' }, 400)
   }
 
-  const kv = guardKV(envFromContext(c).TENANT_KV)
+  const guardedKv = guardKV(envFromContext(c).TENANT_KV)
   const key = forecastLatestPointerKey(tenantId, metricName, seriesId)
-  const value = await kv.get(key, 'json')
+  const value = await guardedKv.get(key, 'json')
   return c.json({ key, value })
 })

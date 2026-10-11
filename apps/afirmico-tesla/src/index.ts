@@ -19,6 +19,7 @@
 
 import { Hono } from 'hono'
 import type { ScheduledController, ExecutionContext, ExportedHandler } from '@cloudflare/workers-types'
+import type { SendEmail } from '@cloudflare/workers-types'
 import {
   SESSION_COOKIE,
   STATE_COOKIE,
@@ -174,6 +175,10 @@ export interface Env {
   CRON_SECRET?: string
   /** Shared secret for the config signer (nginx front door on signer host). */
   SIGNER_SHARED_SECRET?: string
+  /** Email binding for Cloudflare Email Workers. */
+  'afirmico-tesla-emails': SendEmail
+  /** Generic email binding. */
+  EMAIL: any
 }
 
 /** Path Tesla fetches to verify domain ownership (F02-R01). */
@@ -2474,7 +2479,7 @@ app.notFound(async (c) => {
 
 export default {
   fetch: app.fetch,
-  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+  async scheduled(controller: ScheduledController, env, ctx: ExecutionContext) {
     // Only run the key pairing poll cron
     if (controller.cron === '*/5 * * * *') {
       const result = await cronPollAllKeyPairing(env)
@@ -2505,7 +2510,7 @@ export default {
           email_template: row.email_template,
           enabled: row.enabled,
         }
-        await runExportSchedule(env as unknown as { D1_TESLA: D1Database; EMAIL: unknown } & Record<string, unknown>, schedule, ctx)
+        await runExportSchedule(env as unknown as import('./export-worker').Env, schedule, ctx)
       }
       await updateAllNextRunTimes(env.D1_TESLA)
     }
