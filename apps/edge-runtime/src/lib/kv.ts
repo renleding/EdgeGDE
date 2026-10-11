@@ -10,6 +10,9 @@
 import type { TenantCtx } from '../middleware/tenant-context'
 import { validateStoragePayload } from './validators'
 
+/** Type of the guarded KV wrapper returned by guardKV. */
+export type GuardedKV = ReturnType<typeof guardKV>
+
 const SYSTEM_PREFIXES = ['schema:', 'deploy:', 'blueprint:', 'pack:']
 
 function isSystemKey(key: string): boolean {

@@ -8,14 +8,19 @@
 
 import { guardDB } from './db'
 import { guardKV } from './kv'
+import type { GuardedDB, GuardedKV } from './db'
 import {
   DEFAULT_PRODUCTION_MODEL_NAME,
   resolveForecastModelDefaults,
 } from './forecast-model-comparison'
 
+/** The Chronos-2 model identifier used for forecast generation. */
 export const CHRONOS_2_MODEL_NAME = 'chronos-2'
+/** The version of the Chronos-2 model. */
 export const CHRONOS_2_MODEL_VERSION = '1.0.0'
+/** The Hugging Face checkpoint for the Chronos-2 model. */
 export const CHRONOS_2_CHECKPOINT = 'amazon/chronos-2'
+/** Default quantile levels for forecast intervals. */
 export const DEFAULT_FORECAST_QUANTILES = [0.1, 0.5, 0.9]
 
 export type ForecastFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly' | string
@@ -338,12 +343,10 @@ function toNumber(value: unknown): number | null {
 }
 
 export async function createForecastRun(
-  db: any,
-  kv: any,
+  guardedDb: GuardedDB,
+  guardedKv: GuardedKV,
   input: CreateForecastRunInput,
 ): Promise<string> {
-  const guardedDb = guardDB(db)
-  const guardedKv = guardKV(kv)
   const now = Math.floor(Date.now() / 1000)
   const runId = crypto.randomUUID()
   const seriesId = input.seriesId || 'tenant_global'
@@ -401,11 +404,10 @@ export async function createForecastRun(
 }
 
 export async function markForecastRunRunning(
-  db: any,
+  guardedDb: GuardedDB,
   runId: string,
   externalJobId?: string,
 ): Promise<void> {
-  const guardedDb = guardDB(db)
   await guardedDb.update(
     {},
     'forecast_runs',
@@ -420,10 +422,9 @@ export async function markForecastRunRunning(
 }
 
 export async function completeForecastRun(
-  db: any,
+  guardedDb: GuardedDB,
   input: CompleteForecastRunInput,
 ): Promise<void> {
-  const guardedDb = guardDB(db)
   await guardedDb.update(
     {},
     'forecast_runs',
@@ -444,11 +445,11 @@ export async function completeForecastRun(
 }
 
 export async function failForecastRun(
-  db: any,
+  guardedDb: GuardedDB,
   runId: string,
   error: string,
 ): Promise<void> {
-  await completeForecastRun(db, {
+  await completeForecastRun(guardedDb, {
     runId,
     tenantId: '',
     status: 'failed',
@@ -457,14 +458,13 @@ export async function failForecastRun(
 }
 
 export async function recordForecastPoints(
-  db: any,
+  guardedDb: GuardedDB,
   runId: string,
   tenantId: string,
   seriesId: string,
   points: ForecastPointInput[],
   metricName = 'forecast',
 ): Promise<void> {
-  const guardedDb = guardDB(db)
   const now = new Date().toISOString()
   const inserts = points.map((point, index) => {
     const quantileMap = normalizeQuantileMap(point.quantiles, point)
@@ -528,14 +528,13 @@ export async function recordForecastPoints(
 }
 
 export async function publishLatestForecastPointer(
-  kv: any,
+  guardedKv: GuardedKV,
   tenantId: string,
   metricName: string,
   seriesId: string,
   runId: string,
   status = 'completed',
 ): Promise<void> {
-  const guardedKv = guardKV(kv)
   await guardedKv.put(
     forecastLatestPointerKey(tenantId, metricName, seriesId),
     JSON.stringify({ runId, status, updated_at: Math.floor(Date.now() / 1000) }),
@@ -544,12 +543,11 @@ export async function publishLatestForecastPointer(
 }
 
 export async function getLatestForecastRun(
-  db: any,
+  guardedDb: GuardedDB,
   tenantId: string,
   metricName: string,
   seriesId = 'tenant_global',
 ): Promise<ForecastRun | null> {
-  const guardedDb = guardDB(db)
   const row = await guardedDb.first<ForecastRun>(
     { tenantId },
     `SELECT * FROM forecast_runs
@@ -561,13 +559,12 @@ export async function getLatestForecastRun(
 }
 
 export async function queryForecastPoints(
-  db: any,
+  guardedDb: GuardedDB,
   tenantId: string,
   metricName: string,
   seriesId = 'tenant_global',
   limit = 100,
 ): Promise<ForecastPoint[]> {
-  const guardedDb = guardDB(db)
   const safeLimit = Math.min(Math.max(1, limit), 1000)
   const rows = await guardedDb.all<ForecastPoint>(
     { tenantId },
@@ -738,18 +735,18 @@ function extractMetricValue(metrics: unknown, key: string): number {
 }
 
 export async function recordForecastAuditEvent(
-  db: any,
+  guardedDb: GuardedDB,
   tenantId: string,
   runId: string,
   eventType: string,
   payload: Record<string, unknown> = {},
 ): Promise<void> {
-  if (!db || !tenantId || !runId || !eventType) return
+  if (!guardedDb || !tenantId || !runId || !eventType) return
   const id = crypto.randomUUID()
   const now = Math.floor(Date.now() / 1000)
   const payloadJson = JSON.stringify(payload)
   try {
-    await db.prepare(
+    await guardedDb.prepare(
       'INSERT INTO audit_logs (id, tenant_id, session_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ).bind(id, tenantId, runId, eventType, payloadJson, now).run()
   } catch {

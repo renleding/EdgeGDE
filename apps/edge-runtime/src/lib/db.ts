@@ -7,6 +7,13 @@
  * OTel metrics track query latency, error rates, and circuit state.
  */
 import { d1CircuitBreaker } from './d1-circuit-breaker'
+import { guardKV } from './kv'
+
+/** Type of the guarded database wrapper returned by guardDB. */
+export type GuardedDB = ReturnType<typeof guardDB>
+
+/** Type of the guarded KV wrapper returned by guardKV. */
+export type GuardedKV = ReturnType<typeof guardKV>
 
 export function guardDB(rawDB: any) {
   if (!rawDB || typeof rawDB.prepare !== 'function') {
