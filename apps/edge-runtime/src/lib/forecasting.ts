@@ -132,6 +132,9 @@ export interface ForecastRun {
   requested_by: string | null
   source: string
   error: string | null
+  promotion_status: 'pending' | 'published' | 'rejected' | 'failed' | 'skipped' | null
+  promotion_metrics_json: string | null
+  promotion_error: string | null
   started_at: number | null
   completed_at: number | null
   created_at: string

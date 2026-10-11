@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import {
@@ -81,7 +82,7 @@ function errorHtml(message: string): string {
   return `<div class="card" style="border-color:#da3633"><h3>Config error</h3><div style="color:#f85149">${message}</div></div>`
 }
 
-function redirectUrl(c: any, tenantId: string): string {
+function redirectUrl(c: Context, tenantId: string): string {
   const token = c.req.query('token')
   return `/admin/config?tenant=${encodeURIComponent(tenantId)}${token ? `&token=${encodeURIComponent(token)}` : ''}`
 }

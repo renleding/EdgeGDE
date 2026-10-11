@@ -143,7 +143,7 @@ router.post('/create', async (c) => {
       return c.html('<div style="color:#da3633">ID, fields, and priorityOrder required</div>')
     }
 
-    let fields: any[]
+    let fields: Record<string, unknown>[]
     try { fields = JSON.parse(fieldsRaw) } catch {
       return c.html('<div style="color:#da3633">Invalid JSON in fields</div>')
     }
