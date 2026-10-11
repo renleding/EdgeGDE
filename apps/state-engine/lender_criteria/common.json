@@ -1,0 +1,11 @@
+{
+  "lender_id": "common",
+  "max_lvr": 0.8,
+  "postcode_blacklist": [],
+  "fee_schedule": {
+    "stampDuty": 35000,
+    "lmi": 12000,
+    "legalFees": 2000,
+    "totalCosts": 875000
+  }
+}

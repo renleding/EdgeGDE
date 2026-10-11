@@ -1,0 +1,11 @@
+{
+  "lender_id": "anz",
+  "max_lvr": 0.85,
+  "postcode_blacklist": ["3000"],
+  "fee_schedule": {
+    "stampDuty": 34800,
+    "lmi": 12500,
+    "legalFees": 2100,
+    "totalCosts": 875000
+  }
+}

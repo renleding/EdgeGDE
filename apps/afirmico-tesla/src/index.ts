@@ -177,8 +177,6 @@ export interface Env {
   SIGNER_SHARED_SECRET?: string
   /** Email binding for Cloudflare Email Workers. */
   'afirmico-tesla-emails': SendEmail
-  /** Generic email binding. */
-  EMAIL: any
 }
 
 /** Path Tesla fetches to verify domain ownership (F02-R01). */

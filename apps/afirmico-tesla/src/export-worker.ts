@@ -25,7 +25,6 @@ export interface Env {
   TESLA_AUDIENCE?: string
   TESLA_PROXY_URL?: string
   'afirmico-tesla-emails': SendEmail
-  [key: string]: unknown
 }
 
 export interface ScheduledEvent {

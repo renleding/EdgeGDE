@@ -14,7 +14,6 @@ export interface Env {
   'afirmico-tesla-emails': SendEmail
   EMAIL?: unknown
   OAUTH_SESSIONS?: unknown
-  [key: string]: unknown
 }
 
 export interface EmailTemplate {
