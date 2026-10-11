@@ -77,8 +77,9 @@ class MitmproxyClient:
         # Create temp directory for HAR output
         self._har_dir = Path(tempfile.mkdtemp(prefix="mitmproxy-har-"))
         self._har_file = self._har_dir / "capture.har"
+        self._stream_file = self._har_dir / "stream.jsonl"
 
-        # Build mitmproxy command
+        # Build mitmproxy command (use mitmdump for headless daemon mode)
         cmd = [
             "mitmdump",
             "--mode", "regular",
@@ -90,12 +91,17 @@ class MitmproxyClient:
             "-q",  # Quiet mode
         ]
 
+        # Environment for the addon (live stream path)
+        env = os.environ.copy()
+        env["MITM_STREAM_PATH"] = str(self._stream_file)
+
         try:
             self._process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
+                env=env,
             )
         except FileNotFoundError:
             raise FailureEnvelope(
@@ -187,16 +193,54 @@ class MitmproxyClient:
     def _write_embedded_addon(self, path: Path) -> None:
         """Write the embedded addon script to disk."""
         addon_code = '''"""
-mitmproxy addon for CDP frame ID correlation.
+mitmproxy addon for CDP frame ID correlation + live HAR streaming.
 
-Extracts CDP frame ID from request headers injected by the browser
-and adds it to HAR entries as _cdp_frame_id.
+Extracts CDP frame ID from request headers injected by the browser,
+adds it to HAR entries as _cdp_frame_id, and streams each completed
+entry to a JSONL file for live consumption by the State Engine.
 """
 import json
+import os
 from mitmproxy import http, ctx
 
 
 class FrameIDCorrelator:
+    def __init__(self):
+        self.stream_path = os.environ.get("MITM_STREAM_PATH", "")
+        self._f = None
+
+    def _ensure_stream(self):
+        if self.stream_path and self._f is None:
+            try:
+                self._f = open(self.stream_path, "a", buffering=1)
+            except OSError:
+                self._f = None
+
+    def _emit(self, flow: http.HTTPFlow, event: str):
+        self._ensure_stream()
+        if not self._f:
+            return
+        entry = {
+            "event": event,
+            "request": {
+                "method": flow.request.method,
+                "url": flow.request.url,
+                "headers": dict(flow.request.headers),
+                "bodySize": len(flow.request.content) if flow.request.content else 0,
+            },
+            "_cdp_frame_id": flow.metadata.get("_cdp_frame_id"),
+            "timestamp": flow.request.timestamp_start,
+        }
+        if flow.response:
+            entry["response"] = {
+                "status_code": flow.response.status_code,
+                "bodySize": len(flow.response.content) if flow.response.content else 0,
+            }
+        try:
+            self._f.write(json.dumps(entry) + "\\n")
+        except OSError:
+            pass
+
     def request(self, flow: http.HTTPFlow) -> None:
         # Look for X-CDP-Frame-ID header (injected by our CDP injection script)
         frame_id = flow.request.headers.get("X-CDP-Frame-ID")
@@ -204,9 +248,8 @@ class FrameIDCorrelator:
             flow.metadata["_cdp_frame_id"] = frame_id
 
     def response(self, flow: http.HTTPFlow) -> None:
-        # Ensure response also carries frame ID
-        if "_cdp_frame_id" in flow.metadata:
-            pass  # Already captured in request phase
+        # Emit completed entry to live stream
+        self._emit(flow, "response")
 
 
 addons = [FrameIDCorrelator()]
@@ -248,35 +291,57 @@ addons = [FrameIDCorrelator()]
         )
 
     async def har(self) -> AsyncIterator[Dict[str, Any]]:
-        """Async iterator over HAR entries as they are written."""
-        if not self._har_file or not self._har_file.exists():
-            # Wait for first HAR entry
-            await asyncio.sleep(0.5)
+        """Async iterator over live HAR entries from the JSONL stream."""
+        # Wait for stream file to appear
+        deadline = time.time() + 5
+        while time.time() < deadline and not self._stream_file.exists():
+            await asyncio.sleep(0.2)
 
         last_pos = 0
         while self._started:
-            if self._har_file and self._har_file.exists():
+            if self._stream_file.exists():
                 try:
-                    content = self._har_file.read_text()
+                    content = self._stream_file.read_text()
                     if content.strip():
-                        # Parse HAR file (mitmproxy writes complete HAR on each dump)
-                        har_data = json.loads(content)
-                        entries = har_data.get("log", {}).get("entries", [])
-
-                        # Yield new entries
-                        for entry in entries[last_pos:]:
-                            # Extract frame ID from metadata if present
-                            frame_id = entry.get("_cdp_frame_id")
-                            if frame_id:
-                                self._frame_id_map.setdefault(frame_id, []).append(entry)
-                            self._har_entries.append(entry)
-                            yield entry
-
-                        last_pos = len(entries)
+                        lines = content.strip().split('\n')
+                        # Yield new lines
+                        for line in lines[last_pos:]:
+                            if line.strip():
+                                try:
+                                    entry = json.loads(line)
+                                    # Convert stream format to HAR-like format
+                                    har_entry = self._convert_stream_entry(entry)
+                                    frame_id = entry.get("_cdp_frame_id")
+                                    if frame_id:
+                                        self._frame_id_map.setdefault(frame_id, []).append(har_entry)
+                                    self._har_entries.append(har_entry)
+                                    yield har_entry
+                                except json.JSONDecodeError:
+                                    pass
+                        last_pos = len(lines)
                 except (json.JSONDecodeError, OSError):
-                    pass  # File being written, wait for next poll
+                    pass
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
+
+    def _convert_stream_entry(self, stream_entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert live stream entry to HAR-like format."""
+        req = stream_entry.get("request", {})
+        resp = stream_entry.get("response", {})
+        return {
+            "request": {
+                "method": req.get("method", "UNKNOWN"),
+                "url": req.get("url", ""),
+                "headers": req.get("headers", {}),
+                "bodySize": req.get("bodySize", 0),
+            },
+            "response": {
+                "status": resp.get("status_code", 0),
+                "bodySize": resp.get("bodySize", 0),
+            },
+            "_cdp_frame_id": stream_entry.get("_cdp_frame_id"),
+            "timestamp": stream_entry.get("timestamp", 0),
+        }
 
     def correlate(self, cdp_frame_id: str) -> List[Dict[str, Any]]:
         """Return all HAR entries for a given CDP frame ID."""
