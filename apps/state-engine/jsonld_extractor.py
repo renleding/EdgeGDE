@@ -206,6 +206,30 @@ class JSONLDExtractor:
                 'Page.addScriptToEvaluateOnNewDocument',
                 {'source': EXTRACTOR_SCRIPT},
             )
+            # Also inject X-CDP-Frame-ID header for mitmproxy correlation
+            await self.cdp.send(
+                'Page.addScriptToEvaluateOnNewDocument',
+                {
+                    'source': """
+(() => {
+  const originalFetch = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const frameId = window.__CDP_FRAME_ID || 'unknown';
+    options.headers = options.headers || {};
+    options.headers['X-CDP-Frame-ID'] = frameId;
+    return originalFetch(url, options);
+  };
+
+  // Capture frame ID from CDP
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'CDP_FRAME_ID') {
+      window.__CDP_FRAME_ID = event.data.frameId;
+    }
+  });
+})();
+"""
+                },
+            )
             self._injected = True
             logger.info("JSON-LD extractor injected via CDP")
             return True

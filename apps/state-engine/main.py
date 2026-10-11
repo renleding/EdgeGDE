@@ -4,6 +4,7 @@ Embedded FRS-006 Evidence Engine for Tier A synchronous metadata
 commits and Tier B async artifact flushing.
 """
 import asyncio, json, logging, os, sys, time, uuid
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from action_engine import ActionEngine
@@ -287,6 +288,42 @@ class StateEngineMCP:
             if frame_id:
                 return json.dumps(self.mitm_client.correlate(frame_id))
             return json.dumps(self.mitm_client.get_all_har())
+
+        @mcp.tool()
+        async def mcp_pp_analysis(lender_id: str = "cba",
+                                    lenders_json: str = "") -> str:
+            """Purchase Price analysis from current page.
+
+            Extracts PP fields from JSON-LD (with DOM fallback)
+            and validates against lender criteria.
+
+            lender_id    → single lender (e.g. 'cba')
+            lenders_json → JSON array of lender IDs (multi-lender)
+            """
+            from jsonld_extractor import JSONLDExtractor
+            from pp_analysis import analyze_pp, analyze_pp_all_lenders
+
+            if not self.cache:
+                return json.dumps({"error": "cache_not_initialized"})
+
+            # Extract JSON-LD
+            extractor = JSONLDExtractor(self.cdp)
+            jsonld_snap = await extractor.extract()
+
+            # Get DOM state
+            dom_snap = await self.cache.get_state()
+
+            criteria_dir = Path(__file__).parent / "lender_criteria"
+
+            if lenders_json:
+                lender_ids = json.loads(lenders_json)
+                results = analyze_pp_all_lenders(jsonld_snap, dom_snap, lender_ids, criteria_dir)
+                return json.dumps({
+                    lender: r.to_dict() for lender, r in results.items()
+                })
+
+            result = analyze_pp(jsonld_snap, dom_snap, lender_id, criteria_dir)
+            return json.dumps(result.to_dict())
 
         @mcp.tool()
         async def mcp_object_state(object_id: str = "") -> str:

@@ -72,10 +72,13 @@ class TestJSONLDExtractor(unittest.IsolatedAsyncioTestCase):
         result = await extractor.inject()
         self.assertTrue(result)
         self.assertTrue(extractor.is_injected)
-        mock_cdp.send.assert_called_with(
-            "Page.addScriptToEvaluateOnNewDocument",
-            {"source": EXTRACTOR_SCRIPT},
-        )
+        # Two scripts injected: JSON-LD extractor + frame-ID header injector
+        self.assertEqual(mock_cdp.send.call_count, 2)
+        # Both calls use Page.addScriptToEvaluateOnNewDocument with a source
+        for call in mock_cdp.send.call_args_list:
+            self.assertEqual(call.args[0], "Page.addScriptToEvaluateOnNewDocument")
+            payload = call.args[1] if len(call.args) > 1 else call.kwargs
+            self.assertIn("source", payload)
 
     async def test_inject_failure(self):
         mock_cdp = mock.AsyncMock()
