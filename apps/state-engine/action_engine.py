@@ -22,6 +22,7 @@ class ActionEngine:
         self.journal = journal
         self.verifier = VerificationEngine()
         self.registry = registry or FactRegistryAPI()  # Degrade gracefully
+        self._har_ref: Optional[str] = None  # APA: current HAR correlation ref
 
         # Wire up async state function for save polling
         # A lambda that captures and returns the board body text
@@ -83,12 +84,17 @@ class ActionEngine:
 
     async def execute(self, action_type: ActionType, target: str, 
                       value: Optional[str] = None,
-                      context: Optional[str] = None) -> dict:
+                      context: Optional[str] = None,
+                      har_ref: Optional[str] = None) -> dict:
         """Execute action with dynamic tier selection and verification."""
+        self._har_ref = har_ref
         tiers = self._select_tiers(action_type, target, context)
         before = build_state_summary(await self.cache.get_state())
         
         result = {'status': 'error', 'tiers_attempted': [], 'error': None}
+        
+        if har_ref:
+            result['har_ref'] = har_ref
         
         for tier in tiers:
             self._tier_stats[tier]['attempts'] += 1
@@ -189,6 +195,9 @@ class ActionEngine:
 
     def _log_journal(self, entry: dict):
         if self.journal:
+            # APA: enrich entry with HAR ref if available
+            if hasattr(self, '_har_ref') and self._har_ref:
+                entry['har_ref'] = self._har_ref
             self.journal.log(entry)
 
     async def _try_tier(self, tier: str, action_type: ActionType,

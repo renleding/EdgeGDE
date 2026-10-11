@@ -133,12 +133,15 @@ class StateEngineMCP:
         @mcp.tool()
         async def mcp_interact(
             action: str, target: str, value: str = "",
-            mission_id: str = "", run_id: str = ""
+            mission_id: str = "", run_id: str = "",
+            cdp_frame_id: str = ""
         ) -> str:
             """Execute browser interaction with full evidence pipeline.
 
             If run_id is provided, records observations, evidence, and
             verification results in the evidence database.
+
+            cdp_frame_id: CDP frame ID for HAR correlation (APA layer)
             """
             at_map = {'click': ActionType.CLICK, 'type': ActionType.TYPE,
                       'select': ActionType.SELECT, 'save': ActionType.SAVE}
@@ -162,13 +165,16 @@ class StateEngineMCP:
                     f"CDP click via preferred_tier on '{target}'",
                 )
 
-            # Execute
+            # Execute (with optional HAR correlation)
             t0 = time.time()
-            result = await self.engine.execute(at, target, value)
+            if self.engine:
+                result = await self.engine.execute(at, target, value, har_ref=cdp_frame_id)
+            else:
+                result = {'status': 'error', 'error': 'engine_not_initialized'}
             elapsed = time.time() - t0
 
             # Capture pre-verification evidence
-            if run_id:
+            if run_id and self.evidence:
                 snap = await self.cache.get_state()
                 status_snap = build_state_summary(snap)
 
@@ -182,6 +188,19 @@ class StateEngineMCP:
                         'url': status_snap.get('url', ''),
                     })
                 )
+
+                # APA: capture HAR entries for this frame
+                if cdp_frame_id and self.mitm_client:
+                    har_entries = self.mitm_client.correlate(cdp_frame_id)
+                    if har_entries:
+                        self.evidence.add_evidence(
+                            run_id, 'network', 'HAR', 'PRIMARY',
+                            payload_json=json.dumps({
+                                'frame_id': cdp_frame_id,
+                                'entry_count': len(har_entries),
+                                'entries': har_entries[:10],
+                            })
+                        )
 
                 # Evaluate L1-L5 verification
                 status = 'SUCCESS' if result.get('success', False) else 'FAILED'
