@@ -2505,7 +2505,7 @@ export default {
           email_template: row.email_template,
           enabled: row.enabled,
         }
-        await runExportSchedule(env as unknown as { D1_TESLA: D1Database } & Record<string, unknown>, schedule, ctx)
+        await runExportSchedule(env as unknown as { D1_TESLA: D1Database; EMAIL: unknown } & Record<string, unknown>, schedule, ctx)
       }
       await updateAllNextRunTimes(env.D1_TESLA)
     }
