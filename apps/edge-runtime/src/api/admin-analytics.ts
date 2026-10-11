@@ -246,8 +246,8 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
     return c.json({ summary })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -271,8 +271,8 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
       pointer: summary.pointer,
       generatedAt: summary.generatedAt,
     })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -299,7 +299,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
     return c.html(renderAnalyticsPage(summary, token))
-  } catch (err: any) {
+  } catch (err: unknown) {
     return c.html(renderAnalyticsPage({
       tenantId,
       metricName,
@@ -311,7 +311,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       pointer: null,
       recentAuditEvents: [],
       generatedAt: new Date().toISOString(),
-    }, token, err.message))
+    }, token, err instanceof Error ? err.message : 'Unknown error'))
   }
 })
 
@@ -321,8 +321,8 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
   const qs = (token ? `&token=${token}` : '')
   const metricParam = summary.metricName ? `&metric=${encodeURIComponent(summary.metricName)}` : ''
   const seriesParam = summary.seriesId ? `&series=${encodeURIComponent(summary.seriesId)}` : ''
-  const status = (summary.latestForecast && typeof summary.latestForecast === 'object' && 'promotion_status' in summary.latestForecast 
-    ? String(summary.latestForecast.promotion_status) 
+  const status = (summary.latestForecast && typeof summary.latestForecast === 'object' && 'promotion_status' in summary.latestForecast
+    ? String(summary.latestForecast.promotion_status)
     : 'pending')
   const forecastWarning = status === 'published'
     ? '<div class="notice notice-info">Forecast is a materialized projection, not authoritative truth.</div>'
