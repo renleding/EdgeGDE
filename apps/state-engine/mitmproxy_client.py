@@ -84,7 +84,7 @@ class MitmproxyClient:
             "mitmdump",
             "--mode", "regular",
             "--listen-port", str(self.port),
-            "--set", f"addon={self._get_addon_path()}",
+            "-s", self._get_addon_path(),  # Correct flag for addon loading (mitmproxy 11)
             "--set", f"hardump={self._har_file}",
             "--ssl-insecure",
             "--no-http2",  # Simpler HAR, avoids HPACK complexity
