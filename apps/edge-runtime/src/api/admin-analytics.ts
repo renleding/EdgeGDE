@@ -140,8 +140,8 @@ export function renderBacktestMetrics(result?: BacktestResult): string {
 
 /** Build a summary of analytics data from database and KV stores. */
 export async function buildAnalyticsSummary(
-  db: any,
-  kv: any,
+  guardedDb: ReturnType<typeof guardDB>,
+  guardedKv: ReturnType<typeof guardKV>,
   input: {
     tenantId: string
     metricName?: string
@@ -154,8 +154,6 @@ export async function buildAnalyticsSummary(
     backtestModel?: string
   },
 ): Promise<AnalyticsSummary> {
-  const guardedDb = guardDB(db)
-  const guardedKv = guardKV(kv)
   const tenantId = input.tenantId
   const seriesId = input.seriesId || 'tenant_global'
   const metricName = input.metricName
@@ -234,7 +232,9 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
+    const guardedDb = guardDB(envFromContext(c).DB)
+    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
+    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
       tenantId,
       metricName,
       seriesId,
@@ -258,7 +258,9 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
+    const guardedDb = guardDB(envFromContext(c).DB)
+    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
+    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
       tenantId,
       metricName,
       seriesId,
@@ -287,7 +289,9 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
   const primaryMetric = c.req.query('primaryMetric') as 'mae' | 'rmse' | 'smape' | 'mape' | undefined
 
   try {
-    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
+    const guardedDb = guardDB(envFromContext(c).DB)
+    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
+    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
       tenantId,
       metricName,
       seriesId,
