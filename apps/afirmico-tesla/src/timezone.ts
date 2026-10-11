@@ -199,9 +199,12 @@ export function formatTimeColumns(
     }).formatToParts(date)
     const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
     const zoneName = get('timeZoneName')
+    // Full local datetime, not time-only: "2026-10-10 23:58:43 AEDT".
+    // A date-less local time is ambiguous across UTC-midnight and forces the
+    // reader to do the date arithmetic themselves.
     return {
       utc,
-      local: `${get('hour')}:${get('minute')}:${get('second')}${zoneName ? ` ${zoneName}` : ''}`,
+      local: `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}${zoneName ? ` ${zoneName}` : ''}`,
     }
   } catch {
     return { utc, local: '—' }
