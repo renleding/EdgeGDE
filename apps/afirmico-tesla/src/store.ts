@@ -478,20 +478,22 @@ export async function createSession(
  * that predates a column does not break configuration.
  */
 export async function collectedFields(db: D1Database): Promise<
-  { field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null }[]
+  { field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null; interval_seconds: number }[]
 > {
   const res = await db
     .prepare(
-      `SELECT field_key, collection_tier, min_delta
-         FROM tesla_field_catalog
-        WHERE collected = 1
-        ORDER BY field_key`,
+      `SELECT c.field_key, c.collection_tier, c.min_delta, e.interval_seconds
+         FROM tesla_field_catalog c
+         LEFT JOIN telemetry_config_entry e
+           ON e.field_key = c.field_key AND e.scope_id = 'global' AND e.enabled = 1
+        WHERE c.collected = 1
+        ORDER BY c.field_key`,
     )
-    .all<{ field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null }>()
+    .all<{ field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null; interval_seconds: number }>()
   return res.results ?? []
 }
 
-export type CollectedField = { field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null }
+export type CollectedField = { field_key: string; collection_tier: 'event' | 'on_change' | 'once'; min_delta: number | null; interval_seconds: number }
 
 /** The relay hostname + port Tesla is pointed at (F02-R10). */
 export async function telemetryTarget(db: D1Database): Promise<{ hostname: string; port: number }> {

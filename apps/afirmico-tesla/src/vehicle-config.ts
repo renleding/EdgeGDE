@@ -44,6 +44,8 @@ export interface CollectedField {
   collection_tier: 'event' | 'on_change' | 'once'
   /** Tesla `minimum_delta` for `on_change` fields; null when not set. */
   min_delta: number | null
+  /** Collection interval in seconds — read from telemetry_config_entry global scope. */
+  interval_seconds: number
 }
 
 /**
@@ -83,11 +85,16 @@ export interface FieldConfig {
  * `minimum_delta` is only emitted where the catalog carries one, and never for
  * `once` fields: a `once` field is sent once on adoption, so a delta gate on it
  * is meaningless (and Tesla rejects a delta on some fields).
+ *
+ * `interval_seconds` is read from `telemetry_config_entry` (global scope) per
+ * field, not a uniform constant. This aligns the configurator with the tiered
+ * seed (migration 0019): Odometer=604800s (weekly poll), streaming counters
+ * =180s, all others=21600s (6h).
  */
 export function buildFieldConfig(rows: CollectedField[]): Record<string, FieldConfig> {
   const out: Record<string, FieldConfig> = {}
   for (const row of [...rows].sort((a, b) => a.field_key.localeCompare(b.field_key))) {
-    const cfg: FieldConfig = { interval_seconds: SYNC_INTERVAL_SECONDS }
+    const cfg: FieldConfig = { interval_seconds: row.interval_seconds }
     if (row.collection_tier !== 'once' && row.min_delta !== null && row.min_delta > 0) {
       cfg.minimum_delta = row.min_delta
     }
