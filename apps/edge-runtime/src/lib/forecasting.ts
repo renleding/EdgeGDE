@@ -6,16 +6,20 @@
  * They are never authoritative truth.
  */
 
-import { guardDB } from './db'
-import { guardKV } from './kv'
+import { guardDB, type GuardedDB } from './db'
+import { guardKV, type GuardedKV } from './kv'
 import {
   DEFAULT_PRODUCTION_MODEL_NAME,
   resolveForecastModelDefaults,
 } from './forecast-model-comparison'
 
+/** Chronos-2 model name. */
 export const CHRONOS_2_MODEL_NAME = 'chronos-2'
+/** Chronos-2 model version. */
 export const CHRONOS_2_MODEL_VERSION = '1.0.0'
+/** Chronos-2 checkpoint ID. */
 export const CHRONOS_2_CHECKPOINT = 'amazon/chronos-2'
+/** Default forecast quantiles (p10, p50, p90). */
 export const DEFAULT_FORECAST_QUANTILES = [0.1, 0.5, 0.9]
 
 export type ForecastFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly' | string
@@ -194,19 +198,23 @@ export interface CompleteForecastRunInput {
   error?: string
 }
 
+/** Normalize forecast quantiles to sorted unique finite numbers in (0,1). */
 export function normalizeForecastQuantiles(quantiles?: number[]): number[] {
   const values = Array.isArray(quantiles) && quantiles.length > 0 ? quantiles : DEFAULT_FORECAST_QUANTILES
   return [...new Set(values.map(q => Number(q)).filter(q => Number.isFinite(q) && q > 0 && q < 1))].sort((a, b) => a - b)
 }
 
+/** JSON-serialize normalized quantiles. */
 export function forecastQuantilesJson(quantiles?: number[]): string {
   return JSON.stringify(normalizeForecastQuantiles(quantiles))
 }
 
+/** KV pointer key for the latest forecast run of a metric/series. */
 export function forecastLatestPointerKey(tenantId: string, metricName: string, seriesId = 'tenant_global'): string {
   return `tenant:${tenantId}:forecast:${metricName}:${seriesId}:latest`
 }
 
+/** Stable hash for a forecast config (model, horizon, quantiles, metric). */
 export function forecastConfigHash(input: {
   modelName: string
   modelVersion?: string
@@ -229,6 +237,7 @@ export function forecastConfigHash(input: {
   return `fc_${encoded.slice(0, 28)}`
 }
 
+/** Build the Chronos-2 request payload for a forecast run. */
 export function buildChronos2RequestPayload(input: {
   runId: string
   tenantId: string
@@ -269,6 +278,7 @@ export function buildChronos2RequestPayload(input: {
   }
 }
 
+/** Parse a Chronos-2 forecast response into normalized points. */
 export function parseChronos2ForecastResponse(
   response: unknown,
   options: {
@@ -337,9 +347,10 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+/** Persist a new forecast run and return its runId. */
 export async function createForecastRun(
-  db: any,
-  kv: any,
+  db: D1Database,
+  kv: KVNamespace,
   input: CreateForecastRunInput,
 ): Promise<string> {
   const guardedDb = guardDB(db)
@@ -400,8 +411,9 @@ export async function createForecastRun(
   return runId
 }
 
+/** Update a forecast run status to running with optional external job ID. */
 export async function markForecastRunRunning(
-  db: any,
+  db: D1Database,
   runId: string,
   externalJobId?: string,
 ): Promise<void> {
@@ -419,8 +431,9 @@ export async function markForecastRunRunning(
   )
 }
 
+/** Finalize a forecast run with results, metrics, and optional promotion. */
 export async function completeForecastRun(
-  db: any,
+  db: D1Database,
   input: CompleteForecastRunInput,
 ): Promise<void> {
   const guardedDb = guardDB(db)
@@ -443,8 +456,9 @@ export async function completeForecastRun(
   )
 }
 
+/** Mark a forecast run as failed with an error message. */
 export async function failForecastRun(
-  db: any,
+  db: D1Database,
   runId: string,
   error: string,
 ): Promise<void> {
@@ -456,8 +470,9 @@ export async function failForecastRun(
   })
 }
 
+/** Persist forecast points to the forecast_points table. */
 export async function recordForecastPoints(
-  db: any,
+  db: D1Database,
   runId: string,
   tenantId: string,
   seriesId: string,
@@ -527,8 +542,9 @@ export async function recordForecastPoints(
   }
 }
 
+/** Persist the latest forecast run pointer for a metric/series. */
 export async function publishLatestForecastPointer(
-  kv: any,
+  kv: KVNamespace,
   tenantId: string,
   metricName: string,
   seriesId: string,
@@ -543,8 +559,9 @@ export async function publishLatestForecastPointer(
   )
 }
 
+/** Fetch the most recent forecast run for a metric/series. */
 export async function getLatestForecastRun(
-  db: any,
+  db: D1Database,
   tenantId: string,
   metricName: string,
   seriesId = 'tenant_global',
@@ -560,8 +577,9 @@ export async function getLatestForecastRun(
   return row || null
 }
 
+/** Query forecast points for a run with optional time range. */
 export async function queryForecastPoints(
-  db: any,
+  db: D1Database,
   tenantId: string,
   metricName: string,
   seriesId = 'tenant_global',
@@ -603,6 +621,7 @@ function normalizeQuantileMap(
   return map
 }
 
+/** Validate forecast points against promotion gate; return pass/fail + issues. */
 export function validateForecastProjection(
   points: ForecastPointInput[],
   gate: ForecastPromotionGate = {},
@@ -669,6 +688,7 @@ export function validateForecastProjection(
   }
 }
 
+/** Decide whether a forecast is publishable given validation + metrics. */
 export function evaluateForecastPromotion(
   points: ForecastPointInput[],
   evaluationMetrics: Record<string, unknown> = {},
@@ -737,8 +757,9 @@ function extractMetricValue(metrics: unknown, key: string): number {
   }
 }
 
+/** Insert a forecast audit event into audit_logs (non-blocking). */
 export async function recordForecastAuditEvent(
-  db: any,
+  db: D1Database,
   tenantId: string,
   runId: string,
   eventType: string,
@@ -757,6 +778,7 @@ export async function recordForecastAuditEvent(
   }
 }
 
+/** Seasonal-naive baseline forecast for backtest comparison. */
 export function seasonalNaiveForecast(
   points: Array<{ ds: string; value: number }>,
   horizon: number,
