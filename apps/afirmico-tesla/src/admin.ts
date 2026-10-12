@@ -26,11 +26,17 @@ import { resolveConfig, type ResolvedConfig } from './config-scope'
 import { runApplySweep, isCanaryEligible, verifyCanaryConditions, type ApplySweepResult, type ApplyVehicleResult } from './config-apply'
 import { createVehicleGroup, getVehicleGroup, listVehicleGroups, updateVehicleGroup, deleteVehicleGroup, addVehicleToGroup, removeVehicleFromGroup, listGroupMembers, getGroupsForVehicle, type VehicleGroup, type GroupMember } from './config-groups'
 import { collectedFields, type CollectedField, audit, newId } from './store'
+import { getMemberAccessToken } from './key-pairing'
 
 export interface AdminEnv {
   OAUTH_SESSIONS: KVNamespace
   D1_TESLA: D1Database
   INGEST_SHARED_SECRET?: string
+  TESLA_PROXY_URL?: string
+  SIGNER_SHARED_SECRET?: string
+  TESLA_CLIENT_ID?: string
+  TESLA_CLIENT_SECRET?: string
+  TOKEN_ENCRYPTION_KEY?: string
 }
 
 /**
@@ -1838,29 +1844,123 @@ adminApp.post('/telemetry/apply', async (c) => {
   const form = await c.req.parseBody()
   const vin = String(form.vin ?? '').trim()
   const canaryVin = String(form.canary_vin ?? '').trim()
-  const scope = String(form.scope ?? '').trim()
-  const nowIso = new Date().toISOString()
+  const scope = String(form.scope ?? '').trim() as 'vehicle' | 'global' | 'group'
+  const operator = String(form.operator ?? '').trim() || 'operator'
 
   if (!vin) return c.json({ error: 'vin is required' }, 400)
   if (!canaryVin) return c.json({ error: 'canary_vin is required for global/group changes' }, 400)
 
-  // In a full implementation, this would:
-  // 1. Create a config_apply_run record
-  // 2. Resolve effective configs for all target VINs
-  // 3. Check canary eligibility
-  // 4. Apply to canary, verify three conditions
-  // 5. On success, roll out to remaining VINs
-  // 6. Record outcomes
+  // Resolve the effective config for the target VIN(s)
+  const db = c.env.D1_TESLA
+  const fields = await collectedFields(db)
+  const collected = fields.map((f) => f.field_key)
 
-  // For now, return a placeholder response
+  // Gather scope entries from DB
+  const globalEntries = await getScopeEntries(db, 'global')
+  const groupEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
+  const vehicleEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
+
+  const resolved = resolveConfig(
+    globalEntries,
+    groupEntries,
+    vehicleEntries,
+    collected,
+    vin
+  )
+
+  if (resolved.unresolved.length) {
+    return c.json({
+      error: 'unresolved fields',
+      unresolved: resolved.unresolved,
+    }, 400)
+  }
+
+  const resolvedPerVin = new Map<string, ResolvedConfig>()
+  resolvedPerVin.set(vin, resolved)
+
+  // Get member access token for the target VIN
+  const memberRow = await db.prepare(
+    `SELECT member_id FROM tesla_vehicle WHERE vin = ?`
+  ).bind(vin).first<{ member_id: string }>()
+
+  if (!memberRow) {
+    return c.json({ error: `no member found for VIN ${vin}` }, 404)
+  }
+
+  const memberToken = await getMemberAccessToken(c.env as unknown as Parameters<typeof getMemberAccessToken>[0], memberRow.member_id)
+  if (!memberToken) {
+    return c.json({ error: 'no valid member access token' }, 401)
+  }
+
+  const signerUrl = (c.env.TESLA_PROXY_URL ?? '').replace(/\/+$/, '')
+  if (!signerUrl) {
+    return c.json({ error: 'TESLA_PROXY_URL not configured' }, 503)
+  }
+
+  const signerSharedSecret = c.env.SIGNER_SHARED_SECRET ?? ''
+  if (!signerSharedSecret) {
+    return c.json({ error: 'SIGNER_SHARED_SECRET not configured' }, 503)
+  }
+
+  const targetVins = scope === 'vehicle' ? [vin] : [canaryVin, vin]
+
+  const result = await runApplySweep(
+    scope,
+    targetVins,
+    resolvedPerVin,
+    operator,
+    signerUrl,
+    memberToken,
+    signerSharedSecret,
+    db
+  )
+
   return c.json({
-    success: true,
-    message: 'Apply sweep triggered. This would run the canaried sweep in production.',
-    runId: `apply_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-    canaryVin,
-    targetVin: vin,
+    success: !result.canaryFailed,
+    runId: result.runId,
+    canaryVin: result.canaryVin,
+    canaryFailed: result.canaryFailed,
+    outcomes: result.outcomes,
   })
 })
+
+async function getScopeEntries(
+  db: D1Database,
+  scopeKind: 'global' | 'group' | 'vehicle',
+  scopeId?: string
+): Promise<Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>> {
+  const out = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
+  let rows
+  if (scopeKind === 'global') {
+    rows = await db.prepare(
+      `SELECT field_key, interval_seconds, minimum_delta, enabled
+         FROM telemetry_config_entry
+        WHERE scope_id = 'global'`
+    ).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+  } else if (scopeKind === 'group' && scopeId) {
+    rows = await db.prepare(
+      `SELECT field_key, interval_seconds, minimum_delta, enabled
+         FROM telemetry_config_entry
+        WHERE scope_id = ? AND scope_kind = 'group'`
+    ).bind(scopeId).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+  } else if (scopeKind === 'vehicle' && scopeId) {
+    rows = await db.prepare(
+      `SELECT field_key, interval_seconds, minimum_delta, enabled
+         FROM telemetry_config_entry
+        WHERE scope_id = ? AND scope_kind = 'vehicle'`
+    ).bind(scopeId).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+  } else {
+    return out
+  }
+  for (const r of rows.results ?? []) {
+    out.set(r.field_key, {
+      interval_seconds: r.interval_seconds,
+      minimum_delta: r.minimum_delta,
+      enabled: r.enabled === 1,
+    })
+  }
+  return out
+}
 
 /**
  * GET /admin/telemetry/groups
