@@ -32,12 +32,12 @@ router.get('/', async (c) => {
 
   if (bpId) {
     try {
-      const raw = await kv.getJson(`blueprint:${bpId}:latest`)
+      const raw = await kv.getJson<{ id?: string; version?: string; fields?: unknown[]; packs?: { rule_pack?: string; compliance_pack?: string } }>(`blueprint:${bpId}:latest`)
       if (raw) {
         bpJson = JSON.stringify(raw, null, 2)
         bpInfo = `
           <div style="font-size:12px;color:#8b949e;margin-bottom:8px">
-            Blueprint: ${escapeHtml(raw.id)} v${escapeHtml(raw.version || '?')} ·
+            Blueprint: ${escapeHtml(raw.id ?? '')} v${escapeHtml(raw.version ?? '?')} ·
             ${(raw.fields || []).length} fields ·
             ${raw.packs?.rule_pack ? 'rule pack: ' + escapeHtml(raw.packs.rule_pack) : 'no rule pack'} ·
             ${raw.packs?.compliance_pack ? 'compliance pack: ' + escapeHtml(raw.packs.compliance_pack) : 'no compliance pack'}
@@ -167,8 +167,10 @@ router.post('/create', async (c) => {
       </div>
     </div>`)
 
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">' + escapeHtml(err.message) + '<br><pre style="font-size:10px;margin-top:4px;color:#f85149">' + escapeHtml(err.stack || '') + '</pre></div>')
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? err.stack || '' : ''
+    return c.html('<div style="color:#da3633">' + escapeHtml(message) + '<br><pre style="font-size:10px;margin-top:4px;color:#f85149">' + escapeHtml(stack) + '</pre></div>')
   }
 })
 

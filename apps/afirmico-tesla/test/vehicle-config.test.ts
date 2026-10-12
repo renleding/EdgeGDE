@@ -36,14 +36,14 @@ import {
 
 /** The real collected set's shape: three `event`, three `once`, eight `on_change`. */
 const FIELDS: CollectedField[] = [
-  { field_key: 'Odometer', collection_tier: 'event', min_delta: null },
-  { field_key: 'MilesSinceReset', collection_tier: 'event', min_delta: null },
-  { field_key: 'SelfDrivingMilesSinceReset', collection_tier: 'event', min_delta: 1 },
-  { field_key: 'CarType', collection_tier: 'once', min_delta: null },
-  { field_key: 'Version', collection_tier: 'once', min_delta: null },
-  { field_key: 'EfficiencyPackage', collection_tier: 'once', min_delta: null },
-  { field_key: 'SentryMode', collection_tier: 'on_change', min_delta: 1 },
-  { field_key: 'PinToDriveEnabled', collection_tier: 'on_change', min_delta: null },
+  { field_key: 'Odometer', collection_tier: 'event', min_delta: 0.1, interval_seconds: 604800 },
+  { field_key: 'MilesSinceReset', collection_tier: 'event', min_delta: 1, interval_seconds: 180 },
+  { field_key: 'SelfDrivingMilesSinceReset', collection_tier: 'event', min_delta: 1, interval_seconds: 180 },
+  { field_key: 'CarType', collection_tier: 'once', min_delta: null, interval_seconds: 21600 },
+  { field_key: 'Version', collection_tier: 'once', min_delta: null, interval_seconds: 21600 },
+  { field_key: 'EfficiencyPackage', collection_tier: 'once', min_delta: null, interval_seconds: 21600 },
+  { field_key: 'SentryMode', collection_tier: 'on_change', min_delta: 1, interval_seconds: 21600 },
+  { field_key: 'PinToDriveEnabled', collection_tier: 'on_change', min_delta: null, interval_seconds: 21600 },
 ]
 
 const CA = `-----BEGIN CERTIFICATE-----\n${'MIIB'.repeat(60)}\n-----END CERTIFICATE-----\n`
@@ -59,17 +59,17 @@ describe('field config (F02-R11)', () => {
   it('gates on delta only where the catalog carries one', () => {
     const cfg = buildFieldConfig(FIELDS)
     expect(cfg['SelfDrivingMilesSinceReset']).toEqual({
-      interval_seconds: SYNC_INTERVAL_SECONDS,
+      interval_seconds: 180,
       minimum_delta: 1,
     })
-    expect(cfg['Odometer']).toEqual({ interval_seconds: SYNC_INTERVAL_SECONDS })
+    expect(cfg['Odometer']).toEqual({ interval_seconds: 604800, minimum_delta: 0.1 })
   })
 
   it('never puts a delta gate on a once field', () => {
     // A `once` field is sent on adoption; a delta on it is meaningless and some
     // fields reject it.
-    const cfg = buildFieldConfig([{ field_key: 'CarType', collection_tier: 'once', min_delta: 5 }])
-    expect(cfg['CarType']).toEqual({ interval_seconds: SYNC_INTERVAL_SECONDS })
+    const cfg = buildFieldConfig([{ field_key: 'CarType', collection_tier: 'once', min_delta: 5, interval_seconds: 21600 }])
+    expect(cfg['CarType']).toEqual({ interval_seconds: 21600 })
   })
 
   it('uses a three-minute interval', () => {
@@ -77,6 +77,14 @@ describe('field config (F02-R11)', () => {
     // was invisible at 6 h because a re-sent unchanged odometer carried a value from the
     // previous day. Pinned so a change to the sampling rate is a deliberate act.
     expect(SYNC_INTERVAL_SECONDS).toBe(180)
+  })
+
+  it('reads per-field intervals from the catalog (F14-R04 tiered seed)', () => {
+    const cfg = buildFieldConfig(FIELDS)
+    expect(cfg['Odometer'].interval_seconds).toBe(604800)       // weekly poll backstop
+    expect(cfg['MilesSinceReset'].interval_seconds).toBe(180)    // fast streaming counter
+    expect(cfg['SelfDrivingMilesSinceReset'].interval_seconds).toBe(180)
+    expect(cfg['CarType'].interval_seconds).toBe(21600)          // slow identity field
   })
 })
 

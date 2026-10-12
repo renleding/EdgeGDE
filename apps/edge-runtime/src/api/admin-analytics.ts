@@ -17,19 +17,18 @@ import {
   queryForecastPoints,
 } from '../lib/forecasting'
 import {
+  listMetricSeries,
+  queryMetricSeriesPoints,
+  type MetricSeriesSummary,
+  runMetricSeriesBacktest,
+} from '../lib/metric-series'
+import {
   DEFAULT_MODEL_COMPARISON_MODELS,
   getDefaultForecastModelPolicy,
   runForecastModelComparison,
   type ForecastModelComparisonResult,
 } from '../lib/forecast-model-comparison'
 import { queryAuditLogs } from '../lib/audit'
-import {
-  listMetricSeries,
-  queryMetricSeriesPoints,
-  type MetricSeriesSummary,
-  type MetricPoint,
-  runMetricSeriesBacktest,
-} from '../lib/metric-series'
 import { type ForecastRun, type ForecastPoint } from '../lib/forecasting'
 
 /** Hono router for admin analytics endpoints. */
@@ -78,7 +77,7 @@ interface AnalyticsSummary {
   seriesId: string
   seriesCount: number
   series: MetricSeriesRow[]
-  latestForecast: ForecastRun | Record<string, unknown> | null
+  latestForecast: ForecastRun | null
   forecastPoints: ForecastPointRow[]
   pointer: Record<string, unknown> | null
   recentAuditEvents: Record<string, unknown>[]
@@ -102,14 +101,14 @@ export function projectionStatusBadge(status?: string): string {
 export function renderMetricSeriesRows(series: MetricSeriesRow[]): string {
   if (!series.length) return '<tr><td colspan="6" class="empty-cell">No metric series found</td></tr>'
   return series.map((row) => `
-      <tr>
-        <td>${escapeHtml(row.metric_name || '')}</td>
-        <td>${escapeHtml(row.series_id || '')}</td>
-        <td>${escapeHtml(row.frequency || '')}</td>
-        <td>${escapeHtml(String(row.point_count || 0))}</td>
-        <td>${escapeHtml(row.last_ds || '')}</td>
-        <td>${escapeHtml('')}</td>
-      </tr>`).join('')
+    <tr>
+      <td>${escapeHtml(row.metric_name || '')}</td>
+      <td>${escapeHtml(row.series_id || '')}</td>
+      <td>${escapeHtml(row.frequency || '')}</td>
+      <td>${escapeHtml(String(row.point_count || 0))}</td>
+      <td>${escapeHtml(row.last_ds || '')}</td>
+      <td>${escapeHtml('')}</td>
+    </tr>`).join('')
 }
 
 /** Render HTML table rows for forecast point data. */
@@ -140,8 +139,8 @@ export function renderBacktestMetrics(result?: BacktestResult): string {
 
 /** Build a summary of analytics data from database and KV stores. */
 export async function buildAnalyticsSummary(
-  guardedDb: ReturnType<typeof guardDB>,
-  guardedKv: ReturnType<typeof guardKV>,
+  db: D1Database,
+  kv: KVNamespace,
   input: {
     tenantId: string
     metricName?: string
@@ -154,6 +153,8 @@ export async function buildAnalyticsSummary(
     backtestModel?: string
   },
 ): Promise<AnalyticsSummary> {
+  const guardedDb = guardDB(db)
+  const guardedKv = guardKV(kv)
   const tenantId = input.tenantId
   const seriesId = input.seriesId || 'tenant_global'
   const metricName = input.metricName
@@ -174,7 +175,7 @@ export async function buildAnalyticsSummary(
     ? await queryForecastPoints(guardedDb, tenantId, latestForecast.metric_name, seriesId, 100)
     : []
   const pointerKey = forecastLatestPointerKey(tenantId, metricName || 'forecast', seriesId)
-  const pointer = await guardedKv.get(pointerKey, { tenantId }, 'json')
+  const pointer = await guardedKv.getJson<Record<string, unknown> | null>(pointerKey, { tenantId })
   const recentAuditEvents = await queryAuditLogs(guardedDb, tenantId, { limit: 20 })
   const backtest = input.includeBacktest
     ? runMetricSeriesBacktest(await queryMetricSeriesPoints(guardedDb, {
@@ -232,9 +233,7 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const guardedDb = guardDB(envFromContext(c).DB)
-    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
-    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
+    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
       tenantId,
       metricName,
       seriesId,
@@ -258,9 +257,7 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const guardedDb = guardDB(envFromContext(c).DB)
-    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
-    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
+    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
       tenantId,
       metricName,
       seriesId,
@@ -289,9 +286,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
   const primaryMetric = c.req.query('primaryMetric') as 'mae' | 'rmse' | 'smape' | 'mape' | undefined
 
   try {
-    const guardedDb = guardDB(envFromContext(c).DB)
-    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
-    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
+    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
       tenantId,
       metricName,
       seriesId,
@@ -325,9 +320,7 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
   const qs = (token ? `&token=${token}` : '')
   const metricParam = summary.metricName ? `&metric=${encodeURIComponent(summary.metricName)}` : ''
   const seriesParam = summary.seriesId ? `&series=${encodeURIComponent(summary.seriesId)}` : ''
-  const status = (summary.latestForecast && typeof summary.latestForecast === 'object' && 'promotion_status' in summary.latestForecast
-    ? String(summary.latestForecast.promotion_status)
-    : 'pending')
+  const status = summary.latestForecast?.promotion_status || 'pending'
   const forecastWarning = status === 'published'
     ? '<div class="notice notice-info">Forecast is a materialized projection, not authoritative truth.</div>'
     : '<div class="notice notice-warning">No published forecast projection is available yet.</div>'
@@ -363,7 +356,7 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
         <div><span>Series</span><strong>${summary.seriesCount}</strong></div>
         <div><span>Forecast status</span><strong>${projectionStatusBadge(status)}</strong></div>
         <div><span>Forecast points</span><strong>${summary.forecastPoints.length}</strong></div>
-        <div><span>Latest run</span><strong>${escapeHtml(summary.latestForecast && typeof summary.latestForecast === 'object' && 'id' in summary.latestForecast ? String(summary.latestForecast.id) : 'none')}</strong></div>
+        <div><span>Latest run</span><strong>${escapeHtml(summary.latestForecast?.id || 'none')}</strong></div>
       </div>
     </div>
 
@@ -390,7 +383,7 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
 
     <div class="card">
       <h3>🔮 Forecast Projection</h3>
-      <div class="meta">Projection status: ${projectionStatusBadge(status)} · Model: ${escapeHtml(summary.latestForecast && typeof summary.latestForecast === 'object' && 'model_name' in summary.latestForecast ? String(summary.latestForecast.model_name) : 'none')}</div>
+      <div class="meta">Projection status: ${projectionStatusBadge(status)} · Model: ${escapeHtml(summary.latestForecast?.model_name || 'none')}</div>
       <table>
         <thead><tr><th>ds</th><th>Point</th><th>Lower</th><th>Upper</th><th>Created</th><th>Run</th></tr></thead>
         <tbody>${renderForecastPoints(summary.forecastPoints)}</tbody>
@@ -418,7 +411,7 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
 
 /** Render HTML table rows for model comparison results. */
 export function renderModelComparisonRows(result?: ForecastModelComparisonResult): string {
-  if (!result) return `<div class="empty">No model comparison requested. Use ?compare=true&models=${DEFAULT_MODEL_COMPARISON_MODELS.join(',')}</div>`
+  if (!result) return `<div class="empty">No model comparison requested. Use ?compare=true&amp;models=${DEFAULT_MODEL_COMPARISON_MODELS.join(',')}</div>`
   const winner = result.winner?.model || 'none'
   return `<div class="meta">Primary metric: ${escapeHtml(result.primaryMetric)} · Winner: ${escapeHtml(winner)}</div>
   <table>
