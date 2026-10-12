@@ -36,6 +36,7 @@ function shortKey(key: string): string {
 /**
  * Build the guarded KV wrapper from the raw binding.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function guardKV(rawKV: any) {
   if (!rawKV || typeof rawKV.get !== 'function') {
     throw new Error('KV binding not available')

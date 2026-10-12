@@ -15,6 +15,7 @@ export type GuardedDB = ReturnType<typeof guardDB>
 /** Type of the guarded KV wrapper returned by guardKV. */
 export type GuardedKV = ReturnType<typeof guardKV>
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function guardDB(rawDB: any) {
   if (!rawDB || typeof rawDB.prepare !== 'function') {
     throw new Error('D1 binding not available')

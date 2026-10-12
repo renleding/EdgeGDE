@@ -50,7 +50,9 @@ export interface ForecastRunMessage {
 }
 
 export interface ForecastRunnerEnv {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   DB?: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   TENANT_KV?: any
   CHRONOS2_ENDPOINT?: string
   CHRONOS2_API_KEY?: string
