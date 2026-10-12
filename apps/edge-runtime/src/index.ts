@@ -605,7 +605,7 @@ app.post('/api/canvas/clone', async (c) => {
     const inlineTokens = extractDesignTokens(styles, { fallback: 'light' })
 
     // Extract design tokens from CSS classes
-    let cssTokens: any = {}
+    let cssTokens: Partial<DesignTokens> = {}
     try {
       const cssText = await fetchStylesheets(html, url)
       if (cssText) {
@@ -631,17 +631,17 @@ app.post('/api/canvas/clone', async (c) => {
     })
 
     return c.json({ id, title: doc.metadata?.name || 'Cloned Website' })
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500)
+  } catch (e: unknown) {
+    return c.json({ error: e instanceof Error ? e.message : 'Clone failed' }, 500)
   }
 })
 
 // Collect inline styles from a CanvasDocument for token extraction
 function collectStyles(doc: CanvasDocument): Array<{ tagName: string; color?: string; backgroundColor?: string; borderColor?: string; fontFamily?: string; fontSize?: string; fontWeight?: number; borderRadius?: string; padding?: string }> {
-  const styles: any[] = []
+  const styles: Array<{ tagName: string; color?: string; backgroundColor?: string; borderColor?: string; fontFamily?: string; fontSize?: string; fontWeight?: number; borderRadius?: string; padding?: string }> = []
   for (const nodeId in doc.nodes) {
     const n = doc.nodes[nodeId]
-    const s: any = { tagName: n.type }
+    const s: { tagName: string; color?: string; backgroundColor?: string; borderColor?: string; fontFamily?: string; fontSize?: string; fontWeight?: number; borderRadius?: string; padding?: string } = { tagName: n.type }
     if (n.style.color) s.color = n.style.color
     if (n.style.backgroundColor) s.backgroundColor = n.style.backgroundColor
     if (n.style.borderColor) s.borderColor = n.style.borderColor
@@ -741,10 +741,10 @@ app.post('/api/canvas/generate', async (c) => {
       if (tenantKv && typeof tenantKv.put === 'function') {
         await tenantKv.put(canvasCacheGenKey(pHash), JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), undefined, { expirationTtl: 86400 }).catch(() => {})
       }
-    } catch (e: any) {
-      console.error('[CanvasGen] background error:', e.message)
+    } catch (e: unknown) {
+      console.error('[CanvasGen] background error:', e instanceof Error ? e.message : 'Unknown error')
       if (tenantKv && typeof tenantKv.put === 'function') {
-        await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'error', error: e.message }), undefined, { expirationTtl: 300 }).catch(() => {})
+        await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'error', error: e instanceof Error ? e.message : 'Unknown error' }), undefined, { expirationTtl: 300 }).catch(() => {})
       }
     }
   })())
