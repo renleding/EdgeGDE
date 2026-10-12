@@ -58,24 +58,24 @@ export function guardDB(rawDB: any): GuardedDB {
       return statement(sql)
     },
 
-    async first<T = any>(ctx: any, sql: string, params: any[] = []): Promise<T | null> {
+    async first<T = unknown>(ctx: unknown, sql: string, params: unknown[] = []): Promise<T | null> {
       checkCircuit()
       return trackMetrics('first', () => statement(sql).bind(...params).first()) as Promise<T | null>
     },
 
-    async all<T = any>(ctx: any, sql: string, params: any[] = []): Promise<{ results: T[] }> {
+    async all<T = unknown>(ctx: unknown, sql: string, params: unknown[] = []): Promise<{ results: T[] }> {
       checkCircuit()
       return trackMetrics('all', () => statement(sql).bind(...params).all()) as Promise<{ results: T[] }>
     },
 
-    async insert(ctx: any, table: string, row: Record<string, any>): Promise<void> {
+    async insert(ctx: unknown, table: string, row: Record<string, unknown>): Promise<void> {
       checkCircuit()
       const keys = Object.keys(row)
       const values = keys.map(k => row[k])
       return trackMetrics('insert', () => statement(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...values))
     },
 
-    async update(ctx: any, table: string, updates: Record<string, any>, where: string, params: any[] = []): Promise<void> {
+    async update(ctx: unknown, table: string, updates: Record<string, unknown>, where: string, params: unknown[] = []): Promise<void> {
       checkCircuit()
       const keys = Object.keys(updates)
       const assignments = keys.map(k => `${k} = ?`)

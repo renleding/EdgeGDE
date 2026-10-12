@@ -247,7 +247,7 @@ app.use('*', tenantResolver)
 app.use('*', tenantContextResolver)
 
 // 2. RATE LIMITER
-async function rateLimitHandler(c: any, next: any) {
+async function rateLimitHandler(c: any, next: () => Promise<void>) {
   const tenant = (c as unknown as { get: (key: string) => TenantConfig | undefined }).get('tenant')
 
   if (!tenant) {
