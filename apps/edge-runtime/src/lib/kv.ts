@@ -47,9 +47,9 @@ export function guardKV(rawKV: unknown): GuardedKV {
   }
 
   const raw = rawKV as Record<string, unknown>
-  const getFn = raw.get as (key: string, type?: string) => Promise<unknown>
-  const putFn = raw.put as (key: string, value: string | object, options?: unknown) => Promise<unknown>
-  const delFn = raw.del as (key: string) => Promise<unknown>
+  // Call raw.get/put/del as INLINE casts — never extract to a standalone const.
+  // KV's get/put/del are bound getters in Workers; extracting the reference drops `this`
+  // and throws "Cannot read properties of undefined (reading 'alwaysPrimarySession')" in production.
 
   function validateRead(key: string, ctx?: TenantCtx): string {
     if (key.startsWith('tenant:') && ctx) {
@@ -85,11 +85,18 @@ export function guardKV(rawKV: unknown): GuardedKV {
     async get(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json') {
       const ctx = typeof ctxOrType === 'object' ? ctxOrType : undefined
       const valueType = typeof ctxOrType === 'string' ? ctxOrType : type
-      return getFn(validateRead(key, ctx), valueType) as Promise<string | null>
+      // Fresh .get access (not pre-extracted) — preserves Workers binding.
+      const ns = rawKV as {
+        get(key: string, type?: string): Promise<string | null>
+      }
+      return ns.get(validateRead(key, ctx), valueType) as Promise<string | null>
     },
 
     async getJson<T = unknown>(key: string, ctx?: TenantCtx): Promise<T | null> {
-      return getFn(validateRead(key, ctx), 'json') as Promise<T | null>
+      const ns = rawKV as {
+        get(key: string, type: string): Promise<string | null>
+      }
+      return ns.get(validateRead(key, ctx), 'json') as Promise<T | null>
     },
 
     async put(key: string, value: string | object, ctx?: TenantCtx, options?: unknown) {
@@ -127,11 +134,19 @@ export function guardKV(rawKV: unknown): GuardedKV {
         throw new Error(`[Security Violation] KV write blocked for "${sk}": ${err instanceof Error ? err.message : 'Unknown error'}`)
       }
 
-      return putFn(finalKey, val, options)
+      // Fresh .put access (not pre-extracted) — preserves Workers binding.
+      const ns = rawKV as {
+        put(key: string, value: string | object, options?: unknown): Promise<unknown>
+      }
+      return ns.put(finalKey, val, options)
     },
 
     async del(key: string, ctx: TenantCtx) {
-      return delFn(validateWrite(key, ctx))
+      // Fresh .del access — preserves Workers binding.
+      const ns = rawKV as {
+        del(key: string): Promise<unknown>
+      }
+      return ns.del(validateWrite(key, ctx))
     },
   }
 }
