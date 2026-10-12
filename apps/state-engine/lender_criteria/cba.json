@@ -1,0 +1,11 @@
+{
+  "lender_id": "cba",
+  "max_lvr": 0.8,
+  "postcode_blacklist": ["2000", "2001"],
+  "fee_schedule": {
+    "stampDuty": 35200,
+    "lmi": 11800,
+    "legalFees": 1950,
+    "totalCosts": 875000
+  }
+}

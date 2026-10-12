@@ -28,7 +28,7 @@
       "bucket_name": "afirmico-tesla-raw"
     }
   ],
-  "send_email": [
+  "email": [
     {
       "name": "afirmico-tesla-emails",
       "binding": "EMAIL"

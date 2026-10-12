@@ -1,0 +1,11 @@
+{
+  "lender_id": "westpac",
+  "max_lvr": 0.8,
+  "postcode_blacklist": ["4000", "4001"],
+  "fee_schedule": {
+    "stampDuty": 35100,
+    "lmi": 12200,
+    "legalFees": 2000,
+    "totalCosts": 875000
+  }
+}

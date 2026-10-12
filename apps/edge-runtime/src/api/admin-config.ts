@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import {
@@ -81,7 +82,7 @@ function errorHtml(message: string): string {
   return `<div class="card" style="border-color:#da3633"><h3>Config error</h3><div style="color:#f85149">${message}</div></div>`
 }
 
-function redirectUrl(c: any, tenantId: string): string {
+function redirectUrl(c: Context, tenantId: string): string {
   const token = c.req.query('token')
   return `/admin/config?tenant=${encodeURIComponent(tenantId)}${token ? `&token=${encodeURIComponent(token)}` : ''}`
 }
@@ -97,8 +98,8 @@ configRouter.get('/', async (c) => {
     const children = await getChildren(kv, tenantId)
     const effective = await getEffectiveConfig(kv, tenantId)
     return c.html(pageLayout('Agent Config', renderConfigPage(profile, parents, children, effective, token), tenantId, token))
-  } catch (err: any) {
-    return c.html(errorHtml(err.message), 500)
+  } catch (err: unknown) {
+    return c.html(errorHtml(err instanceof Error ? err.message : 'Unknown error'), 500)
   }
 })
 
@@ -110,8 +111,8 @@ configRouter.post('/parent-toggle', async (c) => {
   try {
     await setParentInheritance(envFromContext(c).TENANT_KV, tenantId, enabled)
     return c.redirect(redirectUrl(c, tenantId))
-  } catch (err: any) {
-    return c.html(errorHtml(err.message), 500)
+  } catch (err: unknown) {
+    return c.html(errorHtml(err instanceof Error ? err.message : 'Unknown error'), 500)
   }
 })
 
@@ -124,8 +125,8 @@ configRouter.post('/child-toggle', async (c) => {
   try {
     await setChildInheritance(envFromContext(c).TENANT_KV, tenantId, enabled, parentTenantId)
     return c.redirect(redirectUrl(c, tenantId))
-  } catch (err: any) {
-    return c.html(errorHtml(err.message), 500)
+  } catch (err: unknown) {
+    return c.html(errorHtml(err instanceof Error ? err.message : 'Unknown error'), 500)
   }
 })
 
@@ -155,8 +156,8 @@ configRouter.post('/clone', async (c) => {
       </div>
       <p><a href="${redirectUrl(c, targetTenantId)}">Open ${targetTenantId} config</a></p>
     `, targetTenantId, c.req.query('token')))
-  } catch (err: any) {
-    return c.html(errorHtml(err.message), 500)
+  } catch (err: unknown) {
+    return c.html(errorHtml(err instanceof Error ? err.message : 'Unknown error'), 500)
   }
 })
 
@@ -171,8 +172,8 @@ configRouter.post('/rebuild', async (c) => {
       <div class="entry"><div class="key">effectiveRevision</div><div class="val">${result.effectiveRevision}</div></div>
       <div class="entry"><div class="key">propagatedChildren</div><div class="val">${result.propagatedChildren.length}</div></div></div>
     `, tenantId, c.req.query('token')))
-  } catch (err: any) {
-    return c.html(errorHtml(err.message), 500)
+  } catch (err: unknown) {
+    return c.html(errorHtml(err instanceof Error ? err.message : 'Unknown error'), 500)
   }
 })
 
@@ -186,8 +187,8 @@ configRouter.post('/propagate', async (c) => {
       <div class="entry"><div class="key">parent</div><div class="val">${tenantId}</div></div>
       <div class="entry"><div class="key">children</div><div class="val">${result.propagatedChildren.length}</div></div></div>
     `, tenantId, c.req.query('token')))
-  } catch (err: any) {
-    return c.html(errorHtml(err.message), 500)
+  } catch (err: unknown) {
+    return c.html(errorHtml(err instanceof Error ? err.message : 'Unknown error'), 500)
   }
 })
 

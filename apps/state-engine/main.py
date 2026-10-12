@@ -4,6 +4,7 @@ Embedded FRS-006 Evidence Engine for Tier A synchronous metadata
 commits and Tier B async artifact flushing.
 """
 import asyncio, json, logging, os, sys, time, uuid
+from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from action_engine import ActionEngine
@@ -13,6 +14,7 @@ from evidence_adapter import EvidenceAdapter
 from evidence_worker import EvidenceWorker
 from fact_registry_api import FactRegistryAPI
 from mission_runtime import MissionRuntime
+from mitmproxy_client import MitmproxyClient, install_ca_into_cft
 from resolver import Resolver
 from salestrekker_rules import get_salestrekker_rules
 from state_cache import StateCache, build_state_summary
@@ -36,6 +38,7 @@ class StateEngineMCP:
         self.evidence = None
         self.evidence_worker = None
         self.state_registry = None  # FRS-007 Phase 2
+        self.mitm_client = None  # APA mitmproxy layer
         self._ws_url = None
 
     async def start(self):
@@ -56,6 +59,18 @@ class StateEngineMCP:
             self._ws_url = ws_url
             self.cdp = CdpConnection(ws_url)
             await self.cdp.connect()
+
+            # APA: Start mitmproxy daemon alongside CDP
+            try:
+                self.mitm_client = MitmproxyClient(
+                    port=int(os.environ.get('MITMPROXY_PORT', '8080'))
+                )
+                await self.mitm_client.start()
+                await install_ca_into_cft(self.cdp)
+                logger.info("mitmproxy daemon started on port %d", self.mitm_client.port)
+            except Exception as e:
+                logger.warning("mitmproxy not started (degraded mode): %s", e)
+                self.mitm_client = None
 
             self.cache = StateCache(self.cdp)
 
@@ -118,12 +133,15 @@ class StateEngineMCP:
         @mcp.tool()
         async def mcp_interact(
             action: str, target: str, value: str = "",
-            mission_id: str = "", run_id: str = ""
+            mission_id: str = "", run_id: str = "",
+            cdp_frame_id: str = ""
         ) -> str:
             """Execute browser interaction with full evidence pipeline.
 
             If run_id is provided, records observations, evidence, and
             verification results in the evidence database.
+
+            cdp_frame_id: CDP frame ID for HAR correlation (APA layer)
             """
             at_map = {'click': ActionType.CLICK, 'type': ActionType.TYPE,
                       'select': ActionType.SELECT, 'save': ActionType.SAVE}
@@ -147,13 +165,16 @@ class StateEngineMCP:
                     f"CDP click via preferred_tier on '{target}'",
                 )
 
-            # Execute
+            # Execute (with optional HAR correlation)
             t0 = time.time()
-            result = await self.engine.execute(at, target, value)
+            if self.engine:
+                result = await self.engine.execute(at, target, value, har_ref=cdp_frame_id)
+            else:
+                result = {'status': 'error', 'error': 'engine_not_initialized'}
             elapsed = time.time() - t0
 
             # Capture pre-verification evidence
-            if run_id:
+            if run_id and self.evidence:
                 snap = await self.cache.get_state()
                 status_snap = build_state_summary(snap)
 
@@ -167,6 +188,19 @@ class StateEngineMCP:
                         'url': status_snap.get('url', ''),
                     })
                 )
+
+                # APA: capture HAR entries for this frame
+                if cdp_frame_id and self.mitm_client:
+                    har_entries = self.mitm_client.correlate(cdp_frame_id)
+                    if har_entries:
+                        self.evidence.add_evidence(
+                            run_id, 'network', 'HAR', 'PRIMARY',
+                            payload_json=json.dumps({
+                                'frame_id': cdp_frame_id,
+                                'entry_count': len(har_entries),
+                                'entries': har_entries[:10],
+                            })
+                        )
 
                 # Evaluate L1-L5 verification
                 status = 'SUCCESS' if result.get('success', False) else 'FAILED'
@@ -258,6 +292,58 @@ class StateEngineMCP:
             return json.dumps({"error": "fact_not_found", "key": key})
 
         # ── FRS-007 Phase 2: State & Transition Registries ──────────────
+        @mcp.tool()
+        async def mcp_har(frame_id: str = "", summary_only: bool = False) -> str:
+            """HAR capture from mitmproxy.
+
+            frame_id       → entries correlated to a CDP frame ID
+            summary_only=true → aggregate stats (method/status counts)
+            No args        → all captured entries
+            """
+            if not self.mitm_client:
+                return json.dumps({"error": "mitmproxy_not_running"})
+            if summary_only:
+                return json.dumps(self.mitm_client.get_har_summary())
+            if frame_id:
+                return json.dumps(self.mitm_client.correlate(frame_id))
+            return json.dumps(self.mitm_client.get_all_har())
+
+        @mcp.tool()
+        async def mcp_pp_analysis(lender_id: str = "cba",
+                                    lenders_json: str = "") -> str:
+            """Purchase Price analysis from current page.
+
+            Extracts PP fields from JSON-LD (with DOM fallback)
+            and validates against lender criteria.
+
+            lender_id    → single lender (e.g. 'cba')
+            lenders_json → JSON array of lender IDs (multi-lender)
+            """
+            from jsonld_extractor import JSONLDExtractor
+            from pp_analysis import analyze_pp, analyze_pp_all_lenders
+
+            if not self.cache:
+                return json.dumps({"error": "cache_not_initialized"})
+
+            # Extract JSON-LD
+            extractor = JSONLDExtractor(self.cdp)
+            jsonld_snap = await extractor.extract()
+
+            # Get DOM state
+            dom_snap = await self.cache.get_state()
+
+            criteria_dir = Path(__file__).parent / "lender_criteria"
+
+            if lenders_json:
+                lender_ids = json.loads(lenders_json)
+                results = analyze_pp_all_lenders(jsonld_snap, dom_snap, lender_ids, criteria_dir)
+                return json.dumps({
+                    lender: r.to_dict() for lender, r in results.items()
+                })
+
+            result = analyze_pp(jsonld_snap, dom_snap, lender_id, criteria_dir)
+            return json.dumps(result.to_dict())
+
         @mcp.tool()
         async def mcp_object_state(object_id: str = "") -> str:
             """State Registry: read an object's current state, its history,

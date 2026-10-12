@@ -19,6 +19,7 @@
  */
 import { Hono } from 'hono'
 import type { Context, Next } from 'hono'
+import { type D1Database, type KVNamespace, type R2Bucket } from '@cloudflare/workers-types'
 import { timingSafeEqual } from './store'
 import { modelYearFromVin, variantFromEfficiencyPackage } from './analytics'
 import { formatDualTime, formatTimeColumns, stateFromPostcode, timeZoneForPostcode } from './timezone'
@@ -31,6 +32,7 @@ import { getMemberAccessToken } from './key-pairing'
 export interface AdminEnv {
   OAUTH_SESSIONS: KVNamespace
   D1_TESLA: D1Database
+  RAW_PAYLOADS: R2Bucket
   INGEST_SHARED_SECRET?: string
   TESLA_PROXY_URL?: string
   SIGNER_SHARED_SECRET?: string
@@ -2329,6 +2331,43 @@ adminApp.post('/exports', async (c) => {
   })
 
   return c.redirect('/admin/exports', 303)
+})
+
+/**
+ * GET /admin/exports/download/:run_id
+ * Download the export artifact from R2.
+ */
+adminApp.get('/exports/download/:run_id', async (c) => {
+  if (!(await isAuthenticated(c))) return c.redirect('/admin/login')
+
+  const runId = c.req.param('run_id')
+
+  const run = await c.env.D1_TESLA.prepare(
+    `SELECT * FROM telemetry_export_run WHERE run_id = ?`
+  ).bind(runId).first<{
+    r2_key: string | null
+    format: string
+    filename: string | null
+  }>()
+
+  if (!run) return c.json({ error: 'run not found' }, 404)
+  if (!run.r2_key) return c.json({ error: 'no artifact for this run' }, 404)
+
+  const object = await c.env.RAW_PAYLOADS.get(run.r2_key)
+  if (!object) return c.json({ error: 'artifact not in R2' }, 404)
+
+  const filename = run.filename ?? `export_${runId}.${run.format}`
+  return new Response(object.body, {
+    headers: {
+      'content-type': run.format === 'xlsx'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : run.format === 'pdf'
+          ? 'application/pdf'
+          : 'text/csv',
+      'content-disposition': `attachment; filename="${escapeHtml(filename)}"`,
+      'cache-control': 'no-store',
+    },
+  })
 })
 
 /**

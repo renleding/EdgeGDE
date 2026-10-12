@@ -1436,6 +1436,68 @@
       }
     },
     {
+      "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/droid-scan-2026-10-10.report.json",
+      "data": {
+        "agents_md": "AGENTS.md",
+        "budget": {
+          "approved_override": null,
+          "declared": true,
+          "elapsed_seconds": 3.944,
+          "exhausted": false,
+          "limit": {
+            "max_cost_usd": 0.5,
+            "max_duration_seconds": 900,
+            "max_tokens": 8000,
+            "max_tool_calls": 200
+          },
+          "max_cost_usd": 0.5,
+          "max_duration_seconds": 900,
+          "max_tokens": 8000,
+          "max_tool_calls": 200,
+          "operations": 1,
+          "reason_code": null
+        },
+        "context_snapshot": {
+          "agents_md": "AGENTS.md",
+          "instructions_md": ".hermes/instructions/instructions.md",
+          "policy_md": ".hermes/policies/policy.md"
+        },
+        "diffs": [],
+        "exit_codes": [
+          0
+        ],
+        "instructions_md": ".hermes/instructions/instructions.md",
+        "mission_id": "droid-scan-2026-10-10",
+        "objective": "Run deterministic code scan over apps/edge-runtime/src/*.ts: typecheck + pattern metrics + git delta vs .hermes/previous-scan.json",
+        "operations": [
+          {
+            "command": "/usr/bin/python3 .hermes/missions/droid-scan-2026-10-10/scan_metrics.py 2>&1",
+            "diffs": [],
+            "exit_code": 0,
+            "exit_codes": [
+              0
+            ],
+            "operation": "shell",
+            "status": "success",
+            "stderr": "",
+            "stdout": "{\n  \"scan_id\": \"droid-scan-2026-10-10\",\n  \"timestamp\": \"2026-10-10T00:00:00+11:00\",\n  \"scanned_dir\": \"apps/edge-runtime/src\",\n  \"files_count\": 239,\n  \"total_lines\": 49829,\n  \"typecheck\": {\n    \"exit_code\": 0,\n    \"status\": \"PASS\",\n    \"error_count\": 0,\n    \"first_errors\": []\n  },\n  \"counts\": {\n    \"console_log\": 15,\n    \"console_warn_error\": 112,\n    \"as_any\": 0,\n    \"any_usage\": 721,\n    \"ts_expect_error\": 3,\n    \"ts_ignore\": 0,\n    \"catch_blocks\": 496,\n    \"empty_catch\": 55,\n    \"setInterval\": 7,\n    \"setTimeout\": 11,\n    \"todo_fixme\": 3,\n    \"eval_usage\": 0,\n    \"loose_eq\": 25,\n    \"loose_neq\": 30,\n    \"non_null_assert\": 19,\n    \"any_cast\": 18,\n    \"var_keyword\": 140\n  },\n  \"console_log_files\": [\n    \"api/chat-scoring.ts\",\n    \"api/doc-intel/routes/ingest.ts\",\n    \"api/doc-intel/routes/jobs.ts\",\n    \"api/vault.ts\",\n    \"lib/publish-tenant.ts\",\n    \"lib/report-engine.ts\",\n    \"lib/webhook.ts\",\n    \"queues/kb-ingest.ts\",\n    \"workers/cloner-worker.ts\"\n  ],\n  \"empty_catch_files\": [\n    \"api/admin-blueprints.ts\",\n    \"api/admin-chat-config.ts\",\n    \"api/admin-factory.ts\",\n    \"api/admin-packs.ts\",\n    \"api/admin-site.ts\",\n    \"api/admin-views.ts\",\n    \"api/chat-scoring.ts\",\n    \"api/chat-views.ts\",\n    \"api/chat.ts\",\n    \"api/doc-intel/routes/ui.ts\",\n    \"api/doc-intel/ui-route.ts\",\n    \"api/embed.ts\",\n    \"api/scoring.ts\",\n    \"api/workspace.ts\",\n    \"do/canvas-session.do.ts\",\n    \"factory/factory/factory.engine.ts\",\n    \"factory/packs/pack.installer.ts\",\n    \"factory/upgrade/upgrade.engine.ts\",\n    \"lib/chat-processor.ts\",\n    \"lib/knowledge-base.ts\",\n    \"lib/ui-schemas.ts\",\n    \"objects/AuditLedger.ts\",\n    \"routes/dashboard.ts\",\n    \"routes/onboarding.ts\"\n  ],\n  \"per_file_top\": {\n    \"console_log\": [\n      [\n        \"api/chat-scoring.ts\",\n        5\n      ],\n      [\n        \"lib/webhook.ts\",\n        3\n      ],\n      [\n        \"workers/cloner-worker.ts\",\n        1\n      ],\n      [\n        \"lib/publish-tenant.ts\",\n        1\n      ],\n      [\n        \"lib/report-engine.ts\",\n        1\n      ],\n      [\n        \"api/vault.ts\",\n        1\n      ],\n      [\n        \"api/doc-intel/routes/jobs.ts\",\n        1\n      ],\n      [\n        \"queues/kb-ingest.ts\",\n        1\n      ]\n    ],\n    \"as_any\": [],\n    \"loose_eq\": [\n      [\n        \"lib/chat-config.ts\",\n        6\n      ],\n      [\n        \"edr/compiler/engine.ts\",\n        5\n      ],\n      [\n        \"api/admin-packs.ts\",\n        4\n      ],\n      [\n        \"lib/field-engine.ts\",\n        2\n      ],\n      [\n        \"canvas/compile-from-canvas.ts\",\n        2\n      ],\n      [\n        \"lib/rule-engine.ts\",\n        2\n      ],\n      [\n        \"api/doc-intel/ui-route.ts\",\n        1\n      ],\n      [\n        \"lib/metric-series.ts\",\n        1\n      ]\n    ],\n    \"var_keyword\": [\n      [\n        \"api/doc-intel/ui-route.ts\",\n        50\n      ],\n      [\n        \"api/chat-views.ts\",\n        33\n      ],\n      [\n        \"index.ts\",\n        18\n      ],\n      [\n        \"routes/canvas-editor.ts\",\n        18\n      ],\n      [\n        \"api/admin-tenant-admin.ts\",\n        15\n      ],\n      [\n        \"lib/dashboard-html.ts\",\n        2\n      ],\n      [\n        \"edr/compiler/synthesis.ts\",\n        2\n      ],\n      [\n        \"edr/runtime/hash.ts\",\n        1\n      ]\n    ],\n    \"non_null_assert\": [\n      [\n        \"transpiler/css-token-extractor.ts\",\n        14\n      ],\n      [\n        \"api/admin-chat-config.ts\",\n        3\n      ],\n      [\n        \"api/chat.ts\",\n        1\n      ],\n      [\n        \"middleware/tenant-query-auth.ts\",\n        1\n      ]\n    ]\n  },\n  \"git_since_previous\": {\n    \"commits\": [\n      \"3520d62 2026-10-02 fix(afirmico-tesla): batch alert seed under D1's 100 KB statement limit (#138)\"\n    ],\n    \"commit_count\": 1,\n    \"dirty_files\": [],\n    \"changed_files\": [\n      \"apps/edge-runtime/src/actions/audit-writer.ts\",\n      \"apps/edge-runtime/src/actions/compensation.ts\",\n      \"apps/edge-runtime/src/actions/compute-drift.ts\",\n      \"apps/edge-runtime/src/actions/gogo.ts\",\n      \"apps/edge-runtime/src/actions/lifecycle.ts\",\n      \"apps/edge-runtime/src/actions/reconcile.ts\",\n      \"apps/edge-runtime/src/actions/registry.ts\",\n      \"apps/edge-runtime/src/actions/types.ts\",\n      \"apps/edge-runtime/src/agentic-ux/agentic-ux.runtime.ts\",\n      \"apps/edge-runtime/src/agentic-ux/agentic-ux.schema.ts\",\n      \"apps/edge-runtime/src/agentic-ux/manifest-generator.ts\",\n      \"apps/edge-runtime/src/api/admin-analytics.ts\",\n      \"apps/edge-runtime/src/api/admin-blueprints.ts\",\n      \"apps/edge-runtime/src/api/admin-chat-config.ts\",\n      \"apps/edge-runtime/src/api/admin-config.ts\",\n      \"apps/edge-runtime/src/api/admin-deadletter.ts\",\n      \"apps/edge-runtime/src/api/admin-drift.ts\",\n      \"apps/edge-runtime/src/api/admin-factory.ts\",\n      \"apps/edge-runtime/src/api/admin-forecasting.ts\",\n      \"apps/edge-runtime/src/api/admin-landing.ts\",\n      \"apps/edge-runtime/src/api/admin-metric-series.ts\",\n      \"apps/edge-runtime/src/api/admin-packs.ts\",\n      \"apps/edge-runtime/src/api/admin-rules.ts\",\n      \"apps/edge-runtime/src/api/admin-site.ts\",\n      \"apps/edge-runtime/src/api/admin-tenant-admin.ts\",\n      \"apps/edge-runtime/src/api/admin-views.ts\",\n      \"apps/edge-runtime/src/api/audit-export.ts\",\n      \"apps/edge-runtime/src/api/builder.ts\",\n      \"apps/edge-runtime/src/api/calculators.ts\",\n      \"apps/edge-runtime/src/api/canvas-chat.ts\",\n      \"apps/edge-runtime/src/api/chat-audit.ts\",\n      \"apps/edge-runtime/src/api/chat-init.ts\",\n      \"apps/edge-runtime/src/api/chat-scoring.ts\",\n      \"apps/edge-runtime/src/api/chat-views.ts\",\n      \"apps/edge-runtime/src/api/chat.ts\",\n      \"apps/edge-runtime/src/api/doc-intel-router.ts\",\n      \"apps/edge-runtime/src/api/doc-intel/index.ts\",\n      \"apps/edge-runtime/src/api/doc-intel/lib/audit.ts\",\n      \"apps/edge-runtime/src/api/doc-intel/lib/db.ts\",\n      \"apps/edge-runtime/src/api/doc-intel/lib/errors.ts\",\n      \"apps/edge-runtime/src/api/doc-intel/lib/types.ts\",\n      \"apps/edge-runtime/src/api/doc-intel/routes/documents.ts\",\n  \n",
+            "task_id": "step_1",
+            "verification_criteria": [
+              "exit code 0",
+              ".hermes/missions/droid-scan-2026-10-10/scan-results.json exists and contains files_count, typecheck, counts",
+              "typecheck.exit_code reported (0 = PASS, nonzero = FAIL with first_errors)"
+            ]
+          }
+        ],
+        "policy_md": ".hermes/policies/policy.md",
+        "retry_count": 0,
+        "status": "success",
+        "test_results": {},
+        "timestamp": "2026-10-09T23:06:12+00:00",
+        "violations": []
+      }
+    },
+    {
       "path": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/logs/missions/frs007-ac1.report.json",
       "data": {
         "agents_md": "AGENTS.md",
@@ -1983,5 +2045,5 @@
     }
   ],
   "pr_count": 20,
-  "scanned_at": "2026-10-09T11:00:55.327862+00:00"
+  "scanned_at": "2026-10-11T01:01:36.726948+00:00"
 }

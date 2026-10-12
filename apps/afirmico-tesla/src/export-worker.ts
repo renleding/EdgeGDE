@@ -6,15 +6,30 @@
  * Designed to run as a Cloudflare Worker Cron Trigger (e.g., every 5 minutes).
  */
 
-import { D1Database } from '@cloudflare/workers-types'
+import { D1Database, type R2Bucket, type KVNamespace, type SendEmail } from '@cloudflare/workers-types'
 import { generateExport } from './export'
 import { getDueSchedules, updateScheduleAfterRun, type ScheduleWithNextRun } from './scheduler'
 import { sendExportEmail, logEmailAudit } from './email'
 import { collectedFields, type CollectedField } from './store'
 
 export interface Env {
+  ASSETS: Fetcher
+  OAUTH_SESSIONS: KVNamespace
   D1_TESLA: D1Database
-  [key: string]: unknown
+  RAW_PAYLOADS: R2Bucket
+  INGEST_SHARED_SECRET?: string
+  TESLA_CLIENT_ID: string
+  TESLA_CLIENT_SECRET: string
+  OAUTH_STATE_SECRET: string
+  TOKEN_ENCRYPTION_KEY: string
+  TESLA_AUDIENCE?: string
+  TESLA_PROXY_URL?: string
+  'afirmico-tesla-emails': SendEmail
+}
+
+export interface ScheduledEvent {
+  cron: string
+  scheduledTime: number
 }
 
 interface ExportScheduleRow {
@@ -99,7 +114,7 @@ export default {
  * Execute a single export schedule.
  */
 export async function runExportSchedule(
-  env: { D1_TESLA: D1Database } & Record<string, unknown>,
+  env: Env,
   schedule: ExportScheduleRow,
   ctx: ExecutionContext
 ): Promise<void> {
@@ -136,6 +151,22 @@ export async function runExportSchedule(
     }
 
     const exportResult = await generateExport(env.D1_TESLA, exportOptions, fields)
+
+    // Persist the export artifact to R2 so it is downloadable after the
+    // run completes. Without this the CSV exists only in-memory for the
+    // duration of the email send.
+    const r2Key = `exports/${runId}.${exportResult.filename.split('.').pop() ?? 'csv'}`
+    await env.RAW_PAYLOADS.put(r2Key, exportResult.data, {
+      customMetadata: {
+        run_id: runId,
+        schedule_id: schedule.schedule_id,
+        sha256: exportResult.sha256,
+        content_type: exportResult.content_type,
+      },
+    })
+    await env.D1_TESLA.prepare(
+      `UPDATE telemetry_export_run SET r2_key = ? WHERE run_id = ?`
+    ).bind(r2Key, runId).run()
 
     const finishedAt = new Date().toISOString()
     await env.D1_TESLA.prepare(
