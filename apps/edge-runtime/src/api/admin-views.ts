@@ -10,6 +10,13 @@ import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
 import { rebuildTenantConfig } from '../lib/config-inheritance'
 
+interface KbEntry {
+  id: string
+  value: string
+  type: string
+  trigger?: string
+}
+
 const adminRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -87,10 +94,10 @@ function escapeHtml(s: string): string {
 // Renders
 // ═══════════════════════════════════════════════════════════════════════════
 
-function renderPendingEntries(entries: any[], topic: string, sourceRef: string, tid: string, token?: string): string {
+function renderPendingEntries(entries: KbEntry[], topic: string, sourceRef: string, tid: string, token?: string): string {
   const t = token ? `&token=${token}` : ''
   if (!entries || entries.length === 0) return '<div class="empty">No pending entries for this topic</div>'
-  const items = entries.map((e: any) => `
+  const items = entries.map((e: KbEntry) => `
     <div class="entry">
       <div class="val">${escapeHtml(e.value || '')}</div>
       <div class="key">type: ${escapeHtml(e.type || '?')} · id: ${escapeHtml(e.id || '')}${e.trigger ? ` · trigger: ${escapeHtml(e.trigger)}` : ''}</div>
@@ -111,10 +118,10 @@ function renderPendingEntries(entries: any[], topic: string, sourceRef: string, 
     </div>`
 }
 
-function renderApprovedEntries(entries: any[], topic: string, tid: string, token?: string): string {
+function renderApprovedEntries(entries: KbEntry[], topic: string, tid: string, token?: string): string {
   const t = token ? `&token=${token}` : ''
   if (!entries || entries.length === 0) return '<div class="empty">No approved entries for this topic</div>'
-  const items = entries.map((e: any) => `
+  const items = entries.map((e: KbEntry) => `
     <div class="entry">
       <div class="val">${escapeHtml(e.value || '')}</div>
       <div class="key">type: ${escapeHtml(e.type || '?')} · id: ${escapeHtml(e.id || '')}</div>
@@ -132,10 +139,10 @@ function renderApprovedEntries(entries: any[], topic: string, tid: string, token
     </div>`
 }
 
-function renderRejectedEntries(entries: any[], topic: string, tid: string, token?: string): string {
+function renderRejectedEntries(entries: KbEntry[], topic: string, tid: string, token?: string): string {
   const t = token ? `&token=${token}` : ''
   if (!entries || entries.length === 0) return '<div class="empty">No rejected entries</div>'
-  const items = entries.map((e: any) => `
+  const items = entries.map((e: KbEntry) => `
     <div class="entry">
       <div class="val">${escapeHtml(e.value || '')}</div>
       <div class="key">type: ${escapeHtml(e.type || '?')} · id: ${escapeHtml(e.id || '')}</div>
@@ -300,18 +307,18 @@ adminRouter.post('/approve', async (c) => {
     if (!pendingRaw) return c.html('<div class="empty">No pending data for this topic</div>')
     const pending = JSON.parse(pendingRaw)
     const existingRaw = await kv.get(`tenant:${tenantId}:kb:${topic}`, ctx)
-    let existingEntries: any[] = []
+    let existingEntries: KbEntry[] = []
     if (existingRaw) { try { existingEntries = JSON.parse(existingRaw).entries || [] } catch {} }
-    const merged = new Map<string, any>()
+    const merged = new Map<string, KbEntry>()
     for (const e of existingEntries) merged.set(e.id, e)
     for (const e of (pending.entries || [])) merged.set(e.id, e)
     await kv.put(`tenant:${tenantId}:kb:${topic}`, JSON.stringify({ entries: Array.from(merged.values()), updated_at: Date.now(), source_ref: pending.source_ref || '' }), ctx)
-    await rawKV.delete(`tenant:${tenantId}:kb_pending:${topic}`)
+    await kv.del(`tenant:${tenantId}:kb_pending:${topic}`, ctx)
     const env = envFromContext(c)
     await rebuildTenantConfig(env.TENANT_KV, env, tenantId)
     return c.html(`<div class="card" style="border-color:#238636"><h3>${escapeHtml(topic)}</h3><div style="color:#3fb950;font-size:12px;margin-top:4px">✅ Approved · ${merged.size} entries · config rebuilt</div></div>`)
-  } catch (err: any) {
-    return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
+  } catch (err: unknown) {
+    return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`)
   }
 })
 
@@ -328,12 +335,12 @@ adminRouter.post('/reject', async (c) => {
     if (!pendingRaw) return c.html('<div class="empty">No pending data for this topic</div>')
     const pending = JSON.parse(pendingRaw)
     await kv.put(`tenant:${tenantId}:kb_rejected:${topic}`, JSON.stringify({ entries: pending.entries || [], source_ref: pending.source_ref || '', rejected_at: Date.now() }), ctx)
-    await rawKV.delete(`tenant:${tenantId}:kb_pending:${topic}`)
+    await kv.del(`tenant:${tenantId}:kb_pending:${topic}`, ctx)
     const env = envFromContext(c)
     await rebuildTenantConfig(env.TENANT_KV, env, tenantId)
     return c.html(`<div class="card" style="border-color:#da3633"><h3>${escapeHtml(topic)}</h3><div style="color:#f85149;font-size:12px;margin-top:4px">❌ Rejected · config rebuilt</div></div>`)
-  } catch (err: any) {
-    return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
+  } catch (err: unknown) {
+    return c.html(`<div class="empty" style="color:#da3633">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`)
   }
 })
 
@@ -356,8 +363,8 @@ adminRouter.post('/ingest-url', async (c) => {
     const { handleKbIngest } = await import('../queues/kb-ingest')
     c.executionCtx.waitUntil(handleKbIngest({ tenantId, url, topic, sourceRef: url }, c.env).catch(() => {}))
     return c.html('<div style="color:#3fb950">✅ Processing. Refresh pending tab shortly.</div>')
-  } catch (err: any) {
-    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
+  } catch (err: unknown) {
+    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`)
   }
 })
 
@@ -415,8 +422,8 @@ adminRouter.post('/upload-file', async (c) => {
     c.executionCtx.waitUntil(handleKbIngest({ tenantId, topic, sourceRef: r2Key || fileName, r2Key: r2Key || undefined }, c.env).catch(() => {}))
     return c.html(`<div style="color:#3fb950">✅ File "${escapeHtml(fileName)}" uploaded and processing. Refresh pending tab.</div>`)
 
-  } catch (err: any) {
-    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
+  } catch (err: unknown) {
+    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`)
   }
 })
 
@@ -442,16 +449,16 @@ adminRouter.post('/delete-entry', async (c) => {
     const raw = await kv.get(key, ctx)
     if (!raw) return c.html('<div style="color:#da3633">Data not found</div>')
     const data = JSON.parse(raw)
-    const filtered = (data.entries || []).filter((e: any) => e.id !== entryId)
+    const filtered = (data.entries || []).filter((e: KbEntry) => e.id !== entryId)
     if (filtered.length === 0) {
-      await rawKV.delete(key)
+      await kv.del(key, ctx)
       return c.html('')
     }
     data.entries = filtered
     await kv.put(key, JSON.stringify(data), ctx)
     return c.html('')
-  } catch (err: any) {
-    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
+  } catch (err: unknown) {
+    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`)
   }
 })
 
@@ -463,14 +470,16 @@ adminRouter.post('/delete-topic', async (c) => {
   const rawKV = envFromContext(c).TENANT_KV
   if (!rawKV) return c.html('<div style="color:#da3633">KV binding not available</div>')
   try {
+    const kv = guardKV(rawKV)
+    const ctx = { tenantId, env: c.env }
     let key: string
     if (state === 'approved') key = `tenant:${tenantId}:kb:${topic}`
     else if (state === 'rejected') key = `tenant:${tenantId}:kb_rejected:${topic}`
     else key = `tenant:${tenantId}:kb_pending:${topic}`
-    await rawKV.delete(key)
+    await kv.del(key, ctx)
     return c.html('<div class="empty">Deleted</div>')
-  } catch (err: any) {
-    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err.message)}</div>`)
+  } catch (err: unknown) {
+    return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`)
   }
 })
 
