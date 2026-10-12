@@ -7,9 +7,13 @@ mission budget.
 
 Contract:
 - Parallel tasks run in separate worktrees (F04-R02)
-- Shared mission budget — aggregate accounting (F04-R04)
+- Shared mission budget — aggregate accounting, no double counting (F04-R04,
+  FRS-007 F02-R10); duration budget is a hard stop with reason
+  budget_exhausted (F02-R03); per-task usage journaled in results (F02-R08)
 - Saga compensation per failed task (F04-R05)
-- Max parallel tasks configurable (F04-N01, default 5)
+- Max parallel tasks configurable (F04-N01, default 5) — dispatched via a
+  thread pool bounded by max_concurrent
+- Workers run droid/execute.py in each worktree
 
 Usage:
     from droid.parallel_coordinator import ParallelCoordinator
@@ -22,6 +26,8 @@ import logging
 import shutil
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -244,10 +250,20 @@ class ParallelCoordinator:
     ) -> dict[str, TaskStatus]:
         """Create worktrees and dispatch Droid per parallel task.
 
+        Phase 1 creates all worktrees (sequential — git worktree add does
+        not parallelise well against one repo). Phase 2 dispatches the
+        workers in a thread pool bounded by max_concurrent (F04-N01).
+
+        Budget: tasks share ONE mission budget (FRS-007 F02-R10, aggregate
+        accounting — no double counting). Before each task starts the
+        coordinator checks the aggregate elapsed time against
+        budget.max_duration_seconds; at the limit dispatch stops with
+        remaining tasks marked 'failed'/reason budget_exhausted
+        (F02-R03 hard stop).
+
         Args:
             droid_path: Optional override for Droid script path
             droid_args: Extra args to pass to each Droid worker
-                       (e.g. {"manifests_path": "...", "worktree": "..."})
 
         Returns:
             Dict of {task_id: TaskStatus} after all workers complete.
@@ -257,6 +273,7 @@ class ParallelCoordinator:
 
         droid_script = self.resolve_droid_script()
         droid_args = droid_args or {}
+        mission_started = time.monotonic()
 
         # Phase 1: create all worktrees
         wt_errors: list[str] = []
@@ -275,30 +292,50 @@ class ParallelCoordinator:
                 "Worktree creation had %d failures: %s", len(wt_errors), wt_errors
             )
 
-        # Phase 2: dispatch per task (sequential for now; parallel later)
-        for task in self.parallel_tasks():
-            st = self._statuses.get(task.task_id)
-            if not st or st.status != "pending":
-                continue  # already failed / skipped
+        # Phase 2: dispatch workers in a thread pool
+        pending = [
+            t for t in self.parallel_tasks()
+            if (st := self._statuses.get(t.task_id)) and st.status == "pending"
+        ]
+
+        def run_one(task: Task) -> tuple[TaskStatus, dict[str, Any], float]:
+            st = self._statuses[task.task_id]
+            # Budget hard stop (checked per-task start; aggregate, not per-task)
+            elapsed = time.monotonic() - mission_started
+            if elapsed >= self.manifest.budget.max_duration_seconds:
+                return st, {
+                    "status": "fail",
+                    "error": "budget_exhausted",
+                    "reason": "mission duration budget reached",
+                }, 0.0
 
             st.status = "running"
+            task_started = time.monotonic()
             try:
                 result = self._run_droid_in_worktree(task, droid_script, droid_args)
-                if result.get("status") == "pass":
+            except Exception as e:
+                result = {"status": "fail", "error": str(e)}
+                logger.exception("Task %s worker crashed", task.task_id)
+            duration_ms = int((time.monotonic() - task_started) * 1000)
+            return st, result, float(duration_ms)
+
+        with ThreadPoolExecutor(max_workers=self.max_concurrent) as pool:
+            futures = {pool.submit(run_one, t): t for t in pending}
+            for fut in as_completed(futures):
+                st, result, duration_ms = fut.result()
+                st.budget_used += int(duration_ms)
+                st.result = result
+                if result.get("error") == "budget_exhausted":
+                    st.status = "failed"
+                elif result.get("status") == "pass":
                     st.status = "completed"
-                    st.result = result
                 elif result.get("status") in ("escalated", "rejected"):
                     st.status = (
-                        "escalated" if result.get("status") == "escalated" else "failed"
+                        "escalated" if result.get("status") == "escalated"
+                        else "failed"
                     )
-                    st.result = result
                 else:
                     st.status = "failed"
-                    st.result = result
-            except Exception as e:
-                st.status = "failed"
-                st.result = {"error": str(e)}
-                logger.exception("Task %s worker crashed", task.task_id)
 
         return dict(self._statuses)
 
@@ -372,30 +409,44 @@ class ParallelCoordinator:
     def aggregate_results(self) -> dict[str, Any]:
         """Aggregate results from all parallel tasks.
 
+        Budget: per-task budget_used (ms) plus a mission-level aggregate
+        total — shared budget, no double counting (FRS-007 F02-R10).
+
         Returns:
             {
                 "mission_id": str,
                 "all_passed": bool,
                 "task_results": {task_id: TaskStatus.__dict__},
-                "budget_used": {task_id: int},
+                "budget_used": {task_id: int},           # ms per task
+                "budget_used_total_ms": int,             # aggregate
+                "budget_limit_ms": int,                  # budget.max_duration_seconds
             }
         """
         all_passed = all(
             s.status == "completed" for s in self._statuses.values()
         )
+        budget_used = {k: v.budget_used for k, v in self._statuses.items()}
         return {
             "mission_id": self.manifest.mission_id,
             "all_passed": all_passed,
-            "task_results": {k: dict(v) for k, v in self._statuses.items()},
-            "budget_used": {k: v.budget_used for k, v in self._statuses.items()},
+            "task_results": {k: v.__dict__ for k, v in self._statuses.items()},
+            "budget_used": budget_used,
+            "budget_used_total_ms": sum(budget_used.values()),
+            "budget_limit_ms": self.manifest.budget.max_duration_seconds * 1000,
         }
 
     def cleanup_worktrees(self) -> None:
-        """Remove all created worktrees (post-mission cleanup)."""
+        """Remove all created worktrees (post-mission cleanup).
+
+        Calls `git worktree prune` first to clear any stale-but-registered
+        entries (e.g. force-removed dirs whose metadata still lingers), then
+        removes the real worktrees.
+        """
+        subprocess.run(["git", "worktree", "prune"], capture_output=True, timeout=30)
         for wt in list(self._worktrees.values()):
             try:
                 subprocess.run(
-                    ["git", "worktree", "remove", str(wt.path)],
+                    ["git", "worktree", "remove", "--force", str(wt.path)],
                     check=True, capture_output=True, timeout=60,
                 )
                 logger.info("Removed worktree %s", wt.path)
