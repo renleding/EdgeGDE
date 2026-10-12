@@ -290,6 +290,7 @@ export async function setParentInheritance(rawKV: any, tenantId: string, enabled
   return rebuildTenantConfig(rawKV, undefined, tenantId)
 }
 
+/** Set child inheritance enabled/disabled for a tenant. */
 export async function setChildInheritance(rawKV: any, tenantId: string, enabled: boolean, parentTenantId?: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   await ensureTenantRecord(kv, tenantId)
@@ -349,6 +350,7 @@ async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTe
   return count
 }
 
+/** Clone a tenant config to a new tenant (rules, KB topics, overrides). */
 export async function cloneTenantConfig(rawKV: any, env: any, options: CloneOptions): Promise<RebuildResult & { sourceTenantId: string; rulesCopied: number; kbTopicsCopied: number }> {
   const kv = guardKV(rawKV)
   const { sourceTenantId, targetTenantId, targetName, parentLink = false } = options
@@ -420,6 +422,7 @@ export async function cloneTenantConfig(rawKV: any, env: any, options: CloneOpti
   }
 }
 
+/** Propagate parent config to all children. */
 export async function propagateParent(rawKV: any, env: any, parentTenantId: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   const children = await getChildren(kv, parentTenantId)
@@ -441,6 +444,7 @@ export async function propagateParent(rawKV: any, env: any, parentTenantId: stri
   }
 }
 
+/** Render the config inheritance admin HTML page. */
 export function renderConfigPage(profile: AgentProfile, parents: AgentProfile[], children: AgentProfile[], effective: Record<string, any>, token?: string): string {
   const qs = token ? `&token=${encodeURIComponent(token)}` : ''
   const parentOptions = parents.map(p =>
