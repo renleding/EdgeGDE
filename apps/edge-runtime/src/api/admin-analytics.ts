@@ -140,8 +140,8 @@ export function renderBacktestMetrics(result?: BacktestResult): string {
 
 /** Build a summary of analytics data from database and KV stores. */
 export async function buildAnalyticsSummary(
-  guardedDb: ReturnType<typeof guardDB>,
-  guardedKv: ReturnType<typeof guardKV>,
+  db: D1Database,
+  kv: KVNamespace,
   input: {
     tenantId: string
     metricName?: string
@@ -154,6 +154,8 @@ export async function buildAnalyticsSummary(
     backtestModel?: string
   },
 ): Promise<AnalyticsSummary> {
+  const guardedDb = guardDB(db)
+  const guardedKv = guardKV(kv)
   const tenantId = input.tenantId
   const seriesId = input.seriesId || 'tenant_global'
   const metricName = input.metricName
