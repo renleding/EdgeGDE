@@ -8,7 +8,18 @@
  */
 import { d1CircuitBreaker } from './d1-circuit-breaker'
 
-export function guardDB(rawDB: any) {
+/** Minimal structural type describing the guarded D1 wrapper returned by {@link guardDB}. */
+export interface GuardedDB {
+  prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }>; run(...values: unknown[]): Promise<unknown> } }
+  first<T = unknown>(ctx: unknown, sql: string, params?: unknown[]): Promise<T | null>
+  all<T = unknown>(ctx: unknown, sql: string, params?: unknown[]): Promise<{ results: T[] }>
+  insert(ctx: unknown, table: string, row: Record<string, unknown>): Promise<void>
+  update(ctx: unknown, table: string, updates: Record<string, unknown>, where: string, params?: unknown[]): Promise<void>
+  getCircuitStats(): { isOpen: boolean; failureCount: number }
+  resetCircuit(): void
+}
+
+export function guardDB(rawDB: any): GuardedDB {
   if (!rawDB || typeof rawDB.prepare !== 'function') {
     throw new Error('D1 binding not available')
   }

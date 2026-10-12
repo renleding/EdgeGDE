@@ -320,7 +320,7 @@ async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTe
   const dbRaw = env?.DB
   if (!dbRaw?.prepare) return 0
   const db = guardDB(dbRaw)
-  const rows = await db.all({ tenantId: sourceTenantId }, 'SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority, id', [sourceTenantId])
+  const rows = await db.all<{ condition: unknown; output: unknown; priority: unknown; active: unknown }>({ tenantId: sourceTenantId }, 'SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority, id', [sourceTenantId])
   const insertedAt = Math.floor(Date.now() / 1000)
   let count = 0
   for (const row of rows.results || []) {

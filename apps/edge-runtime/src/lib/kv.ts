@@ -33,7 +33,15 @@ function shortKey(key: string): string {
 /**
  * Build the guarded KV wrapper from the raw binding.
  */
-export function guardKV(rawKV: any) {
+/** Minimal structural type describing the guarded KV wrapper returned by {@link guardKV}. */
+export interface GuardedKV {
+  get(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json'): Promise<string | null>
+  getJson<T = unknown>(key: string, ctx?: TenantCtx): Promise<T | null>
+  put(key: string, value: string | object, ctx?: TenantCtx, options?: unknown): Promise<unknown>
+  del(key: string, ctx: TenantCtx): Promise<unknown>
+}
+
+export function guardKV(rawKV: any): GuardedKV {
   if (!rawKV || typeof rawKV.get !== 'function') {
     throw new Error('KV binding not available')
   }

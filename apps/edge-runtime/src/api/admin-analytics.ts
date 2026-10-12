@@ -170,12 +170,12 @@ export async function buildAnalyticsSummary(
   const series = metricName
     ? await listMetricSeries(guardedDb, tenantId, metricName, 100)
     : await listMetricSeries(guardedDb, tenantId, undefined, 100)
-  const latestForecast = await getLatestForecastRun(guardedDb, tenantId, metricName || 'forecast', seriesId)
+  const latestForecast = await getLatestForecastRun(db as any, tenantId, metricName || 'forecast', seriesId)
   const forecastPoints = latestForecast
-    ? await queryForecastPoints(guardedDb, tenantId, latestForecast.metric_name, seriesId, 100)
+    ? await queryForecastPoints(db as any, tenantId, latestForecast.metric_name, seriesId, 100)
     : []
   const pointerKey = forecastLatestPointerKey(tenantId, metricName || 'forecast', seriesId)
-  const pointer = await guardedKv.getJson(pointerKey, { tenantId })
+  const pointer = await guardedKv.getJson<Record<string, unknown> | null>(pointerKey, { tenantId })
   const recentAuditEvents = await queryAuditLogs(guardedDb, tenantId, { limit: 20 })
   const backtest = input.includeBacktest
     ? runMetricSeriesBacktest(await queryMetricSeriesPoints(guardedDb, {
@@ -245,8 +245,8 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
     return c.json({ summary })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -270,8 +270,8 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
       pointer: summary.pointer,
       generatedAt: summary.generatedAt,
     })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -298,7 +298,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
     return c.html(renderAnalyticsPage(summary, token))
-  } catch (err: any) {
+  } catch (err: unknown) {
     return c.html(renderAnalyticsPage({
       tenantId,
       metricName,
@@ -310,7 +310,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       pointer: null,
       recentAuditEvents: [],
       generatedAt: new Date().toISOString(),
-    }, token, err.message))
+    }, token, err instanceof Error ? err.message : 'Unknown error'))
   }
 })
 
@@ -416,25 +416,25 @@ export function renderModelComparisonRows(result?: ForecastModelComparisonResult
   return `<div class="meta">Primary metric: ${escapeHtml(result.primaryMetric)} · Winner: ${escapeHtml(winner)}</div>
   <table>
     <thead><tr><th>Rank</th><th>Model</th><th>MAE</th><th>RMSE</th><th>sMAPE</th><th>Status</th></tr></thead>
-    <tbody>${result.models.map((entry: any) => `<tr>
+    <tbody>${result.models.map((entry) => `<tr>
       <td>${entry.rank || ''}</td>
       <td>${escapeHtml(entry.model)}</td>
-      <td>${escapeHtml(entry.metrics?.mae ?? '')}</td>
-      <td>${escapeHtml(entry.metrics?.rmse ?? '')}</td>
-      <td>${escapeHtml(entry.metrics?.smape ?? '')}</td>
+      <td>${escapeHtml(String(entry.metrics?.mae ?? ''))}</td>
+      <td>${escapeHtml(String(entry.metrics?.rmse ?? ''))}</td>
+      <td>${escapeHtml(String(entry.metrics?.smape ?? ''))}</td>
       <td>${entry.status === 'success' ? 'success' : 'failed'}</td>
     </tr>`).join('')}</tbody>
   </table>`
 }
 
-function renderAuditEvents(events: any[]): string {
+function renderAuditEvents(events: Record<string, unknown>[]): string {
   if (!events.length) return '<div class="empty">No audit events found</div>'
   return `<table>
     <thead><tr><th>Type</th><th>Created</th><th>Payload</th></tr></thead>
-    <tbody>${events.map((event: any) => `<tr>
-      <td>${escapeHtml(event.event_type || '')}</td>
+    <tbody>${events.map((event) => `<tr>
+      <td>${escapeHtml(String(event.event_type || ''))}</td>
       <td>${escapeHtml(String(event.created_at || ''))}</td>
-      <td><code>${escapeHtml(event.payload_json || '{}')}</code></td>
+      <td><code>${escapeHtml(String(event.payload_json || '{}'))}</code></td>
     </tr>`).join('')}</tbody>
   </table>`
 }

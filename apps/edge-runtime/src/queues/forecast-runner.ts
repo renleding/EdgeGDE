@@ -65,8 +65,8 @@ const DEFAULT_PROMOTION_GATE = {
 }
 
 export async function queue(batch: any, env: ForecastRunnerEnv): Promise<void> {
-  const db = guardDB(env.DB)
-  const kv = guardKV(env.TENANT_KV)
+  const db = guardDB(env.DB) as any
+  const kv = guardKV(env.TENANT_KV) as any
 
   for (const msg of batch.messages) {
     const body = msg.body as ForecastRunMessage

@@ -33,7 +33,7 @@ adminForecastingRouter.get('/latest', async (c) => {
   }
 
   const db = guardDB(envFromContext(c).DB)
-  const run = await getLatestForecastRun(db, tenantId, metricName, seriesId)
+  const run = await getLatestForecastRun(db as any, tenantId, metricName, seriesId)
   if (!run) {
     return c.json({ error: 'No forecast run found' }, 404)
   }
@@ -51,7 +51,7 @@ adminForecastingRouter.get('/points', async (c) => {
   }
 
   const db = guardDB(envFromContext(c).DB)
-  const points = await queryForecastPoints(db, tenantId, metricName, seriesId, limit)
+  const points = await queryForecastPoints(db as any, tenantId, metricName, seriesId, limit)
   return c.json({ points })
 })
 
@@ -71,7 +71,7 @@ adminForecastingRouter.post('/run', async (c) => {
   const db = guardDB(envFromContext(c).DB)
   const kv = guardKV(envFromContext(c).TENANT_KV)
   const queue = envFromContext(c).FORECASTING_QUEUE
-  const runId = await createForecastRun(db, kv, {
+  const runId = await createForecastRun(db as any, kv as any, {
     tenantId,
     metricName,
     seriesId,
