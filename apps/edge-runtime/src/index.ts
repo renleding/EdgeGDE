@@ -8,7 +8,7 @@
  * @packageDocumentation
  */
 
-import { Hono } from 'hono'
+import { Hono, Context } from 'hono'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { CALCULATOR_REGISTRY } from './registry/calculators'
 import { PAGE_REGISTRY } from './registry/pages'
@@ -149,7 +149,7 @@ export const kv = new MemoryKvStore()
  * KV.list() is forbidden in this architecture.
  * All listing MUST go through D1 or counter reads.
  */
-function guardKvList(kvBinding: any, name: string): void {
+function guardKvList(kvBinding: { list?: unknown }, name: string): void {
   if (kvBinding && typeof kvBinding === 'object') {
     try {
       kvBinding.list = () => {
@@ -169,11 +169,11 @@ function guardKvList(kvBinding: any, name: string): void {
  * Guard against storing event data in KV.
  * Events must live in the AuditLedger DO only.
  */
-function guardKvEventStorage(kvBinding: any, name: string): void {
+function guardKvEventStorage(kvBinding: { put?: unknown }, name: string): void {
   if (kvBinding && typeof kvBinding === 'object' && kvBinding.put) {
-    const originalPut = kvBinding.put
+    const originalPut = kvBinding.put as (key: string, value: unknown, options?: unknown) => Promise<unknown>
     try {
-      kvBinding.put = async (key: string, value: any, options?: any) => {
+      kvBinding.put = async (key: string, value: unknown, options?: unknown) => {
         if (typeof key === 'string' && key.startsWith('audit:')) {
           throw new Error(
             `🚨 KV event storage is FORBIDDEN on ${name}. ` +
@@ -181,7 +181,7 @@ function guardKvEventStorage(kvBinding: any, name: string): void {
             'Events must be stored in the AuditLedger Durable Object.'
           )
         }
-        return originalPut.call(kvBinding, key, value, options)
+        return originalPut.call(kvBinding as Record<string, unknown>, key, value, options)
       }
     } catch {
       // Binding may be frozen — guard silently skipped
@@ -247,7 +247,7 @@ app.use('*', tenantResolver)
 app.use('*', tenantContextResolver)
 
 // 2. RATE LIMITER
-async function rateLimitHandler(c: any, next: () => Promise<void>) {
+async function rateLimitHandler(c: Context, next: () => Promise<void>) {
   const tenant = (c as unknown as { get: (key: string) => TenantConfig | undefined }).get('tenant')
 
   if (!tenant) {
@@ -387,7 +387,7 @@ app.get('/api/leads/feed', adminAuth, async (c) => {
       })
     )
   )
-  const alerts = results.map((r: any) => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
+  const alerts = results.map((r: { status: string; value?: unknown }) => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
   return c.json({ alerts })
 })
 
