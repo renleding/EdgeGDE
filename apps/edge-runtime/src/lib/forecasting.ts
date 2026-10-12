@@ -734,6 +734,7 @@ function extractMetricValue(metrics: unknown, key: string): number {
   }
 }
 
+/** Insert a forecast audit event into audit_logs (non-blocking). */
 export async function recordForecastAuditEvent(
   db: any,
   tenantId: string,
@@ -754,6 +755,7 @@ export async function recordForecastAuditEvent(
   }
 }
 
+/** Seasonal-naive baseline forecast for backtest comparison. */
 export function seasonalNaiveForecast(
   points: Array<{ ds: string; value: number }>,
   horizon: number,

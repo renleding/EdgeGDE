@@ -129,6 +129,7 @@ export function timeZoneForPostcode(postcode: string | number | null | undefined
  * An unresolvable zone degrades to UTC with NO local suffix and no "(undefined)". A
  * missing zone must not produce a plausible-looking wrong time.
  */
+/** Format a UTC ISO instant as dual UTC + local time (local suffix or UTC). */
 export function formatDualTime(iso: string | null | undefined, timeZone: string | null): string {
   if (!iso) return '—'
   const date = new Date(iso)
