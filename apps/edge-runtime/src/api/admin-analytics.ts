@@ -78,7 +78,7 @@ interface AnalyticsSummary {
   seriesId: string
   seriesCount: number
   series: MetricSeriesRow[]
-  latestForecast: ForecastRun | Record<string, unknown> | null
+  latestForecast: ForecastRun | null
   forecastPoints: ForecastPointRow[]
   pointer: Record<string, unknown> | null
   recentAuditEvents: Record<string, unknown>[]
@@ -174,7 +174,7 @@ export async function buildAnalyticsSummary(
     ? await queryForecastPoints(guardedDb, tenantId, latestForecast.metric_name, seriesId, 100)
     : []
   const pointerKey = forecastLatestPointerKey(tenantId, metricName || 'forecast', seriesId)
-  const pointer = await guardedKv.get<Record<string, unknown> | null>(pointerKey, { tenantId }, 'json')
+  const pointer = await guardedKv.getJson(pointerKey, { tenantId })
   const recentAuditEvents = await queryAuditLogs(guardedDb, tenantId, { limit: 20 })
   const backtest = input.includeBacktest
     ? runMetricSeriesBacktest(await queryMetricSeriesPoints(guardedDb, {

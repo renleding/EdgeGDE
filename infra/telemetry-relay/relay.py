@@ -459,19 +459,22 @@ def flush(batch: "list[dict]", deadline: float) -> None:
 
 
 def tail_forever() -> None:
-    """
-    Follow the container log across rotation.
+    """Follow the container log across rotation.
 
     podman writes JSON-lines to the configured log path. `--log-opt max-size=10m
     --log-opt max-file=3` rotates it, so the inode can change underneath us; the
     file is re-opened when the open handle stops growing and the path's inode
     differs.
 
-    CRITICAL: The journalctl sidecar keeps its file descriptor open across podman
-    rotation and continues appending to the OLD inode. This means the old file
-    keeps growing, so readline() keeps returning data. We must check rotation on
-    EVERY iteration, not just when the handle is idle. When rotation is detected,
-    we finish reading the old handle to EOF, THEN switch to the new file.
+    STALE-HANDLE GUARD (F15-R03): after a truncation or rotation the open handle
+    can sit PAST EOF (position > current file size). readline() then returns
+    nothing forever, new data accumulates unreadable, and telemetry silently
+    stops -- this is what stalled ingest from 2026-10-11T00:00Z until the
+    forwarder was restarted. Every iteration therefore compares handle position
+    against file size and re-opens at current EOF when stale. Re-reading is safe:
+    ingest stores fact_id as PRIMARY KEY with ON CONFLICT DO NOTHING (idempotent),
+    and payload replay is recovered by the operator script
+    /tmp/replay_old_log.py (FRS-010 F13-R18).
     """
     if not INGEST_SECRET:
         log("fatal", reason="INGEST_SHARED_SECRET not set")
@@ -494,13 +497,29 @@ def tail_forever() -> None:
     rotation_detected = False
 
     while True:
-        # Check rotation on EVERY iteration, not just when idle.
-        # The journalctl sidecar keeps writing to the old inode after podman rotates,
-        # so readline() keeps returning data from the old file.
+        # Track rotation and staleness on EVERY iteration, not just when idle.
+        # The journalctl sidecar keeps its fd pinned to the old inode after
+        # podman rotates, so the old handle can keep growing; conversely a
+        # truncated/rewritten file can leave our handle past EOF.
         try:
+            file_size = os.path.getsize(CONTAINER_LOG)
             current_inode = os.stat(CONTAINER_LOG).st_ino
         except FileNotFoundError:
+            file_size = -1
             current_inode = inode
+
+        # Stale handle: position is past the current file size.
+        # Re-open at current EOF. Ingest is idempotent, so overlap is safe.
+        if file_size >= 0 and handle.tell() > file_size:
+            log("handle_past_eof", position=handle.tell(), size=file_size)
+            try:
+                handle.close()
+            except Exception:  # noqa: BLE001
+                pass
+            handle = open(CONTAINER_LOG, "r", encoding="utf-8", errors="replace")
+            handle.seek(0, os.SEEK_END)
+            inode = current_inode
+            rotation_detected = False
 
         if current_inode != inode:
             # Rotation detected. Finish reading old handle to EOF first.

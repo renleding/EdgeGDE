@@ -211,8 +211,8 @@ describe('guardDB', () => {
       await expect(db.insert({ tenantId: 't' }, 'users', { x: 1 })).rejects.toThrow(/D1 circuit breaker open/)
       await expect(db.update({ tenantId: 't' }, 'users', { x: 1 }, 'id = 1')).rejects.toThrow(/D1 circuit breaker open/)
       // Error message includes the last failure ISO timestamp
-      const err = await db.first({ tenantId: 't' }, 'SELECT 1').catch((e: Error) => e)
-      expect((err as Error).message).toMatch(/Last failure: \d{4}-\d{2}-\d{2}T/)
+            const err = (await db.first({ tenantId: 't' }, 'SELECT 1').catch((e: unknown) => e)) as Error
+            expect(err.message).toMatch(/Last failure: \d{4}-\d{2}-\d{2}T/)
     })
 
     it('resetCircuit re-enables operations', async () => {

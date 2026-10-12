@@ -136,10 +136,12 @@ async function ensureTenantRecord(kv: ReturnType<typeof guardKV>, tenantId: stri
   return record
 }
 
+/** Read the agent profile for a tenant, or null when none exists. */
 export async function getAgentProfile(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<AgentProfile | null> {
   return getJson(kv, tenantId, 'agent:profile')
 }
 
+/** Return the existing agent profile, or auto-create one from the tenant ID. */
 export async function ensureAgentProfile(kv: ReturnType<typeof guardKV>, tenantId: string, name?: string): Promise<AgentProfile> {
   const existing = await getAgentProfile(kv, tenantId)
   if (existing) return existing
@@ -156,18 +158,22 @@ export async function ensureAgentProfile(kv: ReturnType<typeof guardKV>, tenantI
   return profile
 }
 
+/** Tenant-scoped config overrides (agent-edited), empty object when unset. */
 export async function getConfigOverrides(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   return (await getJson(kv, tenantId, 'config:overrides')) || {}
 }
 
+/** The tenant's own chat config block. */
 export async function getChatConfig(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   return (await getJson(kv, tenantId, 'chat:config')) || {}
 }
 
+/** Effective config: config:effective, falling back to chat:config. */
 export async function getEffectiveConfig(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   return (await getJson(kv, tenantId, 'config:effective')) || (await getChatConfig(kv, tenantId)) || {}
 }
 
+/** Recompute and persist config:effective + chat:config from parent/child inheritance. */
 export async function rebuildEffectiveConfig(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   const profile = await ensureAgentProfile(kv, tenantId)
   let effective: Record<string, any>
@@ -195,6 +201,7 @@ export async function rebuildEffectiveConfig(kv: ReturnType<typeof guardKV>, ten
   return { ...effective, effectiveRevision: revision, updatedAt: now() }
 }
 
+/** Rebuild a tenant's config and propagate to children when parent inheritance is on. */
 export async function rebuildTenantConfig(rawKV: any, env: any, tenantId: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   const effective = await rebuildEffectiveConfig(kv, tenantId)
@@ -236,6 +243,7 @@ async function updateChildrenIndex(kv: ReturnType<typeof guardKV>, tenantId: str
   await putGlobalJson(kv, key, Array.from(new Set([...current, tenantId])).sort())
 }
 
+/** Tenants with parent inheritance enabled, sorted by name. */
 export async function listActiveParents(kv: ReturnType<typeof guardKV>, excludeTenantId?: string): Promise<AgentProfile[]> {
   const ids = ((await getGlobalJson(kv, PARENT_INDEX_KEY)) || []) as string[]
   const parents: AgentProfile[] = []
@@ -247,6 +255,7 @@ export async function listActiveParents(kv: ReturnType<typeof guardKV>, excludeT
   return parents.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Children of a parent tenant that have child inheritance enabled. */
 export async function getChildren(kv: ReturnType<typeof guardKV>, parentTenantId: string): Promise<AgentProfile[]> {
   const ids = ((await getGlobalJson(kv, `${CHILD_INDEX_PREFIX}${parentTenantId}`)) || []) as string[]
   const children: AgentProfile[] = []
@@ -257,6 +266,7 @@ export async function getChildren(kv: ReturnType<typeof guardKV>, parentTenantId
   return children.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Toggle parent inheritance for a tenant and rebuild affected configs. */
 export async function setParentInheritance(rawKV: any, tenantId: string, enabled: boolean): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   await ensureTenantRecord(kv, tenantId)
@@ -280,6 +290,7 @@ export async function setParentInheritance(rawKV: any, tenantId: string, enabled
   return rebuildTenantConfig(rawKV, undefined, tenantId)
 }
 
+/** Disable child inheritance for a tenant; pin current effective config to chat:config. */
 export async function setChildInheritance(rawKV: any, tenantId: string, enabled: boolean, parentTenantId?: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   await ensureTenantRecord(kv, tenantId)
@@ -316,22 +327,26 @@ export async function setChildInheritance(rawKV: any, tenantId: string, enabled:
   return rebuildTenantConfig(rawKV, undefined, tenantId)
 }
 
-async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTenantId: string): Promise<number> {
-  const dbRaw = env?.DB
-  if (!dbRaw?.prepare) return 0
+async function cloneRules(rawKV: unknown, env: unknown, sourceTenantId: string, targetTenantId: string): Promise<number> {
+  const dbRaw = (env as { DB?: unknown })?.DB
+  if (!dbRaw || typeof (dbRaw as { prepare?: unknown }).prepare !== 'function') return 0
   const db = guardDB(dbRaw)
-  const rows = await db.all({ tenantId: sourceTenantId }, 'SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority, id', [sourceTenantId])
+  const rows = await db.all<{ condition: unknown; output: unknown; priority: unknown; active: unknown }>(
+    { tenantId: sourceTenantId },
+    'SELECT condition, output, priority, active FROM rules WHERE tenant_id = ? ORDER BY priority, id',
+    [sourceTenantId]
+  )
   const insertedAt = Math.floor(Date.now() / 1000)
   let count = 0
-  for (const row of (rows.results || []) as Array<Record<string, unknown>>) {
+  for (const row of rows.results || []) {
     const id = crypto.randomUUID()
     await db.insert({ tenantId: targetTenantId }, 'rules', {
       id,
       tenant_id: targetTenantId,
-      condition: row.condition,
-      output: row.output,
-      priority: row.priority,
-      active: row.active,
+      condition: row.condition as unknown,
+      output: row.output as unknown,
+      priority: row.priority as unknown,
+      active: row.active as unknown,
       created_at: insertedAt,
     })
     count++
@@ -339,7 +354,8 @@ async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTe
   return count
 }
 
-export async function cloneTenantConfig(rawKV: any, env: any, options: CloneOptions): Promise<RebuildResult & { sourceTenantId: string; rulesCopied: number; kbTopicsCopied: number }> {
+/** Clone a tenant's profile, config, KB topics, layouts, and rules to a new tenant. */
+export async function cloneTenantConfig(rawKV: unknown, env: unknown, options: CloneOptions): Promise<RebuildResult & { sourceTenantId: string; rulesCopied: number; kbTopicsCopied: number }> {
   const kv = guardKV(rawKV)
   const { sourceTenantId, targetTenantId, targetName, parentLink = false } = options
   const sourceProfile = await ensureAgentProfile(kv, sourceTenantId)
@@ -410,6 +426,7 @@ export async function cloneTenantConfig(rawKV: any, env: any, options: CloneOpti
   }
 }
 
+/** Rebuild every child of a parent, then the parent itself. */
 export async function propagateParent(rawKV: any, env: any, parentTenantId: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   const children = await getChildren(kv, parentTenantId)
@@ -431,6 +448,7 @@ export async function propagateParent(rawKV: any, env: any, parentTenantId: stri
   }
 }
 
+/** Render the admin config page HTML for a tenant and its inheritance tree. */
 export function renderConfigPage(profile: AgentProfile, parents: AgentProfile[], children: AgentProfile[], effective: Record<string, any>, token?: string): string {
   const qs = token ? `&token=${encodeURIComponent(token)}` : ''
   const parentOptions = parents.map(p =>

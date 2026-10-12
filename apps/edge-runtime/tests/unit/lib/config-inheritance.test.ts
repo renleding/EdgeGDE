@@ -492,7 +492,7 @@ describe('cloneTenantConfig', () => {
     // Rules copied via DB insert (uuid ids)
     expect(db.all).toHaveBeenCalledWith(
       { tenantId: 'src' },
-      'SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority, id',
+      'SELECT condition, output, priority, active FROM rules WHERE tenant_id = ? ORDER BY priority, id',
       ['src'],
     )
     expect(db.insert).toHaveBeenCalledTimes(2)

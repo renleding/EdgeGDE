@@ -66,6 +66,7 @@ const DEFAULT_PROMOTION_GATE = {
   requireIntervalBounds: true,
 }
 
+/** Consume a batch of forecast_run_requested messages and execute them. */
 export async function queue(batch: { messages: Array<{ body: unknown; ack: () => void; retry: () => void }> }, env: ForecastRunnerEnv): Promise<void> {
   const db = guardDB(env.DB)
   const kv = guardKV(env.TENANT_KV)

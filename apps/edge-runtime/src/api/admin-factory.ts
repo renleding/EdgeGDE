@@ -32,15 +32,17 @@ router.get('/', async (c) => {
 
   if (bpId) {
     try {
-      const raw = await kv.getJson<Record<string, any>>(`blueprint:${bpId}:latest`)
+      const raw = await kv.getJson(`blueprint:${bpId}:latest`) as
+        | { id?: unknown; version?: unknown; fields?: unknown[]; packs?: { rule_pack?: unknown; compliance_pack?: unknown } }
+        | null
       if (raw) {
         bpJson = JSON.stringify(raw, null, 2)
         bpInfo = `
           <div style="font-size:12px;color:#8b949e;margin-bottom:8px">
             Blueprint: ${escapeHtml(String(raw.id ?? ''))} v${escapeHtml(String(raw.version ?? '?'))} ·
-            ${(raw.fields || []).length} fields ·
+            ${(raw.fields ?? []).length} fields ·
             ${raw.packs?.rule_pack ? 'rule pack: ' + escapeHtml(String(raw.packs.rule_pack)) : 'no rule pack'} ·
-            ${raw.packs?.compliance_pack ? 'compliance pack: ' + escapeHtml(String(raw.packs.compliance_pack)) : 'no rule pack'}
+            ${raw.packs?.compliance_pack ? 'compliance pack: ' + escapeHtml(String(raw.packs.compliance_pack)) : 'no compliance pack'}
           </div>`
       }
     } catch {}
@@ -167,8 +169,8 @@ router.post('/create', async (c) => {
       </div>
     </div>`)
 
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">' + escapeHtml(err.message) + '<br><pre style="font-size:10px;margin-top:4px;color:#f85149">' + escapeHtml(err.stack || '') + '</pre></div>')
+  } catch (err: unknown) {
+    return c.html('<div style="color:#da3633">' + escapeHtml(err instanceof Error ? err.message : 'Unknown error') + '<br><pre style="font-size:10px;margin-top:4px;color:#f85149">' + escapeHtml(err instanceof Error ? err.stack || '' : '') + '</pre></div>')
   }
 })
 
