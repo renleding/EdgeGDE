@@ -154,6 +154,19 @@ jobs:
       - name: Replay test (verify past missions against current code)
         run: python3 tools/replay.py run --recent 5 2>&1 || echo "Replay completed (no mission log yet expected on fresh CI)"
 
+  openspec-validate:
+    name: OpenSpec validation
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenSpec CLI
+        run: pip install openspec
+      - name: Validate all changes and specs
+        run: openspec validate --all
+        working-directory: .
+
   automation-sync:
     # The Hermes automation that merges every PR previously lived only in
     # ~/.hermes/scripts/ (not version controlled), so it received no review.
