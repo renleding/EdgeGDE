@@ -30,16 +30,17 @@ export function guardDB(rawDB: unknown): GuardedDB {
   }
 
   const raw = rawDB as Record<string, unknown>
-  // D1 prepared statement: bind() chains, and first/all/run are also callable directly
-  const prepareFn = raw.prepare as (sql: string) => {
-    bind(...params: unknown[]): { first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }>; run(...values: unknown[]): Promise<unknown> }
-    first<T>(): Promise<T | null>
-    all<T>(): Promise<{ results: T[] }>
-    run(...values: unknown[]): Promise<unknown>
-  }
-
+  // D1 prepared statement: bind() chains, and first/all/run are also callable directly.
+  // IMPORTANT: call raw.prepare(...) directly. Do NOT extract `const prepareFn = raw.prepare` —
+  // D1's prepare is a bound getter in Workers; extracting the reference drops `this` and
+  // throws "Cannot read properties of undefined (reading 'alwaysPrimarySession')" in production.
   function statement(sql: string) {
-    return prepareFn(sql)
+    return (raw.prepare as (sql: string) => {
+      bind(...params: unknown[]): { first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }>; run(...values: unknown[]): Promise<unknown> }
+      first<T>(): Promise<T | null>
+      all<T>(): Promise<{ results: T[] }>
+      run(...values: unknown[]): Promise<unknown>
+    })(sql)
   }
 
   async function trackMetrics<T>(label: string, fn: () => Promise<T>): Promise<T> {
