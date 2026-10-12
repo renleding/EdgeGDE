@@ -18,7 +18,7 @@ import {
 import { guardDB } from '../lib/db'
 import { guardKV } from '../lib/kv'
 import type { ForecastRunnerEnv } from '../queues/forecast-runner'
-import type { GuardedDB, GuardedKV } from '../lib/db'
+import type { GuardedDB } from '../lib/db'
 
 /** Hono router for admin forecasting endpoints. */
 export const adminForecastingRouter = new Hono()
