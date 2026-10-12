@@ -132,6 +132,9 @@ export interface ForecastRun {
   requested_by: string | null
   source: string
   error: string | null
+  promotion_status: 'pending' | 'published' | 'rejected' | 'failed' | 'skipped' | null
+  promotion_metrics_json: string | null
+  promotion_error: string | null
   started_at: number | null
   completed_at: number | null
   created_at: string
@@ -191,19 +194,23 @@ export interface CompleteForecastRunInput {
   error?: string
 }
 
+/** Normalize forecast quantiles to sorted unique finite numbers in (0,1). */
 export function normalizeForecastQuantiles(quantiles?: number[]): number[] {
   const values = Array.isArray(quantiles) && quantiles.length > 0 ? quantiles : DEFAULT_FORECAST_QUANTILES
   return [...new Set(values.map(q => Number(q)).filter(q => Number.isFinite(q) && q > 0 && q < 1))].sort((a, b) => a - b)
 }
 
+/** JSON-serialize normalized quantiles. */
 export function forecastQuantilesJson(quantiles?: number[]): string {
   return JSON.stringify(normalizeForecastQuantiles(quantiles))
 }
 
+/** KV pointer key for the latest forecast run of a metric/series. */
 export function forecastLatestPointerKey(tenantId: string, metricName: string, seriesId = 'tenant_global'): string {
   return `tenant:${tenantId}:forecast:${metricName}:${seriesId}:latest`
 }
 
+/** Stable hash for a forecast config (model, horizon, quantiles, metric). */
 export function forecastConfigHash(input: {
   modelName: string
   modelVersion?: string
@@ -226,6 +233,7 @@ export function forecastConfigHash(input: {
   return `fc_${encoded.slice(0, 28)}`
 }
 
+/** Build the Chronos-2 request payload for a forecast run. */
 export function buildChronos2RequestPayload(input: {
   runId: string
   tenantId: string
@@ -266,6 +274,7 @@ export function buildChronos2RequestPayload(input: {
   }
 }
 
+/** Parse a Chronos-2 forecast response into normalized points. */
 export function parseChronos2ForecastResponse(
   response: unknown,
   options: {
@@ -334,6 +343,7 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+/** Persist a new forecast run and return its runId. */
 export async function createForecastRun(
   db: any,
   kv: any,
@@ -397,6 +407,7 @@ export async function createForecastRun(
   return runId
 }
 
+/** Update a forecast run status to running with optional external job ID. */
 export async function markForecastRunRunning(
   db: any,
   runId: string,
@@ -416,6 +427,7 @@ export async function markForecastRunRunning(
   )
 }
 
+/** Finalize a forecast run with results, metrics, and optional promotion. */
 export async function completeForecastRun(
   db: any,
   input: CompleteForecastRunInput,
@@ -440,6 +452,7 @@ export async function completeForecastRun(
   )
 }
 
+/** Mark a forecast run as failed with an error message. */
 export async function failForecastRun(
   db: any,
   runId: string,
