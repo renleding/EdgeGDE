@@ -136,10 +136,12 @@ async function ensureTenantRecord(kv: ReturnType<typeof guardKV>, tenantId: stri
   return record
 }
 
+/** Fetch the agent profile for a tenant. */
 export async function getAgentProfile(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<AgentProfile | null> {
   return getJson(kv, tenantId, 'agent:profile')
 }
 
+/** Ensure an agent profile exists (auto-create if missing). */
 export async function ensureAgentProfile(kv: ReturnType<typeof guardKV>, tenantId: string, name?: string): Promise<AgentProfile> {
   const existing = await getAgentProfile(kv, tenantId)
   if (existing) return existing
@@ -156,18 +158,22 @@ export async function ensureAgentProfile(kv: ReturnType<typeof guardKV>, tenantI
   return profile
 }
 
+/** Get config overrides for a tenant. */
 export async function getConfigOverrides(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   return (await getJson(kv, tenantId, 'config:overrides')) || {}
 }
 
+/** Get chat config for a tenant. */
 export async function getChatConfig(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   return (await getJson(kv, tenantId, 'chat:config')) || {}
 }
 
+/** Get effective config (with parent inheritance if enabled). */
 export async function getEffectiveConfig(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   return (await getJson(kv, tenantId, 'config:effective')) || (await getChatConfig(kv, tenantId)) || {}
 }
 
+/** Rebuild effective config from parent + overrides, store to KV. */
 export async function rebuildEffectiveConfig(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<Record<string, any>> {
   const profile = await ensureAgentProfile(kv, tenantId)
   let effective: Record<string, any>
@@ -195,6 +201,7 @@ export async function rebuildEffectiveConfig(kv: ReturnType<typeof guardKV>, ten
   return { ...effective, effectiveRevision: revision, updatedAt: now() }
 }
 
+/** Rebuild tenant config and propagate to children if parent inheritance enabled. */
 export async function rebuildTenantConfig(rawKV: any, env: any, tenantId: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   const effective = await rebuildEffectiveConfig(kv, tenantId)
@@ -236,6 +243,7 @@ async function updateChildrenIndex(kv: ReturnType<typeof guardKV>, tenantId: str
   await putGlobalJson(kv, key, Array.from(new Set([...current, tenantId])).sort())
 }
 
+/** List all active parent tenants. */
 export async function listActiveParents(kv: ReturnType<typeof guardKV>, excludeTenantId?: string): Promise<AgentProfile[]> {
   const ids = ((await getGlobalJson(kv, PARENT_INDEX_KEY)) || []) as string[]
   const parents: AgentProfile[] = []
@@ -247,6 +255,7 @@ export async function listActiveParents(kv: ReturnType<typeof guardKV>, excludeT
   return parents.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Get child tenants of a parent. */
 export async function getChildren(kv: ReturnType<typeof guardKV>, parentTenantId: string): Promise<AgentProfile[]> {
   const ids = ((await getGlobalJson(kv, `${CHILD_INDEX_PREFIX}${parentTenantId}`)) || []) as string[]
   const children: AgentProfile[] = []
@@ -257,6 +266,7 @@ export async function getChildren(kv: ReturnType<typeof guardKV>, parentTenantId
   return children.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Set parent inheritance enabled/disabled for a tenant. */
 export async function setParentInheritance(rawKV: any, tenantId: string, enabled: boolean): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   await ensureTenantRecord(kv, tenantId)
