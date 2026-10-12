@@ -94,7 +94,7 @@ function stableRevision(tenantId: string, effective: Record<string, any>): strin
   return `${tenantId}:${Math.abs(hash).toString(36)}`
 }
 
-async function getJson(kv: ReturnType<typeof guardKV>, tenantId: string, suffix: string): Promise<any> {
+async function getJson(kv: ReturnType<typeof guardKV>, tenantId: string, suffix: string): Promise<unknown> {
   const raw = await kv.get(tenantKey(tenantId, suffix), tenantCtx(tenantId))
   if (!raw) return null
   return typeof raw === 'string' ? JSON.parse(raw) : raw
@@ -108,7 +108,7 @@ async function deleteKey(kv: ReturnType<typeof guardKV>, tenantId: string, suffi
   await kv.del(tenantKey(tenantId, suffix), tenantCtx(tenantId))
 }
 
-async function getGlobalJson(kv: ReturnType<typeof guardKV>, key: string): Promise<any> {
+async function getGlobalJson(kv: ReturnType<typeof guardKV>, key: string): Promise<unknown> {
   const raw = await kv.get(key)
   if (!raw) return null
   return typeof raw === 'string' ? JSON.parse(raw) : raw
@@ -119,7 +119,7 @@ async function putGlobalJson(kv: ReturnType<typeof guardKV>, key: string, value:
 }
 
 async function getTenantRecord(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<TenantConfig | null> {
-  return getJson(kv, tenantId, '')
+  return getJson(kv, tenantId, '') as Promise<TenantConfig | null>
 }
 
 async function ensureTenantRecord(kv: ReturnType<typeof guardKV>, tenantId: string, name?: string): Promise<TenantConfig> {
@@ -138,7 +138,7 @@ async function ensureTenantRecord(kv: ReturnType<typeof guardKV>, tenantId: stri
 
 /** Fetch the agent profile for a tenant. */
 export async function getAgentProfile(kv: ReturnType<typeof guardKV>, tenantId: string): Promise<AgentProfile | null> {
-  return getJson(kv, tenantId, 'agent:profile')
+  return getJson(kv, tenantId, 'agent:profile') as Promise<AgentProfile | null>
 }
 
 /** Ensure an agent profile exists (auto-create if missing). */
@@ -202,7 +202,7 @@ export async function rebuildEffectiveConfig(kv: ReturnType<typeof guardKV>, ten
 }
 
 /** Rebuild tenant config and propagate to children if parent inheritance enabled. */
-export async function rebuildTenantConfig(rawKV: any, env: any, tenantId: string): Promise<RebuildResult> {
+export async function rebuildTenantConfig(rawKV: unknown, env: unknown, tenantId: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   const effective = await rebuildEffectiveConfig(kv, tenantId)
   const profile = await ensureAgentProfile(kv, tenantId)
@@ -267,7 +267,7 @@ export async function getChildren(kv: ReturnType<typeof guardKV>, parentTenantId
 }
 
 /** Set parent inheritance enabled/disabled for a tenant. */
-export async function setParentInheritance(rawKV: any, tenantId: string, enabled: boolean): Promise<RebuildResult> {
+export async function setParentInheritance(rawKV: unknown, tenantId: string, enabled: boolean): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   await ensureTenantRecord(kv, tenantId)
   const profile = await ensureAgentProfile(kv, tenantId)
@@ -291,7 +291,7 @@ export async function setParentInheritance(rawKV: any, tenantId: string, enabled
 }
 
 /** Set child inheritance enabled/disabled for a tenant. */
-export async function setChildInheritance(rawKV: any, tenantId: string, enabled: boolean, parentTenantId?: string): Promise<RebuildResult> {
+export async function setChildInheritance(rawKV: unknown, tenantId: string, enabled: boolean, parentTenantId?: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   await ensureTenantRecord(kv, tenantId)
   const profile = await ensureAgentProfile(kv, tenantId)
@@ -327,8 +327,8 @@ export async function setChildInheritance(rawKV: any, tenantId: string, enabled:
   return rebuildTenantConfig(rawKV, undefined, tenantId)
 }
 
-async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTenantId: string): Promise<number> {
-  const dbRaw = env?.DB
+async function cloneRules(rawKV: unknown, env: unknown, sourceTenantId: string, targetTenantId: string): Promise<number> {
+  const dbRaw = (env as { DB?: Record<string, unknown> } | undefined)?.DB
   if (!dbRaw?.prepare) return 0
   const db = guardDB(dbRaw)
   const rows = await db.all<{ condition: unknown; output: unknown; priority: unknown; active: unknown }>({ tenantId: sourceTenantId }, 'SELECT * FROM rules WHERE tenant_id = ? ORDER BY priority, id', [sourceTenantId])
@@ -351,7 +351,7 @@ async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTe
 }
 
 /** Clone a tenant config to a new tenant (rules, KB topics, overrides). */
-export async function cloneTenantConfig(rawKV: any, env: any, options: CloneOptions): Promise<RebuildResult & { sourceTenantId: string; rulesCopied: number; kbTopicsCopied: number }> {
+export async function cloneTenantConfig(rawKV: unknown, env: unknown, options: CloneOptions): Promise<RebuildResult & { sourceTenantId: string; rulesCopied: number; kbTopicsCopied: number }> {
   const kv = guardKV(rawKV)
   const { sourceTenantId, targetTenantId, targetName, parentLink = false } = options
   const sourceProfile = await ensureAgentProfile(kv, sourceTenantId)
@@ -423,7 +423,7 @@ export async function cloneTenantConfig(rawKV: any, env: any, options: CloneOpti
 }
 
 /** Propagate parent config to all children. */
-export async function propagateParent(rawKV: any, env: any, parentTenantId: string): Promise<RebuildResult> {
+export async function propagateParent(rawKV: unknown, env: unknown, parentTenantId: string): Promise<RebuildResult> {
   const kv = guardKV(rawKV)
   const children = await getChildren(kv, parentTenantId)
   const propagatedChildren: Array<{ tenantId: string; effectiveRevision: string }> = []
@@ -445,14 +445,15 @@ export async function propagateParent(rawKV: any, env: any, parentTenantId: stri
 }
 
 /** Render the config inheritance admin HTML page. */
-export function renderConfigPage(profile: AgentProfile, parents: AgentProfile[], children: AgentProfile[], effective: Record<string, any>, token?: string): string {
+export function renderConfigPage(profile: AgentProfile, parents: AgentProfile[], children: AgentProfile[], effective: Record<string, unknown>, token?: string): string {
+  const eff = effective as { ui?: { title?: string }; title?: string; knowledgeBase?: { topics?: string[] }; effectiveRevision?: string; objective?: string; updatedAt?: string }
   const qs = token ? `&token=${encodeURIComponent(token)}` : ''
   const parentOptions = parents.map(p =>
     `<option value="${escapeHtml(p.tenantId)}"${profile.parentTenantId === p.tenantId ? ' selected' : ''}>${escapeHtml(p.name)} (${escapeHtml(p.tenantId)})</option>`
   ).join('')
 
   const childrenHtml = children.length
-    ? `<ul>${children.map(child => `<li>${escapeHtml(child.name)} — ${escapeHtml(child.tenantId)} — last sync ${escapeHtml(String(effective.updatedAt || 'unknown'))}</li>`).join('')}</ul>`
+    ? `<ul>${children.map(child => `<li>${escapeHtml(child.name)} — ${escapeHtml(child.tenantId)} — last sync ${escapeHtml(String(eff.updatedAt || 'unknown'))}</li>`).join('')}</ul>`
     : '<div class="empty">No active children.</div>'
 
   return `
@@ -477,7 +478,7 @@ export function renderConfigPage(profile: AgentProfile, parents: AgentProfile[],
       ${childrenHtml}
     </div>
 
-    <div class="card" style="border-color:${profile.childInheritanceEnabled ? '#238636' : '#30363d'}">
+    <div class=\"card\" style=\"border-color:${profile.childInheritanceEnabled ? '#238636' : '#30363d'}\">
       <h3>Child config</h3>
       <form hx-post="/admin/config/child-toggle?tenant=${escapeHtml(profile.tenantId)}${qs}" hx-target="closest .card" hx-swap="outerHTML">
         <label style="display:flex;align-items:center;gap:8px;margin:12px 0">
@@ -492,10 +493,10 @@ export function renderConfigPage(profile: AgentProfile, parents: AgentProfile[],
 
     <div class="card">
       <h3>Effective config summary</h3>
-      <div class="entry"><div class="key">effectiveRevision</div><div class="val">${escapeHtml(String(effective.effectiveRevision || '—'))}</div></div>
-      <div class="entry"><div class="key">objective</div><div class="val">${escapeHtml(String(effective.objective || '—'))}</div></div>
-      <div class="entry"><div class="key">ui.title</div><div class="val">${escapeHtml(String(effective.ui?.title || effective.title || '—'))}</div></div>
-      <div class="entry"><div class="key">knowledgeBase.topics</div><div class="val">${escapeHtml(JSON.stringify(effective.knowledgeBase?.topics || []))}</div></div>
+      <div class="entry"><div class="key">effectiveRevision</div><div class="val">${escapeHtml(String(eff.effectiveRevision || '—'))}</div></div>
+      <div class="entry"><div class="key">objective</div><div class="val">${escapeHtml(String(eff.objective || '—'))}</div></div>
+      <div class="entry"><div class="key">ui.title</div><div class="val">${escapeHtml(String(eff.ui?.title || eff.title || '—'))}</div></div>
+      <div class="entry"><div class="key">knowledgeBase.topics</div><div class="val">${escapeHtml(JSON.stringify(eff.knowledgeBase?.topics || []))}</div></div>
     </div>
   `
 }

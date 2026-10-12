@@ -36,7 +36,7 @@ interface DomainOptions {
   phase?: string
 }
 
-interface OTelEnv {
+export interface OTelEnv {
   OTEL_EXPORTER_OTLP_ENDPOINT?: string
   OTEL_SERVICE_NAME?: string
 }

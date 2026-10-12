@@ -10,7 +10,12 @@ import { d1CircuitBreaker } from './d1-circuit-breaker'
 
 /** Minimal structural type describing the guarded D1 wrapper returned by {@link guardDB}. */
 export interface GuardedDB {
-  prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }>; run(...values: unknown[]): Promise<unknown> } }
+  prepare(sql: string): {
+    bind(...params: unknown[]): { first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }>; run(...values: unknown[]): Promise<unknown> }
+    first<T>(): Promise<T | null>
+    all<T>(): Promise<{ results: T[] }>
+    run(...values: unknown[]): Promise<unknown>
+  }
   first<T = unknown>(ctx: unknown, sql: string, params?: unknown[]): Promise<T | null>
   all<T = unknown>(ctx: unknown, sql: string, params?: unknown[]): Promise<{ results: T[] }>
   insert(ctx: unknown, table: string, row: Record<string, unknown>): Promise<void>
@@ -19,13 +24,22 @@ export interface GuardedDB {
   resetCircuit(): void
 }
 
-export function guardDB(rawDB: any): GuardedDB {
-  if (!rawDB || typeof rawDB.prepare !== 'function') {
+export function guardDB(rawDB: unknown): GuardedDB {
+  if (!rawDB || typeof (rawDB as Record<string, unknown>).prepare !== 'function') {
     throw new Error('D1 binding not available')
   }
 
+  const raw = rawDB as Record<string, unknown>
+  // D1 prepared statement: bind() chains, and first/all/run are also callable directly
+  const prepareFn = raw.prepare as (sql: string) => {
+    bind(...params: unknown[]): { first<T>(): Promise<T | null>; all<T>(): Promise<{ results: T[] }>; run(...values: unknown[]): Promise<unknown> }
+    first<T>(): Promise<T | null>
+    all<T>(): Promise<{ results: T[] }>
+    run(...values: unknown[]): Promise<unknown>
+  }
+
   function statement(sql: string) {
-    return rawDB.prepare(sql)
+    return prepareFn(sql)
   }
 
   async function trackMetrics<T>(label: string, fn: () => Promise<T>): Promise<T> {
@@ -72,7 +86,7 @@ export function guardDB(rawDB: any): GuardedDB {
       checkCircuit()
       const keys = Object.keys(row)
       const values = keys.map(k => row[k])
-      return trackMetrics('insert', () => statement(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...values))
+      return trackMetrics('insert', () => statement(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...values)) as Promise<void>
     },
 
     async update(ctx: unknown, table: string, updates: Record<string, unknown>, where: string, params: unknown[] = []): Promise<void> {
@@ -80,7 +94,7 @@ export function guardDB(rawDB: any): GuardedDB {
       const keys = Object.keys(updates)
       const assignments = keys.map(k => `${k} = ?`)
       const values = keys.map(k => updates[k]).concat(params)
-      return trackMetrics('update', () => statement(`UPDATE ${table} SET ${assignments.join(', ')} WHERE ${where}`).run(...values))
+      return trackMetrics('update', () => statement(`UPDATE ${table} SET ${assignments.join(', ')} WHERE ${where}`).run(...values)) as Promise<void>
     },
 
     /** Expose circuit breaker stats for health endpoints */
