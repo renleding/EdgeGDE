@@ -131,7 +131,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # Full history so the governance diff can reach the base commit.
+          # fetch-depth: 2 + depth=1 fetch of base branch was insufficient when
+          # the PR had more than 2 commits (GOVERNANCE_DIFF_ERROR pattern).
+          # Full history (fetch-depth: 0) makes the diff reliable.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
