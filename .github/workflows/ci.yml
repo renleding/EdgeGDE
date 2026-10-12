@@ -162,9 +162,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install OpenSpec CLI
-        run: pip install openspec
+        run: npx -y @fission-ai/openspec --version
       - name: Validate all changes and specs
-        run: openspec validate --all
+        run: npx -y @fission-ai/openspec validate --all
         working-directory: .
 
   automation-sync:
