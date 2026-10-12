@@ -797,20 +797,22 @@ app.get('/canvas/:id/edit', async (c) => {
     const env = c.env as Env
     const tenantKv = guardKV(env['TENANT_KV'])
     const ARTIFACT_KV = env.ARTIFACT_KV
-    let layout: any = null
+    let layout: Record<string, unknown> | null = null
 
     // Try ARTIFACT_KV legacy layout (format: layout:{tenantId}:production:latest)
     if (ARTIFACT_KV?.get) {
-      layout = await ARTIFACT_KV.get('layout:' + canvasId + ':production:latest', 'json').catch(() => null)
+      layout = (await ARTIFACT_KV.get('layout:' + canvasId + ':production:latest', 'json').catch(() => null)) as Record<string, unknown> | null
     }
     // Fallback: TENANT_KV (format: tenant:{slug})
     if (!layout && tenantKv?.get) {
-      layout = await tenantKv.get('tenant:' + canvasId + ':layout', 'json').catch(() => null)
+      layout = (await tenantKv.get('tenant:' + canvasId + ':layout', 'json').catch(() => null)) as Record<string, unknown> | null
     }
 
     if (layout && layout.rootNode) {
       const { openPencilToCanvas } = await import('./canvas/openpencil-migration')
-      const doc = openPencilToCanvas(layout, canvasId)
+      // Legacy layout has formFields with nodeId; cast through unknown to bypass strict schema check
+      const legacyLayout = layout as unknown as Parameters<typeof openPencilToCanvas>[0]
+      const doc = openPencilToCanvas(legacyLayout, canvasId)
 
       await stub.fetch('http://dO/init', {
         method: 'POST',
@@ -957,9 +959,9 @@ const MCP_TOOLS = [
   },
 ]
 
-async function handleMcpTool(name: string, args: any, env: any): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+async function handleMcpTool(name: string, args: Record<string, unknown>, env: Record<string, unknown>): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
-    const CANVAS_SESSION = env.CANVAS_SESSION
+    const CANVAS_SESSION = env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }
 
     switch (name) {
       case 'canvas_create': {
@@ -967,7 +969,7 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         const doId = CANVAS_SESSION.idFromName(id)
         const stub = CANVAS_SESSION.get(doId)
         const rootId = 'root'
-        const nodes: Record<string, any> = {}
+        const nodes: Record<string, Record<string, unknown>> = {}
         nodes[rootId] = { id: rootId, type: 'Page', parentId: null, children: [], props: {}, style: { display: 'flex', flexDirection: 'column', minHeight: '100vh' } }
         await stub.fetch('http://dO/init', {
           method: 'POST',
@@ -976,7 +978,7 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         return { content: [{ type: 'text', text: JSON.stringify({ id, rootId, nodeCount: 1 }) }] }
       }
       case 'canvas_clone': {
-        const { html, normalizedUrl } = await fetchCloneHtml(args.url)
+        const { html, normalizedUrl } = await fetchCloneHtml(args.url as string)
         const { cloneWebsite } = await import('./cloner/website-cloner')
         const { extractDesignTokens } = await import('./transpiler/design-extractor')
         const doc = cloneWebsite(normalizedUrl, html)
@@ -997,7 +999,7 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         const { generateCanvas } = await import('./generator/layout-generator')
         const llmKey = env.LLM_API_KEY || ''
         if (!llmKey) return { content: [{ type: 'text', text: 'LLM_API_KEY not configured' }], isError: true }
-        const doc = await generateCanvas(args.prompt, { apiKey: llmKey })
+        const doc = await generateCanvas(args.prompt as string, { apiKey: llmKey as string })
         const id = crypto.randomUUID()
         doc.id = id
         const doId = CANVAS_SESSION.idFromName(id)
@@ -1009,34 +1011,34 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         return { content: [{ type: 'text', text: JSON.stringify({ id, nodeCount: Object.keys(doc.nodes).length }) }] }
       }
       case 'canvas_get_state': {
-        const doId = env.CANVAS_SESSION.idFromName(args.id)
-        const stub = env.CANVAS_SESSION.get(doId)
+        const doId = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).idFromName(args.id as string)
+        const stub = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).get(doId)
         const stateRes = await stub.fetch('http://dO/state')
         if (stateRes.status !== 200) return { content: [{ type: 'text', text: 'Canvas not found' }], isError: true }
-        const doc = await stateRes.json()
+        const doc = (await stateRes.json()) as { id?: string; version?: number; rootId?: string; nodes?: Record<string, unknown> }
         return { content: [{ type: 'text', text: JSON.stringify({ id: doc.id, version: doc.version, rootId: doc.rootId, nodeCount: Object.keys(doc.nodes || {}).length }) }] }
       }
       case 'canvas_mutate': {
-        const doId = env.CANVAS_SESSION.idFromName(args.id)
-        const stub = env.CANVAS_SESSION.get(doId)
+        const doId = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).idFromName(args.id as string)
+        const stub = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).get(doId)
         const res = await stub.fetch('http://dO/mutation/batch', {
           method: 'POST',
           body: JSON.stringify({ mutations: args.mutations, expectedVersion: args.expectedVersion }),
         })
-        const data: any = await res.json()
+        const data = (await res.json()) as { error?: string }
         if (!res.ok) return { content: [{ type: 'text', text: data.error || 'Mutation failed' }], isError: true }
         return { content: [{ type: 'text', text: JSON.stringify(data) }] }
       }
       case 'canvas_chat': {
         const { handleCanvasChat } = await import('./api/canvas-chat')
-        const result = await handleCanvasChat(args.id, args.message, env, args.selectedNodeId)
+        const result = await handleCanvasChat(args.id as string, args.message as string, env, args.selectedNodeId as string | undefined)
         return { content: [{ type: 'text', text: JSON.stringify(result) }] }
       }
       default:
         return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
     }
-  } catch (e: any) {
-    return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true }
+  } catch (e: unknown) {
+    return { content: [{ type: 'text', text: `Error: ${e instanceof Error ? e.message : 'Unknown error'}` }], isError: true }
   }
 }
 
@@ -1055,7 +1057,7 @@ app.post('/api/mcp', async (c) => {
   if (method === 'tools/call') {
     const toolName = params?.name
     const toolArgs = params?.arguments || {}
-    const result = await handleMcpTool(toolName, toolArgs, c.env)
+    const result = await handleMcpTool(toolName, toolArgs, c.env as unknown as Record<string, unknown>)
     return c.json({
       jsonrpc: '2.0',
       id,
