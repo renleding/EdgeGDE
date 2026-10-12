@@ -327,9 +327,9 @@ export async function setChildInheritance(rawKV: any, tenantId: string, enabled:
   return rebuildTenantConfig(rawKV, undefined, tenantId)
 }
 
-async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTenantId: string): Promise<number> {
-  const dbRaw = env?.DB
-  if (!dbRaw?.prepare) return 0
+async function cloneRules(rawKV: unknown, env: unknown, sourceTenantId: string, targetTenantId: string): Promise<number> {
+  const dbRaw = (env as { DB?: unknown })?.DB
+  if (!dbRaw || typeof (dbRaw as { prepare?: unknown }).prepare !== 'function') return 0
   const db = guardDB(dbRaw)
   const rows = await db.all<{ condition: unknown; output: unknown; priority: unknown; active: unknown }>(
     { tenantId: sourceTenantId },
@@ -343,10 +343,10 @@ async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTe
     await db.insert({ tenantId: targetTenantId }, 'rules', {
       id,
       tenant_id: targetTenantId,
-      condition: row.condition,
-      output: row.output,
-      priority: row.priority,
-      active: row.active,
+      condition: row.condition as unknown,
+      output: row.output as unknown,
+      priority: row.priority as unknown,
+      active: row.active as unknown,
       created_at: insertedAt,
     })
     count++
@@ -355,7 +355,7 @@ async function cloneRules(rawKV: any, env: any, sourceTenantId: string, targetTe
 }
 
 /** Clone a tenant's profile, config, KB topics, layouts, and rules to a new tenant. */
-export async function cloneTenantConfig(rawKV: any, env: any, options: CloneOptions): Promise<RebuildResult & { sourceTenantId: string; rulesCopied: number; kbTopicsCopied: number }> {
+export async function cloneTenantConfig(rawKV: unknown, env: unknown, options: CloneOptions): Promise<RebuildResult & { sourceTenantId: string; rulesCopied: number; kbTopicsCopied: number }> {
   const kv = guardKV(rawKV)
   const { sourceTenantId, targetTenantId, targetName, parentLink = false } = options
   const sourceProfile = await ensureAgentProfile(kv, sourceTenantId)

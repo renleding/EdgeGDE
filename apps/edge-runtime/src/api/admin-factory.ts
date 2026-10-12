@@ -169,8 +169,8 @@ router.post('/create', async (c) => {
       </div>
     </div>`)
 
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">' + escapeHtml(err.message) + '<br><pre style="font-size:10px;margin-top:4px;color:#f85149">' + escapeHtml(err.stack || '') + '</pre></div>')
+  } catch (err: unknown) {
+    return c.html('<div style="color:#da3633">' + escapeHtml(err instanceof Error ? err.message : 'Unknown error') + '<br><pre style="font-size:10px;margin-top:4px;color:#f85149">' + escapeHtml(err instanceof Error ? err.stack || '' : '') + '</pre></div>')
   }
 })
 

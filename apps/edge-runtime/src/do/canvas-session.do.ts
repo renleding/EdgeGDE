@@ -205,7 +205,7 @@ export class CanvasSession_DO implements DurableObject {
   // HTTP Handlers
   // ═══════════════════════════════════════════════════════════════════════
 
-  private async handleInit(id: string, rootId: string, nodes?: Record<string, Node>, designTokens?: any): Promise<Response> {
+  private async handleInit(id: string, rootId: string, nodes?: Record<string, unknown>, designTokens?: unknown): Promise<Response> {
     if (!id || !rootId || !nodes) return new Response('Invalid init data', { status: 400 })
     this.doc = {
       id, version: 0, rootId,
@@ -227,8 +227,8 @@ export class CanvasSession_DO implements DurableObject {
 
       this.doc = JSON.parse(docJson ?? '{}')
       return new Response(JSON.stringify(this.doc))
-    } catch (e: any) {
-      return new Response('Restore failed: ' + e.message, { status: 500 })
+    } catch (e: unknown) {
+      return new Response('Restore failed: ' + (e instanceof Error ? e.message : 'Unknown error'), { status: 500 })
     }
   }
 
@@ -255,8 +255,8 @@ export class CanvasSession_DO implements DurableObject {
       this.doc.version += 1
       this.triggerSnapshot()
       return { success: true, newVersion: this.doc.version }
-    } catch (e: any) {
-      return { success: false, error: e.message || 'Mutation failed' }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : 'Mutation failed' }
     }
   }
 
@@ -267,7 +267,7 @@ export class CanvasSession_DO implements DurableObject {
   }
 
   private async handleBatchMutation(mutations: Mutation[], expectedVersion: number): Promise<Response> {
-    const canvasActor: any = this
+    const canvasActor = this
     let version = expectedVersion
     for (const mutation of mutations) {
       const result = this.applyMutationInternal(mutation, version)
