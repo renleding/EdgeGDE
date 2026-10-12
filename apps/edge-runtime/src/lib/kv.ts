@@ -142,11 +142,12 @@ export function guardKV(rawKV: unknown): GuardedKV {
     },
 
     async del(key: string, ctx: TenantCtx) {
-      // Fresh .del access — preserves Workers binding.
+      // Fresh .delete access — preserves Workers binding.
+      // NOTE: the raw KV Namespace method is `delete(key)`, NOT `del(key)`.
       const ns = rawKV as {
-        del(key: string): Promise<unknown>
+        delete(key: string): Promise<unknown>
       }
-      return ns.del(validateWrite(key, ctx))
+      return ns.delete(validateWrite(key, ctx))
     },
   }
 }
