@@ -139,8 +139,8 @@ export function renderBacktestMetrics(result?: BacktestResult): string {
 
 /** Build a summary of analytics data from database and KV stores. */
 export async function buildAnalyticsSummary(
-  db: any,
-  kv: any,
+  db: D1Database,
+  kv: KVNamespace,
   input: {
     tenantId: string
     metricName?: string
@@ -170,9 +170,9 @@ export async function buildAnalyticsSummary(
   const series = metricName
     ? await listMetricSeries(guardedDb, tenantId, metricName, 100)
     : await listMetricSeries(guardedDb, tenantId, undefined, 100)
-  const latestForecast = await getLatestForecastRun(db as any, tenantId, metricName || 'forecast', seriesId)
+  const latestForecast = await getLatestForecastRun(guardedDb, tenantId, metricName || 'forecast', seriesId)
   const forecastPoints = latestForecast
-    ? await queryForecastPoints(db as any, tenantId, latestForecast.metric_name, seriesId, 100)
+    ? await queryForecastPoints(guardedDb, tenantId, latestForecast.metric_name, seriesId, 100)
     : []
   const pointerKey = forecastLatestPointerKey(tenantId, metricName || 'forecast', seriesId)
   const pointer = await guardedKv.getJson<Record<string, unknown> | null>(pointerKey, { tenantId })

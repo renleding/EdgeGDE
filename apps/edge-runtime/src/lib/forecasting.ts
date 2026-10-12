@@ -349,12 +349,10 @@ function toNumber(value: unknown): number | null {
 
 /** Persist a new forecast run and return its runId. */
 export async function createForecastRun(
-  db: D1Database,
-  kv: KVNamespace,
+  db: GuardedDB,
+  kv: GuardedKV,
   input: CreateForecastRunInput,
 ): Promise<string> {
-  const guardedDb = guardDB(db)
-  const guardedKv = guardKV(kv)
   const now = Math.floor(Date.now() / 1000)
   const runId = crypto.randomUUID()
   const seriesId = input.seriesId || 'tenant_global'
@@ -375,7 +373,7 @@ export async function createForecastRun(
     metricName: input.metricName,
   })
 
-  await guardedDb.insert(
+  await db.insert(
     { tenantId: input.tenantId },
     'forecast_runs',
     {
@@ -402,7 +400,7 @@ export async function createForecastRun(
     },
   )
 
-  await guardedKv.put(
+  await kv.put(
     forecastLatestPointerKey(input.tenantId, input.metricName, seriesId),
     JSON.stringify({ runId, status: 'queued', updated_at: now }),
     { tenantId: input.tenantId },
@@ -413,12 +411,11 @@ export async function createForecastRun(
 
 /** Update a forecast run status to running with optional external job ID. */
 export async function markForecastRunRunning(
-  db: D1Database,
+  db: GuardedDB,
   runId: string,
   externalJobId?: string,
 ): Promise<void> {
-  const guardedDb = guardDB(db)
-  await guardedDb.update(
+  await db.update(
     {},
     'forecast_runs',
     {
@@ -433,11 +430,10 @@ export async function markForecastRunRunning(
 
 /** Finalize a forecast run with results, metrics, and optional promotion. */
 export async function completeForecastRun(
-  db: D1Database,
+  db: GuardedDB,
   input: CompleteForecastRunInput,
 ): Promise<void> {
-  const guardedDb = guardDB(db)
-  await guardedDb.update(
+  await db.update(
     {},
     'forecast_runs',
     {
@@ -458,7 +454,7 @@ export async function completeForecastRun(
 
 /** Mark a forecast run as failed with an error message. */
 export async function failForecastRun(
-  db: D1Database,
+  db: GuardedDB,
   runId: string,
   error: string,
 ): Promise<void> {
@@ -472,18 +468,17 @@ export async function failForecastRun(
 
 /** Persist forecast points to the forecast_points table. */
 export async function recordForecastPoints(
-  db: D1Database,
+  db: GuardedDB,
   runId: string,
   tenantId: string,
   seriesId: string,
   points: ForecastPointInput[],
   metricName = 'forecast',
 ): Promise<void> {
-  const guardedDb = guardDB(db)
   const now = new Date().toISOString()
   const inserts = points.map((point, index) => {
     const quantileMap = normalizeQuantileMap(point.quantiles, point)
-    return guardedDb.insert(
+    return db.insert(
       { tenantId },
       'forecast_points',
       {
@@ -512,7 +507,7 @@ export async function recordForecastPoints(
   const latest = points[points.length - 1]
   if (latest) {
     const quantileMap = normalizeQuantileMap(latest.quantiles, latest)
-    await guardedDb.prepare(
+    await db.prepare(
       `INSERT INTO forecast_series (
         tenant_id, series_id, metric_name, frequency, latest_run_id,
         latest_ds, latest_step, latest_point, latest_lower_bound,
@@ -544,15 +539,14 @@ export async function recordForecastPoints(
 
 /** Persist the latest forecast run pointer for a metric/series. */
 export async function publishLatestForecastPointer(
-  kv: KVNamespace,
+  kv: GuardedKV,
   tenantId: string,
   metricName: string,
   seriesId: string,
   runId: string,
   status = 'completed',
 ): Promise<void> {
-  const guardedKv = guardKV(kv)
-  await guardedKv.put(
+  await kv.put(
     forecastLatestPointerKey(tenantId, metricName, seriesId),
     JSON.stringify({ runId, status, updated_at: Math.floor(Date.now() / 1000) }),
     { tenantId },
@@ -561,13 +555,12 @@ export async function publishLatestForecastPointer(
 
 /** Fetch the most recent forecast run for a metric/series. */
 export async function getLatestForecastRun(
-  db: D1Database,
+  db: GuardedDB,
   tenantId: string,
   metricName: string,
   seriesId = 'tenant_global',
 ): Promise<ForecastRun | null> {
-  const guardedDb = guardDB(db)
-  const row = await guardedDb.first<ForecastRun>(
+  const row = await db.first<ForecastRun>(
     { tenantId },
     `SELECT * FROM forecast_runs
      WHERE tenant_id = ? AND metric_name = ? AND series_id = ?
@@ -579,15 +572,14 @@ export async function getLatestForecastRun(
 
 /** Query forecast points for a run with optional time range. */
 export async function queryForecastPoints(
-  db: D1Database,
+  db: GuardedDB,
   tenantId: string,
   metricName: string,
   seriesId = 'tenant_global',
   limit = 100,
 ): Promise<ForecastPoint[]> {
-  const guardedDb = guardDB(db)
   const safeLimit = Math.min(Math.max(1, limit), 1000)
-  const rows = await guardedDb.all<ForecastPoint>(
+  const rows = await db.all<ForecastPoint>(
     { tenantId },
     `SELECT fp.* FROM forecast_points fp
      JOIN forecast_runs fr ON fr.id = fp.run_id
@@ -759,7 +751,7 @@ function extractMetricValue(metrics: unknown, key: string): number {
 
 /** Insert a forecast audit event into audit_logs (non-blocking). */
 export async function recordForecastAuditEvent(
-  db: D1Database,
+  db: GuardedDB,
   tenantId: string,
   runId: string,
   eventType: string,
