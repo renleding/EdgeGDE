@@ -1,8 +1,8 @@
 # FEATURE-15: Configurator Column Sorting
 
-## Requirements
+## ADDED Requirements
 
-### F15-R01: Column sorting SHALL be available on the telemetry configuration table
+### Requirement: F15-R01: Column sorting SHALL be available on the telemetry configuration table
 
 The telemetry configuration table (config-table) SHALL support ascending and descending sort on every column: Name, Capability, Property, Type, Description, Transport, Tesla Package, and Sampling (s).
 
@@ -29,7 +29,7 @@ The telemetry configuration table (config-table) SHALL support ascending and des
 - Then: the "Name" indicator SHALL clear
 - And: the "Type" header SHALL display ▲
 
-### F15-R02: Column sorting SHALL be available on the catalog enrolment table
+### Requirement: F15-R02: Column sorting SHALL be available on the catalog enrolment table
 
 The "Add fields from the Tesla catalog" table (enrol-table) SHALL support sorting on Field, Category, and Description columns.
 
@@ -38,7 +38,7 @@ The "Add fields from the Tesla catalog" table (enrol-table) SHALL support sortin
 - When: the operator clicks the "Field" column header in the enrolment table
 - Then: the enrolment table rows SHALL be sorted alphabetically by field key
 
-### F15-R03: Numeric columns SHALL sort numerically
+### Requirement: F15-R03: Numeric columns SHALL sort numerically
 
 Columns with numeric content (Sampling (s)) SHALL sort by numeric value, not lexicographic string order.
 
@@ -47,7 +47,7 @@ Columns with numeric content (Sampling (s)) SHALL sort by numeric value, not lex
 - When: the operator sorts the "Sampling (s)" column ascending
 - Then: the rows SHALL appear in the order 180, 21600, 604800 (not lexicographic)
 
-### F15-R04: Sort indicators SHALL be visible
+### Requirement: F15-R04: Sort indicators SHALL be visible
 
 Each sortable column header SHALL display a visible indicator element. The active sort indicator SHALL show ▲ for ascending or ▼ for descending. Inactive indicators SHALL be empty.
 
@@ -57,7 +57,7 @@ Each sortable column header SHALL display a visible indicator element. The activ
 - Then: all sortable headers SHALL render an empty indicator span
 - And: the indicator span SHALL have CSS display:inline-block
 
-### F15-R05: Sorting SHALL be client-side and deterministic
+### Requirement: F15-R05: Sorting SHALL be client-side and deterministic
 
 Sorting SHALL execute in the browser without server requests. The same input table SHALL produce the same sorted output for the same column and direction.
 
@@ -67,7 +67,7 @@ Sorting SHALL execute in the browser without server requests. The same input tab
 - Then: no HTTP request SHALL be made to the server
 - And: the page URL SHALL not change
 
-### F15-R06: The sort script SHALL be syntactically valid JavaScript
+### Requirement: F15-R06: The sort script SHALL be syntactically valid JavaScript
 
 Every inline script delivered in admin pages SHALL parse without error. This requirement is verified by CI extracting all inline scripts and running a JavaScript syntax check.
 
@@ -77,7 +77,7 @@ Every inline script delivered in admin pages SHALL parse without error. This req
 - Then: the check SHALL exit with code 0
 - And: CI SHALL fail if the check exits non-zero
 
-### F15-R07: Click targets SHALL have pointer cursor
+### Requirement: F15-R07: Click targets SHALL have pointer cursor
 
 Sortable column headers SHALL display a pointer cursor to indicate clickability.
 
@@ -88,8 +88,21 @@ Sortable column headers SHALL display a pointer cursor to indicate clickability.
 
 ## Non-Functional Requirements
 
-### F15-N01: Performance
+### Requirement: F15-N01: Performance
+
 Sorting SHALL complete within 50ms for tables up to 500 rows.
 
-### F15-N02: Accessibility
+#### Scenario: Sort 500 rows under 50ms
+- Given: the table has 500 rows
+- When: the operator clicks a sortable header
+- Then: the sort SHALL complete within 50ms
+
+### Requirement: F15-N02: Accessibility
+
 Sortable headers SHALL be reachable via keyboard navigation.
+
+#### Scenario: Keyboard access
+- Given: the operator uses keyboard navigation
+- When: the operator tabs to a sortable header
+- Then: the header SHALL be focusable
+- And: pressing Enter SHALL trigger the sort
