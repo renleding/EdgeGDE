@@ -32,15 +32,17 @@ router.get('/', async (c) => {
 
   if (bpId) {
     try {
-      const raw = await kv.getJson(`blueprint:${bpId}:latest`)
+      const raw = await kv.getJson(`blueprint:${bpId}:latest`) as
+        | { id?: unknown; version?: unknown; fields?: unknown[]; packs?: { rule_pack?: unknown; compliance_pack?: unknown } }
+        | null
       if (raw) {
         bpJson = JSON.stringify(raw, null, 2)
         bpInfo = `
           <div style="font-size:12px;color:#8b949e;margin-bottom:8px">
-            Blueprint: ${escapeHtml(raw.id)} v${escapeHtml(raw.version || '?')} ·
-            ${(raw.fields || []).length} fields ·
-            ${raw.packs?.rule_pack ? 'rule pack: ' + escapeHtml(raw.packs.rule_pack) : 'no rule pack'} ·
-            ${raw.packs?.compliance_pack ? 'compliance pack: ' + escapeHtml(raw.packs.compliance_pack) : 'no compliance pack'}
+            Blueprint: ${escapeHtml(String(raw.id ?? ''))} v${escapeHtml(String(raw.version ?? '?'))} ·
+            ${(raw.fields ?? []).length} fields ·
+            ${raw.packs?.rule_pack ? 'rule pack: ' + escapeHtml(String(raw.packs.rule_pack)) : 'no rule pack'} ·
+            ${raw.packs?.compliance_pack ? 'compliance pack: ' + escapeHtml(String(raw.packs.compliance_pack)) : 'no compliance pack'}
           </div>`
       }
     } catch {}

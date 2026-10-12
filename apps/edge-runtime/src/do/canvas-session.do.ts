@@ -225,7 +225,7 @@ export class CanvasSession_DO implements DurableObject {
       if (!canvasId) return new Response('No canvas ID', { status: 400 })
       const docJson = await kv.get('canvas:snapshot:' + canvasId)
 
-      this.doc = JSON.parse(docJson)
+      this.doc = JSON.parse(docJson ?? '{}')
       return new Response(JSON.stringify(this.doc))
     } catch (e: any) {
       return new Response('Restore failed: ' + e.message, { status: 500 })

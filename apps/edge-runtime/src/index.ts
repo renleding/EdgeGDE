@@ -1549,7 +1549,7 @@ app.get('/', async (c) => {
         // FIX #3: 3600s + jitter (was 120s) — 30× reduction in cache re-write churn
         // SSE stream pushes updates, so 1h TTL is safe for compiled config
         const ttl = 3600 + Math.floor(Math.random() * 600)
-        await kv.put(cacheKey, html, ctx, { expirationTtl: ttl })
+        await kv.put(cacheKey, html as string, ctx ?? {}, { expirationTtl: ttl })
       } catch (compileErr) {
         // ══════════════════════════════════════════════════════════════════
         // CIRCUIT BREAKER: compilation failed — serve stale cache or safe default
