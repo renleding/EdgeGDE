@@ -8,7 +8,7 @@
  * @packageDocumentation
  */
 
-import { Hono } from 'hono'
+import { Hono, Context } from 'hono'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { CALCULATOR_REGISTRY } from './registry/calculators'
 import { PAGE_REGISTRY } from './registry/pages'
@@ -81,6 +81,8 @@ import { aiTutorApiRouter } from './routes/ai-tutor-api'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
 import leadScorer from './queues/lead-scorer'
+import type { ForecastRunnerEnv } from './queues/forecast-runner'
+import type { OTelEnv } from './lib/otel-worker'
 import {
   getCachedLayout,
   setCachedLayout,
@@ -105,6 +107,12 @@ import { instrumentRequest, instrumentQueue } from './lib/otel-worker'
 import { incrementRequest, flushMetrics } from './lib/metrics'
 import type { TenantConfig } from './lib/tenant'
 import type { LayoutDefinition } from '@edgegde/schema'
+interface RuntimeLayout {
+  root?: unknown
+  edr?: { components?: Record<string, Record<string, any>>; global?: Record<string, string> }
+  edrHash?: string
+  rootNode?: unknown
+}
 import { runDispatcher } from './crons/dispatcher'
 import { hotLeadIndexKey, hotLeadKey, tenantLayoutKey, canvasCacheGenKey, tenantLayoutLatestKey, tenantLayoutStagingKey, tenantCompiledKey } from './lib/kv-keys'
 import { guardDB } from './lib/db'
@@ -149,7 +157,7 @@ export const kv = new MemoryKvStore()
  * KV.list() is forbidden in this architecture.
  * All listing MUST go through D1 or counter reads.
  */
-function guardKvList(kvBinding: any, name: string): void {
+function guardKvList(kvBinding: { list?: unknown }, name: string): void {
   if (kvBinding && typeof kvBinding === 'object') {
     try {
       kvBinding.list = () => {
@@ -169,11 +177,11 @@ function guardKvList(kvBinding: any, name: string): void {
  * Guard against storing event data in KV.
  * Events must live in the AuditLedger DO only.
  */
-function guardKvEventStorage(kvBinding: any, name: string): void {
+function guardKvEventStorage(kvBinding: { put?: unknown }, name: string): void {
   if (kvBinding && typeof kvBinding === 'object' && kvBinding.put) {
-    const originalPut = kvBinding.put
+    const originalPut = kvBinding.put as (key: string, value: unknown, options?: unknown) => Promise<unknown>
     try {
-      kvBinding.put = async (key: string, value: any, options?: any) => {
+      kvBinding.put = async (key: string, value: unknown, options?: unknown) => {
         if (typeof key === 'string' && key.startsWith('audit:')) {
           throw new Error(
             `🚨 KV event storage is FORBIDDEN on ${name}. ` +
@@ -181,7 +189,7 @@ function guardKvEventStorage(kvBinding: any, name: string): void {
             'Events must be stored in the AuditLedger Durable Object.'
           )
         }
-        return originalPut.call(kvBinding, key, value, options)
+        return originalPut.call(kvBinding as Record<string, unknown>, key, value, options)
       }
     } catch {
       // Binding may be frozen — guard silently skipped
@@ -247,7 +255,7 @@ app.use('*', tenantResolver)
 app.use('*', tenantContextResolver)
 
 // 2. RATE LIMITER
-async function rateLimitHandler(c: any, next: any) {
+async function rateLimitHandler(c: Context, next: () => Promise<void>) {
   const tenant = (c as unknown as { get: (key: string) => TenantConfig | undefined }).get('tenant')
 
   if (!tenant) {
@@ -387,7 +395,7 @@ app.get('/api/leads/feed', adminAuth, async (c) => {
       })
     )
   )
-  const alerts = results.map((r: any) => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
+  const alerts = results.map((r: { status: string; value?: unknown }) => r.status === 'fulfilled' ? r.value : null).filter(Boolean)
   return c.json({ alerts })
 })
 
@@ -605,7 +613,7 @@ app.post('/api/canvas/clone', async (c) => {
     const inlineTokens = extractDesignTokens(styles, { fallback: 'light' })
 
     // Extract design tokens from CSS classes
-    let cssTokens: any = {}
+    let cssTokens: Partial<DesignTokens> = {}
     try {
       const cssText = await fetchStylesheets(html, url)
       if (cssText) {
@@ -631,17 +639,17 @@ app.post('/api/canvas/clone', async (c) => {
     })
 
     return c.json({ id, title: doc.metadata?.name || 'Cloned Website' })
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500)
+  } catch (e: unknown) {
+    return c.json({ error: e instanceof Error ? e.message : 'Clone failed' }, 500)
   }
 })
 
 // Collect inline styles from a CanvasDocument for token extraction
 function collectStyles(doc: CanvasDocument): Array<{ tagName: string; color?: string; backgroundColor?: string; borderColor?: string; fontFamily?: string; fontSize?: string; fontWeight?: number; borderRadius?: string; padding?: string }> {
-  const styles: any[] = []
+  const styles: Array<{ tagName: string; color?: string; backgroundColor?: string; borderColor?: string; fontFamily?: string; fontSize?: string; fontWeight?: number; borderRadius?: string; padding?: string }> = []
   for (const nodeId in doc.nodes) {
     const n = doc.nodes[nodeId]
-    const s: any = { tagName: n.type }
+    const s: { tagName: string; color?: string; backgroundColor?: string; borderColor?: string; fontFamily?: string; fontSize?: string; fontWeight?: number; borderRadius?: string; padding?: string } = { tagName: n.type }
     if (n.style.color) s.color = n.style.color
     if (n.style.backgroundColor) s.backgroundColor = n.style.backgroundColor
     if (n.style.borderColor) s.borderColor = n.style.borderColor
@@ -741,10 +749,10 @@ app.post('/api/canvas/generate', async (c) => {
       if (tenantKv && typeof tenantKv.put === 'function') {
         await tenantKv.put(canvasCacheGenKey(pHash), JSON.stringify({ id, title: doc.metadata?.name || 'Generated Website' }), undefined, { expirationTtl: 86400 }).catch(() => {})
       }
-    } catch (e: any) {
-      console.error('[CanvasGen] background error:', e.message)
+    } catch (e: unknown) {
+      console.error('[CanvasGen] background error:', e instanceof Error ? e.message : 'Unknown error')
       if (tenantKv && typeof tenantKv.put === 'function') {
-        await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'error', error: e.message }), undefined, { expirationTtl: 300 }).catch(() => {})
+        await tenantKv.put('job:canvas:gen:' + jobId, JSON.stringify({ status: 'error', error: e instanceof Error ? e.message : 'Unknown error' }), undefined, { expirationTtl: 300 }).catch(() => {})
       }
     }
   })())
@@ -797,20 +805,22 @@ app.get('/canvas/:id/edit', async (c) => {
     const env = c.env as Env
     const tenantKv = guardKV(env['TENANT_KV'])
     const ARTIFACT_KV = env.ARTIFACT_KV
-    let layout: any = null
+    let layout: Record<string, unknown> | null = null
 
     // Try ARTIFACT_KV legacy layout (format: layout:{tenantId}:production:latest)
     if (ARTIFACT_KV?.get) {
-      layout = await ARTIFACT_KV.get('layout:' + canvasId + ':production:latest', 'json').catch(() => null)
+      layout = (await ARTIFACT_KV.get('layout:' + canvasId + ':production:latest', 'json').catch(() => null)) as Record<string, unknown> | null
     }
     // Fallback: TENANT_KV (format: tenant:{slug})
     if (!layout && tenantKv?.get) {
-      layout = await tenantKv.get('tenant:' + canvasId + ':layout', 'json').catch(() => null)
+      layout = (await tenantKv.get('tenant:' + canvasId + ':layout', 'json').catch(() => null)) as Record<string, unknown> | null
     }
 
     if (layout && layout.rootNode) {
       const { openPencilToCanvas } = await import('./canvas/openpencil-migration')
-      const doc = openPencilToCanvas(layout, canvasId)
+      // Legacy layout has formFields with nodeId; cast through unknown to bypass strict schema check
+      const legacyLayout = layout as unknown as Parameters<typeof openPencilToCanvas>[0]
+      const doc = openPencilToCanvas(legacyLayout, canvasId)
 
       await stub.fetch('http://dO/init', {
         method: 'POST',
@@ -957,9 +967,9 @@ const MCP_TOOLS = [
   },
 ]
 
-async function handleMcpTool(name: string, args: any, env: any): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+async function handleMcpTool(name: string, args: Record<string, unknown>, env: Record<string, unknown>): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
-    const CANVAS_SESSION = env.CANVAS_SESSION
+    const CANVAS_SESSION = env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }
 
     switch (name) {
       case 'canvas_create': {
@@ -967,7 +977,7 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         const doId = CANVAS_SESSION.idFromName(id)
         const stub = CANVAS_SESSION.get(doId)
         const rootId = 'root'
-        const nodes: Record<string, any> = {}
+        const nodes: Record<string, Record<string, unknown>> = {}
         nodes[rootId] = { id: rootId, type: 'Page', parentId: null, children: [], props: {}, style: { display: 'flex', flexDirection: 'column', minHeight: '100vh' } }
         await stub.fetch('http://dO/init', {
           method: 'POST',
@@ -976,7 +986,7 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         return { content: [{ type: 'text', text: JSON.stringify({ id, rootId, nodeCount: 1 }) }] }
       }
       case 'canvas_clone': {
-        const { html, normalizedUrl } = await fetchCloneHtml(args.url)
+        const { html, normalizedUrl } = await fetchCloneHtml(args.url as string)
         const { cloneWebsite } = await import('./cloner/website-cloner')
         const { extractDesignTokens } = await import('./transpiler/design-extractor')
         const doc = cloneWebsite(normalizedUrl, html)
@@ -997,7 +1007,7 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         const { generateCanvas } = await import('./generator/layout-generator')
         const llmKey = env.LLM_API_KEY || ''
         if (!llmKey) return { content: [{ type: 'text', text: 'LLM_API_KEY not configured' }], isError: true }
-        const doc = await generateCanvas(args.prompt, { apiKey: llmKey })
+        const doc = await generateCanvas(args.prompt as string, { apiKey: llmKey as string })
         const id = crypto.randomUUID()
         doc.id = id
         const doId = CANVAS_SESSION.idFromName(id)
@@ -1009,39 +1019,39 @@ async function handleMcpTool(name: string, args: any, env: any): Promise<{ conte
         return { content: [{ type: 'text', text: JSON.stringify({ id, nodeCount: Object.keys(doc.nodes).length }) }] }
       }
       case 'canvas_get_state': {
-        const doId = env.CANVAS_SESSION.idFromName(args.id)
-        const stub = env.CANVAS_SESSION.get(doId)
+        const doId = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).idFromName(args.id as string)
+        const stub = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).get(doId)
         const stateRes = await stub.fetch('http://dO/state')
         if (stateRes.status !== 200) return { content: [{ type: 'text', text: 'Canvas not found' }], isError: true }
-        const doc = await stateRes.json()
+        const doc = (await stateRes.json()) as { id?: string; version?: number; rootId?: string; nodes?: Record<string, unknown> }
         return { content: [{ type: 'text', text: JSON.stringify({ id: doc.id, version: doc.version, rootId: doc.rootId, nodeCount: Object.keys(doc.nodes || {}).length }) }] }
       }
       case 'canvas_mutate': {
-        const doId = env.CANVAS_SESSION.idFromName(args.id)
-        const stub = env.CANVAS_SESSION.get(doId)
+        const doId = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).idFromName(args.id as string)
+        const stub = (env.CANVAS_SESSION as { idFromName: (name: string) => string; get: (id: string) => { fetch: (url: string, init?: RequestInit) => Promise<Response> } }).get(doId)
         const res = await stub.fetch('http://dO/mutation/batch', {
           method: 'POST',
           body: JSON.stringify({ mutations: args.mutations, expectedVersion: args.expectedVersion }),
         })
-        const data: any = await res.json()
+        const data = (await res.json()) as { error?: string }
         if (!res.ok) return { content: [{ type: 'text', text: data.error || 'Mutation failed' }], isError: true }
         return { content: [{ type: 'text', text: JSON.stringify(data) }] }
       }
       case 'canvas_chat': {
         const { handleCanvasChat } = await import('./api/canvas-chat')
-        const result = await handleCanvasChat(args.id, args.message, env, args.selectedNodeId)
+        const result = await handleCanvasChat(args.id as string, args.message as string, env, args.selectedNodeId as string | undefined)
         return { content: [{ type: 'text', text: JSON.stringify(result) }] }
       }
       default:
         return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true }
     }
-  } catch (e: any) {
-    return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true }
+  } catch (e: unknown) {
+    return { content: [{ type: 'text', text: `Error: ${e instanceof Error ? e.message : 'Unknown error'}` }], isError: true }
   }
 }
 
 app.post('/api/mcp', async (c) => {
-  const body: any = await c.req.json()
+  const body = (await c.req.json()) as Record<string, unknown>
   const { method, id, params } = body
 
   if (method === 'tools/list') {
@@ -1053,9 +1063,9 @@ app.post('/api/mcp', async (c) => {
   }
 
   if (method === 'tools/call') {
-    const toolName = params?.name
-    const toolArgs = params?.arguments || {}
-    const result = await handleMcpTool(toolName, toolArgs, c.env)
+    const toolName = (params as Record<string, unknown>)?.name as string | undefined
+    const toolArgs = ((params as Record<string, unknown>)?.arguments as Record<string, unknown>) || {}
+    const result = await handleMcpTool(toolName || '', toolArgs, c.env as unknown as Record<string, unknown>)
     return c.json({
       jsonrpc: '2.0',
       id,
@@ -1400,8 +1410,8 @@ app.get('/api/dev/seed-counters', async (c) => {
     return c.text(
       `D1 counters: submissions=${submissionCount} tenants=${tenantCount} drafts=${draftCount}`
     )
-  } catch (err: any) {
-    return c.text(`Count failed: ${err.message}`, 500)
+  } catch (err: unknown) {
+    return c.text(`Count failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 500)
   }
 })
 
@@ -1430,8 +1440,8 @@ app.get('/api/admin/leads/:tenantId', async (c) => {
     `, [limit, offset])
 
     return c.json({ leads: rows })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -1458,8 +1468,8 @@ app.post('/api/render', async (c) => {
 
     const html = compileLayoutCompat(layout, design)
     return c.html(html)
-  } catch (err: any) {
-    return c.json({ error: 'Render failed', details: err.message }, 400)
+  } catch (err: unknown) {
+    return c.json({ error: 'Render failed', details: err instanceof Error ? err.message : 'Unknown error' }, 400)
   }
 })
 
@@ -1485,7 +1495,7 @@ app.get('/', async (c) => {
     const queryEnv = c.req.query('env')
     const isStaging = queryEnv === 'staging' || queryEnv === 'local'
     const layoutCacheKey = `${tenantId}:${layoutTool}:${isStaging ? 'staging' : 'prod'}`
-    let layout: any = getCachedLayout(layoutCacheKey)
+    let layout: RuntimeLayout | null = getCachedLayout(layoutCacheKey)
     if (!layout) {
       const layoutSuffix = layoutTool === 'gallery' ? 'gallery' : layoutTool === 'budget' ? 'budget' : layoutTool === 'metrics' ? 'metrics' : 'latest'
       const envSuffix = isStaging ? ':staging' : ''
@@ -1543,13 +1553,13 @@ app.get('/', async (c) => {
           // Legacy OpenPencil → Canvas migration
           const { openPencilToCanvas } = await import('./canvas/openpencil-migration')
           const { compileFromCanvas } = await import('./canvas/compile-from-canvas')
-          const doc = openPencilToCanvas(layout)
+          const doc = openPencilToCanvas(layout as unknown as Parameters<typeof openPencilToCanvas>[0])
           html = compileFromCanvas(doc)
         }
         // FIX #3: 3600s + jitter (was 120s) — 30× reduction in cache re-write churn
         // SSE stream pushes updates, so 1h TTL is safe for compiled config
         const ttl = 3600 + Math.floor(Math.random() * 600)
-        await kv.put(cacheKey, html, ctx, { expirationTtl: ttl })
+        await kv.put(cacheKey, html as string, ctx ?? {}, { expirationTtl: ttl })
       } catch (compileErr) {
         // ══════════════════════════════════════════════════════════════════
         // CIRCUIT BREAKER: compilation failed — serve stale cache or safe default
@@ -1566,8 +1576,8 @@ app.get('/', async (c) => {
     // CSS must survive HTMX fragment swaps, so it lives in <head>, not in <main>
     if (layout && layout.root && !edrCss) {
       const edrDef: import('./edr/compiler/engine').EDR = {
-        components: layout.edr?.components || {},
-        global: layout.edr?.global || {},
+        components: (layout.edr?.components as Record<string, Record<string, any>>) || {},
+        global: (layout.edr?.global as Record<string, string>) || {},
       }
       const { generateCSS } = await import('./lib/generateCSS')
       edrCss = generateCSS(edrDef, layout.edrHash || 'default')
@@ -1780,8 +1790,8 @@ app.get('/', async (c) => {
     c.header('Content-Type', 'text/html; charset=utf-8')
     c.header('Cache-Control', 'no-cache, no-store, must-revalidate')
     return c.body(page)
-  } catch (err: any) {
-    return c.text(`Layout render error: ${err.message}`, 500)
+  } catch (err: unknown) {
+    return c.text(`Layout render error: ${err instanceof Error ? err.message : 'Unknown error'}`, 500)
   }
 })
 
@@ -1790,7 +1800,7 @@ app.get('/', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default {
-  async fetch(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const start = performance.now()
     const response = await app.fetch(request, env, ctx)
     // Extract domain context from the request outside Hono's c.var scope.
@@ -1809,29 +1819,29 @@ export default {
     return response
   },
 
-  async queue(batch: any, env: any, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch, env: unknown, ctx: ExecutionContext): Promise<void> {
     const start = performance.now()
     try {
       console.warn('[queue] batch received', { size: batch.messages.length })
       for (const msg of batch.messages) {
-        const body = msg.body
-        if (body?.type === 'kb_ingest') {
+        const body = msg.body as Record<string, unknown>
+        if (body.type === 'kb_ingest') {
           const { handleKbIngest } = await import('./queues/kb-ingest')
-          await handleKbIngest(body, env)
+          await handleKbIngest(body as { type: string; tenantId: string; topic?: string; url?: string; filePath?: string; r2Key?: string; sourceRef?: string }, env)
         }
-        if (body?.type === 'forecast_run_requested') {
+        if (body.type === 'forecast_run_requested') {
           const { queue: handleForecastRun } = await import('./queues/forecast-runner')
-          await handleForecastRun({ messages: [msg] }, env)
+          await handleForecastRun({ messages: [msg] }, env as ForecastRunnerEnv)
         }
       }
-      await leadScorer.queue(batch, env, ctx)
+      await leadScorer.queue(batch, safeEnv(env as Record<string, unknown>), ctx)
     } catch (err) {
       console.error('[queue] fatal handler failure:', err)
     }
-    ctx.waitUntil(instrumentQueue('edgegde-lead-scoring', batch.messages.length, start, env))
+    ctx.waitUntil(instrumentQueue('edgegde-lead-scoring', batch.messages.length, start, env as OTelEnv))
   },
 
-  async scheduled(_event: any, env: any, _ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event: unknown, env: { TENANT_KV: { get: (k: string, t: 'json') => Promise<any>; put: (k: string, v: string) => Promise<void> } }, _ctx: ExecutionContext): Promise<void> {
     console.warn('[cron] dispatcher triggered')
     await runDispatcher(env)
     // Flush any accumulated metrics to KV before the isolate is reclaimed

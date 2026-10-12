@@ -33,10 +33,23 @@ function shortKey(key: string): string {
 /**
  * Build the guarded KV wrapper from the raw binding.
  */
-export function guardKV(rawKV: any) {
-  if (!rawKV || typeof rawKV.get !== 'function') {
+/** Minimal structural type describing the guarded KV wrapper returned by {@link guardKV}. */
+export interface GuardedKV {
+  get(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json'): Promise<string | null>
+  getJson<T = unknown>(key: string, ctx?: TenantCtx): Promise<T | null>
+  put(key: string, value: string | object, ctx?: TenantCtx, options?: unknown): Promise<unknown>
+  del(key: string, ctx: TenantCtx): Promise<unknown>
+}
+
+export function guardKV(rawKV: unknown): GuardedKV {
+  if (!rawKV || typeof (rawKV as Record<string, unknown>).get !== 'function') {
     throw new Error('KV binding not available')
   }
+
+  const raw = rawKV as Record<string, unknown>
+  const getFn = raw.get as (key: string, type?: string) => Promise<unknown>
+  const putFn = raw.put as (key: string, value: string | object, options?: unknown) => Promise<unknown>
+  const delFn = raw.del as (key: string) => Promise<unknown>
 
   function validateRead(key: string, ctx?: TenantCtx): string {
     if (key.startsWith('tenant:') && ctx) {
@@ -72,14 +85,14 @@ export function guardKV(rawKV: any) {
     async get(key: string, ctxOrType?: TenantCtx | 'json', type?: 'json') {
       const ctx = typeof ctxOrType === 'object' ? ctxOrType : undefined
       const valueType = typeof ctxOrType === 'string' ? ctxOrType : type
-      return rawKV.get(validateRead(key, ctx), valueType)
+      return getFn(validateRead(key, ctx), valueType) as Promise<string | null>
     },
 
-    async getJson(key: string, ctx?: TenantCtx) {
-      return rawKV.get(validateRead(key, ctx), 'json')
+    async getJson<T = unknown>(key: string, ctx?: TenantCtx): Promise<T | null> {
+      return getFn(validateRead(key, ctx), 'json') as Promise<T | null>
     },
 
-    async put(key: string, value: string | object, ctx?: TenantCtx, options?: any) {
+    async put(key: string, value: string | object, ctx?: TenantCtx, options?: unknown) {
       const finalKey = validateWrite(key, ctx)
       const val = typeof value === 'string' ? value : JSON.stringify(value)
       const sk = shortKey(finalKey)
@@ -90,9 +103,9 @@ export function guardKV(rawKV: any) {
 
         if (isStructured) {
           // Structured keys MUST be valid JSON
-          let parsed: any
+          let parsed: Record<string, unknown>
           try {
-            parsed = JSON.parse(val)
+            parsed = JSON.parse(val) as Record<string, unknown>
           } catch {
             throw new Error(`KV key "${sk}" requires valid JSON`)
           }
@@ -110,15 +123,15 @@ export function guardKV(rawKV: any) {
             }
           }
         }
-      } catch (err: any) {
-        throw new Error(`[Security Violation] KV write blocked for "${sk}": ${err.message}`)
+      } catch (err: unknown) {
+        throw new Error(`[Security Violation] KV write blocked for "${sk}": ${err instanceof Error ? err.message : 'Unknown error'}`)
       }
 
-      return rawKV.put(finalKey, val, options)
+      return putFn(finalKey, val, options)
     },
 
     async del(key: string, ctx: TenantCtx) {
-      return rawKV.del(validateWrite(key, ctx))
+      return delFn(validateWrite(key, ctx))
     },
   }
 }

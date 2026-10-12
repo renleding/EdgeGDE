@@ -21,6 +21,7 @@ import {
   recordForecastPoints,
   seasonalNaiveForecast,
   type Chronos2InferenceResult,
+  type Chronos2ParsedPoint,
   type ForecastSeriesInput,
 } from '../lib/forecasting'
 import { guardDB } from '../lib/db'
@@ -49,8 +50,8 @@ export interface ForecastRunMessage {
 }
 
 export interface ForecastRunnerEnv {
-  DB?: any
-  TENANT_KV?: any
+  DB?: Record<string, unknown>
+  TENANT_KV?: Record<string, unknown>
   CHRONOS2_ENDPOINT?: string
   CHRONOS2_API_KEY?: string
   TIMESFM25_ENDPOINT?: string
@@ -64,11 +65,12 @@ const DEFAULT_PROMOTION_GATE = {
   requireIntervalBounds: true,
 }
 
-export async function queue(batch: any, env: ForecastRunnerEnv): Promise<void> {
+/** Consume a batch of forecast_run_requested messages and execute them. */
+export async function queue(batch: { messages?: Array<{ body?: unknown; ack(): void; retry(): void }> }, env: ForecastRunnerEnv): Promise<void> {
   const db = guardDB(env.DB)
   const kv = guardKV(env.TENANT_KV)
 
-  for (const msg of batch.messages) {
+  for (const msg of batch.messages ?? []) {
     const body = msg.body as ForecastRunMessage
     if (body?.type !== 'forecast_run_requested') {
       msg.ack()
@@ -203,7 +205,7 @@ export async function queue(batch: any, env: ForecastRunnerEnv): Promise<void> {
         inference.skipped ? 'skipped' : 'completed',
       )
       msg.ack()
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[forecast-runner] failed:', err)
       msg.retry()
     }
@@ -347,7 +349,7 @@ function seriesIdFromForecastSeries(series: ForecastSeriesInput): string {
   return series.id || 'tenant_global'
 }
 
-function runLocalTimesFM25Forecast(series: ForecastSeriesInput[], horizon: number, quantiles?: number[]): any[] {
+function runLocalTimesFM25Forecast(series: ForecastSeriesInput[], horizon: number, quantiles?: number[]): Chronos2ParsedPoint[] {
   const points = series.flatMap(item => item.points || []).sort((a, b) => String(a.ds).localeCompare(String(b.ds)))
   const values = points.map(point => Number(point.value)).filter(Number.isFinite)
   if (values.length === 0) return []

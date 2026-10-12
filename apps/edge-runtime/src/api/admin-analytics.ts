@@ -19,6 +19,7 @@ import {
 import {
   listMetricSeries,
   queryMetricSeriesPoints,
+  type MetricSeriesSummary,
   runMetricSeriesBacktest,
 } from '../lib/metric-series'
 import {
@@ -28,23 +29,59 @@ import {
   type ForecastModelComparisonResult,
 } from '../lib/forecast-model-comparison'
 import { queryAuditLogs } from '../lib/audit'
+import { type ForecastRun, type ForecastPoint } from '../lib/forecasting'
 
 /** Hono router for admin analytics endpoints. */
 export const adminAnalyticsRouter = new Hono()
 
 adminAnalyticsRouter.use('*', adminAuth)
 
+interface MetricSeriesRow {
+  tenant_id: string
+  series_id: string
+  metric_name: string
+  frequency: string
+  timezone: string | null
+  description: string | null
+  first_ds: string | null
+  last_ds: string | null
+  point_count: number
+  created_at: string
+  updated_at: string
+}
+
+interface ForecastPointRow {
+  ds: string
+  point_forecast: string | number | null
+  lower_bound: string | number | null
+  upper_bound: string | number | null
+  created_at: string
+  run_id: string
+}
+
+interface BacktestMetrics {
+  mae?: number
+  rmse?: number
+  smape?: number
+  folds?: unknown[]
+}
+
+interface BacktestResult {
+  metrics?: BacktestMetrics
+  folds?: unknown[]
+}
+
 interface AnalyticsSummary {
   tenantId: string
   metricName?: string
   seriesId: string
   seriesCount: number
-  series: any[]
-  latestForecast: any
-  forecastPoints: any[]
-  pointer: any
-  recentAuditEvents: any[]
-  backtest?: any
+  series: MetricSeriesRow[]
+  latestForecast: ForecastRun | null
+  forecastPoints: ForecastPointRow[]
+  pointer: Record<string, unknown> | null
+  recentAuditEvents: Record<string, unknown>[]
+  backtest?: BacktestResult
   modelComparison?: ForecastModelComparisonResult
   generatedAt: string
 }
@@ -61,35 +98,35 @@ export function projectionStatusBadge(status?: string): string {
 }
 
 /** Render HTML table rows for metric series data. */
-export function renderMetricSeriesRows(series: any[]): string {
+export function renderMetricSeriesRows(series: MetricSeriesRow[]): string {
   if (!series.length) return '<tr><td colspan="6" class="empty-cell">No metric series found</td></tr>'
-  return series.map((row: any) => `
+  return series.map((row) => `
     <tr>
       <td>${escapeHtml(row.metric_name || '')}</td>
       <td>${escapeHtml(row.series_id || '')}</td>
       <td>${escapeHtml(row.frequency || '')}</td>
-      <td>${escapeHtml(row.point_count || 0)}</td>
-      <td>${escapeHtml(row.latest_ds || '')}</td>
-      <td>${escapeHtml(row.latest_value ?? '')}</td>
+      <td>${escapeHtml(String(row.point_count || 0))}</td>
+      <td>${escapeHtml(row.last_ds || '')}</td>
+      <td>${escapeHtml('')}</td>
     </tr>`).join('')
 }
 
 /** Render HTML table rows for forecast point data. */
-export function renderForecastPoints(rows: any[]): string {
+export function renderForecastPoints(rows: ForecastPointRow[]): string {
   if (!rows.length) return '<tr><td colspan="6" class="empty-cell">No forecast points found</td></tr>'
-  return rows.map((row: any) => `
+  return rows.map((row) => `
     <tr>
       <td>${escapeHtml(row.ds || '')}</td>
-      <td>${escapeHtml(row.point_forecast ?? '')}</td>
-      <td>${escapeHtml(row.lower_bound ?? '')}</td>
-      <td>${escapeHtml(row.upper_bound ?? '')}</td>
+      <td>${escapeHtml(String(row.point_forecast ?? ''))}</td>
+      <td>${escapeHtml(String(row.lower_bound ?? ''))}</td>
+      <td>${escapeHtml(String(row.upper_bound ?? ''))}</td>
       <td>${escapeHtml(row.created_at || '')}</td>
       <td>${escapeHtml(row.run_id || '')}</td>
     </tr>`).join('')
 }
 
 /** Render HTML for backtest metric results. */
-export function renderBacktestMetrics(result?: any): string {
+export function renderBacktestMetrics(result?: BacktestResult): string {
   if (!result?.metrics) return '<div class="empty">No backtest requested</div>'
   const metrics = result.metrics
   return `<div class="metric-grid">
@@ -102,8 +139,8 @@ export function renderBacktestMetrics(result?: any): string {
 
 /** Build a summary of analytics data from database and KV stores. */
 export async function buildAnalyticsSummary(
-  db: any,
-  kv: any,
+  db: D1Database,
+  kv: KVNamespace,
   input: {
     tenantId: string
     metricName?: string
@@ -138,7 +175,7 @@ export async function buildAnalyticsSummary(
     ? await queryForecastPoints(guardedDb, tenantId, latestForecast.metric_name, seriesId, 100)
     : []
   const pointerKey = forecastLatestPointerKey(tenantId, metricName || 'forecast', seriesId)
-  const pointer = await guardedKv.get(pointerKey, { tenantId }, 'json')
+  const pointer = await guardedKv.getJson<Record<string, unknown> | null>(pointerKey, { tenantId })
   const recentAuditEvents = await queryAuditLogs(guardedDb, tenantId, { limit: 20 })
   const backtest = input.includeBacktest
     ? runMetricSeriesBacktest(await queryMetricSeriesPoints(guardedDb, {
@@ -208,8 +245,8 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
     return c.json({ summary })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -233,8 +270,8 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
       pointer: summary.pointer,
       generatedAt: summary.generatedAt,
     })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -261,7 +298,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
     return c.html(renderAnalyticsPage(summary, token))
-  } catch (err: any) {
+  } catch (err: unknown) {
     return c.html(renderAnalyticsPage({
       tenantId,
       metricName,
@@ -273,7 +310,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       pointer: null,
       recentAuditEvents: [],
       generatedAt: new Date().toISOString(),
-    }, token, err.message))
+    }, token, err instanceof Error ? err.message : 'Unknown error'))
   }
 })
 
@@ -379,25 +416,25 @@ export function renderModelComparisonRows(result?: ForecastModelComparisonResult
   return `<div class="meta">Primary metric: ${escapeHtml(result.primaryMetric)} · Winner: ${escapeHtml(winner)}</div>
   <table>
     <thead><tr><th>Rank</th><th>Model</th><th>MAE</th><th>RMSE</th><th>sMAPE</th><th>Status</th></tr></thead>
-    <tbody>${result.models.map((entry: any) => `<tr>
+    <tbody>${result.models.map((entry) => `<tr>
       <td>${entry.rank || ''}</td>
       <td>${escapeHtml(entry.model)}</td>
-      <td>${escapeHtml(entry.metrics?.mae ?? '')}</td>
-      <td>${escapeHtml(entry.metrics?.rmse ?? '')}</td>
-      <td>${escapeHtml(entry.metrics?.smape ?? '')}</td>
+      <td>${escapeHtml(String(entry.metrics?.mae ?? ''))}</td>
+      <td>${escapeHtml(String(entry.metrics?.rmse ?? ''))}</td>
+      <td>${escapeHtml(String(entry.metrics?.smape ?? ''))}</td>
       <td>${entry.status === 'success' ? 'success' : 'failed'}</td>
     </tr>`).join('')}</tbody>
   </table>`
 }
 
-function renderAuditEvents(events: any[]): string {
+function renderAuditEvents(events: Record<string, unknown>[]): string {
   if (!events.length) return '<div class="empty">No audit events found</div>'
   return `<table>
     <thead><tr><th>Type</th><th>Created</th><th>Payload</th></tr></thead>
-    <tbody>${events.map((event: any) => `<tr>
-      <td>${escapeHtml(event.event_type || '')}</td>
+    <tbody>${events.map((event) => `<tr>
+      <td>${escapeHtml(String(event.event_type || ''))}</td>
       <td>${escapeHtml(String(event.created_at || ''))}</td>
-      <td><code>${escapeHtml(event.payload_json || '{}')}</code></td>
+      <td><code>${escapeHtml(String(event.payload_json || '{}'))}</code></td>
     </tr>`).join('')}</tbody>
   </table>`
 }

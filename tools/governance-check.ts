@@ -127,6 +127,10 @@ function checkNoAsAny(content: string, file: string, lineRanges?: [number, numbe
     return { check: 'No `any` escape hatches', status: 'pass', details: [] }
   }
   for (let i = 0; i < lines.length; i++) {
+    // When we have resolved changed-line ranges, only check those lines.
+    // When ranges are null (diff didn't resolve), fall back to scanning the
+    // whole file — but only for files the commit actually touched (already
+    // filtered upstream in runAllChecks).
     if (lineRanges) {
       const lineNum = i + 1
       const inRange = lineRanges.some(([start, end]) => lineNum >= start && lineNum <= end)
