@@ -140,8 +140,8 @@ export function renderBacktestMetrics(result?: BacktestResult): string {
 
 /** Build a summary of analytics data from database and KV stores. */
 export async function buildAnalyticsSummary(
-  db: any,
-  kv: any,
+  guardedDb: ReturnType<typeof guardDB>,
+  guardedKv: ReturnType<typeof guardKV>,
   input: {
     tenantId: string
     metricName?: string
@@ -154,8 +154,6 @@ export async function buildAnalyticsSummary(
     backtestModel?: string
   },
 ): Promise<AnalyticsSummary> {
-  const guardedDb = guardDB(db)
-  const guardedKv = guardKV(kv)
   const tenantId = input.tenantId
   const seriesId = input.seriesId || 'tenant_global'
   const metricName = input.metricName
@@ -234,7 +232,7 @@ adminAnalyticsRouter.get('/analytics', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
+    const summary = await buildAnalyticsSummary(guardDB(envFromContext(c).DB), guardKV(envFromContext(c).TENANT_KV), {
       tenantId,
       metricName,
       seriesId,
@@ -258,7 +256,9 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant query param is required' }, 400)
 
   try {
-    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
+    const guardedDb = guardDB(envFromContext(c).DB)
+    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
+    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
       tenantId,
       metricName,
       seriesId,
@@ -271,8 +271,8 @@ adminAnalyticsRouter.get('/analytics/status', async (c) => {
       pointer: summary.pointer,
       generatedAt: summary.generatedAt,
     })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -287,7 +287,9 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
   const primaryMetric = c.req.query('primaryMetric') as 'mae' | 'rmse' | 'smape' | 'mape' | undefined
 
   try {
-    const summary = await buildAnalyticsSummary(envFromContext(c).DB, envFromContext(c).TENANT_KV, {
+    const guardedDb = guardDB(envFromContext(c).DB)
+    const guardedKv = guardKV(envFromContext(c).TENANT_KV)
+    const summary = await buildAnalyticsSummary(guardedDb, guardedKv, {
       tenantId,
       metricName,
       seriesId,
@@ -299,7 +301,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       backtestModel: c.req.query('model') || 'seasonal_naive',
     })
     return c.html(renderAnalyticsPage(summary, token))
-  } catch (err: any) {
+  } catch (err: unknown) {
     return c.html(renderAnalyticsPage({
       tenantId,
       metricName,
@@ -311,7 +313,7 @@ adminAnalyticsRouter.get('/admin/analytics', async (c) => {
       pointer: null,
       recentAuditEvents: [],
       generatedAt: new Date().toISOString(),
-    }, token, err.message))
+    }, token, err instanceof Error ? err.message : 'Unknown error'))
   }
 })
 
@@ -412,30 +414,31 @@ export function renderAnalyticsPage(summary: AnalyticsSummary, token?: string, e
 
 /** Render HTML table rows for model comparison results. */
 export function renderModelComparisonRows(result?: ForecastModelComparisonResult): string {
-  if (!result) return `<div class="empty">No model comparison requested. Use ?compare=true&amp;models=${DEFAULT_MODEL_COMPARISON_MODELS.join(',')}</div>`
+  if (!result) return `<div class="empty">No model comparison requested. Use ?compare=true&models=${DEFAULT_MODEL_COMPARISON_MODELS.join(',')}</div>`
   const winner = result.winner?.model || 'none'
   return `<div class="meta">Primary metric: ${escapeHtml(result.primaryMetric)} · Winner: ${escapeHtml(winner)}</div>
   <table>
     <thead><tr><th>Rank</th><th>Model</th><th>MAE</th><th>RMSE</th><th>sMAPE</th><th>Status</th></tr></thead>
-    <tbody>${result.models.map((entry: any) => `<tr>
+    <tbody>${result.models.map((entry) => `<tr>
       <td>${entry.rank || ''}</td>
       <td>${escapeHtml(entry.model)}</td>
-      <td>${escapeHtml(entry.metrics?.mae ?? '')}</td>
-      <td>${escapeHtml(entry.metrics?.rmse ?? '')}</td>
-      <td>${escapeHtml(entry.metrics?.smape ?? '')}</td>
+      <td>${escapeHtml(String(entry.metrics?.mae ?? ''))}</td>
+      <td>${escapeHtml(String(entry.metrics?.rmse ?? ''))}</td>
+      <td>${escapeHtml(String(entry.metrics?.smape ?? ''))}</td>
       <td>${entry.status === 'success' ? 'success' : 'failed'}</td>
     </tr>`).join('')}</tbody>
   </table>`
 }
 
-function renderAuditEvents(events: any[]): string {
+/** Render HTML for audit events. */
+export function renderAuditEvents(events: Record<string, unknown>[]): string {
   if (!events.length) return '<div class="empty">No audit events found</div>'
   return `<table>
     <thead><tr><th>Type</th><th>Created</th><th>Payload</th></tr></thead>
-    <tbody>${events.map((event: any) => `<tr>
-      <td>${escapeHtml(event.event_type || '')}</td>
+    <tbody>${events.map((event) => `<tr>
+      <td>${escapeHtml(String(event.event_type || ''))}</td>
       <td>${escapeHtml(String(event.created_at || ''))}</td>
-      <td><code>${escapeHtml(event.payload_json || '{}')}</code></td>
+      <td><code>${escapeHtml(String(event.payload_json || '{}'))}</code></td>
     </tr>`).join('')}</tbody>
   </table>`
 }

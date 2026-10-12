@@ -13,9 +13,13 @@ import {
   resolveForecastModelDefaults,
 } from './forecast-model-comparison'
 
+/** Chronos-2 model name. */
 export const CHRONOS_2_MODEL_NAME = 'chronos-2'
+/** Chronos-2 model version. */
 export const CHRONOS_2_MODEL_VERSION = '1.0.0'
+/** Chronos-2 checkpoint ID. */
 export const CHRONOS_2_CHECKPOINT = 'amazon/chronos-2'
+/** Default forecast quantiles (p10, p50, p90). */
 export const DEFAULT_FORECAST_QUANTILES = [0.1, 0.5, 0.9]
 
 export type ForecastFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly' | string
@@ -466,6 +470,7 @@ export async function failForecastRun(
   })
 }
 
+/** Persist forecast points to the forecast_points table. */
 export async function recordForecastPoints(
   db: any,
   runId: string,
@@ -537,6 +542,7 @@ export async function recordForecastPoints(
   }
 }
 
+/** Persist the latest forecast run pointer for a metric/series. */
 export async function publishLatestForecastPointer(
   kv: any,
   tenantId: string,
@@ -553,6 +559,7 @@ export async function publishLatestForecastPointer(
   )
 }
 
+/** Fetch the most recent forecast run for a metric/series. */
 export async function getLatestForecastRun(
   db: any,
   tenantId: string,
@@ -570,6 +577,7 @@ export async function getLatestForecastRun(
   return row || null
 }
 
+/** Query forecast points for a run with optional time range. */
 export async function queryForecastPoints(
   db: any,
   tenantId: string,
@@ -613,6 +621,7 @@ function normalizeQuantileMap(
   return map
 }
 
+/** Validate forecast points against promotion gate; return pass/fail + issues. */
 export function validateForecastProjection(
   points: ForecastPointInput[],
   gate: ForecastPromotionGate = {},
@@ -679,6 +688,7 @@ export function validateForecastProjection(
   }
 }
 
+/** Decide whether a forecast is publishable given validation + metrics. */
 export function evaluateForecastPromotion(
   points: ForecastPointInput[],
   evaluationMetrics: Record<string, unknown> = {},
