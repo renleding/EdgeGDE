@@ -1,12 +1,14 @@
 # System Design Document (SDD): AFIRMICO Auto — Telemetry Configuration Scopes
 
 **Document ID:** SDD-011  
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Draft  
 **Author:** Hermes (Director)  
 **Date:** 2026-10-13  
-**FRS Reference:** [FRS-010 v2.8](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md) — FEATURE-12 (F12-R01..R19, F12-N01..N05)  
+**FRS Reference:** [FRS-010 v3.0](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md) — FEATURE-12 (F12-R01..R19, F12-N01..N05), FEATURE-16 (F16-R01..R08, F16-N01..N03)  
 **Source:** Owner decisions 2026-10-07 (ten numbered answers) and 2026-10-09 (configurator UX answers 1–12); reference UI review ("Auto API for Tesla — Admin Global Configurator" screenshot, OCR-extracted, `apps/afirmico-tesla/`); measured against the live Tesla surface (`/admin/telemetry/diagnose`, Drogon `LRW3F7ET1SC584656`).
+
+**Revision note (v1.3, 2026-10-13).** **FEATURE-16: distributed apply (app scale).** §7 records the queue-based apply topology: the F12-N04 table processor (`config_apply_queue` drained by the `*/5 * * * *` cron at `MAX_BATCH_SIZE=50`) is the ≤1,000-vehicle path; FEATURE-16 adds a Cloudflare Queues fan-out (`apply-queue`) for 50k–200k vehicles, with the canary contract preserved by processing position-0 messages of each run before any other position, halting on canary failure, and dead-lettering after 3 retries. The scope engine, resolution, and wire artifact are unchanged. FRS reference bumped to v3.0 (FEATURE-16 added).
 
 **Revision note (v1.2, 2026-10-13).** **Copy reconciliation + as-built delta from the readiness review.** The `apps/afirmico-tesla/docs/` duplicate of this file (v1.1) is merged into `docs/` and deleted — single authority, per AGENTS §3. Three as-built facts recorded: **(1)** resolution now reads the catalog join, not the constant — `buildFieldConfig` sources each field's `interval_seconds` from `telemetry_config_entry ⋈ tesla_field_catalog` (global scope) rather than `SYNC_INTERVAL_SECONDS` (fix f487428), so v1.0's "global tier seeded from the catalog" is literally true at resolution time. **(2)** Override shadowing demonstrated in production: a single vehicle-scope `Odometer @ 180 s` row shadowed the global 604800 s tier and sustained the parked-car heartbeat until removed 2026-10-13 — sparse resolution behaved exactly as designed; the DATA was stale, the engine was not. **(3)** The apply sweep is implemented as `src/config-apply.ts` over `config_apply_run`/`config_apply_outcome` (contract: SDD-010 v1.13, IDD-011 v1.1 §9); the first production sweep is pending (`config_apply_run` = 0, F12-R19). The v1.0/v1.1 scope-engine and wire-artifact text stand unchanged.
 
@@ -167,6 +169,44 @@ come from, not what is sent.
 16. Console → resolves desired (scopes) and reads applied (`tesla_telemetry_config`) → renders the
     difference. Drift is **computed on read**, never written, so it cannot go stale.
 
+### 3.7 Distributed apply (FEATURE-16, 50k–200k vehicles)
+
+17. **Enqueue:** `POST /admin/telemetry/apply` records the `config_apply_run`,
+    persists each VIN's resolved config as `config_json` in `config_apply_queue`
+    (position = rollout order, canary first), and publishes one message per VIN
+    to the `apply-queue` Cloudflare Queue. Response returns immediately with
+    `runId` and `queued`.
+18. **Fan-out:** the queue's consumers (deployment-configurable parallelism,
+    default 20) each drain up to `MAX_BATCH_SIZE` (default 100) messages per
+    invocation. Per-VIN work is O(fields) — one signer POST, one status poll,
+    one telemetry-observation check — never O(fleet).
+19. **Canary ordering:** a run's position-0 message is processed before any
+    other position of that run. The consumer re-reads `config_apply_run.status`
+    before applying; a run marked `halted` (canary failed) causes its pending
+    messages to acknowledge `halted` without touching their vehicles.
+20. **Retry & dead-letter:** transient failures (Tesla 5xx, network) retry up to
+    3× with exponential backoff (5/15/60 min). Permanent failures (4xx, revoked
+    token, invalid VIN) dead-letter immediately to `config_apply_dead_letter`
+    with the full error. A dead-lettered VIN does not block the run.
+21. **Progress:** every processed message writes `config_apply_outcome` and
+    updates `config_apply_queue` — the console renders per-VIN progress from
+    D1, never from worker logs.
+22. **Token freshness:** the member access token is resolved per VIN at
+    processing time (F16-R06), so a 2-hour apply does not fail on tokens
+    minted at enqueue time.
+
+**Scale arithmetic (why the cron path is insufficient):**
+
+| Fleet | Cron path (50 veh / 5 min) | Queue path (20 consumers × 100 veh / min) |
+|-------|------------------------------|----------------------------------------------|
+| 1,000 | ~1.7 hours | < 1 minute |
+| 50,000 | ~17 days | ~25 minutes |
+| 200,000 | ~69 days | ~100 minutes |
+
+The cron table processor (`src/apply-processor.ts`, `MAX_BATCH_SIZE=50`)
+remains the ≤1,000-vehicle implementation and the design of record for the
+canary contract; the queue is that contract fanned out.
+
 ---
 
 ## 4. Data Structures
@@ -318,9 +358,13 @@ apps/afirmico-tesla/
   migrations/
     0016_config_scopes.sql          # scope + entry tables, group tables, apply-run tables
     0017_seed_global_scope.sql      # global tier seeded from the catalog at 180 s (total, F12-R02)
+    0023_config_apply_queue.sql     # F12-N04: apply queue table (cron consumer, ≤1,000 vehicles)
+    0024_config_apply_dead_letter.sql  # F16: dead-letter table for permanent per-VIN failures
   src/
     config-scope.ts                 # resolveConfig(): PURE. global>group>vehicle, sparse, provenance.
     config-apply.ts                 # the sweep: eligibility, canary, verify-all-three, bounded fan-out
+    apply-processor.ts              # F12-N04: enqueueApplySweep + processApplyQueue (cron consumer)
+    apply-queue-consumer.ts         # F16: Cloudflare Queue consumer (50k–200k vehicles)
     config-groups.ts                # group entity CRUD (owner-curated)
     admin.ts                        # + /admin/telemetry/configurator (READ + STAGING writes only)
     vehicle-config.ts               # buildFieldConfig() takes resolved values, not the constant
@@ -328,6 +372,7 @@ apps/afirmico-tesla/
   test/
     config-scope.test.ts            # resolution: inheritance, shadowing, sparse, total-base, unresolved
     config-apply.test.ts            # canary eligibility, three-condition verification, halt, idempotency
+    apply-processor.test.ts         # enqueue shape, config_json persistence, canary position 0
 ```
 
 ---
@@ -413,7 +458,7 @@ factor.
 
 ---
 
-## 7. Failure Modes
+## 7. Failure Modes (F12-N04 / ≤1,000 vehicles)
 
 | Failure | Detection | Handling |
 |---|---|---|
@@ -427,6 +472,20 @@ factor.
 | Sweep exceeds its time budget | Per-vehicle progress stalls | Resume from recorded outcomes; re-run is idempotent (F12-R09) |
 | Group deleted while a scope references it | `ON DELETE CASCADE` + FK | Scope rows go with it; resolution falls back to the level above; the run records the VIN set it actually used |
 | Operator stages a change and never applies it | Drift display | Visible as staged-not-applied; no vehicle effect (F12-N03, AC10) |
+
+---
+
+## 7.1 Failure Modes (FEATURE-16 / 50k–200k vehicles, Cloudflare Queues)
+
+| Failure | Detection | Handling |
+|---|---|---|
+| Queue consumer crashes mid-batch | Queue redelivery (at-least-once) | Idempotent by (run_id, vin) key; duplicate process writes same outcome |
+| Canary fails — messages for positions 1..N already in flight | Consumer checks run status before applying | Those messages acknowledge `halted` on their next delivery attempt; run marked `halted` |
+| Transient Tesla 5xx / network failure | Consumer catches non-2xx / timeout | Retry with exponential backoff (5/15/60 min) up to 3×; then dead-letter to `config_apply_dead_letter` |
+| Permanent VIN failure (4xx, invalid VIN, token revoked) | Consumer classifies error | Dead-letter immediately (no retry); run continues for other VINs |
+| Queue depth exceeds dead-letter bound (10k) | Consumer counts dead-letter rows | Operator alert; processing pauses until operator clears |
+| Token exchange fails for one VIN | `getMemberAccessToken` returns null | Record VIN `failed` with error; run continues |
+| Consumer exceeds `MAX_BATCH_SIZE` | Worker CPU/memory limit hit | Config bound; consumer code processes `max_batch_size` messages per invocation |
 
 ---
 

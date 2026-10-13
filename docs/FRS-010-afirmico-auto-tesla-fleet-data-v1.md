@@ -1,7 +1,7 @@
 # Functional Requirements Specification (FRS): AFIRMICO Auto — Tesla Fleet Data Platform
 
 **Document ID:** FRS-010  
-**Version:** 2.9  
+**Version:** 3.0  
 **Status:** Draft  
 **Author:** Hermes (Director)  
 **Date:** 2026-10-13
@@ -32,7 +32,8 @@ only a subset is collected at launch, so that scope can expand without a schema 
 ## 2. Change Log
 
 | Version | Date | Changes |
-|---------|------|---------|
+||---------|------|---------|
+|| 3.0 | 2026-10-13 | **APP SCALE (50k–200k vehicles) — FEATURE-16: Distributed Apply (F16-R01..R08, F16-N01..N03).** The F12-N04 queue (cron `*/5 * * * *`, `MAX_BATCH_SIZE=50`) scales to ~1,000 vehicles. For TOCA's 50k–200k member fleet, a cron tick cannot drain the queue: at 50 vehicles / 5 minutes, 50k vehicles take ~17 days and 200k take ~69 days. FEATURE-16 replaces the single consumer with a **Cloudflare Queues** fan-out: `enqueueApplySweep()` publishes per-VIN messages to the `apply-queue`; N queue consumers run in parallel (default 20), each draining `MAX_BATCH_SIZE=100` per invocation — 2,000 vehicles/minute, 50k in ~25 minutes, 200k in ~100 minutes. **(1) F16-R01 (Must)** apply MUST use Cloudflare Queues, not cron, for any fleet above 1,000 vehicles. **(2) F16-R02 (Must)** the queue consumer MUST be horizontally scalable — consumer count is a wrangler config value, not code. **(3) F16-R03 (Must)** the canary (position 0) MUST be processed before any other VIN in the run; a failed canary MUST halt the run and every pending message in it MUST be acknowledged with `halted`. **(4) F16-R04 (Must)** per-vehicle progress MUST remain observable — every message processed writes to `config_apply_outcome`, so the console shows progress without tailing logs. **(5) F16-R05 (Must)** a message MUST be retried on transient failure (Tesla 5xx, network) up to 3 times with exponential backoff, then dead-lettered to `config_apply_dead_letter` with the failure detail. **(6) F16-R06 (Must)** member access tokens MUST be resolved at processing time, not enqueue time. **(7) F16-R07 (Must)** at 200k vehicles the apply MUST NOT exceed the Worker CPU/memory limit — the batch size is capped and the per-VIN work is O(fields), not O(fleet). **(8) F16-R08 (Must)** a re-run of an apply MUST be idempotent — re-POSTing the same config to a vehicle is safe (Tesla treats it as a no-op update), and `config_apply_outcome` keys on (run_id, vin). **F16-N01** throughput target: 200k vehicles in under 2 hours with 20 consumers. **F16-N02** cost: queue operations billed per million; a 200k apply is ~200k messages. **F16-N03** the dead-letter queue MUST be bounded (10k messages) and alerted. **Non-goal:** the telemetry ingest lane (F14) and export lane (F13) are NOT changed — they already run per-ingest and per-cron respectively and do not loop the fleet. |
 || 2.8 | 2026-10-13 | **Production-readiness gap review (owner, 2026-10-13): six requirements added, one risk narrowed, one regression held open.** **(1) F02-R17 (Must) — approval→telemetry chain.** An owner approving AFIRMICO Auto in the Tesla app MUST complete key-pairing detection (F02-R09a) → telemetry config apply (F02-R11) → first telemetry observed; the dashboard MUST surface the chain's stage. **Owner ruling:** a vehicle present in the owner's account but NOT authorised for this platform MAY remain in an unmanaged config state while at least one car per owner is authorised and synced — that state is expected, not a defect (it was misread as a blocker in the 2026-10-13 readiness review, which is the evidence for F09-R13). **(2) F09-R13/R14/R15 (Must) — operator-surface truth.** Config states MUST distinguish *awaiting owner authorisation* from genuine failure; every rendered timestamp MUST name its field-set and clock (raised by the observed divergence: attributes "as last reported 2026-10-12 23:37:28 UTC" vs newest record 2026-10-13 01:01:47 UTC — both correct, label ambiguous); "Last Seen" MUST update on ingest or be relabeled "last enumerated" (measured: frozen at enumeration, 8 days stale while facts flowed daily). **(3) F04-R17 (Must) — once-tier identity delivery.** CarType/Version/EfficiencyPackage/Trim MUST be observed after configuration or every consumer MUST disclose its fallback — measured: zero such facts in production; Trim's promised delivery ("next telemetry config apply") never happened because no apply has run. **(4) F12-R19 (Must) — first apply run + interval acceptance.** The first production apply MUST be recorded in `config_apply_run` with canary evidence (F12-R08), and Tesla's acceptance of 21600/604800 MUST be confirmed from the apply response before §3.6's open item closes, with fallback ladder 604800 → 21600 → 3600 on rejection. **(5) F01 AC7** — admission basis (verified TOCA membership or paid-tier) established before the Tesla handshake. **(6) R-07 narrowed, not cleared** — re-apply machinery now exists (FEATURE-12 `config-apply.ts`); the blocker drops from "no machinery" to "no execution evidence" (`config_apply_run` = 0) and stays open until the first apply run. **(7) F10-R03/R04 retention regression stays OPEN** — reinstatement requires owner-approved text; recorded, not accepted. **(8) Document family consolidated:** SDD-010/SDD-011 duplicates merged into `docs/`; dual-transport SDD renumbered 012 → 013 (SDD-012 is the agentic-sdlc document); SDD-012/IDD-011 relocated from `apps/afirmico-tesla/docs/`; new IDD-013 (export contracts) and IDD-014 (readiness/healthz contracts) added. |
 || 2.9 | 2026-10-13 | **F12-N04 (batched/scheduled apply) implemented — production scale unblocked.** `POST /admin/telemetry/apply` no longer loops every VIN in one request. It now records a pending `config_apply_run`, serializes each VIN's resolved config into `config_apply_queue` (one row per VIN, `config_json`), and returns immediately. The `*/5 * * * *` cron tick drains `config_apply_queue` in bounded batches (`MAX_BATCH_SIZE=50`) via `processApplyQueue()`. Canary gating (F12-R07/R08/R09) is preserved: position 0 is the canary, a failed canary halts the run and marks all remaining rows `halted`. Per-vehicle progress is observable via `config_apply_queue` and `config_apply_outcome`; a mid-sweep failure never loses work. Member access tokens are resolved per-VIN at processing time (not at enqueue time) so tokens don't expire and fleet-wide multi-member rolls are correct. Added migration 0023_config_apply_queue.sql, processor in `src/apply-processor.ts`, cron hook in `src/index.ts`. Tests in `test/apply-processor.test.ts` and `test/config-apply.test.ts`. **Risk R-18 RESOLVED** — the synchronous apply path that could not reach 1,000 vehicles is replaced by the async queue. |
 | 2.7 | 2026-10-13 | **Copy reconciliation: this file becomes the single authoritative FRS-010 (AGENTS §3 doc-sync rule).** Two copies had drifted: `docs/FRS-010-…` sat at v2.2 (rows through 2026-10-07) while `apps/afirmico-tesla/docs/FRS-010-…` carried v2.3–v2.6 (FEATURE-14 dual-transport, FEATURE-15 sort requirement, timezone abbreviations) and was never synced back. The apps/ copy is merged into this file whole and **deleted**; the header version is corrected to match the changelog (the apps/ copy's header said 2.5 while its own changelog already reached 2.6). One docs/-only out-of-scope bullet ("no scheduled polling lane is specified") was verified as intentionally superseded by the v2.3 dual-transport decision rather than lost. The single reference to the deleted path (`openspec/changes/frs-010-v2.4-sort-requirement/design.md`) is repointed. Documentation consolidation only — no requirement, collection, consent or scope change. |
@@ -1172,6 +1173,64 @@ that manual diagnostic into a build gate.
 **Out of scope for this feature:** server-side sorting, pagination, column reordering,
 persisted sort state across page loads, and any change to what the tables contain (the
 configurator's data model is FEATURE-12's; the enrolment catalog is F12-R18's).
+
+### 4.16 FEATURE-16: Distributed Apply (App Scale, 50k–200k vehicles)
+
+**Purpose:** the FEATURE-12 apply sweep (F12-N04) drains `config_apply_queue` from
+a single `*/5 * * * *` cron consumer at `MAX_BATCH_SIZE=50` — roughly 50 vehicles
+per 5 minutes, ~600/hour. That covers a 1,000-vehicle fleet (~2 hours) but cannot
+cover TOCA's member fleet of 50k–200k vehicles: at that rate 50k vehicles take
+~17 days and 200k take ~69 days, far beyond any operator's patience and past the
+point where a "canary" says anything about the fleet it was sampled from. This
+feature replaces the single consumer with a Cloudflare Queues fan-out so the apply
+sweep keeps its canary semantics while scaling horizontally.
+
+**Requirements:**
+
+| ID | Requirement (SHALL/MUST) | Priority |
+|----|--------------------------|----------|
+| F16-R01 | The apply sweep SHALL use Cloudflare Queues (not cron polling) for any fleet larger than 1,000 vehicles. The enqueue step MUST publish one message per target VIN to the `apply-queue`. | Must |
+| F16-R02 | The queue consumer SHALL be horizontally scalable. Consumer parallelism MUST be a deployment configuration value (wrangler `queues` consumer settings), not a code change. | Must |
+| F16-R03 | The canary (queue position 0) SHALL be processed before any other VIN of the same run. If the canary fails verification, the run SHALL be marked `halted` and every pending message of that run SHALL be acknowledged `halted` — no further vehicle of the run is touched (F12-R09 preserved). | Must |
+| F16-R04 | Per-vehicle progress SHALL remain observable. Every processed message MUST write to `config_apply_outcome` and update `config_apply_queue`, so the admin console shows per-VIN progress and completion without reading logs. | Must |
+| F16-R05 | A message that fails on a transient error (Tesla 5xx, network, token exchange) SHALL be retried up to 3 times with exponential backoff (5 min, 15 min, 60 min) and then dead-lettered to `config_apply_dead_letter` with the full failure detail. A permanently failed VIN MUST NOT block the rest of the run. | Must |
+| F16-R06 | Member access tokens SHALL be resolved at processing time, not at enqueue time. | Must |
+| F16-R07 | At 200k vehicles the apply MUST NOT exceed a single Worker invocation's CPU/memory limits: the per-message batch size is capped and the per-VIN work is O(fields), never O(fleet). | Must |
+| F16-R08 | Re-running an apply SHALL be idempotent. Re-POSTing the same resolved config to a vehicle is safe (Tesla treats an identical config as a no-op update), and `config_apply_outcome` keys on (run_id, vin) so a re-run records its evidence rather than corrupting the prior run's. | Must |
+| F16-N01 | Throughput target: 200k vehicles applied within 2 hours at 20 queue consumers with `MAX_BATCH_SIZE=100` (2,000 vehicles/minute). | Should |
+| F16-N02 | Queue operations are billed per million messages; a full 200k-vehicle apply is ~200k messages. | Should |
+| F16-N03 | The dead-letter queue SHALL be bounded (10k messages) and a non-empty dead-letter queue SHALL raise an operator alert. | Should |
+
+**Acceptance criteria:**
+
+```
+AC1: An apply of N vehicles publishes exactly N messages to apply-queue.
+AC2: With 20 consumers, a 2,000-vehicle apply completes in under 2 minutes
+     of processing (excluding canary wait).
+AC3: A failed canary halts the run: no message past position 0 is applied,
+     and every pending message of the run is acknowledged `halted`.
+AC4: A vehicle whose POST fails 3 times lands in config_apply_dead_letter
+     with the error detail; the run continues for other vehicles.
+AC5: The console shows per-VIN progress (pending → in_progress →
+     done/failed/halted) sourced from config_apply_queue/outcome, not logs.
+AC6: Re-running an apply over the same vehicles writes a NEW run_id and
+     does not corrupt the previous run's outcome rows.
+AC7: A single consumer invocation never processes more than
+     MAX_BATCH_SIZE vehicles, regardless of queue depth.
+```
+
+**Why F16-R03 preserves the canary contract:** the queue fan-out must not
+weaken the single gate FEATURE-12 leans on. The canary is message position 0
+of its run; the consumer processes position-0 messages of each run before any
+other position of that run, and a canary failure marks the run halted so that
+messages already in flight acknowledge as halted on their next delivery attempt.
+This is the same contract as the F12-N04 table processor, expressed for a
+distributed consumer.
+
+**Non-goal:** the telemetry ingest lane (F14) and the export lane (F13) are
+unchanged — ingest is already per-payload (no fleet loop) and export runs on
+its own cron per schedule row. Only the apply sweep loops the fleet, so only
+the apply sweep is moved to a queue.
 
 ---
 
