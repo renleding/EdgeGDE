@@ -81,9 +81,19 @@ def test_parallel_dispatch_and_budget():
     assert agg["budget_limit_ms"] == 60_000
     assert sum(agg["budget_used"].values()) == agg["budget_used_total_ms"], \
         "aggregate must equal sum of per-task (no double counting)"
+    # Gap #5: worktree timing observability
+    assert "worktree_timing" in agg
+    assert "worktree_timing_total_ms" in agg
+    assert "worktree_slowest_ms" in agg
+    assert len(agg["worktree_timing"]) == 2
+    for timing in agg["worktree_timing"].values():
+        assert timing["create_ms"] >= 0
+        assert timing["install_ms"] >= 0
+        assert timing["total_ms"] == timing["create_ms"] + timing["install_ms"]
     print(f"PASS test_parallel_dispatch_and_budget "
           f"(statuses={[s.status for s in statuses.values()]}, "
-          f"budget_used_total_ms={agg['budget_used_total_ms']})")
+          f"budget_used_total_ms={agg['budget_used_total_ms']}, "
+          f"worktree_slowest_ms={agg['worktree_slowest_ms']})")
     coord.cleanup_worktrees()
 
 
