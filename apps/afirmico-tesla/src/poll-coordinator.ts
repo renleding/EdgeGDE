@@ -1,5 +1,5 @@
 /**
- * FEATURE-14 — the poll coordinator (FRS-010 v2.3 F14-R01..R10, SDD-012).
+ * FEATURE-14 — the poll coordinator (FRS-010 v2.3 F14-R01..R10, SDD-013).
  *
  * WHAT THIS IS
  * ------------
@@ -36,7 +36,7 @@
  * on a transport-implied tier — a polled row and a streamed row differ only by
  * `source` (F14-R10).
  *
- * Failure handling is swallow-and-record (SDD-012 §7): a poll failure must
+ * Failure handling is swallow-and-record (SDD-013 §7): a poll failure must
  * never fail the ingest batch it rode in on. Every outcome is written to
  * telemetry_poll_state, so the next batch sees it and retries under the same
  * cadence rules.
@@ -57,7 +57,7 @@ const POLL_TIMEOUT_MS = 8_000
 /**
  * Fields polled exactly once at first sync (F14-R03): model, variant, version.
  * These are `once`-tier catalog fields with a REST equivalent. `Trim` joins them
- * once its vehicle_config path is confirmed against live Tesla (SDD-012 §9 O-3
+ * once its vehicle_config path is confirmed against live Tesla (SDD-013 §9 O-3
  * variant: a new Version arriving over telemetry contradicts the stored value —
  * today that mismatch is visible, no automatic re-poll).
  */
@@ -156,7 +156,7 @@ async function loadState(
     .first<{ identity_polled: number; last_poll_at: string | null }>()
   // Absent row = never polled. It is created on the first successful poll —
   // a row that only exists after a real poll keeps "we polled" and "we meant
-  // to poll" from drifting apart (SDD-012 §4.2).
+  // to poll" from drifting apart (SDD-013 §4.2).
   return row ?? { identity_polled: 0, last_poll_at: null }
 }
 
@@ -187,7 +187,7 @@ async function teslaGet(
     return body.response as Record<string, unknown>
   } catch {
     // A sleeping vehicle returns stale or empty data — that lands as null here
-    // and is recorded as "not reported", never as zero (SDD-012 §7).
+    // and is recorded as "not reported", never as zero (SDD-013 §7).
     return null
   } finally {
     clearTimeout(timer)

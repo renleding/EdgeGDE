@@ -1,12 +1,12 @@
 # Interface Design Document (IDD): AFIRMICO Auto — Configurator Page
 
 **Document ID:** IDD-011  
-**Version:** 1.0  
+**Version:** 1.1  
 **Status:** Draft  
 **Author:** Hermes (Director)  
-**Date:** 2026-10-10  
-**Spec:** FRS-010 v2.5 (FEATURE-15, FEATURE-12, FEATURE-13, FEATURE-14)  
-**Design:** SDD-011
+**Date:** 2026-10-13  
+**Spec:** FRS-010 v2.8 (FEATURE-15, FEATURE-12, FEATURE-13, FEATURE-14)  
+**Design:** SDD-011 v1.2, SDD-010 v1.13
 
 ---
 
@@ -153,3 +153,54 @@ No network request. No state mutation. No URL change.
 
 Server-side sorting, pagination, column reordering, persisted sort state,
 and any mutation of the configuration data model (FEATURE-12's concern).
+
+## 9. Apply & Canary Contract (added v1.1, 2026-10-13)
+
+The apply sweep is the configurator's only path from a staged target to a
+vehicle. Contract as built (`src/config-apply.ts`, wiring in `src/admin.ts`).
+
+### 9.1 Endpoint
+
+```
+POST /admin/telemetry/apply        (admin session; tenant-scoped)
+form: scope = global | group | vehicle
+      canary_vin   REQUIRED when scope is global or group
+      vin          the changed vehicle when scope is vehicle
+response 200:
+  { success: boolean,            // !canaryFailed
+    runId: string,               // config_apply_run.run_id
+    canaryVin: string | null,
+    canaryFailed: boolean,
+    outcomes: [...] }            // per-vehicle rows
+response 400: { error }          // canary_vin missing for global/group
+```
+
+### 9.2 Run state machine — `config_apply_run`
+
+| Column | Meaning |
+|--------|---------|
+| `run_id` | primary key, referenced by every outcome row |
+| `scope_id` | the scope whose staged target was applied |
+| `status` | `pending → canary → (canary_failed \| rolling) → completed \| failed \| halted` |
+| `canary_vin` | the F12-R07-eligible vehicle nominated for first application |
+| `canary_state` | WHICH verification condition failed — a halt is diagnosable, never a bare `failed` |
+| `started_at` / `finished_at` / `initiated_by` / `note` | audit trail |
+
+### 9.3 Outcome rows — `config_apply_outcome` (PK: run_id + vin)
+
+| Column | Meaning |
+|--------|---------|
+| `outcome` | `applied \| verified \| skipped \| failed \| halted` |
+| `skip_reason` | F02-R11 vocabulary (`missing_key`, `unsupported_hardware`, `unsupported_firmware`, `max_configs`) |
+| `has_config` / `synced` / `observed_after` | F12-R08's three conditions **stored as data**: POST succeeded ∧ `has_config=1` ∧ `synced=1` ∧ a telemetry fact observed afterwards |
+| `error_detail` / `applied_at` | failure diagnosis; application time |
+
+### 9.4 Invariants
+
+1. **Eligibility (F12-R07):** the canary MUST carry no vehicle-scope override for any changed field — an override shadows the applied scope and would fake a pass.
+2. **Verification (F12-R08):** `verified` requires all three stored conditions; `synced` alone is never sufficient (a vehicle with no target config also reports `synced`).
+3. **Halt (F12-R09):** `canaryFailed` stops the run — remaining vehicles keep their previous configuration; `success` is false in the response.
+4. **No run without evidence:** every response `runId` MUST resolve to rows in both tables; a run with zero outcome rows is a defect, not an empty fleet.
+
+Out of scope here: eligibility computation UI, interval/seed policy (SDD-011),
+signer transport (SDD-010 §2).
