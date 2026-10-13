@@ -24,7 +24,8 @@ import type { ResolvedConfig } from './config-scope'
 import { getMemberAccessToken } from './key-pairing'
 import { enqueueApplyRun, enqueueApplyTargets } from './apply-enqueue'
 
-// Max vehicles per cron invocation (tunable)
+/** Max vehicles per cron invocation (tunable). Bounded so a single
+ *  cron tick stays inside the Worker's CPU/memory limits (F12-N04). */
 export const MAX_BATCH_SIZE = 50
 
 export interface ApplyQueueItem {
