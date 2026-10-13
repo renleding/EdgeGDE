@@ -34,6 +34,29 @@
       "binding": "EMAIL"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "queue": "afirmico-tesla-apply-queue",
+        "binding": "APPLY_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "afirmico-tesla-apply-queue",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "afirmico-tesla-apply-dlq"
+      }
+    ],
+    "dead_letter_queues": [
+      {
+        "queue": "afirmico-tesla-apply-dlq",
+        "binding": "APPLY_DLQ"
+      }
+    ]
+  },
   "vars": {
     "TESLA_CLIENT_ID": "f03d04ed-a6b0-43b3-bda4-5c19dec5dd2b",
     "TESLA_BILLING_LIMIT_USD": "100"

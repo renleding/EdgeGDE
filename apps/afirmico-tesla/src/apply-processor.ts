@@ -22,6 +22,7 @@ import {
 } from './config-apply'
 import type { ResolvedConfig } from './config-scope'
 import { getMemberAccessToken } from './key-pairing'
+import { enqueueApplyRun, enqueueApplyTargets } from './apply-enqueue'
 
 // Max vehicles per cron invocation (tunable)
 export const MAX_BATCH_SIZE = 50
@@ -81,6 +82,56 @@ export async function enqueueApplySweep(
   }
 
   return { runId, queued: targetVins.length }
+}
+
+/**
+ * FEATURE-16: enqueue a sweep AND publish one message per VIN
+ * to the `apply-queue` Cloudflare Queue. Used for fleets
+ * larger than 1,000 vehicles (F16-R01).
+ *
+ * The message carries only (run_id, vin, position, scope_kind):
+ * the resolved config is read back from config_apply_queue
+ * (config_json) and the member token is minted at processing
+ * time (F16-R06), so nothing perishable rides the message.
+ */
+export async function enqueueApplySweepDistributed(
+  changeScope: 'vehicle' | 'global' | 'group',
+  targetVins: string[],
+  resolvedPerVin: Map<string, ResolvedConfig | null>,
+  operator: string,
+  db: D1Database,
+  queue: { send: (msg: ApplyQueueMessage) => Promise<void> }
+): Promise<EnqueueResult> {
+  // Distributed enqueue writes config_apply_queue rows
+  // WITHOUT config_json (resolution happens at processing
+  // time, F16-R06), then publishes one message per VIN.
+  const runId = await enqueueApplyRun(
+    changeScope === 'vehicle' ? `vehicle_${targetVins[0]}` : changeScope,
+    operator,
+    db
+  )
+  await enqueueApplyTargets(runId, targetVins, resolvedPerVin, db)
+
+  // Canary is position 0 (targetVins is canary-first for
+  // global/group). Publish one message per VIN.
+  for (let i = 0; i < targetVins.length; i++) {
+    await queue.send({
+      run_id: runId,
+      vin: targetVins[i],
+      position: i,
+      scope_kind: changeScope,
+    })
+  }
+
+  return { runId, queued: targetVins.length }
+}
+
+/** Message published to apply-queue (see IDD-015 §3). */
+export interface ApplyQueueMessage {
+  run_id: string
+  vin: string
+  position: number
+  scope_kind: 'vehicle' | 'global' | 'group'
 }
 
 /**

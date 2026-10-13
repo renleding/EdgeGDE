@@ -1968,15 +1968,136 @@ adminApp.post('/telemetry/apply', async (c) => {
 
   const targetVins = scope === 'vehicle' ? [vin] : [canaryVin, vin]
 
-  // Enqueue the sweep (F12-N04). The cron processor drains it in batches.
+  // FEATURE-16: fleets over 1,000 vehicles fan out to the
+  // apply-queue Cloudflare Queue (F16-R01). The queue
+  // binding is optional in dev; when absent the route falls
+  // back to the F12-N04 cron path.
+  const applyQueue = (c.env as unknown as { APPLY_QUEUE?: { send: (m: unknown) => Promise<void> } }).APPLY_QUEUE
+  const DISTRIBUTED_THRESHOLD = 1000
+  let result: { runId: string; queued: number }
+  let path: 'distributed' | 'cron'
+  if (applyQueue && targetVins.length > DISTRIBUTED_THRESHOLD) {
+    // Distributed enqueue: queue rows WITHOUT config_json
+    // (resolution happens at processing time, F16-R06) plus
+    // one apply-queue message per VIN.
+    const { enqueueApplySweepDistributed } = await import('./apply-processor')
+    result = await enqueueApplySweepDistributed(
+      scope,
+      targetVins,
+      new Map(targetVins.map((v) => [v, null])),
+      operator,
+      db,
+      applyQueue
+    )
+    path = 'distributed'
+  } else {
+    // F12-N04 cron path: queue rows carry config_json.
+    result = await enqueueApplySweep(scope, targetVins, resolvedPerVin, operator, db)
+    path = 'cron'
+  }
   void signerUrl
-  const result = await enqueueApplySweep(scope, targetVins, resolvedPerVin, operator, db)
 
   return c.json({
     success: true,
     runId: result.runId,
     queued: result.queued,
-    message: 'Apply sweep enqueued. The canary will be processed on the next cron tick; monitor /admin/telemetry/apply-runs for progress.'
+    path,
+    message: path === 'distributed'
+      ? 'Apply sweep enqueued to apply-queue. The canary gates the rollout; monitor /admin/telemetry/apply-runs for per-vehicle progress.'
+      : 'Apply sweep enqueued. The canary will be processed on the next cron tick; monitor /admin/telemetry/apply-runs for progress.'
+  })
+})
+
+/**
+ * GET /admin/telemetry/apply-runs?runId=...
+ * Per-vehicle apply progress, sourced from D1 (F16-R04).
+ * The console polls this — never worker logs.
+ */
+adminApp.get('/telemetry/apply-runs', async (c) => {
+  const runId = String(c.req.query('runId') ?? '').trim()
+  const db = c.env.D1_TESLA
+
+  if (!runId) {
+    // List recent runs
+    const rows = await db.prepare(
+      `SELECT run_id, scope_id, status, canary_vin, canary_state, started_at, finished_at, initiated_by
+         FROM config_apply_run
+        ORDER BY started_at DESC
+        LIMIT 50`
+    ).all<{ run_id: string; scope_id: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; initiated_by: string | null }>()
+    return c.json({ runs: rows.results ?? [] })
+  }
+
+  const run = await db.prepare(
+    `SELECT run_id, scope_id, status, canary_vin, canary_state, started_at, finished_at, initiated_by
+       FROM config_apply_run
+      WHERE run_id = ?`
+  ).bind(runId).first<{ run_id: string; scope_id: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; initiated_by: string | null }>()
+
+  if (!run) {
+    return c.json({ error: 'run not found' }, 404)
+  }
+
+  const counts = await db.prepare(
+    `SELECT
+       SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+       SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done,
+       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+       SUM(CASE WHEN status = 'halted' THEN 1 ELSE 0 END) as halted,
+       COUNT(*) as total
+       FROM config_apply_queue
+      WHERE run_id = ?`
+  ).bind(runId).first<{ pending: number | null; in_progress: number | null; done: number | null; failed: number | null; halted: number | null; total: number }>()
+
+  const vehicles = await db.prepare(
+    `SELECT vin, position, status, attempts, last_error, started_at, finished_at
+       FROM config_apply_queue
+      WHERE run_id = ?
+      ORDER BY position ASC`
+  ).bind(runId).all<{ vin: string; position: number; status: string; attempts: number; last_error: string | null; started_at: string | null; finished_at: string | null }>()
+
+  const outcomes = await db.prepare(
+    `SELECT vin, outcome, skip_reason, error_detail, has_config, synced, observed_after, applied_at
+       FROM config_apply_outcome
+      WHERE run_id = ?`
+  ).bind(runId).all<{ vin: string; outcome: string; skip_reason: string | null; error_detail: string | null; has_config: number | null; synced: number | null; observed_after: number | null; applied_at: string | null }>()
+
+  // Join queue rows with outcome rows per VIN
+  const outcomeByVin = new Map<string, (typeof outcomes.results)[number]>()
+  for (const o of outcomes.results ?? []) outcomeByVin.set(o.vin, o)
+
+  const vehicleProgress = (vehicles.results ?? []).map((v) => {
+    const o = outcomeByVin.get(v.vin)
+    return {
+      vin: v.vin,
+      position: v.position,
+      status: v.status,
+      attempts: v.attempts,
+      errorDetail: v.last_error ?? o?.error_detail ?? null,
+      outcome: o?.outcome ?? null,
+      hasConfig: o?.has_config === 1,
+      synced: o?.synced === 1,
+      observedAfter: o?.observed_after === 1,
+    }
+  })
+
+  return c.json({
+    runId: run.run_id,
+    scopeId: run.scope_id,
+    status: run.status,
+    canaryVin: run.canary_vin,
+    canaryState: run.canary_state,
+    initiatedBy: run.initiated_by,
+    startedAt: run.started_at,
+    finishedAt: run.finished_at,
+    queued: counts?.total ?? 0,
+    pending: counts?.pending ?? 0,
+    inProgress: counts?.in_progress ?? 0,
+    done: counts?.done ?? 0,
+    failed: counts?.failed ?? 0,
+    halted: counts?.halted ?? 0,
+    vehicles: vehicleProgress,
   })
 })
 
