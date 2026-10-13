@@ -3,7 +3,9 @@ Droid Execution Wrapper — runs a single mission's tasks
 inside a worktree.
 
 Called by droid/parallel_coordinator.py per parallel task.
-Designed for `python3 droid/execute.py --mission <path> --worktree <path>`.
+Designed for:
+    python3 droid/execute.py --mission <path> --worktree <path>
+        [--adjust-cmd <command>]
 
 Flow per task in the mission manifest:
 1. Pre-mutation governance gate (droid.governance_gate)
@@ -11,14 +13,21 @@ Flow per task in the mission manifest:
 3. Verification criteria run (droid.verification_runner) for every task
 4. Report per-task status as JSON to stdout
 
+--adjust-cmd: optional adjuster for mutating tasks. The adjuster
+receives JSON {"content", "failure", "iteration"} on stdin and prints
+the adjusted content to stdout. Without it, the loop keeps content
+unchanged (correct when the agent edits files directly in the
+worktree). A bad --adjust-cmd fails fast at startup (exit 2).
+
 Exit codes:
   0 — all tasks passed verification
   1 — any task failed verification
-  2 — governance rejection or manifest invalid
+  2 — governance rejection, manifest invalid, or bad --adjust-cmd
 """
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,9 +40,76 @@ from droid.mission_manifest import MissionManifest
 from droid.verification_runner import VerificationRunner
 
 
+def make_adjust_cmd(adjust_cmd: str | None):
+    """Build the CodeValidateLoop adjust callback from --adjust-cmd.
+
+    Contract: the adjuster is a command (script, binary, or
+    `python3 script.py`). It receives a JSON object on stdin:
+        {"content": "<current file content>",
+         "failure": <verification result dict or null>,
+         "iteration": <int>}
+    and must print the adjusted content to stdout.
+
+    Returns None when no adjuster is configured — the loop then
+    keeps the content unchanged (no-op), which is correct for
+    read-only verification and for agents that edit files directly
+    in the worktree instead of via stdin/stdout.
+
+    Raises FileNotFoundError if the configured command's
+    executable cannot be found. Called once at startup so a bad
+    --adjust-cmd fails fast (exit 2) before any task runs.
+    """
+    if not adjust_cmd:
+        return None
+
+    # Split into argv; a bare command name must resolve on PATH
+    argv = adjust_cmd.split()
+    if not argv:
+        raise ValueError("--adjust-cmd is empty")
+    if "/" not in argv[0]:
+        import shutil
+        resolved = shutil.which(argv[0])
+        if not resolved:
+            raise FileNotFoundError(
+                f"adjust-cmd executable not found on PATH: {argv[0]}"
+            )
+
+    def adjust(content: str, failure) -> str:
+        nonlocal call_count
+        call_count += 1
+        payload = {
+            "content": content,
+            "failure": (
+                failure.result if failure else None
+            ),
+            "iteration": call_count,
+        }
+        proc = subprocess.run(
+            argv,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"adjust-cmd failed (exit {proc.returncode}): "
+                f"{proc.stderr[-500:]}"
+            )
+        return proc.stdout
+
+    call_count = 0
+    return adjust
+
+
 def run_task(task, worktree_dir: Path, governance: GovernanceGate,
-             runner: VerificationRunner) -> dict:
-    """Execute one task and return its result record."""
+             runner: VerificationRunner,
+             adjust=None) -> dict:
+    """Execute one task and return its result record.
+
+    adjust: the CodeValidateLoop adjust callback (from
+    make_adjust_cmd), or None to keep content unchanged.
+    """
     record: dict = {"task_id": task.task_id, "operation": task.operation,
                     "status": "pending", "iterations": 0}
 
@@ -67,9 +143,11 @@ def run_task(task, worktree_dir: Path, governance: GovernanceGate,
         file_path=str(task.scope[0]) if task.scope else "",
         criteria=task.verification_criteria,
     )
+    # adjust=None keeps content unchanged (agent edits files directly
+    # in the worktree instead of via stdin/stdout)
     loop_result = loop.execute(
         initial_content=initial_content,
-        adjust=lambda content, failure: content,  # caller-provided agent step
+        adjust=adjust or (lambda content, failure: content),
     )
     record["status"] = loop_result.status
     record["iterations"] = loop_result.iterations
@@ -89,6 +167,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="path to the per-task mission manifest JSON")
     parser.add_argument("--worktree", required=True,
                         help="path to the worktree the mission runs in")
+    parser.add_argument("--adjust-cmd", default=None,
+                        help="adjuster command for mutating tasks: receives "
+                             "JSON {content, failure, iteration} on stdin, "
+                             "prints adjusted content to stdout. Without it, "
+                             "the loop keeps content unchanged (agent edits "
+                             "files directly in the worktree).")
     args = parser.parse_args(argv)
 
     manifest_path = Path(args.mission)
@@ -106,13 +190,21 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
 
+    # Fail fast on a bad --adjust-cmd (before any task runs)
+    try:
+        adjust = make_adjust_cmd(args.adjust_cmd)
+    except (FileNotFoundError, ValueError) as e:
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        return 2
+
     governance = GovernanceGate(source_dir=str(worktree_dir))
     runner = VerificationRunner()
 
     task_results = []
     failed = False
     for task in manifest.tasks:
-        record = run_task(task, worktree_dir, governance, runner)
+        record = run_task(task, worktree_dir, governance, runner,
+                          adjust=adjust)
         task_results.append(record)
         if record["status"] not in ("pass", "completed"):
             failed = True
