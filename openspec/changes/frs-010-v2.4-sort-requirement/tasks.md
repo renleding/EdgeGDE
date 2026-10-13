@@ -15,7 +15,7 @@
 - [ ] Add test to `package.json` test suite
 
 ## Phase 3: IDD-011 Configurator Page Interface
-- [ ] Create `apps/afirmico-tesla/docs/IDD-011-afirmico-auto-configurator-v1.md`
+- [ ] Create `docs/IDD-011-afirmico-auto-configurator-v1.md`
 - [ ] Document page routes, auth, and data flow
 - [ ] Document table component interface (config-table, enrol-table)
 - [ ] Document sort API contract (initTableSort, sortTable, compare, indicators)
