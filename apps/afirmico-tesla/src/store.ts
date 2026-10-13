@@ -484,7 +484,7 @@ export async function collectedFields(db: D1Database): Promise<
     .prepare(
       `SELECT c.field_key, c.collection_tier, c.min_delta, e.interval_seconds
          FROM tesla_field_catalog c
-         LEFT JOIN telemetry_config_entry e
+         INNER JOIN telemetry_config_entry e
            ON e.field_key = c.field_key AND e.scope_id = 'global' AND e.enabled = 1
         WHERE c.collected = 1
         ORDER BY c.field_key`,
