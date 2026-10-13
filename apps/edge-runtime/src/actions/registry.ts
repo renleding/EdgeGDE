@@ -20,13 +20,14 @@ import type { EdgeGDEAction, ActionContext } from './types'
 import { CALCULATOR_REGISTRY } from '../registry/calculators'
 import { getCalculator } from '../lib/calculator-engine'
 import { safeEnv } from '../lib/env'
+import type { D1Database } from '@cloudflare/workers-types'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** Try to get D1 binding — return null if unavailable. */
-function tryD1(env: Record<string, unknown>): any | null {
+function tryD1(env: Record<string, unknown>): D1Database | null {
   try {
     const typed = safeEnv(env)
     const rawDB = typed.DB
@@ -57,9 +58,10 @@ const canvasAddNode: EdgeGDEAction = {
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 0 }
   },
-  async compensate(ctx, input: any, originalOutput: any) {
+  async compensate(ctx, input: unknown, originalOutput: unknown) {
     // Reverse: delete the node that was added
-    const nodeId = input?.nodeId ?? originalOutput?.nodeId
+    const nodeId = (input as { nodeId?: string } | null | undefined)?.nodeId
+      ?? (originalOutput as { nodeId?: string } | null | undefined)?.nodeId
     if (!nodeId) {
       logCompensation(ctx, 'canvas.add_node', 'skipped', 'No nodeId available to compensate')
       return
@@ -74,14 +76,15 @@ const canvasDeleteNode: EdgeGDEAction = {
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 0 }
   },
-  async compensate(ctx, _input, originalOutput: any) {
+  async compensate(ctx, _input, originalOutput: unknown) {
     // Reverse: re-add the node that was deleted
-    if (!originalOutput?.nodeData) {
+    const nodeData = (originalOutput as { nodeData?: { id?: string } } | null | undefined)?.nodeData
+    if (!nodeData) {
       logCompensation(ctx, 'canvas.delete_node', 'skipped', 'No nodeData available in originalOutput')
       return
     }
     // In production, would call CANVAS_SESSION DO to restore the node
-    logCompensation(ctx, 'canvas.delete_node', 'success', `Restored node ${originalOutput.nodeData.id}`)
+    logCompensation(ctx, 'canvas.delete_node', 'success', `Restored node ${nodeData.id}`)
   },
 }
 
@@ -90,11 +93,11 @@ const canvasMoveNode: EdgeGDEAction = {
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 0 }
   },
-  async compensate(ctx, _input, originalOutput: any) {
+  async compensate(ctx, _input, originalOutput: unknown) {
     // Reverse: move back to original position
-    const nodeId = originalOutput?.nodeId
-    const prevParent = originalOutput?.previousParentId
-    const prevIndex = originalOutput?.previousIndex
+    const nodeId = (originalOutput as { nodeId?: string } | null | undefined)?.nodeId
+    const prevParent = (originalOutput as { previousParentId?: string } | null | undefined)?.previousParentId
+    const prevIndex = (originalOutput as { previousIndex?: number } | null | undefined)?.previousIndex
     if (!nodeId) {
       logCompensation(ctx, 'canvas.move_node', 'skipped', 'No nodeId available to compensate')
       return
@@ -110,12 +113,14 @@ const canvasMoveNode: EdgeGDEAction = {
 
 const leadCapture: EdgeGDEAction = {
   type: 'lead.capture',
-  async execute(_ctx, input: any) {
-    return { status: 'success', output: { leadId: input.leadId, captured: true }, durationMs: 50 }
+  async execute(_ctx, input: unknown) {
+    const leadId = (input as { leadId?: string } | null | undefined)?.leadId
+    return { status: 'success', output: { leadId, captured: true }, durationMs: 50 }
   },
-  async compensate(ctx, input: any, originalOutput: any) {
+  async compensate(ctx, input: unknown, originalOutput: unknown) {
     // Reverse: delete/archive the captured lead from D1
-    const leadId = originalOutput?.leadId ?? input?.leadId
+    const leadId = (originalOutput as { leadId?: string } | null | undefined)?.leadId
+      ?? (input as { leadId?: string } | null | undefined)?.leadId
     if (!leadId) {
       logCompensation(ctx, 'lead.capture', 'skipped', 'No leadId available')
       return
@@ -139,7 +144,7 @@ const leadCapture: EdgeGDEAction = {
       logCompensation(ctx, 'lead.capture', 'simulated', `Would archive lead ${leadId}`)
     }
   },
-  dryRun(_input: any) {
+  dryRun(_input: unknown) {
     return { expectedOutputType: '{ leadId, captured }', sideEffects: ['creates lead record'], idempotent: false }
   },
 }
@@ -153,10 +158,10 @@ const sitePublish: EdgeGDEAction = {
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 1000 }
   },
-  async compensate(ctx, input: any, originalOutput: any) {
+  async compensate(ctx, input: unknown, originalOutput: unknown) {
     // Reverse: roll back the published site to previous version
-    const tenantId = input?.tenantId ?? ctx.tenantId
-    const previousVersion = originalOutput?.previousVersion
+    const tenantId = (input as { tenantId?: string } | null | undefined)?.tenantId ?? ctx.tenantId
+    const previousVersion = (originalOutput as { previousVersion?: string } | null | undefined)?.previousVersion
 
     if (!tenantId) {
       logCompensation(ctx, 'site.publish', 'skipped', 'No tenantId available')
@@ -171,7 +176,7 @@ const sitePublish: EdgeGDEAction = {
         const marker = JSON.stringify({
           event: 'compensation_rollback',
           tenantId,
-          rolledBackFrom: originalOutput?.version ?? 'unknown',
+          rolledBackFrom: (originalOutput as { version?: string } | null | undefined)?.version ?? 'unknown',
           rolledBackTo: previousVersion ?? 'previous',
           timestamp: new Date().toISOString(),
           correlationId: ctx.correlationId,
@@ -200,9 +205,9 @@ const siteRollback: EdgeGDEAction = {
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 1000 }
   },
-  async compensate(ctx, input: any, _originalOutput) {
+  async compensate(ctx, input: unknown, _originalOutput) {
     // Reverse: re-publish the version that was active before rollback
-    const tenantId = input?.tenantId ?? ctx.tenantId
+    const tenantId = (input as { tenantId?: string } | null | undefined)?.tenantId ?? ctx.tenantId
     if (!tenantId) {
       logCompensation(ctx, 'site.rollback', 'skipped', 'No tenantId available')
       return
@@ -224,8 +229,8 @@ const siteRollback: EdgeGDEAction = {
  */
 const calculatorExecute: EdgeGDEAction = {
   type: 'calculator.execute',
-  async execute(_ctx, rawInput: any) {
-    const toolId = rawInput?.toolId as string | undefined
+  async execute(_ctx, rawInput: unknown) {
+    const toolId = (rawInput as { toolId?: string } | null | undefined)?.toolId
     if (!toolId) {
       return { status: 'failure' as const, output: null, error: 'Missing toolId in input', durationMs: 0 }
     }
@@ -236,7 +241,7 @@ const calculatorExecute: EdgeGDEAction = {
       return {
         id: engineCalc.id, description: engineCalc.description,
         schema: engineCalc.inputSchema,
-        execute(input: any) { return engineCalc.execute(input) },
+        execute(input: unknown) { return engineCalc.execute(input) },
       }
     })()
     if (!tool) {
@@ -290,7 +295,7 @@ const calculatorExecute: EdgeGDEAction = {
     }
   },
   // calculator.execute is read-only — no compensation needed
-  dryRun(_input: any) {
+  dryRun(_input: unknown) {
     return {
       expectedOutputType: '{ toolId, input, summary }',
       sideEffects: ['computes calculator result — no state mutation'],
@@ -305,9 +310,10 @@ const calculatorInsert: EdgeGDEAction = {
   async execute(_ctx, _input) {
     return { status: 'success', output: null, durationMs: 100 }
   },
-  async compensate(ctx, input: any, _originalOutput) {
+  async compensate(ctx, input: unknown, _originalOutput) {
     // Reverse: delete the inserted record from D1
-    const recordId = input?.recordId ?? input?.id
+    const recordId = (input as { recordId?: string; id?: string } | null | undefined)?.recordId
+      ?? (input as { recordId?: string; id?: string } | null | undefined)?.id
     if (!recordId) {
       logCompensation(ctx, 'calculator.insert', 'skipped', 'No recordId available')
       return

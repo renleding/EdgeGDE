@@ -5,6 +5,8 @@
  * v1: waitUntil-based, KV storage, email stub. Queue + R2 + email are upgrade paths.
  */
 
+import type { D1Database, KVNamespace, R2Bucket } from '@cloudflare/workers-types'
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
@@ -53,6 +55,10 @@ export function computeNextRun(
 // Report Generation (D1 queries, no full table scans)
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Row shapes returned by the D1 queries in this module. */
+interface TotalCountRow { count?: number | string }
+interface LeadScoreRow { score?: number | string; lead_id?: string; created_at?: string }
+
 /**
  * Generate weekly digest report for a tenant
  * @param db - The D1 database
@@ -60,7 +66,7 @@ export function computeNextRun(
  * @returns The weekly digest payload
  */
 export async function generateWeeklyDigest(
-  db: any,
+  db: D1Database,
   tenantId: string,
 ): Promise<WeeklyDigestPayload> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -68,33 +74,33 @@ export async function generateWeeklyDigest(
   const dateStr = new Date().toISOString().split('T')[0]
 
   // Query leads in time window (uses created_at index — no full scan)
-  const totalRow: any = await db.prepare(
+  const totalRow = await db.prepare(
     `SELECT COUNT(*) as count FROM form_submissions
      WHERE tenant_id = ? AND created_at >= ? AND created_at <= ?`
-  ).bind(tenantId, sevenDaysAgo, now).first()
-  const totalLeads = totalRow?.count || 0
+  ).bind(tenantId, sevenDaysAgo, now).first<TotalCountRow>()
+  const totalLeads = Number(totalRow?.count ?? 0)
 
   // Score distribution (join with lead_scores)
-  const scores: any = await db.prepare(
+  const scores = await db.prepare(
     `SELECT s.score FROM form_submissions f
      JOIN lead_scores s ON s.lead_id = f.id AND s.tenant_id = f.tenant_id
      WHERE f.tenant_id = ? AND f.created_at >= ? AND f.created_at <= ?`
-  ).bind(tenantId, sevenDaysAgo, now).all()
+  ).bind(tenantId, sevenDaysAgo, now).all<LeadScoreRow>()
 
-  const allScores: number[] = (scores.results || []).map((r: any) => r.score)
+  const allScores: number[] = (scores.results || []).map((r) => Number(r.score ?? 0))
   const cold = allScores.filter((s) => s >= 0 && s <= 30).length
   const warm = allScores.filter((s) => s >= 31 && s <= 60).length
   const hot = allScores.filter((s) => s >= 61).length
 
   // Top leads (sorted by score, limited to 10)
-  const top: any[] = (scores.results || [])
-    .sort((a: any, b: any) => b.score - a.score)
-    .slice(0, 10)
-    .map((r: any) => ({
+  const top = (scores.results || [])
+    .map((r) => ({
       leadId: r.lead_id || '',
-      score: r.score,
+      score: Number(r.score ?? 0),
       submissionDate: r.created_at || '',
     }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
 
   return {
     period: `${sevenDaysAgo.split('T')[0]} to ${dateStr}`,
@@ -121,8 +127,8 @@ export async function generateWeeklyDigest(
  * @returns The R2 key
  */
 export async function storeReportArtifact(
-  R2_BUCKET: any,
-  TENANT_KV: any,
+  R2_BUCKET: R2Bucket,
+  TENANT_KV: KVNamespace,
   tenantId: string,
   scheduleId: string,
   targetDate: string,
@@ -157,7 +163,7 @@ export async function storeReportArtifact(
  * @returns The delivery status
  */
 export async function deliverReport(
-  db: any,
+  db: D1Database,
   executionId: string,
   recipientsJson: string,
   payload: ReportPayload,

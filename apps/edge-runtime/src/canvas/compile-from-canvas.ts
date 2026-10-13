@@ -59,9 +59,9 @@ function extractTokensFromDoc(doc: CanvasDocument): DesignTokens | null {
   // 2. Auto-extract from node styles
   const styles: Array<{ tagName: string; color?: string; backgroundColor?: string }> = []
   for (const n of Object.values(doc.nodes)) {
-    const s: any = { tagName: n.type }
-    if (n.style.color) s.color = n.style.color
-    if (n.style.backgroundColor) s.backgroundColor = n.style.backgroundColor
+    const s: { tagName: string; color?: string; backgroundColor?: string } = { tagName: n.type }
+    if (n.style.color) s.color = String(n.style.color)
+    if (n.style.backgroundColor) s.backgroundColor = String(n.style.backgroundColor)
     styles.push(s)
   }
   if (styles.length === 0) return null
@@ -94,10 +94,10 @@ function extractTokensFromDoc(doc: CanvasDocument): DesignTokens | null {
   }
 }
 
-function extractColorsFallback(styles: any[]): { background?: string; text?: string; primary?: string; surface?: string; border?: string; muted?: string } | null {
+function extractColorsFallback(styles: Array<{ tagName: string; color?: string; backgroundColor?: string }>): { background?: string; text?: string; primary?: string; surface?: string; border?: string; muted?: string } | null {
   if (styles.length === 0) return null
-  const bgs = styles.filter((s: any) => s.backgroundColor).map((s: any) => s.backgroundColor)
-  const colors = styles.filter((s: any) => s.color).map((s: any) => s.color)
+  const bgs = styles.filter((s) => s.backgroundColor).map((s) => s.backgroundColor as string)
+  const colors = styles.filter((s) => s.color).map((s) => s.color as string)
   if (bgs.length === 0 && colors.length === 0) return null
   const bg = bgs[0]
   const text = colors[0]
@@ -165,7 +165,7 @@ function nodeTypeToTag(type: string, props?: Record<string, any>): string {
   }
 }
 
-function normalizeStyleValue(value: any): string | undefined {
+function normalizeStyleValue(value: unknown): string | undefined {
   if (value == null) return undefined
   if (typeof value === 'number') return `${value}px`
   return String(value)

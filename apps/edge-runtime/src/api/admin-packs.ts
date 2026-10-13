@@ -140,21 +140,21 @@ router.post('/dry-run', async (c) => {
 
     // Load existing rules as old state
     const db = envFromContext(c).DB
-    let oldRules: any[] = []
+    let oldRules: Array<Record<string, unknown>> = []
     if (db) {
       try {
         const { results } = await db.prepare('SELECT * FROM rules WHERE tenant_id = ?').bind(tenantId).all()
-        oldRules = results || []
+        oldRules = (results || []) as Array<Record<string, unknown>>
       } catch {}
     }
 
     // Load existing compliance
-    let oldCompliance: any[] = []
+    let oldCompliance: Array<Record<string, unknown>> = []
     try {
       const raw = await kv.get('tenant:' + tenantId + ':kb:compliance')
       if (raw) {
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-        oldCompliance = parsed.entries || []
+        oldCompliance = ((parsed as { entries?: unknown[] }).entries || []) as Array<Record<string, unknown>>
       }
     } catch {}
 
@@ -164,10 +164,11 @@ router.post('/dry-run', async (c) => {
     if (bpRefRaw) {
       try {
         const bpRef = typeof bpRefRaw === 'string' ? JSON.parse(bpRefRaw) : bpRefRaw
-        const bpRaw = await kv.get('blueprint:' + bpRef.id + ':latest')
+        const bpRaw = await kv.get('blueprint:' + (bpRef as { id: string }).id + ':latest')
         if (bpRaw) {
           const bp = typeof bpRaw === 'string' ? JSON.parse(bpRaw) : bpRaw
-          blueprintFields = (bp.fields || []).map((f: any) => f.fieldName)
+          blueprintFields = ((bp as { fields?: Array<{ fieldName?: string }> }).fields || [])
+            .map((f) => f.fieldName || '')
         }
       } catch {}
     }
@@ -202,8 +203,8 @@ router.post('/dry-run', async (c) => {
       </div>`
 
     return c.html(diffHtml)
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">Error: ' + esc(err.message) + '</div>')
+  } catch (err: unknown) {
+    return c.html('<div style="color:#da3633">Error: ' + esc((err as Error).message) + '</div>')
   }
 })
 
@@ -226,8 +227,8 @@ router.post('/execute', async (c) => {
       + 'Compliance entries: ' + result.complianceInstalled + '<br>'
       + '<a href="/admin/packs?tenant=' + esc(tenantId) + '&token=' + esc(c.req.query('token') || '') + '" style="color:#58a6ff">Refresh pack versions</a>'
       + '</div>')
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">Error: ' + esc(err.message) + '</div>')
+  } catch (err: unknown) {
+    return c.html('<div style="color:#da3633">Error: ' + esc((err as Error).message) + '</div>')
   }
 })
 
@@ -250,8 +251,8 @@ router.post('/rollback', async (c) => {
       + 'Compliance entries restored: ' + result.complianceInstalled + '<br>'
       + '<a href="/admin/packs?tenant=' + esc(tenantId) + '&token=' + esc(c.req.query('token') || '') + '" style="color:#58a6ff">Refresh</a>'
       + '</div>')
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">Error: ' + esc(err.message) + '</div>')
+  } catch (err: unknown) {
+    return c.html('<div style="color:#da3633">Error: ' + esc((err as Error).message) + '</div>')
   }
 })
 
@@ -277,8 +278,10 @@ router.post('/seed-test', async (c) => {
 
     // Update pack index
     const idxRaw = await kv.get('pack:index:rules')
-    const idx: any[] = idxRaw ? (typeof idxRaw === 'string' ? JSON.parse(idxRaw) : idxRaw) : []
-    if (!idx.find((p: any) => p.name === 'au_mortgage_v1')) {
+    const idx: Array<{ name: string; type: string; entryCount: number; description: string }> = idxRaw
+      ? ((typeof idxRaw === 'string' ? JSON.parse(idxRaw) : idxRaw) as Array<{ name: string; type: string; entryCount: number; description: string }>)
+      : []
+    if (!idx.find((p) => p.name === 'au_mortgage_v1')) {
       idx.push({ name: 'au_mortgage_v1', type: 'rules', entryCount: mortgageRules.length, description: 'AU lending rules (test)' })
       await kv.put('pack:index:rules', JSON.stringify(idx))
     }
@@ -293,15 +296,17 @@ router.post('/seed-test', async (c) => {
     await kv.put('pack:au_nccp_v1:compliance', JSON.stringify(nccpEntries))
 
     const idxCompRaw = await kv.get('pack:index:compliance')
-    const idxComp: any[] = idxCompRaw ? (typeof idxCompRaw === 'string' ? JSON.parse(idxCompRaw) : idxCompRaw) : []
-    if (!idxComp.find((p: any) => p.name === 'au_nccp_v1')) {
+    const idxComp: Array<{ name: string; type: string; entryCount: number; description: string }> = idxCompRaw
+      ? ((typeof idxCompRaw === 'string' ? JSON.parse(idxCompRaw) : idxCompRaw) as Array<{ name: string; type: string; entryCount: number; description: string }>)
+      : []
+    if (!idxComp.find((p) => p.name === 'au_nccp_v1')) {
       idxComp.push({ name: 'au_nccp_v1', type: 'compliance', entryCount: nccpEntries.length, description: 'AU NCCP compliance disclosures (test)' })
       await kv.put('pack:index:compliance', JSON.stringify(idxComp))
     }
 
     return c.html('<div style="color:#3fb950">✅ Seeded au_mortgage_v1 (' + mortgageRules.length + ' rules) and au_nccp_v1 (' + nccpEntries.length + ' disclosures)</div>')
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">Error: ' + esc(err.message) + '</div>')
+  } catch (err: unknown) {
+    return c.html('<div style="color:#da3633">Error: ' + esc((err as Error).message) + '</div>')
   }
 })
 
