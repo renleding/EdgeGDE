@@ -1895,83 +1895,16 @@ async function removeVehicleConfig(env: Env, vin: string, memberId: string): Pro
  *
  * Guarded by the same shared secret as ingest: it is an authenticated operator
  * action, not a public one, and it must never be reachable by a member.
+ *
+ * NOTE: this route is superseded by adminApp's /telemetry/apply (F12-R19),
+ * which is the canaried sweep that records config_apply_run / config_apply_outcome.
+ * The adminApp sub-app is mounted at app.route('/admin', adminApp) below, but
+ * registrations on `app` match FIRST in Hono, so leaving this route here would
+ * shadow the canaried one and every apply would bypass the run/outcome record.
+ * The legacy route is removed so the canaried sweep is the only apply path.
+ * The F02-R13 re-apply runbook still works: the canaried sweep is idempotent
+ * and re-applies the same way this route did.
  */
-app.post('/admin/telemetry/apply', async (c) => {
-  const secret = c.env.INGEST_SHARED_SECRET
-  if (!secret) return c.json({ ok: false, error: 'not_configured' }, 503)
-  if (!timingSafeEqual(c.req.header('x-ingest-secret') ?? '', secret)) {
-    return c.json({ ok: false, error: 'unauthorized' }, 401)
-  }
-
-  const nowIso = new Date().toISOString()
-
-  // Optional `vin` narrows to one vehicle; default is every paired vehicle.
-  const body = (await c.req.json().catch(() => ({}))) as { vin?: string }
-  const rows = body.vin
-    ? await c.env.D1_TESLA.prepare('SELECT vin FROM tesla_vehicle WHERE vin = ?').bind(body.vin).all<{ vin: string }>()
-    : await c.env.D1_TESLA.prepare('SELECT vin FROM tesla_vehicle ORDER BY vin').all<{ vin: string }>()
-  const vins = (rows.results ?? []).map((r) => r.vin)
-
-  const results: { vin: string; state: string; skip_reason?: string; error?: string }[] = []
-  for (const vin of vins) {
-    // Get member_id for this VIN
-    const vehicleRow = await c.env.D1_TESLA.prepare('SELECT member_id FROM tesla_vehicle WHERE vin = ?')
-      .bind(vin)
-      .first<{ member_id: string }>()
-    if (!vehicleRow) {
-      results.push({ vin, state: 'failed', error: 'vehicle_not_found' })
-      continue
-    }
-    // Remove any existing pending/active config for this VIN to avoid unique index conflict
-    await c.env.D1_TESLA.prepare(
-      `DELETE FROM tesla_telemetry_config WHERE vin = ? AND state IN ('pending', 'active')`
-    ).bind(vin).run()
-
-    const outcome = await sendVehicleConfig(c.env, vin, nowIso, vehicleRow.member_id)
-    const rec = buildConfigRecord({
-      vin,
-      hostname: (await telemetryTarget(c.env.D1_TESLA)).hostname,
-      port: 443,
-      fields: (await collectedFields(c.env.D1_TESLA)) as CollectedField[],
-      now: nowIso,
-    })
-    try {
-      await upsertTelemetryConfig(c.env.D1_TESLA, {
-        ...rec,
-        state: outcome.state,
-        skip_reason: outcome.skipReason ?? null,
-        applied_at: outcome.state === 'active' ? nowIso : null,
-        last_error: outcome.error ?? null,
-      })
-    } catch (error) {
-      results.push({ vin, state: 'failed', error: `db_upsert:${(error as Error).message}` })
-      continue
-    }
-    try {
-      await audit(c.env.D1_TESLA, {
-        action: 'telemetry.config_applied',
-        actorType: 'admin',
-        subjectType: 'vehicle',
-        subjectId: vin,
-        detail: { state: outcome.state, skip_reason: outcome.skipReason ?? null, error: outcome.error ?? null },
-        nowIso,
-      })
-    } catch (error) {
-      results.push({ vin, state: 'failed', error: `db_audit:${(error as Error).message}` })
-      continue
-    }
-    results.push({ vin, state: outcome.state, skip_reason: outcome.skipReason, error: outcome.error })
-  }
-
-  // `proxy_configured` is reported so an operator reading this response can tell
-    // "no vehicles" apart from "no transport" — both produce an empty fleet result.
-    return c.json({
-      ok: true,
-      proxy_configured: proxyConfigured(c.env),
-      vehicles: vins.length,
-      results,
-    })
-  })
 
   /* -------------------------------------------------------------------------- */
   /* Admin: Force refresh vehicle list from Tesla (diagnostic)                  */
