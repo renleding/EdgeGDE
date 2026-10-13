@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Functional Requirements Specification (FRS): Agentic SDLC — Plan-Code-Validate at Scale — Rendered Spec</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #090909; color: #fff;
+           font-family: Arial, Helvetica, sans-serif; line-height: 1.6; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+  h1 { font-size: 32px; margin: 0 0 8px; color: #42ff8c; }
+  h2 { font-size: 24px; margin: 32px 0 12px; color: #8ab4ff;
+         border-bottom: 1px solid #222; padding-bottom: 4px; }
+  h3 { font-size: 18px; margin: 24px 0 8px; color: #d5d5d5; }
+  h4 { font-size: 16px; margin: 16px 0 6px; }
+  h5 { font-size: 14px; margin: 12px 0 4px; }
+  h6 { font-size: 13px; margin: 8px 0 4px; color: #8a8a8a; }
+  p { margin: 8px 0; color: #d5d5d5; }
+  ul { margin: 8px 0; padding-left: 24px; }
+  li { color: #d5d5d5; margin: 4px 0; }
+  .spec-table { width: 100%; border-collapse: collapse; margin: 12px 0;
+                 font-size: 13px; }
+  .spec-table th, .spec-table td { padding: 8px 10px; border: 1px solid #222;
+                                   text-align: left; vertical-align: top; }
+  .spec-table th { background: #151515; color: #8a8a8a;
+                    font-weight: 600; text-transform: uppercase;
+                    font-size: 11px; letter-spacing: 0.5px; }
+  .spec-table tr:hover td { background: #121212; }
+  code { background: #1d1d1d; padding: 2px 5px; border-radius: 3px;
+         font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+         color: #f5c542; }
+  pre { background: #151515; padding: 12px; border-radius: 6px;
+         overflow-x: auto; font-size: 12px; }
+  a { color: #8ab4ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .toc { background: #151515; padding: 12px 16px; border-radius: 8px;
+          margin: 16px 0; font-size: 14px; }
+  .toc h3 { margin: 0 0 8px; font-size: 14px; color: #8a8a8a;
+             text-transform: uppercase; letter-spacing: 0.5px; }
+  .toc ul { margin: 0; padding-left: 18px; }
+  .toc li { color: #8ab4ff; }
+  .meta { color: #666; font-size: 12px; margin-top: 24px;
+           border-top: 1px solid #222; padding-top: 8px; }
+  hr { border: none; border-top: 1px solid #222; margin: 24px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Functional Requirements Specification (FRS): Agentic SDLC — Plan-Code-Validate at Scale</h1>
+  <div class="meta">Rendered from: docs/FRS-012-agentic-sdlc-v1.md</div>
+
+  <div class="toc">
+    <h3>Table of Contents</h3>
+    <ul><li><a href="#functional-requirements-specification-(frs):-agentic-sdlc-—-plan-code-validate-at-scale">Functional Requirements Specification (FRS): Agentic SDLC — Plan-Code-Validate at Scale</a></li>
+<li><a href="#1.-objective">1. Objective</a></li>
+<li><a href="#2.-change-log">2. Change Log</a></li>
+<li><a href="#3.-current-baseline">3. Current Baseline</a></li>
+<li><a href="#4.-requirements">4. Requirements</a></li>
+<li><a href="#5.-out-of-scope">5. Out of Scope</a></li>
+<li><a href="#6.-dependencies-&-related-documents">6. Dependencies & Related Documents</a></li>
+<li><a href="#7.-suggested-phasing">7. Suggested Phasing</a></li>
+<li><a href="#8.-verification">8. Verification</a></li></ul>
+  </div>
+
+  <h1>Functional Requirements Specification (FRS): Agentic SDLC — Plan-Code-Validate at Scale</h1>
+<p><strong>Document ID:</strong> FRS-012  </p>
+<p><strong>Version:</strong> 1.0  </p>
+<p><strong>Status:</strong> Draft  </p>
+<p><strong>Author:</strong> Hermes (Director)  </p>
+<p><strong>Date:</strong> 2026-10-11  </p>
+<p><strong>Source:</strong> Kun Chen (ex-Meta L8) agentic engineering workflow — YouTube: Peter Yang interview (88B6DimMD2g)  </p>
+<p><strong>Related:</strong> FRS-002 (agentic coding capability), FRS-011 (APA MITM proxy), AGENTS.md Tribe-0 SDLC rules  </p>
+<p>---</p>
+<h2>1. Objective</h2>
+<p>Adopt Kun Chen's agentic engineering workflow into the EdgeGDE SDLC so that:</p>
+<p>1. <strong>Planning is the leverage point</strong> — heavy investment in detailed, measurable specs before any code runs</p>
+<p>2. <strong>Code execution is agent-autonomous</strong> — agents run Code→Validate loops without human in the loop</p>
+<p>3. <strong>Human role shifts to planning + escalation only</strong> — Hermes authors specs/verification criteria; Droid + agents execute + self-validate; only failures or ambiguities reach Hermes</p>
+<p>4. <strong>Concurrency multiplies throughput</strong> — multiple agents run in parallel per mission, not just per-agent</p>
+<p>5. <strong>Governance moves left</strong> — checks run in Droid before mutation, not just in CI</p>
+<p>---</p>
+<h2>2. Change Log</h2>
+<table class='spec-table'>
+<tr><td></td><td>Version</td><td>Date</td><td>Changes</td></tr>
+<tr><td></td><td>1.0</td><td>2026-10-11</td><td>Initial specification — Plan-Code-Validate, parallel agents, left-shifted governance</td></tr>
+</table>
+<p>---</p>
+<h2>3. Current Baseline</h2>
+<h3>3.1 SDLC State Machine (AGENTS.md §2)</h3>
+<p>EdgeGDE currently uses a 5-phase state machine: <strong>DISCOVERY → ALIGNMENT → GATE → EXECUTION → VERIFICATION</strong>. Phases are human-gated; each transition requires explicit approval.</p>
+<p><strong>Strength:</strong> Correctness over speed. Every mutation is deliberate.  </p>
+<p><strong>Weakness:</strong> Human is the bottleneck. Every code write, every verify decision, every retry goes through Hermes.</p>
+<h3>3.2 Mission Manifest (AGENTS.md §5)</h3>
+<p>Missions declare objective, tasks, constraints, and Saga compensation. Tasks have <code>verification_criteria</code> — currently prose descriptions, not executable checks.</p>
+<p><strong>Strength:</strong> Deterministic, auditable, compensation-aware.  </p>
+<p><strong>Weakness:</strong> <code>verification_criteria</code> are not executable; Droid cannot self-validate; Hermes must verify every outcome.</p>
+<h3>3.3 Agent Fleet (repo-worktree-policy)</h3>
+<p>6 agents (agent-1..6), each in a separate worktree. Port registry governs binding. Typically sequential work — one agent per task.</p>
+<p><strong>Strength:</strong> Isolation, port safety, CI-only D1 migrations.  </p>
+<p><strong>Weakness:</strong> Underutilized concurrency. Multiple independent tasks in one mission run sequentially.</p>
+<h3>3.4 Governance (AGENTS.md §6, Aegis policy-catalog.yaml)</h3>
+<p>Governance checks run in CI (Gate 3) and via Aegis policy validation. Mutations require Droid delegation.</p>
+<p><strong>Strength:</strong> Non-bypassable policy layer.  </p>
+<p><strong>Weakness:</strong> Checks happen *after* code is written (CI) or at delegation time, not inline with the mutation. A bad mutation can be written before CI catches it.</p>
+<p>---</p>
+<h2>4. Requirements</h2>
+<h3>4.1 FEATURE-01: Plan Phase — Heavy, Measurable Specs</h3>
+<p><strong>Priority:</strong> P1  </p>
+<p><strong>Effort:</strong> Medium (~1-2 days)  </p>
+<p><strong>User Story:</strong> As Hermes (Director), I author a detailed, measurable spec BEFORE any code runs. The spec is an executable artifact — not just prose, but verification criteria the agent can run itself.</p>
+<p><strong>Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Must/Should</td></tr>
+<tr><td>F01-R01</td><td>Every mission MUST include a `plan` artifact that is more than a task list — it MUST define the target state, acceptance criteria, and measurable verification conditions</td><td>Must</td></tr>
+<tr><td>F01-R02</td><td>`verification_criteria` in each task MUST be executable — either a script path, a test command, or a structured check that Droid can run without Hermes intervention</td><td>Must</td></tr>
+<tr><td>F01-R03</td><td>The plan phase MUST output a spec that can be rendered visually (HTML/Canvas) so the human can see the target before agents execute</td><td>Should</td></tr>
+<tr><td>F01-R04</td><td>Mission specs SHALL follow the OpenSpec format (proposal.md, design.md, specs/, tasks.md) when the change has architecture impact</td><td>Should</td></tr>
+<tr><td>F01-R05</td><td>A mission SHALL NOT enter EXECUTION phase until `verification_criteria` are defined for every mutating task</td><td>Must</td></tr>
+</table>
+<p><strong>Non-Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Target</td></tr>
+<tr><td>F01-N01</td><td>Planning investment is proportional to mission complexity; simple fixes may use lightweight specs</td><td>Complexity-scaled</td></tr>
+<tr><td>F01-N02</td><td>Spec rendering (Canvas/HTML) must not block execution</td><td>< 2s render</td></tr>
+</table>
+<p><strong>Acceptance Criteria:</strong></p>
+</pre>
+<p>AC1: A mission with 3 mutating tasks has executable verification_criteria for each.</p>
+<p>AC2: An agent can run verification_criteria without Hermes intervention — result is pass/fail.</p>
+<p>AC3: A complex mission (new feature) has a rendered spec visible before execution.</p>
+<p>AC4: A mission with no verification_criteria cannot pass the GATE — Hermes rejects it.</p>
+</pre>
+<p>---</p>
+<h3>4.2 FEATURE-02: Code Phase — Agent-Autonomous Execution</h3>
+<p><strong>Priority:</strong> P1  </p>
+<p><strong>Effort:</strong> Medium (~1-2 days)  </p>
+<p><strong>User Story:</strong> As a mission, once the spec is approved, agents execute the code phase autonomously — writing, testing, and iteratively validating — without Hermes reviewing every diff.</p>
+<p><strong>Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Must/Should</td></tr>
+<tr><td>F02-R01</td><td>The Code phase SHALL be executed by Droid + delegated sub-agents, not by Hermes directly</td><td>Must</td></tr>
+<tr><td>F02-R02</td><td>Agents SHALL run a Code→Validate loop: write code → run verification_criteria → if fail, adjust → repeat, up to a defined iteration limit</td><td>Must</td></tr>
+<tr><td>F02-R03</td><td>The Code phase SHALL NOT require Hermes review of intermediate diffs — only the final outcome is verified</td><td>Must</td></tr>
+<tr><td>F02-R04</td><td>Agents SHALL report progress via the action ledger (FRS-007) — every step is attributable and auditable</td><td>Must</td></tr>
+<tr><td>F02-R05</td><td>If the iteration limit is reached without passing verification, the agent SHALL escalate to Hermes with the current state and last failure</td><td>Must</td></tr>
+</table>
+<p><strong>Non-Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Target</td></tr>
+<tr><td>F02-N01</td><td>Code→Validate loop iteration limit</td><td>Configurable per mission (default 5)</td></tr>
+<tr><td>F02-N02</td><td>Agent must log every iteration attempt to the action ledger</td><td>Every step</td></tr>
+</table>
+<p><strong>Acceptance Criteria:</strong></p>
+</pre>
+<p>AC1: A mission enters Code phase → Droid executes without Hermes line-by-line review.</p>
+<p>AC2: An agent fails verification → adjusts → retries → passes within iteration limit.</p>
+<p>AC3: An agent exhausts iterations → escalates to Hermes with state + last failure.</p>
+<p>AC4: Every code step is journaled with agent_id + owner_attestation (FRS-007).</p>
+</pre>
+<p>---</p>
+<h3>4.3 FEATURE-03: Validate Phase — Autonomous Self-Verification</h3>
+<p><strong>Priority:</strong> P1  </p>
+<p><strong>Effort:</strong> Medium (~1 day)  </p>
+<p><strong>User Story:</strong> As an agent, I validate my own work against the spec's verification_criteria before reporting completion. Hermes only reviews when validation fails or is ambiguous.</p>
+<p><strong>Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Must/Should</td></tr>
+<tr><td>F03-R01</td><td>The Validate phase SHALL run `verification_criteria` for every completed task before reporting success</td><td>Must</td></tr>
+<tr><td>F03-R02</td><td>Validation results SHALL be deterministic — same spec + same code → same validation result</td><td>Must</td></tr>
+<tr><td>F03-R03</td><td>If validation passes for all tasks, the agent SHALL report success and Hermes SHALL trust the result (no re-verification unless something changed)</td><td>Should</td></tr>
+<tr><td>F03-R04</td><td>If validation fails, the agent SHALL report the specific failure with enough detail for Hermes to decide retry vs. reject</td><td>Must</td></tr>
+<tr><td>F03-R05</td><td>Validation SHALL include the governance checks that are currently in CI (Gate 3) — moved left into the Validate phase</td><td>Must</td></tr>
+<tr><td>F03-R06</td><td>The Validate phase SHALL produce a verification report that Hermes can review without re-running checks</td><td>Must</td></tr>
+</table>
+<p><strong>Acceptance Criteria:</strong></p>
+</pre>
+<p>AC1: All tasks validated → agent reports success; Hermes accepts without re-verify.</p>
+<p>AC2: One task fails validation → agent reports specific failure; Hermes decides.</p>
+<p>AC3: Governance checks (Gate 3) pass in Validate phase → no CI failure on merge.</p>
+<p>AC4: Validation is deterministic — re-running gives same result.</p>
+</pre>
+<p>---</p>
+<h3>4.4 FEATURE-04: Parallel Agent Concurrency</h3>
+<p><strong>Priority:</strong> P2  </p>
+<p><strong>Effort:</strong> Medium (~1-2 days)  </p>
+<p><strong>User Story:</strong> As a mission, I can run multiple independent tasks in parallel across agents/worktrees, not sequentially, so throughput scales with concurrency not elapsed time.</p>
+<p><strong>Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Must/Should</td></tr>
+<tr><td>F04-R01</td><td>A mission MAY declare tasks as `parallel: true` when they have no `depends_on` relationship</td><td>Must</td></tr>
+<tr><td>F04-R02</td><td>Parallel tasks SHALL run in separate worktrees to avoid filesystem contention</td><td>Must</td></tr>
+<tr><td>F04-R03</td><td>The coordinator (agent-6 or designated Hermes) SHALL track parallel task status and aggregate results</td><td>Must</td></tr>
+<tr><td>F04-R04</td><td>Parallel tasks SHALL share the mission budget (FRS-007 FEATURE-02) — aggregate accounting, no double count</td><td>Must</td></tr>
+<tr><td>F04-R05</td><td>A parallel task failure SHALL trigger the manifest's Saga compensation policy for that task only (not the whole mission, unless policy says `compensate_all`)</td><td>Must</td></tr>
+</table>
+<p><strong>Non-Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Target</td></tr>
+<tr><td>F04-N01</td><td>Max parallel tasks per mission</td><td>Configurable (default 5)</td></tr>
+<tr><td>F04-N02</td><td>Worktree creation for parallel tasks is automated by the coordinator</td><td>< 30s per worktree</td></tr>
+</table>
+<p><strong>Acceptance Criteria:</strong></p>
+</pre>
+<p>AC1: A mission with 3 parallel tasks → all 3 run concurrently, not sequentially.</p>
+<p>AC2: Parallel tasks in separate worktrees → no filesystem conflicts.</p>
+<p>AC3: Mission budget is shared across parallel tasks — aggregate, not per-task.</p>
+<p>AC4: One parallel task fails → Saga compensates that task; others may continue.</p>
+</pre>
+<p>---</p>
+<h3>4.5 FEATURE-05: Left-Shifted Governance (Pre-Mutation Checks)</h3>
+<p><strong>Priority:</strong> P1  </p>
+<p><strong>Effort:</strong> Small (~0.5 day)  </p>
+<p><strong>User Story:</strong> As an agent, I run governance checks BEFORE mutating files, not after. Bad mutations are caught at the point of execution, not in CI.</p>
+<p><strong>Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Must/Should</td></tr>
+<tr><td>F05-R01</td><td>Droid SHALL run the governance checks (currently Gate 3: `any` types, `console.log`, test fakes, etc.) BEFORE applying any mutation</td><td>Must</td></tr>
+<tr><td>F05-R02</td><td>A mutation that fails governance checks SHALL NOT be applied — Droid rejects it and reports the failure</td><td>Must</td></tr>
+<tr><td>F05-R03</td><td>Governance checks SHALL be the same checks that run in CI — no divergence between pre-mutation and CI checks</td><td>Must</td></tr>
+<tr><td>F05-R04</td><td>Governance check results SHALL be journaled (FRS-007) as part of the action ledger</td><td>Should</td></tr>
+</table>
+<p><strong>Acceptance Criteria:</strong></p>
+</pre>
+<p>AC1: A mission attempts a mutation with <code>any</code> types → Droid rejects before write.</p>
+<p>AC2: The same check in CI would catch it → pre-mutation check catches it first.</p>
+<p>AC3: Governance check pass → mutation applied; result journaled.</p>
+<p>AC4: No governance check passes in CI that didn't pass pre-mutation.</p>
+</pre>
+<p>---</p>
+<h3>4.6 FEATURE-06: Visual Spec Artifacts (HTML/Canvas)</h3>
+<p><strong>Priority:</strong> P3  </p>
+<p><strong>Effort:</strong> Medium (~1 day)  </p>
+<p><strong>User Story:</strong> As a human reviewer, I can see the target state of a spec rendered visually — not just read markdown — before approving execution.</p>
+<p><strong>Functional Requirements:</strong></p>
+<table class='spec-table'>
+<tr><td>ID</td><td>Requirement</td><td>Must/Should</td></tr>
+<tr><td>F06-R01</td><td>Specs with UI/behavioral impact SHALL be renderable as an HTML artifact (Canvas-based or static HTML)</td><td>Should</td></tr>
+<tr><td>F06-R02</td><td>The rendered artifact SHALL show the target state: routes, pages, data flow, or component structure as applicable</td><td>Should</td></tr>
+<tr><td>F06-R03</td><td>The rendered spec SHALL be generated from the same source as the text spec — single source of truth, no drift</td><td>Must</td></tr>
+</table>
+<p><strong>Acceptance Criteria:</strong></p>
+</pre>
+<p>AC1: A feature spec with UI impact renders as HTML showing the target layout/flow.</p>
+<p>AC2: The HTML artifact is generated from the spec source — updating the spec updates the HTML.</p>
+<p>AC3: A non-UI spec (backend-only) may skip rendering — not required.</p>
+</pre>
+<p>---</p>
+<h2>5. Out of Scope</h2>
+<li>Replacing Hermes as Director — Hermes still authors specs, approves gates, handles escalations</li>
+<li>Replacing CI — CI still runs after merge; left-shifted checks complement, not replace</li>
+<li>Removing human from planning — planning remains human-led with agent assistance</li>
+<li>Multi-repo coordination — this spec applies to single-worktree/agent missions</li>
+<li>Budget guardrails (FRS-007) — referenced but not redefined here</li>
+<p>---</p>
+<h2>6. Dependencies & Related Documents</h2>
+<table class='spec-table'>
+<tr><td></td><td>Artifact</td><td>Relation</td></tr>
+<tr><td></td><td>FRS-002 (agentic coding capability)</td><td>Foundational — agent capability assumptions</td></tr>
+<tr><td></td><td>FRS-007 (action ledger + budget guardrails)</td><td>FEATURE-04 budget sharing depends on aggregate accounting</td></tr>
+<tr><td></td><td>FRS-011 (APA MITM proxy)</td><td>Independent — different capability</td></tr>
+<tr><td></td><td>AGENTS.md §2 (5-phase state machine)</td><td>Phase definitions this spec refines</td></tr>
+<tr><td></td><td>AGENTS.md §5 (Mission Manifest)</td><td>`verification_criteria` field extended here</td></tr>
+<tr><td></td><td>AGENTS.md §6 (Verification Rules)</td><td>Verify phase extended with autonomous validation</td></tr>
+<tr><td></td><td>repo-worktree-policy (skill)</td><td>Worktree creation for parallel tasks (F04-R02)</td></tr>
+<tr><td></td><td>Kun Chen tools: Lavish, Treehouse, No Mistakes</td><td>Inspiration only — not adopted directly</td></tr>
+</table>
+<p>---</p>
+<h2>7. Suggested Phasing</h2>
+<table class='spec-table'>
+<tr><td></td><td>Phase</td><td>Scope</td><td>Gap closed</td></tr>
+<tr><td></td><td>1</td><td>FEATURE-01 (executable verification_criteria) + FEATURE-05 (left-shifted governance)</td><td>Human bottleneck in verify + post-hoc governance</td></tr>
+<tr><td></td><td>2</td><td>FEATURE-02 (Code phase autonomy) + FEATURE-03 (Validate phase autonomy)</td><td>Human bottleneck in code review</td></tr>
+<tr><td></td><td>3</td><td>FEATURE-04 (parallel concurrency)</td><td>Throughput ceiling</td></tr>
+<tr><td></td><td>4</td><td>FEATURE-06 (visual spec artifacts)</td><td>Spec review quality</td></tr>
+</table>
+<p>---</p>
+<h2>8. Verification</h2>
+<li>Every requirement SHALL have at least one scenario (Given/When/Then)</li>
+<li>CI gate: `openspec validate frs-012-agentic-sdlc` — fails if scenarios missing</li>
+<li>Acceptance: AC1–AC4 for each feature, verified by running actual missions</li>
+
+  <div class="meta">Rendered: 2026-10-11 11:46 UTC</div>
+</div>
+</body>
+</html>

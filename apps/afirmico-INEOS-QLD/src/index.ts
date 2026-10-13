@@ -2,7 +2,11 @@ import { Hono } from 'hono'
 import { ineosSplashPage } from './ineos-splash'
 import { FAVICON_LINK } from './layout'
 
-const app = new Hono()
+interface Env {
+  ASSETS: Fetcher
+}
+
+const app = new Hono<{ Bindings: Env }>()
 
 app.get('/', (c) => c.html(ineosSplashPage()))
 

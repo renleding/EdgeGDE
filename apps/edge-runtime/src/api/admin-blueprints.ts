@@ -143,7 +143,7 @@ router.post('/create', async (c) => {
       return c.html('<div style="color:#da3633">ID, fields, and priorityOrder required</div>')
     }
 
-    let fields: any[]
+    let fields: Record<string, unknown>[]
     try { fields = JSON.parse(fieldsRaw) } catch {
       return c.html('<div style="color:#da3633">Invalid JSON in fields</div>')
     }
@@ -169,8 +169,8 @@ router.post('/create', async (c) => {
     }
 
     return c.html('<div style="color:#3fb950">Created blueprint: ' + esc(id) + ' v' + esc(version) + '</div>')
-  } catch (err: any) {
-    return c.html('<div style="color:#da3633">' + esc(err.message) + '</div>')
+  } catch (err: unknown) {
+    return c.html('<div style="color:#da3633">' + esc(err instanceof Error ? err.message : 'Unknown error') + '</div>')
   }
 })
 

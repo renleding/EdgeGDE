@@ -79,13 +79,14 @@ jobs:
             exit 1
           fi
 
-      - name: Gate 6b — E2E tests against production
-        run: |
-          echo "Running E2E test suite against production..."
-          WORKER_URL=https://${{ env.WORKER }}.renleding.workers.dev \
-          TOKEN=${{ secrets.ADMIN_API_TOKEN }} \
-            bun run test:e2e 2>&1
-          echo "✅ E2E tests passed against production"
+      # ═══ GATE 6b moved: E2E now runs POST-deploy as a smoke test (see below).
+      # It used to run here, BEFORE `wrangler deploy` — which means it tested the
+      # PREVIOUSLY deployed worker, not the code about to ship. When a deploy
+      # introduced a regression (b483eda, 2026-10-12), Gate 6b failed against the
+      # broken live worker on every subsequent push while `wrangler deploy` never
+      # ran — a self-locking deadlock: the gate blocked the very deploy that would
+      # have fixed production. Six deploys were stuck for 6 hours. The gate now
+      # validates what it should have all along: the FRESH deployment.
 
       # ═══ GATE 7: Commit log review ═══
       - name: Gate 7 — Commit log review
@@ -170,6 +171,20 @@ jobs:
           echo "❌ Production health check failed after 3 attempts"
           echo "Rollback: bash scripts/rollback.sh production"
           exit 1
+
+      # ═══ GATE 6b: E2E smoke test against the FRESH deployment ═══
+      # Runs after `wrangler deploy` so it validates the code that just shipped,
+      # not the previous worker. A failure here means the NEW deploy is broken:
+      # the run goes red (alerts fire) and the deploy does not propagate further.
+      # On failure, diagnose then either fix forward or roll back:
+      #   bash scripts/rollback.sh production
+      - name: Gate 6b — E2E smoke test against fresh production
+        run: |
+          echo "Running E2E smoke suite against the freshly deployed worker..."
+          WORKER_URL=https://${{ env.WORKER }}.renleding.workers.dev \
+          TOKEN=${{ secrets.ADMIN_API_TOKEN }} \
+            bun run test:e2e 2>&1
+          echo "✅ E2E smoke tests passed against fresh production"
 
       - name: Post-deploy content assertion
         # The health check above proves the Worker answered. It cannot tell

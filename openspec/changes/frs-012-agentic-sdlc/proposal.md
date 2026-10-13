@@ -1,0 +1,50 @@
+---
+schema: spec-driven
+created: 2026-10-11
+---
+
+# Agentic SDLC — Plan-Code-Validate at Scale
+
+## Why this change
+
+The current SDLC requires Hermes (Director) to review every intermediate diff, which caps throughput and blocks agent autonomy. Kun Chen's agentic engineering workflow (YouTube 88B6DimMD2g) demonstrates: agents that write code, validate it themselves, and only escalate on failure — with humans reviewing the plan and the final result, not every step.
+
+Four gaps in the current EdgeGDE SDLC:
+
+1. **No executable verification criteria** — Mission Manifest tasks carry prose descriptions ("tests should pass") that require Hermes interpretation. Agents cannot self-validate.
+
+2. **No autonomous Code→Validate loop** — every failure routes back to Hermes. The agent cannot adjust its own code based on test feedback.
+
+3. **No deterministic verification runner** — no standard way for a Droid to run a check and get a pass/fail it can act on.
+
+4. **Governance is post-merge only** — CI Gate 3 catches `as any`, `console.log`, etc. after the code is written. Bad mutations land before they are caught.
+
+5. **No rendered spec artifact** — markdown specs are information-dense but visually sparse; reviewers cannot scan the target state quickly.
+
+## What changes
+
+| Capability | New artifact |
+|---|---|
+| `droid-manifest` | Mission manifest extended: `verification_criteria` is an object (`type` ∈ test_command/script/http_check/state_check + expected condition + timeout); GATE rejects mutating tasks without criteria |
+| `verification-runner` | `droid/verification_runner.py` — deterministic execution of verification criteria |
+| `code-validate-loop` | `droid/code_validate_loop.py` — autonomous write → governance check → verify → adjust loop; iteration limit 5, escalates on exhaustion |
+| `governance-gate` | `droid/governance_gate.py` — pre-mutation Gate 3 checks (same logic as CI, no divergence); rejects on fail |
+| `parallel-coordinator` | `droid/parallel_coordinator.py` — worktree planning, status tracking, result aggregation (worktree creation gated until fleet idle) |
+| `spec-renderer` | `droid/spec_renderer.py` — renders markdown spec to HTML with TOC; single source of truth |
+
+## Capabilities affected
+
+- `droid` — new package with 6 modules
+- `mission-manifest` — schema extension (AGENTS.md §5)
+- `governance` — left-shifted from CI to pre-mutation
+
+## Acceptance criteria
+
+1. A mission with a mutating task missing `verification_criteria` fails `manifest.validate()`
+2. GovernanceGate rejects `const x = {} as any;` and allows `const x: string = "ok";`
+3. VerificationRunner returns the same status for identical inputs (deterministic)
+4. CodeValidateLoop escalates after `iteration_limit` failures with last failure attached
+5. CodeValidateLoop governance rejection ends the task as `rejected`
+6. ParallelCoordinator rejects parallel tasks with non-empty `depends_on`
+7. SpecRenderer produces HTML from FRS-012 markdown with title + 9 sections
+8. `openspec validate frs-012-agentic-sdlc` passes

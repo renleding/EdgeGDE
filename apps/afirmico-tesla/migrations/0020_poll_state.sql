@@ -1,6 +1,6 @@
 -- FRS-010 v2.3 FEATURE-14 (F14-R01..R10): dual-transport polling lane.
 --
--- SDD-012 §4.2/§4.3. Two additions:
+-- SDD-013 §4.2/§4.3. Two additions:
 --
 -- 1. telemetry_poll_state — one row per VIN that has ever been polled, holding
 --    the identity-once flag (F14-R03) and the last successful poll instant
@@ -21,7 +21,7 @@ CREATE TABLE telemetry_poll_state (
   last_identity_at TEXT,
   -- The last failed poll attempt (token refresh failure, empty response).
   -- Kept beside the cadence stamps so the next batch sees why a window passed
-  -- without inventing a second table for diagnostics (SDD-012 §7).
+  -- without inventing a second table for diagnostics (SDD-013 §7).
   last_error       TEXT,
   updated_at       TEXT NOT NULL
 );

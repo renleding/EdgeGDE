@@ -6,7 +6,15 @@
  * Tracks delivery status in audit log.
  */
 
-import { D1Database } from '@cloudflare/workers-types'
+import { D1Database, type R2Bucket, type SendEmail } from '@cloudflare/workers-types'
+
+export interface Env {
+  D1_TESLA: D1Database
+  RAW_PAYLOADS: R2Bucket
+  'afirmico-tesla-emails': SendEmail
+  EMAIL?: unknown
+  OAUTH_SESSIONS?: unknown
+}
 
 export interface EmailTemplate {
   subject_template: string
@@ -167,10 +175,14 @@ Please check the admin console for details.`,
 /**
  * Send email via Cloudflare Email Workers.
  * Uses the native `EMAIL` binding from wrangler.json.
- * Note: The binding name is 'afimico-tesla-emails' per wrangler.json send_email.name
+ * Note: The binding name is 'afirmico-tesla-emails' per wrangler.json email.name
+ * Email delivery requires the sending domain to be onboarded for Cloudflare
+ * Email Sending (Workers Paid plan). On Free plan the send fails with
+ * "could not find domain config of sending domain" — the export artifact
+ * is still persisted to R2 and downloadable from the admin console.
  */
 export async function sendEmail(
-  env: { 'afirmico-tesla-emails'?: SendEmail } & Record<string, unknown>,
+  env: { 'afirmico-tesla-emails'?: SendEmail },
   params: EmailParams
 ): Promise<EmailResult> {
   const emailBinding = env['afirmico-tesla-emails']
@@ -206,7 +218,7 @@ export async function sendEmail(
  * Send export completion email with attachment.
  */
 export async function sendExportEmail(
-  env: { D1_TESLA?: D1Database } & Record<string, unknown>,
+  env: Env,
   schedule: {
     schedule_id: string
     name: string

@@ -1,5 +1,5 @@
 /**
- * Tests for the FEATURE-14 poll coordinator (FRS-010 v2.3 F14-R01..R10, SDD-012).
+ * Tests for the FEATURE-14 poll coordinator (FRS-010 v2.3 F14-R01..R10, SDD-013).
  *
  * What each group pins:
  *
@@ -19,7 +19,7 @@
  *     streamed row keeps the 'telemetry' default. Persisted, not just planned.
  *  6. Revocation stops both lanes (F14-R07, AC5): clearing eligibility removes
  *     the state row, and a consentless member yields no poll attempt at all.
- *  7. Failure never poisons the batch (SDD-012 §7): no token, no consent, no
+ *  7. Failure never poisons the batch (SDD-013 §7): no token, no consent, no
  *     candidates — the coordinator returns an outcome instead of throwing.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -171,7 +171,7 @@ describe('runPollCoordinator against the real schema', () => {
     })
     expect(out.vin).toBe(VIN)
     expect(out.pollsRun).toBe(0)
-    // The failure is recorded, not swallowed silently (SDD-012 §7).
+    // The failure is recorded, not swallowed silently (SDD-013 §7).
     expect(out.lastError).toBe('poll_no_access_token')
     const state = d1Of(env)._rows('SELECT last_error FROM telemetry_poll_state WHERE vin = ?', VIN)
     expect((state[0] as { last_error: string }).last_error).toBe('poll_no_access_token')
@@ -302,7 +302,7 @@ describe('ingest integration: the poll lane rides the batch (F14-R02)', () => {
     // proving it is invoked FROM the handler, not by a separate schedule.
     const codes = (body.errors ?? []).map((e) => e.code)
     expect(codes.some((c) => c.startsWith('poll_'))).toBe(true)
-    // The telemetry batch itself still succeeded (SDD-012 §7: poll failure
+    // The telemetry batch itself still succeeded (SDD-013 §7: poll failure
     // must not poison the batch it rode on).
     expect(codes.some((c) => c.startsWith('persist_failed'))).toBe(false)
   })
