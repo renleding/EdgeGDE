@@ -24,7 +24,7 @@ import { timingSafeEqual } from './store'
 import { modelYearFromVin, variantFromEfficiencyPackage } from './analytics'
 import { formatDualTime, formatTimeColumns, stateFromPostcode, timeZoneForPostcode } from './timezone'
 import { resolveConfig, type ResolvedConfig } from './config-scope'
-import { runApplySweep, isCanaryEligible, verifyCanaryConditions, type ApplySweepResult, type ApplyVehicleResult } from './config-apply'
+import { runApplySweep, isCanaryEligible, isCanaryEligibleDb, verifyCanaryConditions, type ApplySweepResult, type ApplyVehicleResult } from './config-apply'
 import { createVehicleGroup, getVehicleGroup, listVehicleGroups, updateVehicleGroup, deleteVehicleGroup, addVehicleToGroup, removeVehicleFromGroup, listGroupMembers, getGroupsForVehicle, type VehicleGroup, type GroupMember } from './config-groups'
 import { collectedFields, type CollectedField, audit, newId } from './store'
 import { getMemberAccessToken } from './key-pairing'
@@ -1848,39 +1848,100 @@ adminApp.post('/telemetry/apply', async (c) => {
   const canaryVin = String(form.canary_vin ?? '').trim()
   const scope = String(form.scope ?? '').trim() as 'vehicle' | 'global' | 'group'
   const operator = String(form.operator ?? '').trim() || 'operator'
+  const group_id = String(form.group_id ?? '').trim()
 
   if (!vin) return c.json({ error: 'vin is required' }, 400)
-  if (!canaryVin) return c.json({ error: 'canary_vin is required for global/group changes' }, 400)
+  if ((scope === 'global' || scope === 'group') && !canaryVin) {
+    return c.json({ error: 'canary_vin is required for global/group changes' }, 400)
+  }
+  if (scope === 'group' && !group_id) {
+    return c.json({ error: 'group_id required for group scope' }, 400)
+  }
 
-  // Resolve the effective config for the target VIN(s)
+  // Resolve the effective config for ALL target VINs (target + canary)
   const db = c.env.D1_TESLA
   const fields = await collectedFields(db)
   const collected = fields.map((f) => f.field_key)
 
-  // Gather scope entries from DB
+  // Load global entries (always needed)
   const globalEntries = await getScopeEntries(db, 'global')
+
+  // Load group entries if group scope
   const groupEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
-  const vehicleEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
-
-  const resolved = resolveConfig(
-    globalEntries,
-    groupEntries,
-    vehicleEntries,
-    collected,
-    vin
-  )
-
-  if (resolved.unresolved.length) {
-    return c.json({
-      error: 'unresolved fields',
-      unresolved: resolved.unresolved,
-    }, 400)
+  let groupScopeId: string | null = null
+  if (scope === 'group') {
+    // Find the scope_id for this group
+    const scopeRow = await db.prepare(
+      `SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = 'group' AND group_id = ?`
+    ).bind(group_id).first<{ scope_id: string }>()
+    if (scopeRow) {
+      groupScopeId = scopeRow.scope_id
+      const rows = await db.prepare(
+        `SELECT field_key, interval_seconds, minimum_delta, enabled
+           FROM telemetry_config_entry
+          WHERE scope_id = ?`
+      ).bind(groupScopeId).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+      for (const r of rows.results ?? []) {
+        groupEntries.set(r.field_key, {
+          interval_seconds: r.interval_seconds,
+          minimum_delta: r.minimum_delta,
+          enabled: r.enabled === 1,
+        })
+      }
+    }
   }
 
+  // Build resolved configs for ALL target VINs
   const resolvedPerVin = new Map<string, ResolvedConfig>()
-  resolvedPerVin.set(vin, resolved)
 
-  // Get member access token for the target VIN
+  // Helper to resolve config for a VIN
+  const resolveForVin = async (targetVin: string) => {
+    // Load vehicle entries for this VIN
+    const vehicleEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
+    const vehScopeRow = await db.prepare(
+      `SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = 'vehicle' AND vin = ?`
+    ).bind(targetVin).first<{ scope_id: string }>()
+    if (vehScopeRow) {
+      const rows = await db.prepare(
+        `SELECT field_key, interval_seconds, minimum_delta, enabled
+           FROM telemetry_config_entry
+          WHERE scope_id = ?`
+      ).bind(vehScopeRow.scope_id).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+      for (const r of rows.results ?? []) {
+        vehicleEntries.set(r.field_key, {
+          interval_seconds: r.interval_seconds,
+          minimum_delta: r.minimum_delta,
+          enabled: r.enabled === 1,
+        })
+      }
+    }
+
+    // For group scope, need the member's group entries
+    let memberGroupEntries = groupEntries
+    if (scope === 'group') {
+      // Already loaded above
+    }
+
+    return resolveConfig(globalEntries, memberGroupEntries, vehicleEntries, collected, targetVin)
+  }
+
+  // Resolve for target VIN
+  const targetResolved = await resolveForVin(vin)
+  if (targetResolved.unresolved.length) {
+    return c.json({ error: 'unresolved fields', unresolved: targetResolved.unresolved }, 400)
+  }
+  resolvedPerVin.set(vin, targetResolved)
+
+  // Resolve for canary VIN (for global/group scope)
+  if (scope !== 'vehicle') {
+    const canaryResolved = await resolveForVin(canaryVin)
+    if (canaryResolved.unresolved.length) {
+      return c.json({ error: 'unresolved fields for canary', unresolved: canaryResolved.unresolved }, 400)
+    }
+    resolvedPerVin.set(canaryVin, canaryResolved)
+  }
+
+  // Get member access token for the target VIN (both VINs should share member)
   const memberRow = await db.prepare(
     `SELECT member_id FROM tesla_vehicle WHERE vin = ?`
   ).bind(vin).first<{ member_id: string }>()

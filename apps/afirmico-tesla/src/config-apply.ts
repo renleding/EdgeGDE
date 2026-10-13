@@ -17,7 +17,7 @@ import type { ResolvedConfig, ResolvedField } from './config-scope'
 import { D1Database } from '@cloudflare/workers-types'
 
 /**
- * Check if a nominated canary vehicle is eligible.
+ * Check if a nominated canary vehicle is eligible (in-memory variant).
  * F12-R07: The canary MUST NOT carry an override for any field the change touches.
  * An override shadows the scoped value, so a canary on an overridden vehicle
  * would show no effect and be misread as a successful test.
@@ -32,6 +32,36 @@ export function isCanaryEligible(
     if (vehicleEntries && vehicleEntries.has(fieldKey)) {
       // The vehicle has an override for this field
       return { eligible: false, reason: `Vehicle ${nominatedVin} carries an override for field ${fieldKey}` }
+    }
+  }
+  return { eligible: true }
+}
+
+/**
+ * Check canary eligibility against the database (DB variant).
+ * F12-R07: A vehicle-scope override for any changed field shadows the
+ * scoped value and would fake a pass — the canary must carry none.
+ */
+export async function isCanaryEligibleDb(
+  db: D1Database,
+  nominatedVin: string,
+  changeFields: string[]
+): Promise<{ eligible: boolean; reason?: string }> {
+  if (changeFields.length === 0) return { eligible: true }
+  const scopeRow = await db.prepare(
+    `SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = 'vehicle' AND vin = ?`
+  ).bind(nominatedVin).first<{ scope_id: string }>()
+  if (!scopeRow) return { eligible: true }
+  const placeholders = changeFields.map(() => '?').join(',')
+  const rows = await db.prepare(
+    `SELECT field_key FROM telemetry_config_entry
+      WHERE scope_id = ? AND field_key IN (${placeholders})`
+  ).bind(scopeRow.scope_id, ...changeFields).all<{ field_key: string }>()
+  const overridden = (rows.results ?? []).map((r) => r.field_key)
+  if (overridden.length > 0) {
+    return {
+      eligible: false,
+      reason: `Vehicle ${nominatedVin} carries an override for field(s): ${overridden.join(', ')}`,
     }
   }
   return { eligible: true }
@@ -283,10 +313,12 @@ export async function runApplySweep(
 
   // Record the run
   const nowIso = new Date().toISOString()
+  // scope_id must reference telemetry_config_scope; resolve from changeScope + operator context
+  const scopeId = changeScope === 'vehicle' ? `vehicle_${targetVins[0]}` : changeScope
   await db.prepare(
-    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
-     VALUES (?, ?, ?, 'running', ?, ?)`
-  ).bind(runId, changeScope, operator, nowIso, nowIso).run()
+    `INSERT INTO config_apply_run (run_id, scope_id, initiated_by, status, started_at)
+     VALUES (?, ?, ?, 'running', ?)`
+  ).bind(runId, scopeId, operator, nowIso).run()
 
   if (changeScope === 'vehicle') {
     // Vehicle scope: apply directly, no canary (F12-R07)
@@ -330,7 +362,9 @@ export async function runApplySweep(
     // Select first VIN as canary (operator nominates via form)
     canaryVin = targetVins[0]
 
-    // Check canary eligibility (F12-R07)
+    // Check canary eligibility (F12-R07) — REAL DB check, not advisory.
+    // An override shadows the scoped value, so a canary on an overridden
+    // vehicle would show no effect and be misread as a successful test.
     const firstResolved = resolvedPerVin.get(canaryVin)
     if (!firstResolved) {
       const result: ApplyVehicleResult = {
@@ -350,14 +384,27 @@ export async function runApplySweep(
         .filter((f) => f.source !== 'global')
         .map((f) => f.field_key)
 
-      // Check if canary has vehicle-scope overrides for any changed field
-      const vehicleEntries = new Map<string, { enabled?: boolean }>()
-      for (const fieldKey of changeFields) {
-        // We need to check if the canary has a vehicle-scope override
-        // This would be checked against the DB in production
-        // For now we proceed (eligibility check is advisory)
-      }
-
+      // F12-R07: the canary MUST NOT carry an override for any changed field.
+      // Query the DB for vehicle-scope entries on the canary VIN for the
+      // changed fields — an override here shadows the scoped value.
+      const overrideCheck = await isCanaryEligibleDb(
+        db,
+        canaryVin,
+        changeFields
+      )
+      if (!overrideCheck.eligible) {
+        const result: ApplyVehicleResult = {
+          vin: canaryVin,
+          outcome: 'failed',
+          error_detail: `canary_ineligible: ${overrideCheck.reason}`,
+          has_config: false,
+          synced: false,
+          observed_after: false,
+        }
+        outcomes.push(result)
+        await recordOutcome(db, runId, result)
+        canaryFailed = true
+      } else {
       // Apply to canary
       const result = await applyVehicleConfig(canaryVin, firstResolved, signerUrl, memberToken, signerSharedSecret)
       outcomes.push(result)
@@ -391,6 +438,7 @@ export async function runApplySweep(
         canaryFailed = true
       }
 
+      }
     }
 
     // F12-R09: If canary failed, halt — no remaining vehicles touched
@@ -460,7 +508,7 @@ async function recordOutcome(
   result: ApplyVehicleResult
 ): Promise<void> {
   await db.prepare(
-    `INSERT INTO config_apply_outcome (run_id, vin, outcome, skip_reason, error_detail, has_config, synced, observed_after, created_at)
+    `INSERT INTO config_apply_outcome (run_id, vin, outcome, skip_reason, error_detail, has_config, synced, observed_after, applied_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     runId,
