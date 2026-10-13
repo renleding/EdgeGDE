@@ -506,7 +506,12 @@ export async function runApplySweep(
   return { runId, outcomes, canaryVin, canaryFailed }
 }
 
-async function recordOutcome(
+/**
+ * Persist one per-vehicle outcome row.
+ * Exported so the async queue processor records outcomes identically
+ * to the synchronous sweep — two writers must not drift.
+ */
+export async function recordOutcome(
   db: D1Database,
   runId: string,
   result: ApplyVehicleResult
@@ -527,7 +532,11 @@ async function recordOutcome(
   ).run()
 }
 
-async function verifyAdoption(
+/**
+ * Verify adoption for a VIN after a config POST.
+ * Used by both the sync sweep and the async queue processor.
+ */
+export async function verifyAdoption(
   vin: string,
   signerUrl: string,
   memberToken: string,

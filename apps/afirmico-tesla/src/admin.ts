@@ -25,6 +25,7 @@ import { modelYearFromVin, variantFromEfficiencyPackage } from './analytics'
 import { formatDualTime, formatTimeColumns, stateFromPostcode, timeZoneForPostcode } from './timezone'
 import { resolveConfig, type ResolvedConfig } from './config-scope'
 import { runApplySweep, isCanaryEligible, isCanaryEligibleDb, verifyCanaryConditions, type ApplySweepResult, type ApplyVehicleResult } from './config-apply'
+import { enqueueApplySweep } from './apply-processor'
 import { createVehicleGroup, getVehicleGroup, listVehicleGroups, updateVehicleGroup, deleteVehicleGroup, addVehicleToGroup, removeVehicleFromGroup, listGroupMembers, getGroupsForVehicle, type VehicleGroup, type GroupMember } from './config-groups'
 import { collectedFields, type CollectedField, audit, newId } from './store'
 import { getMemberAccessToken } from './key-pairing'
@@ -1967,23 +1968,15 @@ adminApp.post('/telemetry/apply', async (c) => {
 
   const targetVins = scope === 'vehicle' ? [vin] : [canaryVin, vin]
 
-  const result = await runApplySweep(
-    scope,
-    targetVins,
-    resolvedPerVin,
-    operator,
-    signerUrl,
-    memberToken,
-    signerSharedSecret,
-    db
-  )
+  // Enqueue the sweep (F12-N04). The cron processor drains it in batches.
+  void signerUrl
+  const result = await enqueueApplySweep(scope, targetVins, resolvedPerVin, operator, db)
 
   return c.json({
-    success: !result.canaryFailed,
+    success: true,
     runId: result.runId,
-    canaryVin: result.canaryVin,
-    canaryFailed: result.canaryFailed,
-    outcomes: result.outcomes,
+    queued: result.queued,
+    message: 'Apply sweep enqueued. The canary will be processed on the next cron tick; monitor /admin/telemetry/apply-runs for progress.'
   })
 })
 

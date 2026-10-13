@@ -112,6 +112,7 @@ import { openToken } from './crypto'
 import { runPollCoordinator, clearPollEligibility } from './poll-coordinator'
 import { getDueSchedules, updateAllNextRunTimes } from './scheduler'
 import { runExportSchedule } from './export-worker'
+import { processApplyQueue } from './apply-processor'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
@@ -2444,6 +2445,15 @@ export default {
         await runExportSchedule(env as unknown as import('./export-worker').Env, schedule, ctx)
       }
       await updateAllNextRunTimes(env.D1_TESLA)
+
+      // FEATURE-12: drain the batched apply queue (F12-N04)
+      const signerUrl = (env.TESLA_PROXY_URL ?? '').replace(/\/+$/, '')
+      if (signerUrl && env.SIGNER_SHARED_SECRET) {
+        const queueResult = await processApplyQueue(env.D1_TESLA, signerUrl, env.SIGNER_SHARED_SECRET, env)
+        if (queueResult.processed > 0) {
+          console.warn(`[cron] apply-processor: processed=${queueResult.processed} haltedRuns=${queueResult.haltedRuns} completedRuns=${queueResult.completedRuns}`)
+        }
+      }
     }
   },
 } satisfies ExportedHandler<Env>
