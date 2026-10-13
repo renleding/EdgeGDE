@@ -45,6 +45,8 @@ class Worktree:
     task_id: str
     path: Path
     manifest_mirror: MissionManifest  # task-authoritative copy for the worker
+    create_duration_ms: int = 0      # worktree add + checkout
+    install_duration_ms: int = 0     # bun install (0 if no package.json)
 
 
 @dataclass
@@ -142,12 +144,16 @@ class ParallelCoordinator:
 
         Steps:
         1. Create worktree from current HEAD via git worktree add --no-checkout
-        2. Checkout HEAD in the worktree
+        2. Sparse checkout of task.scope paths (falls back to full
+           checkout when the task has no scope or the repo lacks
+           sparse-checkout support) — materialises only the files
+           the task touches instead of the whole repo
         3. Install dependencies (bun install) if package.json exists
         4. Return Worktree with task-authoritative manifest copy
 
         Raises WorktreeCreationError on failure.
         """
+        started = time.monotonic()
         wt_dir = self.worktree_base / f"parallel-{self.manifest.mission_id}-{task.task_id}"
 
         # Ensure worktree base exists
@@ -183,42 +189,65 @@ class ParallelCoordinator:
                 f"Failed to create worktree at {wt_dir}: {stderr}"
             )
 
-        # Checkout HEAD in the worktree
-        try:
-            subprocess.run(
+        # Checkout — sparse over task.scope when available, else full
+        checkout_error: Optional[str] = None
+        scope_paths = [p for p in (task.scope or []) if p and p != "."]
+        if scope_paths:
+            # Sparse checkout: materialise only the scoped paths
+            sparse_ok = True
+            for cmd in (
+                ["git", "sparse-checkout", "init", "--cone"],
+                ["git", "sparse-checkout", "set", *scope_paths],
                 ["git", "checkout", "HEAD"],
-                check=True, capture_output=True, timeout=60,
-                cwd=str(wt_dir),
-            )
-        except subprocess.CalledProcessError as e:
-            try:
-                subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(wt_dir)],
-                    check=True, capture_output=True, timeout=60,
-                )
-            except Exception:
-                shutil.rmtree(wt_dir, ignore_errors=True)
-            raise WorktreeCreationError(
-                f"Failed to checkout HEAD in {wt_dir}: {e.stderr.decode() if e.stderr else str(e)}"
-            )
-
-        # Install dependencies
-        pkg_json = wt_dir / "package.json"
-        if pkg_json.exists():
-            try:
-                subprocess.run(
-                    [self.bun_command, "install"],
-                    check=True, capture_output=True, timeout=300,
+            ):
+                proc = subprocess.run(
+                    cmd, capture_output=True, timeout=60,
                     cwd=str(wt_dir),
                 )
-                logger.info("bun install complete in %s", wt_dir)
+                if proc.returncode != 0:
+                    sparse_ok = False
+                    checkout_error = (
+                        proc.stderr.decode()[-200:] if proc.stderr else ""
+                    )
+                    break
+            if sparse_ok:
+                logger.info(
+                    "Sparse checkout of %s in %s", scope_paths, wt_dir
+                )
+        if not scope_paths or checkout_error is not None:
+            # Full checkout (no scope, or sparse failed mid-way)
+            try:
+                # Reset sparse config so a full checkout is complete
+                subprocess.run(
+                    ["git", "sparse-checkout", "disable"],
+                    capture_output=True, timeout=30, cwd=str(wt_dir),
+                )
+                subprocess.run(
+                    ["git", "checkout", "HEAD"],
+                    check=True, capture_output=True, timeout=60,
+                    cwd=str(wt_dir),
+                )
             except subprocess.CalledProcessError as e:
-                logger.warning(
-                    "bun install failed in %s — worker may lack deps: %s",
-                    wt_dir, e.stderr.decode()[-200:] if e.stderr else "",
+                try:
+                    subprocess.run(
+                        ["git", "worktree", "remove", "--force", str(wt_dir)],
+                        check=True, capture_output=True, timeout=60,
+                    )
+                except Exception:
+                    shutil.rmtree(wt_dir, ignore_errors=True)
+                raise WorktreeCreationError(
+                    f"Failed to checkout HEAD in {wt_dir}: "
+                    f"{e.stderr.decode() if e.stderr else str(e)}"
                 )
 
-        # Task-authoritative manifest for the worker
+        create_ms = int((time.monotonic() - started) * 1000)
+        return self._finish_worktree(task, wt_dir, create_ms)
+
+    def _finish_worktree(
+        self, task: Task, wt_dir: Path, create_ms: int = 0,
+    ) -> Worktree:
+        """Register a created worktree: build the task-authoritative
+        manifest mirror, record status, attach timing."""
         task_manifest = MissionManifest(
             mission_id=self.manifest.mission_id,
             objective=f"[{self.manifest.mission_id}] Task {task.task_id}: {self.manifest.objective}",
@@ -233,6 +262,7 @@ class ParallelCoordinator:
             task_id=task.task_id,
             path=wt_dir,
             manifest_mirror=task_manifest,
+            create_duration_ms=create_ms,
         )
         self._worktrees[task.task_id] = wt
         self._statuses[task.task_id] = TaskStatus(
@@ -240,8 +270,72 @@ class ParallelCoordinator:
             status="pending",
             worktree_path=str(wt_dir),
         )
-        logger.info("Created worktree %s for task %s", wt_dir, task.task_id)
+        logger.info(
+            "Created worktree %s for task %s (create %dms)",
+            wt_dir, task.task_id, create_ms,
+        )
         return wt
+
+    def _install_deps(self, wt_dir: Path) -> int:
+        """Run bun install in a worktree. Returns duration in ms.
+
+        Non-fatal on failure — the worker may still run without
+        deps (logged as a warning). Returns 0 when there is no
+        package.json (nothing to install).
+        """
+        pkg_json = wt_dir / "package.json"
+        if not pkg_json.exists():
+            return 0
+        started = time.monotonic()
+        try:
+            subprocess.run(
+                [self.bun_command, "install"],
+                check=True, capture_output=True, timeout=300,
+                cwd=str(wt_dir),
+            )
+            ms = int((time.monotonic() - started) * 1000)
+            logger.info("bun install complete in %s (%dms)", wt_dir, ms)
+            return ms
+        except subprocess.CalledProcessError as e:
+            logger.warning(
+                "bun install failed in %s — worker may lack deps: %s",
+                wt_dir, e.stderr.decode()[-200:] if e.stderr else "",
+            )
+            return int((time.monotonic() - started) * 1000)
+
+    def install_worktrees(self) -> dict[str, int]:
+        """Install dependencies in all created worktrees in parallel.
+
+        bun install against separate worktree dirs are independent
+        processes, so they run concurrently (bounded by
+        max_concurrent). Only `git worktree add` must be serial
+        (single repo lock).
+
+        Returns {task_id: install_duration_ms}.
+        """
+        results: dict[str, int] = {}
+
+        def install_one(wt: Worktree) -> tuple[str, int]:
+            ms = self._install_deps(wt.path)
+            wt.install_duration_ms = ms
+            return wt.task_id, ms
+
+        with ThreadPoolExecutor(max_workers=self.max_concurrent) as pool:
+            futures = {
+                pool.submit(install_one, wt): wt.task_id
+                for wt in self._worktrees.values()
+            }
+            for fut in as_completed(futures):
+                task_id, ms = fut.result()
+                results[task_id] = ms
+
+        logger.info(
+            "Worktree installs complete: %d worktrees, "
+            "sum %dms, slowest %dms",
+            len(results), sum(results.values()),
+            max(results.values()) if results else 0,
+        )
+        return results
 
     def dispatch_parallel_tasks(
         self,
@@ -250,8 +344,9 @@ class ParallelCoordinator:
     ) -> dict[str, TaskStatus]:
         """Create worktrees and dispatch Droid per parallel task.
 
-        Phase 1 creates all worktrees (sequential — git worktree add does
-        not parallelise well against one repo). Phase 2 dispatches the
+        Phase 1 creates all worktrees (sequential — git worktree add
+        holds a repo-wide lock). Phase 1b installs dependencies in
+        parallel (independent processes). Phase 2 dispatches the
         workers in a thread pool bounded by max_concurrent (F04-N01).
 
         Budget: tasks share ONE mission budget (FRS-007 F02-R10, aggregate
@@ -291,6 +386,9 @@ class ParallelCoordinator:
             logger.warning(
                 "Worktree creation had %d failures: %s", len(wt_errors), wt_errors
             )
+
+        # Phase 1b: install dependencies in parallel
+        self.install_worktrees()
 
         # Phase 2: dispatch workers in a thread pool
         pending = [
@@ -420,12 +518,24 @@ class ParallelCoordinator:
                 "budget_used": {task_id: int},           # ms per task
                 "budget_used_total_ms": int,             # aggregate
                 "budget_limit_ms": int,                  # budget.max_duration_seconds
+                "worktree_timing": {task_id: {create_ms, install_ms, total_ms}},
+                "worktree_timing_total_ms": int,
+                "worktree_slowest_ms": int,
             }
         """
         all_passed = all(
             s.status == "completed" for s in self._statuses.values()
         )
         budget_used = {k: v.budget_used for k, v in self._statuses.items()}
+        timing = {
+            k: {
+                "create_ms": wt.create_duration_ms,
+                "install_ms": wt.install_duration_ms,
+                "total_ms": wt.create_duration_ms + wt.install_duration_ms,
+            }
+            for k, wt in self._worktrees.items()
+        }
+        totals = [t["total_ms"] for t in timing.values()]
         return {
             "mission_id": self.manifest.mission_id,
             "all_passed": all_passed,
@@ -433,6 +543,9 @@ class ParallelCoordinator:
             "budget_used": budget_used,
             "budget_used_total_ms": sum(budget_used.values()),
             "budget_limit_ms": self.manifest.budget.max_duration_seconds * 1000,
+            "worktree_timing": timing,
+            "worktree_timing_total_ms": sum(totals),
+            "worktree_slowest_ms": max(totals) if totals else 0,
         }
 
     def cleanup_worktrees(self) -> None:
