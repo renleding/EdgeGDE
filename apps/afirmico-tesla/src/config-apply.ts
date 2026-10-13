@@ -274,7 +274,11 @@ async function getVehicleConfigStatus(
   vin: string
 ): Promise<{ has_config: boolean; synced: boolean } | null> {
   try {
-    const res = await fetch(`https://fleet-api.prd.na.vn.cloud.tesla.com/api/1/vehicles/${encodeURIComponent(vin)}/fleet_telemetry_config`, {
+    // Route the diagnostic read through the signer, like the POST.
+    // The signer holds the application signing key; a direct call to
+    // fleet-api with only a member token would bypass the signing
+    // chain and fail auth (or worse, silently report wrong state).
+    const res = await fetch(`${signerUrl}/api/1/vehicles/${encodeURIComponent(vin)}/fleet_telemetry_config`, {
       headers: {
         'x-signer-secret': signerSharedSecret,
         authorization: `Bearer ${memberToken}`,
