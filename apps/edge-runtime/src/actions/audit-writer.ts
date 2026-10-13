@@ -55,8 +55,8 @@ export async function appendToAuditLedger(
       const body = await resp.text()
       console.warn(JSON.stringify({ event: 'audit_append_failed', type: event.type, status: resp.status, body }))
     }
-  } catch (err: any) {
-    console.warn(JSON.stringify({ event: 'audit_append_error', type: event.type, error: err.message }))
+  } catch (err: unknown) {
+    console.warn(JSON.stringify({ event: 'audit_append_error', type: event.type, error: (err as Error).message }))
   }
 }
 

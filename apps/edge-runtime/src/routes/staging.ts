@@ -31,8 +31,23 @@ interface VersionEntry {
   named: boolean
 }
 
-async function getKv(c: any) {
-  return c.env?.TENANT_KV
+async function getKv(c: { env?: unknown }): Promise<StagingKV | undefined> {
+  const env = c.env as { TENANT_KV?: unknown } | undefined
+  const kv = env?.TENANT_KV
+  if (!kv || typeof (kv as { get?: unknown }).get !== 'function') return undefined
+  return kv as StagingKV
+}
+
+interface StagingHistoryEntry {
+  layout: unknown
+  id?: string
+  timestamp: number
+}
+
+interface StagingKV {
+  get: (key: string, type: 'json') => Promise<unknown>
+  put: (key: string, value: string) => Promise<unknown>
+  delete: (key: string) => Promise<unknown>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -44,7 +59,8 @@ stagingRouter.post('/staging/undo', async (c) => {
   if (!kv) return c.text('KV not available', 500)
 
   try {
-    let history: any[] = (await kv.get(HISTORY_KEY, 'json')) || []
+    const rawHistory = (await kv.get(HISTORY_KEY, 'json')) || []
+    const history: StagingHistoryEntry[] = Array.isArray(rawHistory) ? rawHistory as StagingHistoryEntry[] : []
     if (history.length === 0) return c.text('No history', 404)
 
     // Get the current staging layout
@@ -52,18 +68,19 @@ stagingRouter.post('/staging/undo', async (c) => {
     const entry = history.pop()
 
     // Push current to redo stack
-    let redoStack: any[] = (await kv.get(REDO_KEY, 'json')) || []
+    const rawRedo = (await kv.get(REDO_KEY, 'json')) || []
+    const redoStack: StagingHistoryEntry[] = Array.isArray(rawRedo) ? rawRedo as StagingHistoryEntry[] : []
     if (current) redoStack.push({ layout: current, timestamp: Date.now() })
     if (redoStack.length > MAX_HISTORY) redoStack.shift()
 
     await kv.put(HISTORY_KEY, JSON.stringify(history))
     await kv.put(REDO_KEY, JSON.stringify(redoStack))
-    await kv.put(STAGING_LAYOUT_KEY, JSON.stringify(entry.layout))
+    await kv.put(STAGING_LAYOUT_KEY, JSON.stringify(entry?.layout))
     await kv.delete(STAGING_HASH_KEY)
 
-    return c.json({ status: 'undone', layoutId: entry.id || 'unknown' })
-  } catch (err: any) {
-    return c.text(`Undo error: ${err.message}`, 500)
+    return c.json({ status: 'undone', layoutId: entry?.id || 'unknown' })
+  } catch (err: unknown) {
+    return c.text(`Undo error: ${err instanceof Error ? err.message : String(err)}`, 500)
   }
 })
 
@@ -76,25 +93,27 @@ stagingRouter.post('/staging/redo', async (c) => {
   if (!kv) return c.text('KV not available', 500)
 
   try {
-    let redoStack: any[] = (await kv.get(REDO_KEY, 'json')) || []
+    const rawRedo = (await kv.get(REDO_KEY, 'json')) || []
+    const redoStack: StagingHistoryEntry[] = Array.isArray(rawRedo) ? rawRedo as StagingHistoryEntry[] : []
     if (redoStack.length === 0) return c.text('Nothing to redo', 404)
 
     const current = await kv.get(STAGING_LAYOUT_KEY, 'json')
     const entry = redoStack.pop()
 
     // Push current back to history
-    let history: any[] = (await kv.get(HISTORY_KEY, 'json')) || []
+    const rawHistory = (await kv.get(HISTORY_KEY, 'json')) || []
+    const history: StagingHistoryEntry[] = Array.isArray(rawHistory) ? rawHistory as StagingHistoryEntry[] : []
     if (current) history.push({ layout: current, timestamp: Date.now() })
     if (history.length > MAX_HISTORY) history.shift()
 
     await kv.put(HISTORY_KEY, JSON.stringify(history))
     await kv.put(REDO_KEY, JSON.stringify(redoStack))
-    await kv.put(STAGING_LAYOUT_KEY, JSON.stringify(entry.layout))
+    await kv.put(STAGING_LAYOUT_KEY, JSON.stringify(entry?.layout))
     await kv.delete(STAGING_HASH_KEY)
 
-    return c.json({ status: 'redone', layoutId: entry.id || 'unknown' })
-  } catch (err: any) {
-    return c.text(`Redo error: ${err.message}`, 500)
+    return c.json({ status: 'redone', layoutId: entry?.id || 'unknown' })
+  } catch (err: unknown) {
+    return c.text(`Redo error: ${err instanceof Error ? err.message : String(err)}`, 500)
   }
 })
 
@@ -102,8 +121,9 @@ stagingRouter.post('/staging/redo', async (c) => {
 // Push to history (called by publish endpoint after writing new layout)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function pushToHistory(kv: any, previousLayout: any): Promise<void> {
-  let history: any[] = (await kv.get(HISTORY_KEY, 'json')) || []
+export async function pushToHistory(kv: StagingKV, previousLayout: unknown): Promise<void> {
+  const rawHistory = (await kv.get(HISTORY_KEY, 'json')) || []
+  const history: StagingHistoryEntry[] = Array.isArray(rawHistory) ? rawHistory as StagingHistoryEntry[] : []
   history.push({ layout: previousLayout, timestamp: Date.now() })
   if (history.length > MAX_HISTORY) history.shift()
   await kv.put(HISTORY_KEY, JSON.stringify(history))
@@ -125,7 +145,8 @@ stagingRouter.post('/staging/save-version', async (c) => {
     const current = await kv.get(STAGING_LAYOUT_KEY, 'json')
     if (!current) return c.text('No staging layout to save', 404)
 
-    let index: VersionEntry[] = (await kv.get(VERSIONS_INDEX_KEY, 'json')) || []
+    const rawVersions = (await kv.get(VERSIONS_INDEX_KEY, 'json')) || []
+    let index: VersionEntry[] = Array.isArray(rawVersions) ? rawVersions as VersionEntry[] : []
     const nextNum = index.length > 0 ? Math.max(...index.map(i => parseInt(i.id.replace('v', '')) || 0)) + 1 : 1
     const id = `v${nextNum}`
     const named = label.length > 0
@@ -138,8 +159,8 @@ stagingRouter.post('/staging/save-version', async (c) => {
     await kv.put(VERSIONS_INDEX_KEY, JSON.stringify(index))
 
     return c.json({ status: 'saved', id, label: named ? label : `Version ${nextNum}` })
-  } catch (err: any) {
-    return c.text(`Save version error: ${err.message}`, 500)
+  } catch (err: unknown) {
+    return c.text(`Save version error: ${err instanceof Error ? err.message : String(err)}`, 500)
   }
 })
 
@@ -152,7 +173,8 @@ stagingRouter.get('/staging/versions', async (c) => {
   if (!kv) return c.text('KV not available', 500)
 
   try {
-    const index: VersionEntry[] = (await kv.get(VERSIONS_INDEX_KEY, 'json')) || []
+    const rawVersions = (await kv.get(VERSIONS_INDEX_KEY, 'json')) || []
+    const index: VersionEntry[] = Array.isArray(rawVersions) ? rawVersions as VersionEntry[] : []
     const hxAttr = (s: string) => s.replace(/'/g, '&#39;').replace(/"/g, '&quot;')
     const html = index.length === 0
       ? '<div style="color:rgba(255,255,255,0.3);padding:16px;text-align:center;font-size:13px">No saved versions</div>'
@@ -174,8 +196,8 @@ stagingRouter.get('/staging/versions', async (c) => {
 
     c.header('Content-Type', 'text/html; charset=utf-8')
     return c.body(html)
-  } catch (err: any) {
-    return c.text(`List versions error: ${err.message}`, 500)
+  } catch (err: unknown) {
+    return c.text(`List versions error: ${err instanceof Error ? err.message : String(err)}`, 500)
   }
 })
 
@@ -203,8 +225,8 @@ stagingRouter.post('/staging/restore-version', async (c) => {
     await kv.delete(STAGING_HASH_KEY)
 
     return c.json({ status: 'restored', version: id })
-  } catch (err: any) {
-    return c.text(`Restore version error: ${err.message}`, 500)
+  } catch (err: unknown) {
+    return c.text(`Restore version error: ${err instanceof Error ? err.message : String(err)}`, 500)
   }
 })
 
@@ -221,14 +243,15 @@ stagingRouter.post('/staging/delete-version', async (c) => {
     const id = body.id || ''
     if (!id) return c.text('Version ID required', 400)
 
-    let index: VersionEntry[] = (await kv.get(VERSIONS_INDEX_KEY, 'json')) || []
-    index = index.filter(v => v.id !== id)
-    await kv.put(VERSIONS_INDEX_KEY, JSON.stringify(index))
+    const rawIndex = (await kv.get(VERSIONS_INDEX_KEY, 'json')) || []
+    const index: VersionEntry[] = Array.isArray(rawIndex) ? rawIndex as VersionEntry[] : []
+    const filtered = index.filter(v => v.id !== id)
+    await kv.put(VERSIONS_INDEX_KEY, JSON.stringify(filtered))
     await kv.delete(`${VERSION_DATA_PREFIX}${id}`)
 
     return new Response('', { status: 200, headers: { 'Content-Type': 'text/html' } })
-  } catch (err: any) {
-    return c.text(`Delete version error: ${err.message}`, 500)
+  } catch (err: unknown) {
+    return c.text(`Delete version error: ${err instanceof Error ? err.message : String(err)}`, 500)
   }
 })
 
@@ -248,7 +271,7 @@ stagingRouter.post('/staging/promote', async (c) => {
     await kv.delete(PROD_COMPILED_KEY)
 
     return c.json({ status: 'promoted', message: 'Staging layout promoted to production' })
-  } catch (err: any) {
-    return c.text(`Promote error: ${err.message}`, 500)
+  } catch (err: unknown) {
+    return c.text(`Promote error: ${err instanceof Error ? err.message : String(err)}`, 500)
   }
 })
