@@ -18,7 +18,7 @@
  */
 
 import { Hono } from 'hono'
-import type { ScheduledController, ExecutionContext, ExportedHandler } from '@cloudflare/workers-types'
+import type { ScheduledController, ExecutionContext, ExportedHandler, Queue, MessageBatch } from '@cloudflare/workers-types'
 import type { SendEmail } from '@cloudflare/workers-types'
 import {
   SESSION_COOKIE,
@@ -113,6 +113,10 @@ import { runPollCoordinator, clearPollEligibility } from './poll-coordinator'
 import { getDueSchedules, updateAllNextRunTimes } from './scheduler'
 import { runExportSchedule } from './export-worker'
 import { processApplyQueue } from './apply-processor'
+import applyQueueConsumer, {
+  type ApplyMessage,
+  type ApplyQueueEnv,
+} from './apply-queue-consumer'
 
 export interface Env {
   /** Static assets binding, provided by the `assets` config in wrangler.json. */
@@ -176,8 +180,18 @@ export interface Env {
   CRON_SECRET?: string
   /** Shared secret for the config signer (nginx front door on signer host). */
   SIGNER_SHARED_SECRET?: string
+  /**
+   * Distributed apply queue (F16). The producer binding publishes the
+   * sweep fan-out; the consumer binding + `queue` handler below drain
+   * it. Both point at `afirmico-tesla-apply-queue`; the dead-letter
+   * queue is `afirmico-tesla-apply-dlq` (see wrangler.json `queues`).
+   */
+  APPLY_QUEUE?: Queue<import('./apply-queue-consumer').ApplyMessage>
+  APPLY_DLQ?: Queue<import('./apply-queue-consumer').ApplyMessage>
   /** Email binding for Cloudflare Email Workers. */
   'afirmico-tesla-emails': SendEmail
+  /** Arbitrary bindings/config the queue consumer and helpers read by name. */
+  [key: string]: unknown
 }
 
 /** Path Tesla fetches to verify domain ownership (F02-R01). */
@@ -2456,4 +2470,17 @@ export default {
       }
     }
   },
-} satisfies ExportedHandler<Env>
+
+  // FEATURE-16 (F16-R01): Cloudflare Queues consumer for the distributed
+  // apply sweep. wrangler.json declares this worker as a consumer of
+  // `afirmico-tesla-apply-queue`; without a `queue` handler the deploy
+  // fails with "Queue handler is missing" (Cloudflare API code 11001).
+  // The handler lives in apply-queue-consumer.ts (canary contract,
+  // transient/permanent error taxonomy, dead-lettering) and is reused
+  // here rather than reimplemented. The env is cast to ApplyQueueEnv:
+  // the queue consumer only runs on a queue that the enqueue step
+  // (which requires TESLA_PROXY_URL + SIGNER_SHARED_SECRET) populated,
+  // so those fields are present whenever this handler is invoked.
+  queue: (batch: MessageBatch<ApplyMessage>, env: Env) =>
+    applyQueueConsumer.queue(batch, env as ApplyQueueEnv),
+} satisfies ExportedHandler<Env, ApplyMessage>
