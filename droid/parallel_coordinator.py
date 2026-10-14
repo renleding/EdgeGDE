@@ -10,7 +10,9 @@ Contract:
 - Shared mission budget — aggregate accounting, no double counting (F04-R04,
   FRS-007 F02-R10); duration budget is a hard stop with reason
   budget_exhausted (F02-R03); per-task usage journaled in results (F02-R08)
-- Saga compensation per failed task (F04-R05)
+- Saga compensation per failed task (F04-R05) — REAL via droid.saga_bridge:
+  mutating tasks are checkpointed before execution and restored on failure
+  (reverse_order per the manifest's saga block; gap #3)
 - Max parallel tasks configurable (F04-N01, default 5) — dispatched via a
   thread pool bounded by max_concurrent
 - Workers run droid/execute.py in each worktree
@@ -23,6 +25,7 @@ Usage:
 """
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -33,6 +36,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from droid.mission_manifest import MissionManifest, Task
+from droid.saga_bridge import SagaBridge
 
 logger = logging.getLogger("droid.parallel_coordinator")
 
@@ -80,14 +84,25 @@ class ParallelCoordinator:
         max_concurrent: int = 5,
         bun_command: str = "bun",
         droid_path: Optional[str] = None,
+        saga_enabled: bool = True,
     ):
         self.manifest = manifest
         self.worktree_base = base_worktree_dir or WORKTREE_BASE
         self.max_concurrent = max(1, max_concurrent)
         self.bun_command = bun_command
         self.droid_path = droid_path
+        self.saga_enabled = saga_enabled
+        # Optional --adjust-cmd passed to every worker
+        # (gap #4 integration — lets tests drive mutations)
+        self.adjust_cmd: Optional[str] = None
+        # Extra env vars for worker subprocesses
+        self.worker_env: dict[str, str] = {}
         self._worktrees: dict[str, Worktree] = {}
         self._statuses: dict[str, TaskStatus] = {}
+        # Gap #3: per-task checkpoints for real Saga compensation
+        self._checkpoints: dict[str, dict[str, Any]] = {}
+        self._compensations: dict[str, dict[str, Any]] = {}
+        self._saga_bridge: Optional[SagaBridge] = None
 
     def resolve_droid_script(self) -> str:
         """Locate the Droid execution wrapper script.
@@ -366,6 +381,10 @@ class ParallelCoordinator:
         if droid_path:
             self.droid_path = droid_path
 
+        # Gap #3: prepare the Saga bridge (loads tools/saga.py)
+        if self.saga_enabled and self._saga_bridge is None:
+            self._saga_bridge = SagaBridge()
+
         droid_script = self.resolve_droid_script()
         droid_args = droid_args or {}
         mission_started = time.monotonic()
@@ -389,6 +408,18 @@ class ParallelCoordinator:
 
         # Phase 1b: install dependencies in parallel
         self.install_worktrees()
+
+        # Phase 1c: checkpoint files each mutating task will touch
+        # (Saga compensation needs the pre-mutation state)
+        for task in self.parallel_tasks():
+            if self._saga_bridge is None:
+                break
+            wt = self._worktrees.get(task.task_id)
+            if wt is None:
+                continue
+            self._checkpoints[task.task_id] = (
+                self._saga_bridge.checkpoint(task, wt.path)
+            )
 
         # Phase 2: dispatch workers in a thread pool
         pending = [
@@ -435,7 +466,59 @@ class ParallelCoordinator:
                 else:
                     st.status = "failed"
 
+        # Phase 3: Saga compensation for failed tasks (gap #3).
+        # reverse_order by default — the manifest's saga block
+        # declares the strategy; failed tasks are compensated in
+        # reverse completion order so later mutations are undone
+        # before earlier ones.
+        self._compensate_failed_tasks()
+
         return dict(self._statuses)
+
+    def _compensate_failed_tasks(self) -> None:
+        """Run Saga compensation for every failed task.
+
+        Uses the pre-mutation checkpoints captured in Phase 1c.
+        Restores existing files from backup; deletes files that
+        were new before the task ran. Only mutating tasks with
+        checkpointed scope paths are compensated — read-only
+        tasks have no side effects to undo.
+        """
+        failed_ids = [
+            tid for tid, st in self._statuses.items()
+            if st.status == "failed"
+        ]
+        if not failed_ids:
+            return
+        if self._saga_bridge is None:
+            logger.warning(
+                "Saga disabled — %d failed task(s) NOT compensated: %s",
+                len(failed_ids), failed_ids,
+            )
+            return
+
+        # reverse_order: compensate in reverse task order
+        ordered = list(reversed(self.parallel_tasks()))
+        to_compensate = [
+            t for t in ordered
+            if t.task_id in failed_ids and t.task_id in self._checkpoints
+        ]
+        logger.warning(
+            "Saga compensation: %d task(s) — %s",
+            len(to_compensate),
+            [t.task_id for t in to_compensate],
+        )
+        for task in to_compensate:
+            checkpoints = self._checkpoints.get(task.task_id) or {}
+            compensation = self._saga_bridge.compensate(task, checkpoints)
+            self._compensations[task.task_id] = compensation
+            logger.warning(
+                "Compensated %s: restored=%s deleted=%s errors=%s",
+                task.task_id,
+                compensation["restored"],
+                compensation["deleted"],
+                compensation["errors"],
+            )
 
     def _run_droid_in_worktree(
         self,
@@ -466,12 +549,15 @@ class ParallelCoordinator:
             "--mission", str(manifest_path),
             "--worktree", str(worktree_path),
         ]
+        if self.adjust_cmd:
+            cmd += ["--adjust-cmd", self.adjust_cmd]
         cmd.extend(f"--{k}" for k in droid_args)
         for k, v in droid_args.items():
             cmd.append(str(v))
 
         logger.info("Running Droid for task %s in %s", task.task_id, worktree_path)
 
+        env = {**os.environ, **self.worker_env}
         try:
             proc = subprocess.run(
                 cmd,
@@ -479,6 +565,7 @@ class ParallelCoordinator:
                 text=True,
                 timeout=600,
                 cwd=str(worktree_path),
+                env=env,
             )
             return {
                 "status": "pass" if proc.returncode == 0 else "fail",
@@ -521,6 +608,8 @@ class ParallelCoordinator:
                 "worktree_timing": {task_id: {create_ms, install_ms, total_ms}},
                 "worktree_timing_total_ms": int,
                 "worktree_slowest_ms": int,
+                "compensations": {task_id: {restored, deleted, errors}},
+                "compensated_task_ids": [str],
             }
         """
         all_passed = all(
@@ -546,6 +635,8 @@ class ParallelCoordinator:
             "worktree_timing": timing,
             "worktree_timing_total_ms": sum(totals),
             "worktree_slowest_ms": max(totals) if totals else 0,
+            "compensations": dict(self._compensations),
+            "compensated_task_ids": list(self._compensations.keys()),
         }
 
     def cleanup_worktrees(self) -> None:
