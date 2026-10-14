@@ -25,7 +25,7 @@
  * console reads progress from D1, never from worker logs.
  */
 
-import type { D1Database, Queue, Message } from '@cloudflare/workers-types'
+import type { D1Database, Queue, Message, MessageBatch } from '@cloudflare/workers-types'
 import {
   applyVehicleConfig,
   verifyAdoption,
@@ -47,8 +47,10 @@ export interface ApplyMessage {
 
 export interface ApplyQueueEnv {
   D1_TESLA: D1Database
-  APPLY_QUEUE: Queue<ApplyMessage>
-  APPLY_DLQ: Queue<ApplyMessage>
+  /** Producer binding — declared but unused by the consumer itself. */
+  APPLY_QUEUE?: Queue<ApplyMessage>
+  /** Dead-letter binding — declared but unused by the consumer itself. */
+  APPLY_DLQ?: Queue<ApplyMessage>
   TESLA_PROXY_URL: string
   SIGNER_SHARED_SECRET: string
   /** Everything getMemberAccessToken needs (D1_TESLA + crypto env). */
@@ -82,11 +84,11 @@ export function isTransient(error: unknown): boolean {
  * `batch` is up to max_batch_size messages delivered together.
  */
 export default {
-  async queue(batch: Array<Message<ApplyMessage>>, env: ApplyQueueEnv): Promise<void> {
+  async queue(batch: MessageBatch<ApplyMessage>, env: ApplyQueueEnv): Promise<void> {
     const db = env.D1_TESLA
     const signerUrl = (env.TESLA_PROXY_URL ?? '').replace(/\/+$/, '')
 
-    for (const msg of batch) {
+    for (const msg of batch.messages) {
       const body = msg.body
       try {
         await processMessage(db, env, signerUrl, body)
