@@ -118,7 +118,12 @@ echo "Structure"
 # adding a table cannot leave this assertion quietly out of date. Internal
 # sqlite_* tables are excluded because their presence is an implementation
 # detail of AUTOINCREMENT/stat, not something the FRS specifies.
-EXPECTED_TABLES=$(grep -ch '^CREATE TABLE' migrations/*.sql | paste -sd+ - | bc)
+# Migrations may create a staging table and then drop+rename it to rebuild a
+# CHECK constraint (SQLite cannot ALTER a constraint in place), so the
+# expected count is net: CREATE TABLE statements minus DROP TABLE statements.
+created_tables=$(grep -ch '^CREATE TABLE' migrations/*.sql | paste -sd+ - | bc)
+dropped_tables=$(grep -ch '^DROP TABLE' migrations/*.sql | paste -sd+ - | bc)
+EXPECTED_TABLES=$((created_tables - dropped_tables))
 check "tables created"            "$(q "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")" "$EXPECTED_TABLES"
 # Guard triggers are DERIVED from the migration files, not pinned to a number.
 # The hardcoded `4` here was already stale once (migration 0007/0008 add two), and
