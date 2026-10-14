@@ -1,12 +1,12 @@
 # Interface Design Document (IDD): AFIRMICO Auto — Configurator Page
 
 **Document ID:** IDD-011  
-**Version:** 1.1  
+**Version:** 1.2  
 **Status:** Draft  
 **Author:** Hermes (Director)  
 **Date:** 2026-10-13  
-**Spec:** FRS-010 v2.8 (FEATURE-15, FEATURE-12, FEATURE-13, FEATURE-14)  
-**Design:** SDD-011 v1.2, SDD-010 v1.13
+**Spec:** FRS-010 v3.0 (FEATURE-15, FEATURE-12, FEATURE-13, FEATURE-14, FEATURE-16)  
+**Design:** SDD-011 v1.3, SDD-010 v1.13
 
 ---
 
@@ -204,3 +204,62 @@ response 400: { error }          // canary_vin missing for global/group
 
 Out of scope here: eligibility computation UI, interval/seed policy (SDD-011),
 signer transport (SDD-010 §2).
+
+---
+
+## 10. Distributed Apply Contract (FEATURE-16, added v1.2, 2026-10-13)
+
+For fleets >1,000 vehicles the cron path is replaced by a Cloudflare Queues fan-out. The console contract changes:
+
+### 10.1 Endpoint (queue path)
+
+```
+POST /admin/telemetry/apply        (admin session; tenant-scoped)
+form: scope = global | group | vehicle
+      canary_vin   REQUIRED when scope is global or group
+      vin          the changed vehicle when scope is vehicle
+response 200:
+  { success: true,               // enqueued, not completed
+    runId: string,               // config_apply_run.run_id
+    queued: number,              // number of VINs enqueued
+    message: string }            // "Apply sweep enqueued. The canary will be processed on the next cron tick..."
+response 400: { error }          // canary_vin missing for global/group
+```
+
+The response no longer contains outcomes — the apply is asynchronous. The console MUST poll `/admin/telemetry/apply-runs?runId=...` for progress.
+
+### 10.2 Progress endpoint
+
+```
+GET /admin/telemetry/apply-runs?runId=...
+response 200:
+  { runId, status, canaryVin, canaryState,
+    queued: number,
+    done: number,
+    failed: number,
+    halted: number,
+    inProgress: number,
+    vehicles: [ { vin, position, status, outcome, errorDetail } ] }
+```
+
+`status` is `pending | canary | rolling | completed | halted`. The console renders per-VIN progress from this, never from logs.
+
+### 10.3 Canary semantics preserved
+
+- The canary is **position 0** in the queue (enqueue order = canary first).
+- The queue consumer processes position-0 messages of each run before any other position of that run.
+- If the canary fails, the run is marked `halted`; every pending message of that run acknowledges `halted` on its next delivery attempt — no vehicle past position 0 is touched (F12-R09 preserved).
+- A failed canary writes its failed condition to `canary_state` so the halt is diagnosable.
+
+### 10.4 Retry & dead-letter
+
+- Transient failures (Tesla 5xx, network) retry up to 3× with exponential backoff (5 min, 15 min, 60 min).
+- Permanent failures (4xx, revoked token, invalid VIN) dead-letter immediately to `config_apply_dead_letter`.
+- A dead-lettered VIN does not block the run — the console shows it as `failed` with the error detail.
+- Dead-letter queue bounded at 10k messages; non-empty triggers an operator alert.
+
+### 10.5 Invariants (additive)
+
+5. **Token freshness (F16-R06):** member access tokens are resolved per VIN at processing time, not at enqueue time.
+6. **Idempotency (F16-R08):** re-running an apply writes a NEW `run_id`; `config_apply_outcome` keys on (run_id, vin) so prior runs are not corrupted.
+7. **Progress from D1 (F16-R04):** the console reads `config_apply_queue` and `config_apply_outcome` — no worker logs required.

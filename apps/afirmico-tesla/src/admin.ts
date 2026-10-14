@@ -24,7 +24,8 @@ import { timingSafeEqual } from './store'
 import { modelYearFromVin, variantFromEfficiencyPackage } from './analytics'
 import { formatDualTime, formatTimeColumns, stateFromPostcode, timeZoneForPostcode } from './timezone'
 import { resolveConfig, type ResolvedConfig } from './config-scope'
-import { runApplySweep, isCanaryEligible, verifyCanaryConditions, type ApplySweepResult, type ApplyVehicleResult } from './config-apply'
+import { runApplySweep, isCanaryEligible, isCanaryEligibleDb, verifyCanaryConditions, type ApplySweepResult, type ApplyVehicleResult } from './config-apply'
+import { enqueueApplySweep } from './apply-processor'
 import { createVehicleGroup, getVehicleGroup, listVehicleGroups, updateVehicleGroup, deleteVehicleGroup, addVehicleToGroup, removeVehicleFromGroup, listGroupMembers, getGroupsForVehicle, type VehicleGroup, type GroupMember } from './config-groups'
 import { collectedFields, type CollectedField, audit, newId } from './store'
 import { getMemberAccessToken } from './key-pairing'
@@ -1848,39 +1849,100 @@ adminApp.post('/telemetry/apply', async (c) => {
   const canaryVin = String(form.canary_vin ?? '').trim()
   const scope = String(form.scope ?? '').trim() as 'vehicle' | 'global' | 'group'
   const operator = String(form.operator ?? '').trim() || 'operator'
+  const group_id = String(form.group_id ?? '').trim()
 
   if (!vin) return c.json({ error: 'vin is required' }, 400)
-  if (!canaryVin) return c.json({ error: 'canary_vin is required for global/group changes' }, 400)
+  if ((scope === 'global' || scope === 'group') && !canaryVin) {
+    return c.json({ error: 'canary_vin is required for global/group changes' }, 400)
+  }
+  if (scope === 'group' && !group_id) {
+    return c.json({ error: 'group_id required for group scope' }, 400)
+  }
 
-  // Resolve the effective config for the target VIN(s)
+  // Resolve the effective config for ALL target VINs (target + canary)
   const db = c.env.D1_TESLA
   const fields = await collectedFields(db)
   const collected = fields.map((f) => f.field_key)
 
-  // Gather scope entries from DB
+  // Load global entries (always needed)
   const globalEntries = await getScopeEntries(db, 'global')
+
+  // Load group entries if group scope
   const groupEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
-  const vehicleEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
-
-  const resolved = resolveConfig(
-    globalEntries,
-    groupEntries,
-    vehicleEntries,
-    collected,
-    vin
-  )
-
-  if (resolved.unresolved.length) {
-    return c.json({
-      error: 'unresolved fields',
-      unresolved: resolved.unresolved,
-    }, 400)
+  let groupScopeId: string | null = null
+  if (scope === 'group') {
+    // Find the scope_id for this group
+    const scopeRow = await db.prepare(
+      `SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = 'group' AND group_id = ?`
+    ).bind(group_id).first<{ scope_id: string }>()
+    if (scopeRow) {
+      groupScopeId = scopeRow.scope_id
+      const rows = await db.prepare(
+        `SELECT field_key, interval_seconds, minimum_delta, enabled
+           FROM telemetry_config_entry
+          WHERE scope_id = ?`
+      ).bind(groupScopeId).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+      for (const r of rows.results ?? []) {
+        groupEntries.set(r.field_key, {
+          interval_seconds: r.interval_seconds,
+          minimum_delta: r.minimum_delta,
+          enabled: r.enabled === 1,
+        })
+      }
+    }
   }
 
+  // Build resolved configs for ALL target VINs
   const resolvedPerVin = new Map<string, ResolvedConfig>()
-  resolvedPerVin.set(vin, resolved)
 
-  // Get member access token for the target VIN
+  // Helper to resolve config for a VIN
+  const resolveForVin = async (targetVin: string) => {
+    // Load vehicle entries for this VIN
+    const vehicleEntries = new Map<string, { interval_seconds: number; minimum_delta?: number | null; enabled?: boolean }>()
+    const vehScopeRow = await db.prepare(
+      `SELECT scope_id FROM telemetry_config_scope WHERE scope_kind = 'vehicle' AND vin = ?`
+    ).bind(targetVin).first<{ scope_id: string }>()
+    if (vehScopeRow) {
+      const rows = await db.prepare(
+        `SELECT field_key, interval_seconds, minimum_delta, enabled
+           FROM telemetry_config_entry
+          WHERE scope_id = ?`
+      ).bind(vehScopeRow.scope_id).all<{ field_key: string; interval_seconds: number; minimum_delta: number | null; enabled: number }>()
+      for (const r of rows.results ?? []) {
+        vehicleEntries.set(r.field_key, {
+          interval_seconds: r.interval_seconds,
+          minimum_delta: r.minimum_delta,
+          enabled: r.enabled === 1,
+        })
+      }
+    }
+
+    // For group scope, need the member's group entries
+    let memberGroupEntries = groupEntries
+    if (scope === 'group') {
+      // Already loaded above
+    }
+
+    return resolveConfig(globalEntries, memberGroupEntries, vehicleEntries, collected, targetVin)
+  }
+
+  // Resolve for target VIN
+  const targetResolved = await resolveForVin(vin)
+  if (targetResolved.unresolved.length) {
+    return c.json({ error: 'unresolved fields', unresolved: targetResolved.unresolved }, 400)
+  }
+  resolvedPerVin.set(vin, targetResolved)
+
+  // Resolve for canary VIN (for global/group scope)
+  if (scope !== 'vehicle') {
+    const canaryResolved = await resolveForVin(canaryVin)
+    if (canaryResolved.unresolved.length) {
+      return c.json({ error: 'unresolved fields for canary', unresolved: canaryResolved.unresolved }, 400)
+    }
+    resolvedPerVin.set(canaryVin, canaryResolved)
+  }
+
+  // Get member access token for the target VIN (both VINs should share member)
   const memberRow = await db.prepare(
     `SELECT member_id FROM tesla_vehicle WHERE vin = ?`
   ).bind(vin).first<{ member_id: string }>()
@@ -1906,23 +1968,136 @@ adminApp.post('/telemetry/apply', async (c) => {
 
   const targetVins = scope === 'vehicle' ? [vin] : [canaryVin, vin]
 
-  const result = await runApplySweep(
-    scope,
-    targetVins,
-    resolvedPerVin,
-    operator,
-    signerUrl,
-    memberToken,
-    signerSharedSecret,
-    db
-  )
+  // FEATURE-16: fleets over 1,000 vehicles fan out to the
+  // apply-queue Cloudflare Queue (F16-R01). The queue
+  // binding is optional in dev; when absent the route falls
+  // back to the F12-N04 cron path.
+  const applyQueue = (c.env as unknown as { APPLY_QUEUE?: { send: (m: unknown) => Promise<void> } }).APPLY_QUEUE
+  const DISTRIBUTED_THRESHOLD = 1000
+  let result: { runId: string; queued: number }
+  let path: 'distributed' | 'cron'
+  if (applyQueue && targetVins.length > DISTRIBUTED_THRESHOLD) {
+    // Distributed enqueue: queue rows WITHOUT config_json
+    // (resolution happens at processing time, F16-R06) plus
+    // one apply-queue message per VIN.
+    const { enqueueApplySweepDistributed } = await import('./apply-processor')
+    result = await enqueueApplySweepDistributed(
+      scope,
+      targetVins,
+      new Map(targetVins.map((v) => [v, null])),
+      operator,
+      db,
+      applyQueue
+    )
+    path = 'distributed'
+  } else {
+    // F12-N04 cron path: queue rows carry config_json.
+    result = await enqueueApplySweep(scope, targetVins, resolvedPerVin, operator, db)
+    path = 'cron'
+  }
+  void signerUrl
 
   return c.json({
-    success: !result.canaryFailed,
+    success: true,
     runId: result.runId,
-    canaryVin: result.canaryVin,
-    canaryFailed: result.canaryFailed,
-    outcomes: result.outcomes,
+    queued: result.queued,
+    path,
+    message: path === 'distributed'
+      ? 'Apply sweep enqueued to apply-queue. The canary gates the rollout; monitor /admin/telemetry/apply-runs for per-vehicle progress.'
+      : 'Apply sweep enqueued. The canary will be processed on the next cron tick; monitor /admin/telemetry/apply-runs for progress.'
+  })
+})
+
+/**
+ * GET /admin/telemetry/apply-runs?runId=...
+ * Per-vehicle apply progress, sourced from D1 (F16-R04).
+ * The console polls this — never worker logs.
+ */
+adminApp.get('/telemetry/apply-runs', async (c) => {
+  const runId = String(c.req.query('runId') ?? '').trim()
+  const db = c.env.D1_TESLA
+
+  if (!runId) {
+    // List recent runs
+    const rows = await db.prepare(
+      `SELECT run_id, scope_id, status, canary_vin, canary_state, started_at, finished_at, initiated_by
+         FROM config_apply_run
+        ORDER BY started_at DESC
+        LIMIT 50`
+    ).all<{ run_id: string; scope_id: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; initiated_by: string | null }>()
+    return c.json({ runs: rows.results ?? [] })
+  }
+
+  const run = await db.prepare(
+    `SELECT run_id, scope_id, status, canary_vin, canary_state, started_at, finished_at, initiated_by
+       FROM config_apply_run
+      WHERE run_id = ?`
+  ).bind(runId).first<{ run_id: string; scope_id: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; initiated_by: string | null }>()
+
+  if (!run) {
+    return c.json({ error: 'run not found' }, 404)
+  }
+
+  const counts = await db.prepare(
+    `SELECT
+       SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+       SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done,
+       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+       SUM(CASE WHEN status = 'halted' THEN 1 ELSE 0 END) as halted,
+       COUNT(*) as total
+       FROM config_apply_queue
+      WHERE run_id = ?`
+  ).bind(runId).first<{ pending: number | null; in_progress: number | null; done: number | null; failed: number | null; halted: number | null; total: number }>()
+
+  const vehicles = await db.prepare(
+    `SELECT vin, position, status, attempts, last_error, started_at, finished_at
+       FROM config_apply_queue
+      WHERE run_id = ?
+      ORDER BY position ASC`
+  ).bind(runId).all<{ vin: string; position: number; status: string; attempts: number; last_error: string | null; started_at: string | null; finished_at: string | null }>()
+
+  const outcomes = await db.prepare(
+    `SELECT vin, outcome, skip_reason, error_detail, has_config, synced, observed_after, applied_at
+       FROM config_apply_outcome
+      WHERE run_id = ?`
+  ).bind(runId).all<{ vin: string; outcome: string; skip_reason: string | null; error_detail: string | null; has_config: number | null; synced: number | null; observed_after: number | null; applied_at: string | null }>()
+
+  // Join queue rows with outcome rows per VIN
+  const outcomeByVin = new Map<string, (typeof outcomes.results)[number]>()
+  for (const o of outcomes.results ?? []) outcomeByVin.set(o.vin, o)
+
+  const vehicleProgress = (vehicles.results ?? []).map((v) => {
+    const o = outcomeByVin.get(v.vin)
+    return {
+      vin: v.vin,
+      position: v.position,
+      status: v.status,
+      attempts: v.attempts,
+      errorDetail: v.last_error ?? o?.error_detail ?? null,
+      outcome: o?.outcome ?? null,
+      hasConfig: o?.has_config === 1,
+      synced: o?.synced === 1,
+      observedAfter: o?.observed_after === 1,
+    }
+  })
+
+  return c.json({
+    runId: run.run_id,
+    scopeId: run.scope_id,
+    status: run.status,
+    canaryVin: run.canary_vin,
+    canaryState: run.canary_state,
+    initiatedBy: run.initiated_by,
+    startedAt: run.started_at,
+    finishedAt: run.finished_at,
+    queued: counts?.total ?? 0,
+    pending: counts?.pending ?? 0,
+    inProgress: counts?.in_progress ?? 0,
+    done: counts?.done ?? 0,
+    failed: counts?.failed ?? 0,
+    halted: counts?.halted ?? 0,
+    vehicles: vehicleProgress,
   })
 })
 
