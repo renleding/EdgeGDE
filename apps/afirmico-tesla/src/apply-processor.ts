@@ -63,13 +63,19 @@ export async function enqueueApplySweep(
   const runId = `apply_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
   const nowIso = new Date().toISOString()
 
+  // Canary is position 0 for global/group; single VIN is position 0 for
+  // vehicle. Record canary_vin at enqueue time so the processor's
+  // isCanary gate (runRow.canary_vin === vin) fires — a NULL canary_vin
+  // would skip the canary gate entirely and leave items in_progress.
+  const canaryVin = changeScope === 'vehicle' ? null : targetVins[0] ?? null
+
   // Columns match the schema migration 0023_config_apply_run_columns:
   // scope_kind (not scope_id), operator (not initiated_by), status 'running'
   // (the CHECK constraint rejects 'pending'), created_at backfilled from now.
   await db.prepare(
-    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
-     VALUES (?, ?, ?, 'running', ?, ?)`
-  ).bind(runId, changeScope, operator, nowIso, nowIso).run()
+    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, canary_vin, started_at, created_at)
+     VALUES (?, ?, ?, 'running', ?, ?, ?)`
+  ).bind(runId, changeScope, operator, canaryVin, nowIso, nowIso).run()
 
   // Canary is position 0 for global/group; single VIN is position 0 for vehicle
   for (let i = 0; i < targetVins.length; i++) {
@@ -106,10 +112,14 @@ export async function enqueueApplySweepDistributed(
   // Distributed enqueue writes config_apply_queue rows
   // WITHOUT config_json (resolution happens at processing
   // time, F16-R06), then publishes one message per VIN.
+  // Canary is position 0 for global/group — record it at
+  // enqueue time so the processor's isCanary gate fires.
+  const canaryVin = changeScope === 'vehicle' ? undefined : targetVins[0]
   const runId = await enqueueApplyRun(
     changeScope,
     operator,
-    db
+    db,
+    canaryVin
   )
   await enqueueApplyTargets(runId, targetVins, resolvedPerVin, db)
 

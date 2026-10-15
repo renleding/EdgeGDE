@@ -346,13 +346,17 @@ export async function runApplySweep(
 
   // Record the run
   const nowIso = new Date().toISOString()
+  // Canary is position 0 for global/group. Record canary_vin at
+  // enqueue time so the processor's isCanary gate fires (a NULL
+  // canary_vin makes isCanary always false — items stuck in_progress).
+  canaryVin = changeScope === 'vehicle' ? undefined : targetVins[0]
   // Columns match the schema migration 0023_config_apply_run_columns:
   // scope_kind (not scope_id), operator (not initiated_by), status 'running'
   // (the CHECK constraint rejects 'pending'), created_at backfilled from now.
   await db.prepare(
-    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
-     VALUES (?, ?, ?, 'running', ?, ?)`
-  ).bind(runId, changeScope, operator, nowIso, nowIso).run()
+    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, canary_vin, started_at, created_at)
+     VALUES (?, ?, ?, 'running', ?, ?, ?)`
+  ).bind(runId, changeScope, operator, canaryVin ?? null, nowIso, nowIso).run()
 
   if (changeScope === 'vehicle') {
     // Vehicle scope: apply directly, no canary (F12-R07)

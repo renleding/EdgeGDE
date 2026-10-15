@@ -2020,19 +2020,19 @@ adminApp.get('/telemetry/apply-runs', async (c) => {
   if (!runId) {
     // List recent runs
     const rows = await db.prepare(
-      `SELECT run_id, scope_id, status, canary_vin, canary_state, started_at, finished_at, initiated_by
+      `SELECT run_id, scope_kind, status, canary_vin, canary_state, started_at, finished_at, operator
          FROM config_apply_run
         ORDER BY started_at DESC
         LIMIT 50`
-    ).all<{ run_id: string; scope_id: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; initiated_by: string | null }>()
+    ).all<{ run_id: string; scope_kind: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; operator: string }>()
     return c.json({ runs: rows.results ?? [] })
   }
 
   const run = await db.prepare(
-    `SELECT run_id, scope_id, status, canary_vin, canary_state, started_at, finished_at, initiated_by
+    `SELECT run_id, scope_kind, status, canary_vin, canary_state, started_at, finished_at, operator
        FROM config_apply_run
       WHERE run_id = ?`
-  ).bind(runId).first<{ run_id: string; scope_id: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; initiated_by: string | null }>()
+  ).bind(runId).first<{ run_id: string; scope_kind: string; status: string; canary_vin: string | null; canary_state: string | null; started_at: string; finished_at: string | null; operator: string }>()
 
   if (!run) {
     return c.json({ error: 'run not found' }, 404)
@@ -2084,11 +2084,11 @@ adminApp.get('/telemetry/apply-runs', async (c) => {
 
   return c.json({
     runId: run.run_id,
-    scopeId: run.scope_id,
+    scopeKind: run.scope_kind,
     status: run.status,
     canaryVin: run.canary_vin,
     canaryState: run.canary_state,
-    initiatedBy: run.initiated_by,
+    operator: run.operator,
     startedAt: run.started_at,
     finishedAt: run.finished_at,
     queued: counts?.total ?? 0,
