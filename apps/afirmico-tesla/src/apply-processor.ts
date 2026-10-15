@@ -203,85 +203,19 @@ export async function processApplyQueue(
       `UPDATE config_apply_queue SET status = 'in_progress', attempts = attempts + 1, started_at = ? WHERE queue_id = ?`
     ).bind(startIso, item.queue_id).run()
 
-    // Rehydrate the resolved config from the queue row
-    let resolved: ResolvedConfig | null = null
+    // A single vehicle's failure must not kill the whole cron tick:
+    // an uncaught throw here would leave this row in_progress forever
+    // (the pending query only re-selects 'pending') and skip every
+    // remaining vehicle. Try/catch converts a per-VIN error into a
+    // failed row and lets the loop continue.
     try {
-      resolved = JSON.parse(item.config_json) as ResolvedConfig
-    } catch {
-      await failQueueItem(db, item.queue_id, item.run_id, 'config_json_parse_failed')
+      const halted = await processOneVehicle(item, runRow, signerUrl, signerSharedSecret, memberAccessTokenEnv, telemetryTarget, ca, db)
+      if (halted) haltedRuns++
+    } catch (err) {
+      await failQueueItem(db, item.queue_id, item.run_id, `processing_error:${(err as Error).message ?? String(err)}`)
       processed++
       continue
     }
-
-    // Resolve the member access token for THIS VIN at processing time
-    const memberRow = await db.prepare(
-      `SELECT member_id FROM tesla_vehicle WHERE vin = ?`
-    ).bind(item.vin).first<{ member_id: string }>()
-    if (!memberRow) {
-      await failQueueItem(db, item.queue_id, item.run_id, `no_member_for_vin:${item.vin}`)
-      processed++
-      continue
-    }
-    const memberToken = await getMemberAccessToken(memberAccessTokenEnv, memberRow.member_id)
-    if (!memberToken) {
-      await failQueueItem(db, item.queue_id, item.run_id, `no_member_access_token:${item.vin}`)
-      processed++
-      continue
-    }
-
-    const isCanary = item.position === 0 && runRow.canary_vin === item.vin
-
-    const result = await applyVehicleConfig(
-      item.vin,
-      resolved,
-      signerUrl,
-      memberToken,
-      signerSharedSecret,
-      telemetryTarget,
-      ca
-    )
-    await recordOutcome(db, item.run_id, result)
-
-    // Canary gating — the three-condition verification (F12-R08)
-    if (isCanary) {
-      if (result.outcome !== 'applied') {
-        await haltRun(db, item.run_id, `canary ${item.vin} POST failed: ${result.error_detail ?? result.outcome}`)
-        await failQueueItem(db, item.queue_id, item.run_id, `canary_post_failed: ${result.error_detail ?? result.outcome}`)
-        haltedRuns++
-        processed++
-        continue
-      }
-      const verified = await verifyAdoption(item.vin, signerUrl, memberToken, signerSharedSecret, db, startIso)
-      if (!verified.verified) {
-        await haltRun(db, item.run_id, `canary ${item.vin} verification failed: ${verified.reason}`)
-        await failQueueItem(db, item.queue_id, item.run_id, `canary_verification_failed: ${verified.reason}`)
-        haltedRuns++
-        processed++
-        continue
-      }
-      // Canary passed — mark it verified and open the rollout
-      result.outcome = 'verified'
-      await recordOutcome(db, item.run_id, result)
-      await db.prepare(
-        `UPDATE config_apply_run SET status = 'rolling', canary_vin = ?, canary_state = 'verified' WHERE run_id = ?`
-      ).bind(item.vin, item.run_id).run()
-      await completeQueueItem(db, item.queue_id)
-      processed++
-      continue
-    }
-
-    // Non-canary rollout vehicles
-    if (result.outcome === 'applied') {
-      const verified = await verifyAdoption(item.vin, signerUrl, memberToken, signerSharedSecret, db, startIso)
-      if (verified.verified) {
-        result.outcome = 'verified'
-      } else {
-        result.outcome = 'failed'
-        result.error_detail = verified.reason
-      }
-      await recordOutcome(db, item.run_id, result)
-    }
-    await completeQueueItem(db, item.queue_id)
     processed++
   }
 
@@ -304,6 +238,106 @@ export async function processApplyQueue(
   }
 
   return { processed, haltedRuns, completedRuns: completedRuns.size }
+}
+
+/**
+ * Process one queue row: rehydrate the config, mint the member
+ * token, POST the config, and (for the canary) run the
+ * three-condition verification. Extracted so the per-VIN loop
+ * can wrap it in try/catch — an uncaught throw here used to
+ * kill the whole cron tick and leave the row in_progress
+ * forever (the pending query only re-selects 'pending').
+ */
+async function processOneVehicle(
+  item: {
+    queue_id: number
+    run_id: string
+    vin: string
+    position: number
+    config_json: string
+  },
+  runRow: { status: string; canary_vin: string | null },
+  signerUrl: string,
+  signerSharedSecret: string,
+  memberAccessTokenEnv: Parameters<typeof getMemberAccessToken>[0],
+  telemetryTarget: { hostname: string; port: number },
+  ca: string,
+  db: D1Database
+): Promise<boolean> {
+  const startIso = new Date().toISOString()
+
+  // Rehydrate the resolved config from the queue row
+  let resolved: ResolvedConfig | null = null
+  try {
+    resolved = JSON.parse(item.config_json) as ResolvedConfig
+  } catch {
+    await failQueueItem(db, item.queue_id, item.run_id, 'config_json_parse_failed')
+    return false
+  }
+
+  // Resolve the member access token for THIS VIN at processing time
+  const memberRow = await db.prepare(
+    `SELECT member_id FROM tesla_vehicle WHERE vin = ?`
+  ).bind(item.vin).first<{ member_id: string }>()
+  if (!memberRow) {
+    await failQueueItem(db, item.queue_id, item.run_id, `no_member_for_vin:${item.vin}`)
+    return false
+  }
+  const memberToken = await getMemberAccessToken(memberAccessTokenEnv, memberRow.member_id)
+  if (!memberToken) {
+    await failQueueItem(db, item.queue_id, item.run_id, `no_member_access_token:${item.vin}`)
+    return false
+  }
+
+  const isCanary = item.position === 0 && runRow.canary_vin === item.vin
+
+  const result = await applyVehicleConfig(
+    item.vin,
+    resolved,
+    signerUrl,
+    memberToken,
+    signerSharedSecret,
+    telemetryTarget,
+    ca
+  )
+  await recordOutcome(db, item.run_id, result)
+
+  // Canary gating — the three-condition verification (F12-R08)
+  if (isCanary) {
+    if (result.outcome !== 'applied') {
+      await haltRun(db, item.run_id, `canary ${item.vin} POST failed: ${result.error_detail ?? result.outcome}`)
+      await failQueueItem(db, item.queue_id, item.run_id, `canary_post_failed: ${result.error_detail ?? result.outcome}`)
+      return true
+    }
+    const verified = await verifyAdoption(item.vin, signerUrl, memberToken, signerSharedSecret, db, startIso)
+    if (!verified.verified) {
+      await haltRun(db, item.run_id, `canary ${item.vin} verification failed: ${verified.reason}`)
+      await failQueueItem(db, item.queue_id, item.run_id, `canary_verification_failed: ${verified.reason}`)
+      return true
+    }
+    // Canary passed — mark it verified and open the rollout
+    result.outcome = 'verified'
+    await recordOutcome(db, item.run_id, result)
+    await db.prepare(
+      `UPDATE config_apply_run SET status = 'rolling', canary_vin = ?, canary_state = 'verified' WHERE run_id = ?`
+    ).bind(item.vin, item.run_id).run()
+    await completeQueueItem(db, item.queue_id)
+    return false
+  }
+
+  // Non-canary rollout vehicles
+  if (result.outcome === 'applied') {
+    const verified = await verifyAdoption(item.vin, signerUrl, memberToken, signerSharedSecret, db, startIso)
+    if (verified.verified) {
+      result.outcome = 'verified'
+    } else {
+      result.outcome = 'failed'
+      result.error_detail = verified.reason
+    }
+    await recordOutcome(db, item.run_id, result)
+  }
+  await completeQueueItem(db, item.queue_id)
+  return false
 }
 
 async function failQueueItem(db: D1Database, queueId: number, runId: string, error: string): Promise<void> {
