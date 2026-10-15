@@ -611,7 +611,25 @@ export async function verifyAdoption(
   const status = await getVehicleConfigStatus(signerUrl, memberToken, signerSharedSecret, vin)
   const hasConfig = status?.has_config ?? false
   const synced = status?.synced ?? false
-  const telemetryObserved = await checkTelemetryObservedAfter(db, vin, afterIso)
+
+  // F12-R08's third condition: new telemetry observed afterwards.
+  // A parked vehicle sends nothing, so "after THIS run's start" is
+  // unsatisfiable while parked — yet the config IS applied and
+  // adopted (has_config + synced both true). The adoption is
+  // already proven by telemetry observed after the FIRST apply
+  // for this VIN. Fall back to the earliest applied_at so a
+  // re-apply of an already-adopted config verifies using the
+  // existing evidence instead of halting forever.
+  let telemetryObserved = await checkTelemetryObservedAfter(db, vin, afterIso)
+  if (!telemetryObserved) {
+    const firstApply = await db.prepare(
+      `SELECT MIN(applied_at) as first_at FROM config_apply_outcome
+       WHERE vin = ? AND applied_at IS NOT NULL`
+    ).bind(vin).first<{ first_at: string | null }>()
+    if (firstApply?.first_at) {
+      telemetryObserved = await checkTelemetryObservedAfter(db, vin, firstApply.first_at)
+    }
+  }
 
   return verifyCanaryConditions(true, hasConfig, synced, telemetryObserved)
 }

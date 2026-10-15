@@ -26,7 +26,7 @@ import { describe, it, expect } from 'vitest'
 import { createSqliteD1 } from './helpers/sqlite-d1'
 import { enqueueApplyRun } from '../src/apply-enqueue'
 import { enqueueApplySweep } from '../src/apply-processor'
-import { getVehicleConfigStatus } from '../src/config-apply'
+import { getVehicleConfigStatus, verifyAdoption } from '../src/config-apply'
 import type { ResolvedConfig } from '../src/config-scope'
 
 function resolvedConfig(): ResolvedConfig {
@@ -220,6 +220,63 @@ describe('apply enqueue: INSERT is valid against the real schema', () => {
       )
       expect(status?.has_config).toBe(false)
       expect(status?.synced).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('verifyAdoption falls back to the earliest applied_at when parked', async () => {
+    // F12-R08's third condition (telemetry observed afterwards) is
+    // unsatisfiable while a vehicle is parked — it sends nothing.
+    // But the config IS applied and adopted (has_config + synced),
+    // and telemetry DID flow after the FIRST apply. verifyAdoption
+    // must fall back to the earliest applied_at so a re-apply of
+    // an already-adopted config verifies using existing evidence
+    // instead of halting forever.
+    const db = createSqliteD1()
+    const vin = '5YJ3F7EB7LF697834'  // Walter (different VIN, no prior data)
+
+    // tesla_telemetry_fact.vin references tesla_vehicle(vin)
+    await db.prepare(
+      `INSERT INTO tesla_vehicle (vin, display_name, first_seen_at) VALUES (?, ?, ?)`
+    ).bind(vin, 'Walter', '2026-10-01T00:00:00Z').run()
+
+    // Seed an earlier apply run + outcome (the first apply)
+    // and telemetry observed after it — but nothing after "now".
+    const firstApply = '2026-10-15T02:20:00.000Z'
+    await db.prepare(
+      `INSERT INTO config_apply_run (run_id, scope_kind, status, started_at)
+       VALUES (?, 'global', 'completed', ?)`
+    ).bind('apply_first', firstApply).run()
+    await db.prepare(
+      `INSERT INTO config_apply_outcome (run_id, vin, outcome, has_config, synced, observed_after, applied_at)
+       VALUES (?, ?, 'applied', 1, 1, 1, ?)`
+    ).bind('apply_first', vin, firstApply).run()
+    // Telemetry observed after the first apply (the drive at 08:21)
+    await db.prepare(
+      `INSERT INTO tesla_telemetry_fact (fact_id, vin, field_key, observed_at, received_at, value_real, value_kind, collection_tier)
+       VALUES (?, ?, 'MilesSinceReset', ?, ?, 8041.02, 'real', 'event')`
+    ).bind('fact-1', vin, '2026-10-15T08:21:12Z', '2026-10-15T08:21:13Z').run()
+
+    // has_config + synced true (the config is live on Tesla)
+    const liveConfig = {
+      response: { synced: true, config: { hostname: 'h', port: 443, fields: {} } },
+      error: '', error_description: '',
+    }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => ({
+      ok: true, status: 200,
+      json: async () => liveConfig,
+      text: async () => JSON.stringify(liveConfig),
+    })) as typeof fetch
+    try {
+      // afterIso is "now" — no telemetry after now (parked).
+      // The fallback must find telemetry after the FIRST apply.
+      const verified = await verifyAdoption(
+        vin, 'https://signer.example', 'member-token', 'signer-secret',
+        db, '2026-10-15T10:05:00.000Z'
+      )
+      expect(verified.verified).toBe(true)
     } finally {
       globalThis.fetch = originalFetch
     }
