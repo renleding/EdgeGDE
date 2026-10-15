@@ -284,8 +284,12 @@ async function checkTelemetryObservedAfter(
   vin: string,
   afterIso: string
 ): Promise<boolean> {
+  // The fact table's timestamp column is observed_at (not
+  // captured_at — that name was never in the schema, so this
+  // query threw "no such column: captured_at" and crashed the
+  // apply cron tick before #272 wrapped it in try/catch).
   const res = await db.prepare(
-    `SELECT 1 FROM tesla_telemetry_fact WHERE vin = ? AND captured_at > ? LIMIT 1`
+    `SELECT 1 FROM tesla_telemetry_fact WHERE vin = ? AND observed_at > ? LIMIT 1`
   ).bind(vin, afterIso).first()
   return res !== null
 }
@@ -544,6 +548,12 @@ export async function runApplySweep(
  * Persist one per-vehicle outcome row.
  * Exported so the async queue processor records outcomes identically
  * to the synchronous sweep — two writers must not drift.
+ *
+ * UPSERTs on (run_id, vin): the canary's outcome is recorded
+ * twice in one sweep — first as `applied` (after the POST), then
+ * as `verified` (after the three-condition check passes). A plain
+ * INSERT made the second write violate the outcome table's UNIQUE
+ * constraint and crash the apply cron tick.
  */
 export async function recordOutcome(
   db: D1Database,
@@ -552,7 +562,15 @@ export async function recordOutcome(
 ): Promise<void> {
   await db.prepare(
     `INSERT INTO config_apply_outcome (run_id, vin, outcome, skip_reason, error_detail, has_config, synced, observed_after, applied_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (run_id, vin) DO UPDATE SET
+       outcome = excluded.outcome,
+       skip_reason = excluded.skip_reason,
+       error_detail = excluded.error_detail,
+       has_config = excluded.has_config,
+       synced = excluded.synced,
+       observed_after = excluded.observed_after,
+       applied_at = excluded.applied_at`
   ).bind(
     runId,
     result.vin,
