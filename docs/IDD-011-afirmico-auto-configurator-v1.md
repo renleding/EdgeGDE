@@ -1,12 +1,12 @@
 # Interface Design Document (IDD): AFIRMICO Auto — Configurator Page
 
 **Document ID:** IDD-011  
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Draft  
 **Author:** Hermes (Director)  
-**Date:** 2026-10-13  
-**Spec:** FRS-010 v3.0 (FEATURE-15, FEATURE-12, FEATURE-13, FEATURE-14, FEATURE-16)  
-**Design:** SDD-011 v1.3, SDD-010 v1.13
+**Date:** 2026-10-16  
+**Spec:** FRS-010 v4.0 (FEATURE-15, FEATURE-12, FEATURE-13, FEATURE-14, FEATURE-16)  
+**Design:** SDD-011 v1.3, SDD-010 v1.14
 
 ---
 
@@ -263,3 +263,96 @@ response 200:
 5. **Token freshness (F16-R06):** member access tokens are resolved per VIN at processing time, not at enqueue time.
 6. **Idempotency (F16-R08):** re-running an apply writes a NEW `run_id`; `config_apply_outcome` keys on (run_id, vin) so prior runs are not corrupted.
 7. **Progress from D1 (F16-R04):** the console reads `config_apply_queue` and `config_apply_outcome` — no worker logs required.
+
+---
+
+## 11. Apply-Contract Corrections (added v1.3, 2026-10-16)
+
+Seven defects in the apply path were found and fixed in production
+(PRs #269–#275, FRS-010 v4.0). Each changed a concrete interface
+behaviour. The corrections below supersede §9 and §10 where they
+overlap; the canary, halt and idempotency invariants still hold.
+
+### 11.1 Run-row INSERT columns (PR #269)
+
+The three INSERTs that create a `config_apply_run` (enqueue, the
+queue consumer, and the apply processor) wrote pre-migration column
+names and a `pending` status that the `config_apply_run` CHECK
+constraint rejects. Every apply returned HTTP 500 before any vehicle
+was touched. The inserts now write the migration-0023 columns:
+
+```sql
+INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
+VALUES (?, ?, ?, 'running', ?, ?)
+```
+
+`status` is `running` at creation, never `pending`.
+
+### 11.2 Apply POST body shape (PR #270)
+
+The queue-driven apply POSTed a flat body `{vins, fields}`. The
+`tesla-http-proxy` signs the `config` sub-object, so a flat body
+panicked the proxy (`assignment to entry in nil map` at `jwt.go:45`)
+and returned HTTP 502. The apply body MUST be:
+
+```json
+{
+  "vins": ["<vin>"],
+  "config": { "hostname": "...", "port": 443, "ca": "...", "fields": { ... } }
+}
+```
+
+The proxy signs `config`; `vins` selects the targets.
+
+### 11.3 `canary_vin` at enqueue (PR #271)
+
+`canary_vin` was NULL at enqueue, so the canary gate never fired and
+runs stuck in `running`. The canary is queue **position 0**, and
+`canary_vin` is written into `config_apply_run` at enqueue time, not
+derived later. The progress endpoint (`§10.2`) returns `canaryVin`
+from the run row.
+
+### 11.4 Per-VIN isolation (PR #272)
+
+A throw from one VIN's processing killed the whole cron tick, stranding
+every later vehicle in the run. `processOneVehicle` wraps each VIN in
+its own try/catch so one vehicle's failure cannot strand the rest of
+the run.
+
+### 11.5 Verification column + outcome UPSERT (PR #273)
+
+Verification queried a non-existent `captured_at` column, and the
+outcome INSERT violated the `(run_id, vin)` primary key on re-runs.
+The telemetry-observed check now reads `observed_at`, and the outcome
+write is an UPSERT:
+
+```sql
+INSERT INTO config_apply_outcome (run_id, vin, ...)
+VALUES (?, ?, ...)
+ON CONFLICT (run_id, vin) DO UPDATE SET ...
+```
+
+### 11.6 Diagnostic GET response parse (PR #274)
+
+The diagnostic GET read `has_config` and `synced` at the top level of
+the response. The signer wraps Tesla's response as `{response: {...},
+error: ...}`, and Tesla's per-VIN GET returns `{synced, config|null}`
+with **no `has_config` field**. `getVehicleConfigStatus` now unwraps
+`body.response` and derives the F12-R08 conditions:
+
+- `has_config` = `response.config != null` (a non-null config is the
+  vehicle holding a configuration)
+- `synced` = `response.synced === true`
+
+Before this correction a canary could never verify, because both
+values read as `undefined` and then `false`.
+
+### 11.7 Parked-canary verification fallback (PR #275)
+
+F12-R08 requires a telemetry fact observed after the run's start. A
+parked canary can never satisfy that, so legitimate applies halted
+forever. `verifyAdoption` now falls back to the earliest
+`applied_at` for the VIN in `config_apply_outcome`: a re-apply of an
+already-adopted config verifies on existing evidence. A first-ever
+apply on a vehicle with no prior outcome still requires a fresh
+observation.
