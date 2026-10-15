@@ -31,16 +31,19 @@ export interface EnqueueResult {
 
 /** Create the apply run row. Shared by both paths. */
 export async function enqueueApplyRun(
-  scopeId: string,
+  scopeKind: 'vehicle' | 'global' | 'group',
   operator: string,
   db: D1Database
 ): Promise<string> {
   const runId = `apply_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
   const nowIso = new Date().toISOString()
+  // Columns match the schema migration 0023_config_apply_run_columns:
+  // scope_kind (not scope_id), operator (not initiated_by), status 'running'
+  // (the CHECK constraint rejects 'pending'), created_at backfilled from now.
   await db.prepare(
-    `INSERT INTO config_apply_run (run_id, scope_id, initiated_by, status, started_at)
-     VALUES (?, ?, ?, 'pending', ?)`
-  ).bind(runId, scopeId, operator, nowIso).run()
+    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
+     VALUES (?, ?, ?, 'running', ?, ?)`
+  ).bind(runId, scopeKind, operator, nowIso, nowIso).run()
   return runId
 }
 

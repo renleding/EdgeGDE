@@ -317,12 +317,13 @@ export async function runApplySweep(
 
   // Record the run
   const nowIso = new Date().toISOString()
-  // scope_id must reference telemetry_config_scope; resolve from changeScope + operator context
-  const scopeId = changeScope === 'vehicle' ? `vehicle_${targetVins[0]}` : changeScope
+  // Columns match the schema migration 0023_config_apply_run_columns:
+  // scope_kind (not scope_id), operator (not initiated_by), status 'running'
+  // (the CHECK constraint rejects 'pending'), created_at backfilled from now.
   await db.prepare(
-    `INSERT INTO config_apply_run (run_id, scope_id, initiated_by, status, started_at)
-     VALUES (?, ?, ?, 'running', ?)`
-  ).bind(runId, scopeId, operator, nowIso).run()
+    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
+     VALUES (?, ?, ?, 'running', ?, ?)`
+  ).bind(runId, changeScope, operator, nowIso, nowIso).run()
 
   if (changeScope === 'vehicle') {
     // Vehicle scope: apply directly, no canary (F12-R07)
