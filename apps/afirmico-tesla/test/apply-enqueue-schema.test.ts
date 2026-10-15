@@ -116,4 +116,48 @@ describe('apply enqueue: INSERT is valid against the real schema', () => {
         .run()
     ).rejects.toThrow()
   })
+
+  it('records canary_vin at enqueue time so the canary gate fires', async () => {
+    // F12-R07/R08/R09: the processor gates the canary on
+    // runRow.canary_vin === vin (apply-processor.ts isCanary).
+    // canary_vin used to be written only AFTER verification passed,
+    // so on the first (pre-verification) tick runRow.canary_vin was
+    // NULL, isCanary was always false, the canary gate never fired,
+    // and every queue row stayed in_progress forever. The fix records
+    // canary_vin at enqueue time.
+    const db = createSqliteD1()
+    const resolved = new Map<string, ResolvedConfig>([
+      ['LRW3F7ET1SC584656', resolvedConfig()],
+      ['5YJ3F7EB7LF697834', resolvedConfig()],
+    ])
+    // global scope: targetVins is canary-first
+    const { runId } = await enqueueApplySweep(
+      'global',
+      ['LRW3F7ET1SC584656', '5YJ3F7EB7LF697834'],
+      resolved,
+      'operator',
+      db
+    )
+
+    const runRow = await db
+      .prepare(`SELECT canary_vin FROM config_apply_run WHERE run_id = ?`)
+      .bind(runId)
+      .first<{ canary_vin: string | null }>()
+    // The canary (position 0) is recorded NOW, not post-verification.
+    expect(runRow?.canary_vin).toBe('LRW3F7ET1SC584656')
+
+    // vehicle scope has no canary — canary_vin stays NULL.
+    const { runId: vehRunId } = await enqueueApplySweep(
+      'vehicle',
+      ['LRW3F7ET1SC584656'],
+      resolved,
+      'operator',
+      db
+    )
+    const vehRow = await db
+      .prepare(`SELECT canary_vin FROM config_apply_run WHERE run_id = ?`)
+      .bind(vehRunId)
+      .first<{ canary_vin: string | null }>()
+    expect(vehRow?.canary_vin).toBeNull()
+  })
 })

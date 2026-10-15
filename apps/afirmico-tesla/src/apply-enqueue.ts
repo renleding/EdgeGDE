@@ -33,17 +33,22 @@ export interface EnqueueResult {
 export async function enqueueApplyRun(
   scopeKind: 'vehicle' | 'global' | 'group',
   operator: string,
-  db: D1Database
+  db: D1Database,
+  canaryVin?: string
 ): Promise<string> {
   const runId = `apply_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
   const nowIso = new Date().toISOString()
   // Columns match the schema migration 0023_config_apply_run_columns:
   // scope_kind (not scope_id), operator (not initiated_by), status 'running'
   // (the CHECK constraint rejects 'pending'), created_at backfilled from now.
+  // canary_vin is set HERE (at enqueue time), not post-verification:
+  // the processor gates the canary on runRow.canary_vin === vin, so a
+  // NULL canary_vin would make isCanary always false and the canary
+  // gate would never fire (items stuck in_progress forever).
   await db.prepare(
-    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
-     VALUES (?, ?, ?, 'running', ?, ?)`
-  ).bind(runId, scopeKind, operator, nowIso, nowIso).run()
+    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, canary_vin, started_at, created_at)
+     VALUES (?, ?, ?, 'running', ?, ?, ?)`
+  ).bind(runId, scopeKind, operator, canaryVin ?? null, nowIso, nowIso).run()
   return runId
 }
 
