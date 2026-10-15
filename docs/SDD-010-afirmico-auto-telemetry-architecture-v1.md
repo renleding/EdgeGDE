@@ -1,14 +1,16 @@
 # System Design Document (SDD): AFIRMICO Auto — Tesla Fleet Telemetry Platform
 
 **Document ID:** SDD-010  \
-**Version:** 1.13  \
+**Version:** 1.14  \
 **Status:** Draft  \
 **Author:** Hermes (Director)  \
-**Date:** 2026-10-13  \
+**Date:** 2026-10-16  \
 **FRS Reference:** [FRS-010](./FRS-010-afirmico-auto-tesla-fleet-data-v1.md)  \
 **Source:** Requirements interview + architecture review (owner decisions 2026-09-29)
 
-**Revision note (v1.13, 2026-10-13).** **Consolidation plus as-built truth from the production-readiness review.** **(1) Copy reconciliation:** this `docs/` file is now the single authority — the `apps/afirmico-tesla/docs/` duplicate (carrying a v1.12 header ahead of this file's old v1.11) is merged in and deleted. **(2) Apply engine as built:** FEATURE-12's sweep exists as `src/config-apply.ts` — `config_apply_run` (status vocabulary `pending|canary|canary_failed|rolling|completed|failed|halted`, with `canary_vin`/`canary_state` recording WHICH condition failed) and `config_apply_outcome` (per-vehicle `applied|verified|skipped|failed|halted`, storing `has_config`, `synced`, `observed_after` — F12-R08's three conditions as data, not inference); `POST /admin/telemetry/apply` drives canary → verify → halt-or-rolling. The signer path is demonstrably operational (configs applied and verified through it 2026-10-06/07), so open items O-5/O-6 move from "signer does not exist" to "exists and is exercised". `config_apply_run` = 0: the first production sweep remains outstanding (F12-R19). **(3) Per-field interval resolution as built:** `buildFieldConfig` reads `telemetry_config_entry ⋈ tesla_field_catalog` (global scope) per field (f487428) — the `SYNC_INTERVAL_SECONDS` blanket is gone; sparse most-specific-wins means a vehicle-scope row shadows the global tier, which is how a stale `Odometer @ 180 s` override kept the parked-car heartbeat behaviour alive until removed 2026-10-13. **(4) Three clocks, one label defect:** attribute-observed (`attribute_observed_range`), record-observed (fact `observed_at`) and received (batch `received_at`) all render in the admin console; "as last reported" bound to the attribute clock while a newer record clock sat in the same view (divergence observed 2026-10-13: 23:37:28 vs 01:01:47 UTC), and `tesla_vehicle.last_seen_at` is written only by enumeration (frozen 8 days while facts flowed). Both now requirements F09-R14/R15. **(5) Export path as built:** cron `*/5` → `scheduled()` → export scheduler; Email Workers `send_email` array binding; `getDueSchedules` before `updateAllNextRunTimes` (PR #236); states `delivered|failed|partial|pending`; production holds 1 schedule, 8 runs, 14 audits. **(6) Identity gap:** once-tier fields (`CarType`/`Version`/`EfficiencyPackage`/`Trim`) have produced zero facts — consistent with (2)+(3): they arrive on first sync after a configuration apply, and no apply has run (now F04-R17). Documentation only — no code change in this revision.
+**Revision note (v1.14, 2026-10-16).** **The interval decision is recorded as built, the interval semantics are stated precisely, and the dead PULL lane is documented as a defect.** **(1) §4.1 config artifact 180 s → 3600 s.** The uniform per-field interval is 3600 s for every collected field (the owner's 2026-10-15 decision: 180 s is not needed; every field at 3600 s; fields send once when the vehicle moves, otherwise wait). The deltas are unchanged: MilesSinceReset 1 mi, SelfDrivingMilesSinceReset 1 mi, Odometer 0.1 mi. The owner ruled the `minimum_delta` values stay as they are. **(2) The interval is a ceiling, not a rate.** `vehicle-config.ts` states it: "The interval is a CEILING, not a rate: Tesla transmits on change." Tesla emits a field when its value changes by `minimum_delta`, at most every `interval_seconds`. A parked vehicle emits nothing. Irregular send spacing is therefore the model working as specified, not a configurator defect. **(3) The PULL lane is dead — recorded as defect A (open).** `runPollCoordinator` is invoked after every batch (`index.ts:1154`), consent is active, the candidate set is non-empty (Odometer and Trim are due under `planPoll`), and the member token refreshes — yet `telemetry_poll_state.updated_at` has not moved since 2026-10-14T21:04:49Z and `tesla_signal_counter.data_requests` is 0 for the day. The poll never fetches `/vehicle_data` and never updates its state. This is the one lane that could independently read the real current odometer. **(4) The 2026-10-15 send pattern is explained, not defended.** Five sends over six hours (01:54, 05:50, 06:30, 08:21 UTC), odometer frozen at 22522.778 mi in all five. The raw Tesla daemon log (`/opt/relay/logs/fleet-telemetry.log`, before the forwarder) shows the same frozen value, so the pipeline faithfully forwarded what Tesla's daemon received. The frozen odometer plus the dead PULL lane means the platform cannot currently confirm whether the odometer moved during the reported 19:21 AEDT drive. The apply-pipeline defects fixed in the same window (PRs #269–#275) are documented in IDD-011 §11 and FRS-010 v4.0. Docs-only; no code, schema, or deployed behaviour changes in this revision.
+
+**Revision note (v1.13, 2026-10-13).** **Consolidation plus as-built truth from the production-readiness review.** **(1) Copy reconciliation:** this `docs/` file is now the single authority — the `apps/afirmico-tesla/docs/` duplicate (carrying a v1.12 header ahead of this file's old v1.11) is merged in and deleted. **(2) Apply engine as built:** FEATURE-12's sweep exists as `src/config-apply.ts` — `config_apply_run` (status vocabulary `pending|canary|canary_failed|rolling|completed|failed|halted`, with `canary_vin`/`canary_state` recording WHICH condition failed) and `config_apply_outcome` (per-vehicle `applied|verified|skipped|failed|halted`, storing `has_config`, `synced`, `observed_after` — F12-R08's three conditions as data, not inference); `POST /admin/telemetry/apply` drives canary → verify → halt-or-rolling. The signer path is demonstrably operational (configs applied and verified through it 2026-10-06/07), so open items O-5/O-6 move from "signer does not exist" to "exists and is exercised". `config_apply_run` = 0: the first production sweep remains outstanding (F12-R19). **(3) Per-field interval resolution as built:** `buildFieldConfig` reads `telemetry_config_entry ⋈ tesla_field_catalog` (global scope) per field (f487428) — the `SYNC_INTERVAL_SECONDS` blanket is gone; sparse most-specific-wins means a vehicle-scope row shadows the global tier, which is how a stale `Odometer @ 180 s` override kept the parked-car heartbeat behaviour alive until removed 2026-10-13. **(4) Three clocks, one label defect:** attribute-observed (`attribute_observed_range`), record-observed (fact `observed_at`) and received (batch `received_at`) all render in the admin console; "as last reported" bound to the attribute clock while a newer record clock sat in the same view (divergence observed 2026-10-13: 23:37:28 vs 01:01:47 UTC), and `tesla_vehicle.last_seen_at` is written only by enumeration (frozen 8 days while facts flowed). Both now requirements F09-R14/R15. **(5) Export path a...
 
 **Revision note (v1.12, 2026-10-10).** **The telemetry relay's log rotation handling was fixed.** The `journalctl -f` sidecar keeps its file descriptor open across podman log rotation and continues appending to the OLD inode. This meant the old log file kept growing, so `readline()` in `relay.py` kept returning data from the rotated file while the path pointed to a new inode. The original rotation detection only checked when the handle was idle — it never triggered. The fix (`relay.py` `tail_forever()`) checks rotation on EVERY loop iteration, drains the old handle to EOF before switching, then seeks to END of the new file. **Evidence:** on 2026-10-10, 165 `record_payload` lines (191 datums, Oct 9 23:55 – Oct 10 10:58 UTC) were stuck in the rotated `fleet-telemetry.log.1`; a replay script recovered them and the forwarder now processes live data. The SDD now documents this failure mode and the corrected algorithm.
 
@@ -299,42 +301,52 @@ leave the vehicle streaming, which is both a privacy failure and a continuing Te
     "port": 443,
     "ca": "<full LE certificate chain — contents, not a path>",
     "fields": {
-      "Odometer":                        { "interval_seconds": 180, "minimum_delta": 0.1 },
-      "MilesSinceReset":                 { "interval_seconds": 180, "minimum_delta": 1 },
-      "SelfDrivingMilesSinceReset":      { "interval_seconds": 180, "minimum_delta": 1 },
-      "CarType":                         { "interval_seconds": 180 },
-      "Version":                         { "interval_seconds": 180 },
-      "EfficiencyPackage":               { "interval_seconds": 180 },
-      "Trim":                            { "interval_seconds": 180 },
-      "AutomaticBlindSpotCamera":        { "interval_seconds": 180 },
-      "SpeedLimitMode":                  { "interval_seconds": 180 },
-      "SpeedLimitWarning":               { "interval_seconds": 180 },
-      "SentryMode":                      { "interval_seconds": 180 },
-      "AutomaticEmergencyBrakingOff":    { "interval_seconds": 180 },
-      "BlindSpotCollisionWarningChime":  { "interval_seconds": 180 },
-      "EmergencyLaneDepartureAvoidance": { "interval_seconds": 180 },
-      "PinToDriveEnabled":               { "interval_seconds": 180 }
+      "Odometer":                        { "interval_seconds": 3600, "minimum_delta": 0.1 },
+      "MilesSinceReset":                 { "interval_seconds": 3600, "minimum_delta": 1 },
+      "SelfDrivingMilesSinceReset":      { "interval_seconds": 3600, "minimum_delta": 1 },
+      "CarType":                         { "interval_seconds": 3600 },
+      "Version":                         { "interval_seconds": 3600 },
+      "EfficiencyPackage":               { "interval_seconds": 3600 },
+      "Trim":                            { "interval_seconds": 3600 },
+      "AutomaticBlindSpotCamera":        { "interval_seconds": 3600 },
+      "SpeedLimitMode":                  { "interval_seconds": 3600 },
+      "SpeedLimitWarning":               { "interval_seconds": 3600 },
+      "SentryMode":                      { "interval_seconds": 3600 },
+      "AutomaticEmergencyBrakingOff":    { "interval_seconds": 3600 },
+      "BlindSpotCollisionWarningChime":  { "interval_seconds": 3600 },
+      "EmergencyLaneDepartureAvoidance": { "interval_seconds": 3600 },
+      "PinToDriveEnabled":               { "interval_seconds": 3600 }
     }
   }
 }
 ```
 
 **Why this is cheap.** Signals bill on *change*, gated by `interval_seconds` per field, and only while the
-vehicle is awake. At 180 s a *changed* delta-gated field can emit at most 20 times an hour, and a field that
+vehicle is awake. At 3600 s a *changed* delta-gated field can emit at most once an hour, and a field that
 has not changed emits nothing at any interval. Worst case (continuous driving) is 3 delta-gated fields ×
-60 signals/hour × 2 h/day ≈ 3,600 signals/month ≈ **$0.024/vehicle/month** — 0.024% of the configured $100
-limit, and ~4,167× the 10× floor F02-R13 requires. Measured at the previous 6-hour interval: ~17.5
-signals/vehicle/day → 525/month → $0.0035/vehicle/month, for comparison.
+60 signals/hour × 2 h/day ≈ 360 signals/month — a fraction of the configured $100 limit. Measured at the
+previous 6-hour interval: ~17.5 signals/vehicle/day → 525/month → $0.0035/vehicle/month, for comparison.
 
 **Delta gate.** `SelfDrivingMilesSinceReset` *requires* `minimum_delta >= 1`, so it only emits when at least
 one FSD mile has accrued since its last send. It is already maximally throttled and cannot be throttled
-further — this is a Tesla-imposed floor, and it also means the FSD field costs almost nothing.
+further — this is a Tesla-imposed floor, and it also means the FSD field costs almost nothing. The owner
+ruled 2026-10-16 that the `minimum_delta` values stay as they are.
+
+**The interval is a ceiling, not a rate.** `vehicle-config.ts` states it: "The interval is a CEILING, not
+a rate: Tesla transmits on change." Tesla emits a field when its value changes by `minimum_delta`, at most
+every `interval_seconds`. A parked vehicle emits nothing. Irregular send spacing is the model working as
+specified, not a configurator defect. This is the single most important fact for reading the telemetry
+dashboard: a gap between sends is not evidence of a broken pipeline, and a present send is not evidence of
+a moving vehicle. The PULL lane (§3.2, FEATURE-14) is the independent check that can distinguish a parked
+vehicle from a broken one — and it is currently not executing (see the open defect in §9).
 
 **Resolved: `interval_seconds` accepts well above 60 s.** The earlier note here claimed a 1–60 s range and
 flagged 21600 as unverified. That was wrong on both counts: 21600 was accepted in production for days (the
 live config row records `interval_seconds: 21600`), and Tesla's own examples use 60 s and 10 minutes. The
 real ceiling is far above 60, so the range claim is withdrawn rather than left standing. The interval is now
-180 s by owner decision (2026-10-07) so a trip produces a usable series instead of isolated points.
+3600 s by owner decision (2026-10-15): 180 s is not needed, every field is at 3600 s, and a field sends
+once when the vehicle moves, otherwise it waits. Tesla rejects `interval_seconds >= 21600`, so the FRS
+fallback ladder's terminal value is 3600.
 
 
 ### 4.2 D1 tables
@@ -512,7 +524,8 @@ be replaceable without touching the Worker.
 
 | ID | Item | Owner |
 |----|------|-------|
-| O-1 | **Does `interval_seconds` accept 21600 (6 h)?** Verify on a live vehicle. Fallback 3600 modelled. | Build phase |
+| O-7 | **Defect A — the PULL lane does not execute (open, 2026-10-16).** `runPollCoordinator` is invoked after every batch (`index.ts:1154`), consent is active, the candidate set is non-empty (Odometer and Trim are due under `planPoll`), and the member token refreshes — yet `telemetry_poll_state.updated_at` has not moved since 2026-10-14T21:04:49Z and `tesla_signal_counter.data_requests` is 0 for the day. The poll never fetches `/vehicle_data` and never updates its state. This is the one lane that could independently read the real current odometer and settle whether a vehicle moved. Until it executes, a frozen odometer in the PUSH lane cannot be distinguished from a parked vehicle. Fix priority: high — it is the platform's only independent check of the PUSH data. | Build phase |
+| O-1 | **Does `interval_seconds` accept 21600 (6 h)?** Verified on a live vehicle: Tesla REJECTS `interval_seconds >= 21600` (7× `http_400: interval_seconds must be positive and less than 21600`, 2026-10-13T20:24–20:32Z). The FRS fallback ladder's terminal value is therefore 3600, which is the value now applied (SDD-010 v1.14). Item closed to the finding; the 3600 s decision is recorded in §4.1. | Build phase |
 | O-2 | **Relay host choice** — **resolved and PROVISIONED 2026-10-02.** Oracle Cloud `ap-sydney-1`; instance `relay-afirmico-tesla`, `VM.Standard.A1.Flex` **2 OCPU / 8 GB** arm64, RUNNING at `158.180.7.252` (see §10.8). Build sequence: §10.8, of which the host half is done. | Warren |
 | O-3 | **Tesla developer app creation** (R-01) — gates registration; nothing streams until it exists. Register **after** the relay is up (§10.8 step 9). | Warren |
 | O-4 | **Tesla outbound-IP requirement** — confirm whether the partner allowlist requires a static IP, which would constrain the host choice. **Not asserted anywhere after rev 1.11:** the earlier wording cited this as the reason the signer sits on the relay, which was an unverified premise stated as fact. No Tesla source found during that review requires an allowlisted egress IP. If it does turn out to be required, it constrains the signer host (Tier 2b), not the relay. §10.8 step 4 already reserves a public IP. | Build phase |
