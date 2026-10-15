@@ -297,8 +297,12 @@ async function checkTelemetryObservedAfter(
 /**
  * Get the vehicle's current config status from Tesla (diagnostic call).
  * Returns has_config and synced flags.
+ *
+ * Exported for the schema guard test, which feeds it the real
+ * Tesla GET response shape (wrapped in {response: {...}}) to
+ * prove has_config/synced are extracted from the nested object.
  */
-async function getVehicleConfigStatus(
+export async function getVehicleConfigStatus(
   signerUrl: string,
   memberToken: string,
   signerSharedSecret: string,
@@ -316,10 +320,18 @@ async function getVehicleConfigStatus(
       },
     })
     if (!res.ok) return null
-    const body = (await res.json().catch(() => ({}))) as { has_config?: unknown; synced?: unknown }
+    const body = (await res.json().catch(() => ({}))) as {
+      response?: { synced?: unknown; config?: unknown }
+    }
+    // The signer wraps Tesla's response as {response: {...}, error: ...}.
+    // Tesla's per-VIN GET returns {synced: bool, config: {...}|null} —
+    // there is no has_config field; a non-null config IS the vehicle
+    // holding a configuration. Reading body.has_config (top level) was
+    // always undefined → false, so the canary could never verify.
+    const response = body.response ?? {}
     return {
-      has_config: body.has_config === true,
-      synced: body.synced === true,
+      has_config: response.config != null,
+      synced: response.synced === true,
     }
   } catch {
     return null
