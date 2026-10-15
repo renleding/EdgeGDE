@@ -152,7 +152,9 @@ export async function processApplyQueue(
   db: D1Database,
   signerUrl: string,
   signerSharedSecret: string,
-  memberAccessTokenEnv: Parameters<typeof getMemberAccessToken>[0]
+  memberAccessTokenEnv: Parameters<typeof getMemberAccessToken>[0],
+  telemetryTarget: { hostname: string; port: number },
+  ca: string
 ): Promise<{ processed: number; haltedRuns: number; completedRuns: number }> {
   let processed = 0
   let haltedRuns = 0
@@ -224,7 +226,9 @@ export async function processApplyQueue(
       resolved,
       signerUrl,
       memberToken,
-      signerSharedSecret
+      signerSharedSecret,
+      telemetryTarget,
+      ca
     )
     await recordOutcome(db, item.run_id, result)
 

@@ -34,7 +34,7 @@ import {
 } from './config-apply'
 import { resolveConfig, type ResolvedConfig } from './config-scope'
 import { getGroupsForVehicle } from './config-groups'
-import { collectedFields } from './store'
+import { collectedFields, telemetryTarget } from './store'
 import { getMemberAccessToken } from './key-pairing'
 
 /** The message published to `apply-queue` by the enqueue step. */
@@ -205,12 +205,20 @@ async function processMessage(
     throw new Error(`no_member_access_token:${body.vin}`)
   }
 
+  // The apply POST body must carry the telemetry target and CA — the
+  // proxy signs the config sub-object; a body without them panics the
+  // signer (see applyVehicleConfig).
+  const target = await telemetryTarget(env.D1_TESLA)
+  const ca = (env.TELEMETRY_CA_PEM as string | undefined) ?? ''
+
   const result: ApplyVehicleResult = await applyVehicleConfig(
     body.vin,
     resolved,
     signerUrl,
     memberToken,
-    env.SIGNER_SHARED_SECRET
+    env.SIGNER_SHARED_SECRET,
+    target,
+    ca
   )
   await recordOutcome(db, body.run_id, result)
 
