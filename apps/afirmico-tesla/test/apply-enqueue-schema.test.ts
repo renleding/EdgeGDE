@@ -26,6 +26,7 @@ import { describe, it, expect } from 'vitest'
 import { createSqliteD1 } from './helpers/sqlite-d1'
 import { enqueueApplyRun } from '../src/apply-enqueue'
 import { enqueueApplySweep } from '../src/apply-processor'
+import { getVehicleConfigStatus } from '../src/config-apply'
 import type { ResolvedConfig } from '../src/config-scope'
 
 function resolvedConfig(): ResolvedConfig {
@@ -159,5 +160,68 @@ describe('apply enqueue: INSERT is valid against the real schema', () => {
       .bind(vehRunId)
       .first<{ canary_vin: string | null }>()
     expect(vehRow?.canary_vin).toBeNull()
+  })
+
+  it('extracts has_config/synced from the wrapped Tesla GET response', async () => {
+    // The signer wraps Tesla's response as {response: {...}, error: ...}.
+    // Tesla's per-VIN GET returns {synced: bool, config: {...}|null} —
+    // there is NO has_config field; a non-null config IS the vehicle
+    // holding a configuration. Reading body.has_config (top level) was
+    // always undefined → false, so the canary could never verify
+    // (the run halted with "Vehicle does not hold a configuration").
+    // This test feeds getVehicleConfigStatus the real response shape.
+    const realResponse = {
+      response: {
+        synced: true,
+        config: {
+          hostname: 'telemetry.afirmi.co',
+          port: 443,
+          fields: { MilesSinceReset: { interval_seconds: 3600, minimum_delta: 1 } },
+        },
+      },
+      error: '',
+      error_description: '',
+    }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => realResponse,
+      text: async () => JSON.stringify(realResponse),
+    })) as typeof fetch
+    try {
+      const status = await getVehicleConfigStatus(
+        'https://signer.example',
+        'member-token',
+        'signer-secret',
+        'LRW3F7ET1SC584656'
+      )
+      expect(status).not.toBeNull()
+      expect(status?.has_config).toBe(true)
+      expect(status?.synced).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+
+    // A vehicle with NO config (config: null) must report has_config: false.
+    const noConfigResponse = { response: { synced: true, config: null }, error: '', error_description: '' }
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => noConfigResponse,
+      text: async () => JSON.stringify(noConfigResponse),
+    })) as typeof fetch
+    try {
+      const status = await getVehicleConfigStatus(
+        'https://signer.example',
+        'member-token',
+        'signer-secret',
+        'LRW3F7ET1SC584656'
+      )
+      expect(status?.has_config).toBe(false)
+      expect(status?.synced).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
