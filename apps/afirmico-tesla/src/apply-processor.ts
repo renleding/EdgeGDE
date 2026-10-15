@@ -63,13 +63,13 @@ export async function enqueueApplySweep(
   const runId = `apply_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
   const nowIso = new Date().toISOString()
 
-  // scope_id must reference telemetry_config_scope; resolve from changeScope
-  const scopeId = changeScope === 'vehicle' ? `vehicle_${targetVins[0]}` : changeScope
-
+  // Columns match the schema migration 0023_config_apply_run_columns:
+  // scope_kind (not scope_id), operator (not initiated_by), status 'running'
+  // (the CHECK constraint rejects 'pending'), created_at backfilled from now.
   await db.prepare(
-    `INSERT INTO config_apply_run (run_id, scope_id, initiated_by, status, started_at)
-     VALUES (?, ?, ?, 'pending', ?)`
-  ).bind(runId, scopeId, operator, nowIso).run()
+    `INSERT INTO config_apply_run (run_id, scope_kind, operator, status, started_at, created_at)
+     VALUES (?, ?, ?, 'running', ?, ?)`
+  ).bind(runId, changeScope, operator, nowIso, nowIso).run()
 
   // Canary is position 0 for global/group; single VIN is position 0 for vehicle
   for (let i = 0; i < targetVins.length; i++) {
@@ -107,7 +107,7 @@ export async function enqueueApplySweepDistributed(
   // WITHOUT config_json (resolution happens at processing
   // time, F16-R06), then publishes one message per VIN.
   const runId = await enqueueApplyRun(
-    changeScope === 'vehicle' ? `vehicle_${targetVins[0]}` : changeScope,
+    changeScope,
     operator,
     db
   )
