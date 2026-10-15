@@ -2463,7 +2463,12 @@ export default {
       // FEATURE-12: drain the batched apply queue (F12-N04)
       const signerUrl = (env.TESLA_PROXY_URL ?? '').replace(/\/+$/, '')
       if (signerUrl && env.SIGNER_SHARED_SECRET) {
-        const queueResult = await processApplyQueue(env.D1_TESLA, signerUrl, env.SIGNER_SHARED_SECRET, env)
+        // The apply POST body must carry the telemetry target and CA
+        // (the proxy signs the config sub-object; a body without them
+        // panics the signer — see applyVehicleConfig).
+        const target = await telemetryTarget(env.D1_TESLA)
+        const ca = telemetryCa(env)
+        const queueResult = await processApplyQueue(env.D1_TESLA, signerUrl, env.SIGNER_SHARED_SECRET, env, target, ca)
         if (queueResult.processed > 0) {
           console.warn(`[cron] apply-processor: processed=${queueResult.processed} haltedRuns=${queueResult.haltedRuns} completedRuns=${queueResult.completedRuns}`)
         }

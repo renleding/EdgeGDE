@@ -140,25 +140,52 @@ function mapSkipReason(reason: unknown): string | null {
 /**
  * Apply the resolved configuration to a single vehicle.
  * POSTs fleet_telemetry_config to the signer with the member's access token.
+ *
+ * The body MUST match buildTelemetryConfig's shape —
+ * {vins, config:{hostname, port, ca, fields}} — because the
+ * tesla-http-proxy (vehicle-command) builds the JWS claim from the
+ * config sub-object. The first version of this function sent a flat
+ * {vins, fields} body, which left the proxy's claim map nil and
+ * panicked ("assignment to entry in nil map" at jwt.go:45), surfacing
+ * as HTTP 502 on every apply. sendVehicleConfig (the pre-queue path)
+ * always sent the correct shape, which is why it succeeded and this
+ * did not.
  */
 export async function applyVehicleConfig(
   vin: string,
   resolved: ResolvedConfig,
   signerUrl: string,
   memberToken: string,
-  signerSharedSecret: string
+  signerSharedSecret: string,
+  telemetryTarget: { hostname: string; port: number },
+  ca: string
 ): Promise<ApplyVehicleResult> {
-  // Build the fields array for the signer
-  const fields = resolved.fields.map((f: ResolvedField) => ({
-    field_key: f.field_key,
-    enabled: f.enabled,
-    interval_seconds: f.interval_seconds,
-    minimum_delta: f.minimum_delta,
-  }))
+  // Build the per-field config map — the same shape buildFieldConfig
+  // produces ({field_key: {interval_seconds, minimum_delta?}}).
+  // ResolvedField carries `minimum_delta`; the catalog's CollectedField
+  // carries `min_delta`, so we cannot reuse buildFieldConfig directly
+  // and construct the identical record here.
+  const fieldsRecord: Record<string, { interval_seconds: number; minimum_delta?: number }> = {}
+  for (const f of resolved.fields) {
+    const cfg: { interval_seconds: number; minimum_delta?: number } = {
+      interval_seconds: f.interval_seconds,
+    }
+    if (f.minimum_delta !== null && f.minimum_delta > 0) {
+      cfg.minimum_delta = f.minimum_delta
+    }
+    fieldsRecord[f.field_key] = cfg
+  }
 
-  const input = {
+  // The exact shape the proxy signs — identical to sendVehicleConfig's
+  // buildTelemetryConfig output: {vins, config:{hostname, port, ca, fields}}.
+  const requestBody = {
     vins: [vin],
-    fields,
+    config: {
+      hostname: telemetryTarget.hostname,
+      port: telemetryTarget.port,
+      ca,
+      fields: fieldsRecord,
+    },
   }
 
   try {
@@ -169,7 +196,7 @@ export async function applyVehicleConfig(
         'x-signer-secret': signerSharedSecret,
         authorization: `Bearer ${memberToken}`,
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify(requestBody),
     })
 
     const rawBody = await res.text().catch(() => '')
@@ -308,7 +335,9 @@ export async function runApplySweep(
   signerUrl: string,
   memberToken: string,
   signerSharedSecret: string,
-  db: D1Database
+  db: D1Database,
+  telemetryTarget: { hostname: string; port: number },
+  ca: string
 ): Promise<ApplySweepResult> {
   const runId = `apply_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
   const outcomes: ApplyVehicleResult[] = []
@@ -342,7 +371,7 @@ export async function runApplySweep(
         await recordOutcome(db, runId, result)
         continue
       }
-      const result = await applyVehicleConfig(vin, resolved, signerUrl, memberToken, signerSharedSecret)
+      const result = await applyVehicleConfig(vin, resolved, signerUrl, memberToken, signerSharedSecret, telemetryTarget, ca)
       outcomes.push(result)
       await recordOutcome(db, runId, result)
 
@@ -411,7 +440,7 @@ export async function runApplySweep(
         canaryFailed = true
       } else {
       // Apply to canary
-      const result = await applyVehicleConfig(canaryVin, firstResolved, signerUrl, memberToken, signerSharedSecret)
+      const result = await applyVehicleConfig(canaryVin, firstResolved, signerUrl, memberToken, signerSharedSecret, telemetryTarget, ca)
       outcomes.push(result)
       await recordOutcome(db, runId, result)
 
@@ -479,7 +508,7 @@ export async function runApplySweep(
           await recordOutcome(db, runId, result)
           continue
         }
-        const result = await applyVehicleConfig(vin, resolved, signerUrl, memberToken, signerSharedSecret)
+        const result = await applyVehicleConfig(vin, resolved, signerUrl, memberToken, signerSharedSecret, telemetryTarget, ca)
         outcomes.push(result)
         await recordOutcome(db, runId, result)
 
