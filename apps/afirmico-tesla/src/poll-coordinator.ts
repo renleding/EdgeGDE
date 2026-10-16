@@ -70,6 +70,21 @@ const IDENTITY_FIELDS = ['CarType', 'EfficiencyPackage', 'Version'] as const
  */
 const TELEMETRY_ONLY_STATE = ['SentryMode', 'SpeedLimitMode'] as const
 
+/**
+ * F14-R04: Odometer polls on a WEEKLY cadence (604800 s), independent of the
+ * push interval. The poll interval and the push interval share one column
+ * (telemetry_config_entry.interval_seconds), but they are different cadences:
+ * the push Odometer rides the configured streaming interval (the intra-week
+ * signal the driver profile uses), while the poll is the weekly backstop that
+ * re-syncs the counter if telemetry gaps (SDD-013 §4.1 conflict rule). The
+ * uniform 3600 s apply (2026-10-15) overwrote the weekly seed (0019) and made
+ * the poll fire hourly — 168× the designed call rate. This map restores the
+ * F14-R04 cadence for the poll lane without touching the push config.
+ */
+const POLL_CADENCE_SECONDS: Record<string, number> = {
+  Odometer: 604_800,
+}
+
 export interface PollOutcome {
   vin: string
   identityPolled: number
@@ -143,7 +158,16 @@ async function loadCandidates(
         ORDER BY c.field_key`,
     )
     .all<{ field_key: string; interval_seconds: number }>()
-  return rows.results ?? []
+  // F14-R04: the poll cadence for a field is its weekly backstop, not
+  // the push interval. Odometer's push interval is the streaming
+  // cadence (the intra-week signal); its poll cadence is the weekly
+  // re-sync. Override the stored interval with the F14-R04 cadence so
+  // a uniform streaming apply cannot silently turn the weekly poll into
+  // an hourly one.
+  return (rows.results ?? []).map((row) => ({
+    field_key: row.field_key,
+    interval_seconds: POLL_CADENCE_SECONDS[row.field_key] ?? row.interval_seconds,
+  }))
 }
 
 async function loadState(

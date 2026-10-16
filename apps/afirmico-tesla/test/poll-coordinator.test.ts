@@ -131,6 +131,36 @@ describe('candidate planning (F14-R01, F14-R03, F14-R04)', () => {
     expect(isDue('not-a-date', 604800, Date.now())).toBe(true)
     expect(isDue(new Date().toISOString(), 604800, Date.now())).toBe(false)
   })
+
+  it('F14-R04: Odometer polls weekly even when the stored interval is 3600s', async () => {
+    // Regression: the uniform 3600 s apply (2026-10-15) overwrote the
+    // weekly seed (0019), so the poll plan read Odometer's stored
+    // interval (3600 s) and fired hourly — 168× the designed cadence.
+    // The poll cadence is the F14-R04 weekly backstop, independent of
+    // the push interval. Assert the coordinator honours the weekly
+    // cadence for Odometer even when the config entry is 3600.
+    const localEnv = makeEnv()
+    seedBaseline(d1Of(localEnv))
+    seedConsent(d1Of(localEnv))
+    // Force the stored Odometer interval to 3600 s (the uniform apply).
+    d1Of(localEnv)._seed(
+      `UPDATE telemetry_config_entry SET interval_seconds = 3600 WHERE field_key = 'Odometer' AND scope_id = 'global'`,
+    )
+    // A vehicle that just polled (lastPollAt = now): not due again for a
+    // week, despite the stored 3600 s interval.
+    const now = new Date().toISOString()
+    d1Of(localEnv)._seed(
+      `INSERT INTO telemetry_poll_state (vin, identity_polled, last_poll_at, updated_at)
+       VALUES ('${VIN}', 1, '${now}', '${now}')`,
+    )
+    const out = await runPollCoordinator(localEnv as never, VIN, {
+      nowIso: new Date(Date.now() + 3600_000).toISOString(), // +1 hour
+      runId: 'test-run',
+    })
+    // One hour later the Odometer poll is NOT due (weekly cadence).
+    expect(out.pollsRun).toBe(0)
+    expect(out.fieldsPolled).toBe(0)
+  })
 })
 
 describe('REST value normalisation (F14-R08: one typed column)', () => {
