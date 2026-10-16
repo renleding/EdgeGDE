@@ -239,7 +239,7 @@ export function normaliseRestValue(value: unknown): {
  * (F14-R08), with the catalog tier deciding storage (the identity-tier trap in
  * the module doc) and `source` recorded on every fact row (F14-R10).
  */
-async function persistPolledValues(
+export async function persistPolledValues(
   db: D1Database,
   vin: string,
   values: Array<{ field_key: string; value: unknown; observedAt: string }>,
@@ -276,8 +276,33 @@ async function persistPolledValues(
     .filter((d): d is NonNullable<typeof d> => d !== null)
 
   if (!datums.length) return 0
+  const pollBatchId = `poll_${newId()}`
+  // The fact table's batch_id is a foreign key to tesla_telemetry_batch,
+  // so a poll-sourced fact needs a batch row of its own before it can be
+  // written. Without this the INSERT fails the FK constraint and the
+  // coordinator throws before it stamps telemetry_poll_state — which is
+  // why the poll lane looked dead while the push lane kept flowing.
+  await db
+    .prepare(
+      `INSERT INTO tesla_telemetry_batch
+         (batch_id, vin, received_at, payload_bytes, r2_key, payload_sha256,
+          datum_count, is_resend, content_type, processed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    )
+    .bind(
+      pollBatchId,
+      vin,
+      receivedAt,
+      0,
+      '',
+      '',
+      datums.length,
+      'application/poll',
+      receivedAt,
+    )
+    .run()
   const result = await persistDatums(db, {
-    batchId: `poll_${newId()}`,
+    batchId: pollBatchId,
     vin,
     datums,
     receivedAt,
