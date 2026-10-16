@@ -271,6 +271,44 @@ describe('source attribution (F14-R10, AC7)', () => {
 
 /* ----------------------- ingest integration (F14-R02) --------------------- */
 
+describe('poll-sourced persistence (F14-R10: poll facts need a batch row)', () => {
+  let env: Env
+  beforeEach(() => {
+    env = makeEnv()
+    seedBaseline(d1Of(env))
+    seedConsent(d1Of(env))
+  })
+
+  it('persistPolledValues inserts its own batch row before writing facts (FK guard)', async () => {
+    // Regression: persistPolledValues called persistDatums with a
+    // poll_-prefixed batchId that was never inserted into
+    // tesla_telemetry_batch. The fact table's batch_id is a foreign
+    // key to that table, so the INSERT aborted with a FK constraint
+    // and the coordinator threw before it stamped telemetry_poll_state
+    // — the poll lane looked dead while the push lane kept flowing.
+    const { persistPolledValues } = await import('../src/poll-coordinator')
+    const written = await persistPolledValues(d1Of(env), VIN, [
+      { field_key: 'Odometer', value: 22000.5, observedAt: '2026-10-16T00:00:00.000Z' },
+    ], '2026-10-16T00:00:00.000Z')
+    expect(written).toBeGreaterThan(0)
+    // The poll batch row exists (the FK target).
+    const batches = d1Of(env)._rows(
+      "SELECT batch_id, content_type FROM tesla_telemetry_batch WHERE content_type = 'application/poll'",
+    )
+    expect(batches.length).toBe(1)
+    // The fact row references it and carries source=poll.
+    const facts = d1Of(env)._rows(
+      "SELECT source, batch_id FROM tesla_telemetry_fact WHERE field_key = 'Odometer' AND source = 'poll'",
+    )
+    expect(facts).toHaveLength(1)
+    expect((facts[0] as { batch_id: string }).batch_id).toBe(
+      (batches[0] as { batch_id: string }).batch_id,
+    )
+  })
+})
+
+/* ----------------------- ingest integration (F14-R02) --------------------- */
+
 describe('ingest integration: the poll lane rides the batch (F14-R02)', () => {
   let env: Env
   beforeEach(() => {
@@ -319,6 +357,7 @@ describe('ingest integration: the poll lane rides the batch (F14-R02)', () => {
       'clearPollEligibility',
       'isDue',
       'normaliseRestValue',
+      'persistPolledValues',
       'planPoll',
       'runPollCoordinator',
     ])
