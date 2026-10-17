@@ -10,18 +10,13 @@
  * low-contrast on our near-black background. Brand fidelity over legibility.
  */
 
-/** Inline SVG favicon (blue "A" on dark blue square). */
-export const FAVICON_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" fill="#0b5ed7"/>
-  <text x="16" y="24" font-size="24" text-anchor="middle" fill="white" font-family="Arial" font-weight="bold">A</text>
-</svg>`
+/** AFIRMICO favicon — served from the committed static asset. */
+export const FAVICON_HREF_64 = '/favicon-64.png'
+export const FAVICON_HREF_32 = '/favicon-32.png'
+export const FAVICON_APPLE = '/apple-touch-icon.png'
 
-/** Data URI for the favicon — inlined into every HTML response. */
-export const FAVICON_DATA_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjMGI1ZWQ3Ii8+CiAgPHRleHQgeD0iMTYiIHk9IjI0IiBmb250LXNpemU9IjI0IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXdlaWdodD0iYm9sZCI+QTwvdGV4dD4KPC9zdmc+'
-
-/** Link tag injected into every <head>. */
-export const FAVICON_LINK = `<link rel="icon" type="image/svg+xml" href="${FAVICON_DATA_URL}">`
+/** Link tags injected into every <head>. */
+export const FAVICON_LINK = `<link rel="icon" type="image/png" sizes="64x64" href="${FAVICON_HREF_64}"><link rel="icon" type="image/png" sizes="32x32" href="${FAVICON_HREF_32}"><link rel="apple-touch-icon" href="${FAVICON_APPLE}">`
 
 /** Site name used in titles and chrome. */
 export const SITE_NAME = 'AFIRMICO Auto'

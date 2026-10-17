@@ -27,6 +27,7 @@ const splash = readFileSync(resolve(APP, 'public/index.html'), 'utf8')
 const wrangler = readFileSync(resolve(APP, 'wrangler.json'), 'utf8')
 
 const ICON_PATHS = ['/favicon.svg', '/favicon.ico'] as const
+const PNG_PATHS = ['/favicon-64.png', '/favicon-32.png', '/apple-touch-icon.png'] as const
 
 describe('F01-R11 shared site icon', () => {
   it('has exactly one inline definition of the icon', () => {
@@ -36,9 +37,11 @@ describe('F01-R11 shared site icon', () => {
     expect(src.match(/const FAVICON_SVG\s*[:=]/g) ?? []).toHaveLength(1)
   })
 
-  it('declares the icon as SVG, matching the asset it serves', () => {
-    expect(src).toMatch(/const FAVICON_CONTENT_TYPE\s*=\s*'image\/svg\+xml'/)
-    expect(src).toMatch(/const FAVICON_HREF\s*=\s*'\/favicon\.svg'/)
+  it('declares the AFIRMICO PNG as the served icon', () => {
+    // The served icon is the committed AFIRMICO mark (PNG), not the
+    // inline blue-"A" SVG (retained only as a fallback constant).
+    expect(src).toMatch(/const FAVICON_CONTENT_TYPE\s*=\s*'image\/png'/)
+    expect(src).toMatch(/const FAVICON_HREF\s*=\s*'\/favicon-64\.png'/)
   })
 
   it('routes both conventional icon paths before any other handler', () => {
@@ -54,15 +57,21 @@ describe('F01-R11 shared site icon', () => {
     expect(firstIcon).toBeLessThan(firstOther)
   })
 
+  it('routes the committed AFIRMICO PNG favicons', () => {
+    for (const p of PNG_PATHS) {
+      expect(src, `${p} has no route`).toContain(`app.get('${p}'`)
+    }
+  })
+
   it('gives every worker-rendered page the same icon links', () => {
     // page() is the only chrome the worker renders, so fixing it once is what
-    // makes /toca-connect, /dashboard, /auth/* and the error pages agree. The links
-    // interpolate the shared constants rather than repeating the literal href,
-    // which is the stronger form of "one definition".
+    // makes /toca-connect, /dashboard, /auth/* and the error pages agree. The
+    // links interpolate the shared constants rather than repeating the literal
+    // href, which is the stronger form of "one definition".
     const pageFn = src.slice(src.indexOf('function page('))
     const body = pageFn.slice(0, pageFn.indexOf('\n}'))
     expect(body).toMatch(/rel="icon"[^>]*href="\$\{FAVICON_HREF\}"/)
-    expect(body).toContain('href="/favicon.ico"')
+    expect(body).toContain('href="/favicon-32.png"')
     expect(body).toMatch(/rel="apple-touch-icon"/)
   })
 
@@ -70,7 +79,7 @@ describe('F01-R11 shared site icon', () => {
     // The splash must not carry a second, private copy of the icon.
     expect(splash).not.toMatch(/data:image\//)
     expect(splash).not.toMatch(/rel="(shortcut )?icon"[^>]*data:/)
-    for (const p of ICON_PATHS) {
+    for (const p of PNG_PATHS) {
       expect(splash, `splash omits ${p}`).toContain(`href="${p}"`)
     }
     expect(splash).toContain('rel="apple-touch-icon"')
