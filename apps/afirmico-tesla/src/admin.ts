@@ -127,7 +127,9 @@ function shell(title: string, body: string, nav = true, liveVin?: string, active
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>${escapeHtml(title)}</title>
 <style>
   *{box-sizing:border-box}
@@ -2624,7 +2626,7 @@ adminApp.post('/exports/run-now', async (c) => {
   return c.redirect('/admin/exports', 303)
 })
 
-/** The icon is served by the worker at /favicon.svg; this is only a fallback. */
+/** The AFIRMICO icon is served by the worker at /favicon-64.png (root route); this is only a fallback. */
 adminApp.get('/favicon.svg', (c) =>
   c.body(FAVICON_SVG, 200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=3600' }),
 )

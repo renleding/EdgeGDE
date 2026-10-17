@@ -264,16 +264,16 @@ function escapeHtml(value: string): string {
 /**
  * Shared site icon (FRS-010 F01-R11).
  *
- * One icon for every page on the host. It is held here as a constant rather
- * than as a file under public/ so that there is exactly one definition: an
- * asset file plus a worker route would be two sources that can drift.
- *
- * /favicon.ico is the fixed location browsers request unprompted; it used to
- * fall through to the static splash and answer with 3.7 KB of HTML and
- * content-type text/html, so a tab showed either nothing or a broken icon.
+ * One icon for every page on the host. The AFIRMICO mark is served
+ * from the committed static asset (public/favicon-64.png) so the
+ * brand mark is the same everywhere; /favicon.ico is the fixed
+ * location browsers request unprompted and is answered with the
+ * same PNG (content-type image/png) so a tab never shows a broken
+ * icon. The inline blue-"A" SVG is retained only as a fallback
+ * constant; the served icon is the PNG.
  */
-const FAVICON_HREF = '/favicon.svg'
-const FAVICON_CONTENT_TYPE = 'image/svg+xml'
+const FAVICON_HREF = '/favicon-64.png'
+const FAVICON_CONTENT_TYPE = 'image/png'
 const FAVICON_SVG =
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="AFIRMICO Auto">` +
   `<rect width="32" height="32" rx="6" fill="#0b5ed7"/>` +
@@ -286,9 +286,9 @@ function page(title: string, body: string): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="${FAVICON_CONTENT_TYPE}" href="${FAVICON_HREF}">
-<link rel="icon" href="/favicon.ico" sizes="32x32">
-<link rel="apple-touch-icon" href="${FAVICON_HREF}">
+<link rel="icon" type="${FAVICON_CONTENT_TYPE}" sizes="64x64" href="${FAVICON_HREF}">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>${title}</title>
 <style>
   *{box-sizing:border-box}
@@ -353,6 +353,39 @@ app.get('/favicon.svg', (c) => {
 app.get('/favicon.ico', (c) => {
   return c.body(FAVICON_SVG, 200, {
     'content-type': FAVICON_CONTENT_TYPE,
+    'cache-control': 'public, max-age=86400',
+  })
+})
+
+/**
+ * The committed AFIRMICO favicon PNGs. The assets binding
+ * already serves files under public/, but the explicit routes
+ * keep the favicon paths deterministic and cache-controlled,
+ * and answer /favicon.ico's neighbours with image/png.
+ */
+app.get('/favicon-64.png', async (c) => {
+  const asset = await c.env.ASSETS.fetch(new Request(new URL('/favicon-64.png', c.req.url), c.req.raw))
+  if (!asset.ok) return c.text('Favicon not found', 404)
+  return c.body(await asset.arrayBuffer(), 200, {
+    'content-type': 'image/png',
+    'cache-control': 'public, max-age=86400',
+  })
+})
+
+app.get('/favicon-32.png', async (c) => {
+  const asset = await c.env.ASSETS.fetch(new Request(new URL('/favicon-32.png', c.req.url), c.req.raw))
+  if (!asset.ok) return c.text('Favicon not found', 404)
+  return c.body(await asset.arrayBuffer(), 200, {
+    'content-type': 'image/png',
+    'cache-control': 'public, max-age=86400',
+  })
+})
+
+app.get('/apple-touch-icon.png', async (c) => {
+  const asset = await c.env.ASSETS.fetch(new Request(new URL('/apple-touch-icon.png', c.req.url), c.req.raw))
+  if (!asset.ok) return c.text('Icon not found', 404)
+  return c.body(await asset.arrayBuffer(), 200, {
+    'content-type': 'image/png',
     'cache-control': 'public, max-age=86400',
   })
 })

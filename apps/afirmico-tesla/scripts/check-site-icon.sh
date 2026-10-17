@@ -50,9 +50,9 @@ import sys
 p = sys.argv[1]
 s = open(p).read()
 for old in (
-    '<link rel="icon" type="${FAVICON_CONTENT_TYPE}" href="${FAVICON_HREF}">',
-    '<link rel="icon" href="/favicon.ico" sizes="32x32">',
-    '<link rel="apple-touch-icon" href="${FAVICON_HREF}">',
+    '<link rel="icon" type="image/png" sizes="64x64" href="${FAVICON_HREF}">',
+    '<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">',
+    '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
 ):
     s = s.replace(old, '')
 open(p, 'w').write(s)
