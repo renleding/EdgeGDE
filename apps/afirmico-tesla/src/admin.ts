@@ -989,7 +989,16 @@ adminApp.get('/telemetry', async (c) => {
       const on = Number(v) === 1
       return `<span class="pill ${on ? 'ok' : 'warn'}">${on ? 'yes' : 'no'}</span>`
     }
-    if (col.kind === 'num') return `<span class="mono">${escapeHtml(v)}</span>`
+    if (col.kind === 'num') {
+      // Miles and km columns: one decimal place. The stored values are
+      // full precision (mi to 9 dp, km = mi x 1.609344); a reader
+      // compares odometer/mileage across rows, and 1 dp carries every
+      // meaningful digit without the noise. NULL is already handled
+      // above (not reported), so a numeric value always renders.
+      const n = Number(v)
+      const shown = Number.isFinite(n) ? n.toFixed(1) : String(v)
+      return `<span class="mono">${escapeHtml(shown)}</span>`
+    }
     return escapeHtml(v)
   }
 
