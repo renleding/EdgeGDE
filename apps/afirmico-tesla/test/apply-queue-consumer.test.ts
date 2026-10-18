@@ -15,7 +15,14 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { isTransient, DEAD_LETTER_LIMIT } from '../src/apply-queue-consumer'
+import { createSqliteD1, type SqliteD1 } from './helpers/sqlite-d1'
+import {
+  DLQ_QUEUE_NAME,
+  DEAD_LETTER_LIMIT,
+  isTransient,
+} from '../src/apply-queue-consumer'
+import type { ApplyMessage } from '../src/apply-queue-consumer'
+import type { MessageBatch, Message } from '@cloudflare/workers-types'
 
 describe('apply-queue-consumer (F16)', () => {
   it('exposes a bounded consumer batch size (F16-R07)', () => {
@@ -73,5 +80,135 @@ describe('canary ordering (F16-R03)', () => {
     const position = 5
     const mayApply = runStatus === 'rolling' || position === 0
     expect(mayApply).toBe(true)
+  })
+})
+
+/* ------------------- dead-letter queue (F16-R05) ------------------- */
+
+/** The DLQ is a real queue name — pinned so a rename is a deliberate act. */
+describe('dead-letter queue wiring (F16-R05, F16-N03)', () => {
+  it('declares the DLQ queue name the consumer routes on', () => {
+    expect(DLQ_QUEUE_NAME).toBe('afirmico-tesla-apply-dlq')
+  })
+
+  it('routes a DLQ batch to the dead-letter table and acks', async () => {
+    // Cloudflare sets batch.queue to the source queue name. A batch
+    // from the DLQ holds already-failed messages: the consumer must
+    // persist them to config_apply_dead_letter (the operator-facing
+    // record) and acknowledge — never reprocess, never requeue.
+    const d1 = createSqliteD1()
+    const body: ApplyMessage = {
+      run_id: 'run_dlq_test',
+      vin: 'LRW3F7ET1SC584656',
+      position: 0,
+      scope_kind: 'global',
+    }
+    const acked: string[] = []
+    const msg = {
+      body,
+      ack: () => { acked.push(body.run_id) },
+    } as unknown as Message<ApplyMessage>
+    const batch = {
+      queue: DLQ_QUEUE_NAME,
+      messages: [msg],
+    } as unknown as MessageBatch<ApplyMessage>
+
+    const consumer = (await import('../src/apply-queue-consumer')).default
+    await consumer.queue(batch, {
+      D1_TESLA: d1,
+      APPLY_DLQ: undefined,
+      TESLA_PROXY_URL: 'https://proxy.test',
+      SIGNER_SHARED_SECRET: 'test-secret',
+    } as never)
+
+    // The message was acknowledged...
+    expect(acked).toEqual(['run_dlq_test'])
+    // ...and recorded in the dead-letter table with the payload intact.
+    const { results: rows } = await d1
+      .prepare('SELECT run_id, vin, attempts, error_detail, message_json FROM config_apply_dead_letter')
+      .all<{ run_id: string; vin: string; attempts: number; error_detail: string; message_json: string }>()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].run_id).toBe('run_dlq_test')
+    expect(rows[0].vin).toBe(body.vin)
+    expect(rows[0].error_detail).toBe('dlq_delivered')
+    expect(JSON.parse(rows[0].message_json)).toEqual(body)
+  })
+
+  it('forwards a permanent failure to the APPLY_DLQ queue binding', async () => {
+    // deadLetter() writes the D1 row (primary) AND forwards the original
+    // message to the queue binding (transport copy). The send is
+    // best-effort: a rejected send must not requeue the failed message.
+    const d1 = createSqliteD1()
+    const sent: ApplyMessage[] = []
+    const env = {
+      D1_TESLA: d1,
+      APPLY_DLQ: { send: async (m: ApplyMessage) => { sent.push(m) } },
+      TESLA_PROXY_URL: 'https://proxy.test',
+      SIGNER_SHARED_SECRET: 'test-secret',
+    } as never
+
+    const consumer = (await import('../src/apply-queue-consumer')).default
+    // A permanent failure on the apply queue: a run row that does not
+    // exist (deleted/never committed) dead-letters immediately.
+    const body: ApplyMessage = {
+      run_id: 'run_missing',
+      vin: 'LRW3F7ET1SC584656',
+      position: 0,
+      scope_kind: 'global',
+    }
+    const acked: string[] = []
+    const msg = {
+      body,
+      ack: () => { acked.push(body.run_id) },
+    } as unknown as Message<ApplyMessage>
+    const batch = {
+      queue: 'afirmico-tesla-apply-queue',
+      messages: [msg],
+    } as unknown as MessageBatch<ApplyMessage>
+
+    await consumer.queue(batch, env)
+
+    expect(acked).toEqual(['run_missing'])
+    expect(sent).toEqual([body])
+    const { results: rows } = await d1
+      .prepare('SELECT run_id, error_detail FROM config_apply_dead_letter')
+      .all<{ run_id: string; error_detail: string }>()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].error_detail).toBe('no_run_row:run_missing')
+  })
+
+  it('a failed DLQ send still dead-letters in D1 and acks (best-effort)', async () => {
+    const d1 = createSqliteD1()
+    const env = {
+      D1_TESLA: d1,
+      APPLY_DLQ: { send: async () => { throw new Error('queue unavailable') } },
+      TESLA_PROXY_URL: 'https://proxy.test',
+      SIGNER_SHARED_SECRET: 'test-secret',
+    } as never
+
+    const consumer = (await import('../src/apply-queue-consumer')).default
+    const body: ApplyMessage = {
+      run_id: 'run_send_fail',
+      vin: 'LRW3F7ET1SC584656',
+      position: 0,
+      scope_kind: 'global',
+    }
+    const acked: string[] = []
+    const msg = {
+      body,
+      ack: () => { acked.push(body.run_id) },
+    } as unknown as Message<ApplyMessage>
+    const batch = {
+      queue: 'afirmico-tesla-apply-queue',
+      messages: [msg],
+    } as unknown as MessageBatch<ApplyMessage>
+
+    // Must not throw — the D1 record is primary.
+    await consumer.queue(batch, env)
+    expect(acked).toEqual(['run_send_fail'])
+    const rows = await d1
+      .prepare('SELECT COUNT(*) as n FROM config_apply_dead_letter')
+      .first<{ n: number }>()
+    expect(rows?.n).toBe(1)
   })
 })

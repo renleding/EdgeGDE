@@ -50,23 +50,30 @@ export interface CollectedField {
 
 /**
  * Telemetry collection interval in seconds, applied to every configured field.
- * 180 s (three minutes), reduced from 21600 (6 h) on the owner's instruction 2026-10-07.
+ * 3600 s (one hour), the uniform global value applied 2026-10-15 (FRS-010 v4.0).
  *
- * At 6 h the series was too coarse to be useful: an owner's 0800 drive appeared under a
- * record carrying values from 13:28 the previous day, because `Odometer` had not moved
- * enough to clear its delta gate and the vehicle re-sent its last known values, so the
- * trip was invisible even though the vehicle connected and delivered a payload.
+ * Earlier values: 21600 (6 h, too coarse — an owner's drive vanished behind
+ * unchanged delta-gated fields) then 180 s (2026-10-07). The 2026-10-15
+ * decision made 3600 s uniform for every field: Tesla rejects
+ * interval_seconds ≥ 21600 (7× http_400), so 3600 s is the terminal value
+ * of the FRS fallback ladder, and the RCA (FRS-010 v4.0) showed irregular
+ * spacing is the model working as specified — the interval is a ceiling.
  *
  * The interval is a CEILING, not a rate: Tesla transmits on change, and only the three
  * distance fields carry a `minimum_delta`, so a parked vehicle still sends nothing.
  * Worst case (continuous driving, 3 delta-gated fields) is ~3,600 signals/month
  * ~= $0.024 — 4,167x the 10x floor F02-R13 requires. See SDD-010 §4.1 for the full
  * cost derivation and the correction to the earlier and wrong 1-60 s range claim.
+ *
+ * NOTE: this constant is the buildConfigRecord fallback only. The interval
+ * actually SENT is read per-field from `telemetry_config_entry` (global scope)
+ * in buildFieldConfig below — the live config, not this constant, governs the
+ * vehicle. Keep the two in sync; a divergence here is documentation drift.
  */
-export const SYNC_INTERVAL_SECONDS = 180
+export const SYNC_INTERVAL_SECONDS = 3600
 
 /** Human-readable interval recorded on the row; Tesla's own accepted format. */
-export const SYNC_INTERVAL = '3 minutes'
+export const SYNC_INTERVAL = '60 minutes'
 
 /** A `vehicle_config` entry: interval, plus a delta gate where it applies. */
 export interface FieldConfig {

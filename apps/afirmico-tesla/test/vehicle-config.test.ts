@@ -22,6 +22,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  SYNC_INTERVAL,
   SYNC_INTERVAL_SECONDS,
   UPSTREAM_ERROR_MAX,
   buildConfigRecord,
@@ -72,11 +73,12 @@ describe('field config (F02-R11)', () => {
     expect(cfg['CarType']).toEqual({ interval_seconds: 21600 })
   })
 
-  it('uses a three-minute interval', () => {
-    // 180 s, down from 21600 (6 h) on the owner's instruction 2026-10-07. An owner's trip
-    // was invisible at 6 h because a re-sent unchanged odometer carried a value from the
-    // previous day. Pinned so a change to the sampling rate is a deliberate act.
-    expect(SYNC_INTERVAL_SECONDS).toBe(180)
+  it('uses a one-hour interval', () => {
+    // 3600 s, the uniform global value applied 2026-10-15 (FRS-010 v4.0).
+    // Earlier: 180 s (2026-10-07) and 21600 s (6 h, rejected by Tesla).
+    // Pinned so a change to the sampling rate is a deliberate act.
+    expect(SYNC_INTERVAL_SECONDS).toBe(3600)
+    expect(SYNC_INTERVAL).toBe('60 minutes')
   })
 
   it('reads per-field intervals from the catalog (F14-R04 tiered seed)', () => {
