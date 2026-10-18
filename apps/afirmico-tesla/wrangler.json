@@ -48,6 +48,12 @@
         "max_batch_timeout": 5,
         "max_retries": 3,
         "dead_letter_queue": "afirmico-tesla-apply-dlq"
+      },
+      {
+        "queue": "afirmico-tesla-apply-dlq",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        "max_retries": 1
       }
     ],
     "dead_letter_queues": [

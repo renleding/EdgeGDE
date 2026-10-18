@@ -17,7 +17,10 @@
  *   - Transient (Tesla 5xx, network): throw → queue retries up to
  *     3× with backoff, then dead-letters.
  *   - Permanent (4xx, invalid VIN, revoked token, no member):
- *     dead-letter immediately, no retry.
+ *     dead-letter immediately, no retry — written to the
+ *     config_apply_dead_letter table AND forwarded to the
+ *     APPLY_DLQ queue binding, so retry-exhausted and
+ *     permanent-failure messages both land in the DLQ queue.
  *   - Canary failure: run halts; remaining messages ack `halted`.
  *
  * PROGRESS (F16-R04): every processed message writes
@@ -64,6 +67,13 @@ export const CONSUMER_BATCH_SIZE = 100
 export const DEAD_LETTER_LIMIT = 10_000
 
 /**
+ * The dead-letter queue's name. `MessageBatch.queue` carries the
+ * source queue's name on every delivery, so the consumer routes
+ * DLQ batches here without a second binding.
+ */
+export const DLQ_QUEUE_NAME = 'afirmico-tesla-apply-dlq'
+
+/**
  * Classify a failure: transient errors throw (queue retries),
  * permanent errors dead-letter immediately.
  */
@@ -82,10 +92,31 @@ export function isTransient(error: unknown): boolean {
 /**
  * Cloudflare Queue consumer entry point.
  * `batch` is up to max_batch_size messages delivered together.
+ *
+ * The same worker consumes BOTH queues (wrangler.json `queues.consumers`):
+ *   - `afirmico-tesla-apply-queue`: the apply sweep (canary contract below).
+ *   - `afirmico-tesla-apply-dlq`:   the dead-letter queue. Cloudflare
+ *     delivers here (a) transient messages that exhausted max_retries and
+ *     (b) messages this consumer forwards from deadLetter(). Those are
+ *     already-failed — reprocessing them would just fail again — so the
+ *     handler records the payload into config_apply_dead_letter (the
+ *     operator-facing table) and acks. The queue copy is transport-level
+ *     durability; the D1 row is the durable record the console reads.
  */
 export default {
   async queue(batch: MessageBatch<ApplyMessage>, env: ApplyQueueEnv): Promise<void> {
     const db = env.D1_TESLA
+
+    // Dead-letter queue: persist + ack. No retry, no reprocessing —
+    // these messages already failed (permanently or retry-exhausted).
+    if (batch.queue === DLQ_QUEUE_NAME) {
+      for (const msg of batch.messages) {
+        await recordDlqMessage(db, msg.body)
+        msg.ack()
+      }
+      return
+    }
+
     const signerUrl = (env.TESLA_PROXY_URL ?? '').replace(/\/+$/, '')
 
     for (const msg of batch.messages) {
@@ -104,6 +135,28 @@ export default {
       }
     }
   },
+}
+
+/**
+ * Record a dead-letter-queue message into config_apply_dead_letter
+ * (F16-R05/F16-N03) and return. This is the DLQ consumer's entire
+ * job: Cloudflare delivered an already-failed message; the operator
+ * needs it queryable in D1 alongside the permanent failures that
+ * deadLetter() wrote directly.
+ *
+ * Insert failures are logged, not thrown: the message is acked either
+ * way — a retry would redeliver a message that already failed, and the
+ * 24h queue retention is the backstop for a transient D1 outage.
+ */
+async function recordDlqMessage(db: D1Database, body: ApplyMessage): Promise<void> {
+  try {
+    await db.prepare(
+      `INSERT INTO config_apply_dead_letter (run_id, vin, attempts, error_detail, message_json, dead_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(body.run_id, body.vin, 0, 'dlq_delivered', JSON.stringify(body), new Date().toISOString()).run()
+  } catch (error) {
+    console.error(`[apply-queue] DLQ record failed for ${body.run_id}/${body.vin}: ${String((error as Error)?.message ?? error)}`)
+  }
 }
 
 /**
@@ -280,7 +333,21 @@ async function haltRun(db: D1Database, runId: string, reason: string): Promise<v
 
 /**
  * Dead-letter a message (F16-R05): preserve the original message
- * and error in config_apply_dead_letter (bounded, F16-N03).
+ * and error in config_apply_dead_letter (bounded, F16-N03) AND
+ * forward the original message to the APPLY_DLQ queue binding, so
+ * the dead-letter queue declared in wrangler.json is actually used.
+ *
+ * Two independent dead-letter destinations exist by design:
+ *   - The D1 table is the operator-facing record (queryable, bounded,
+ *     linked to the run/VIN) — the console reads it.
+ *   - The queue binding is the transport-level copy — it accumulates
+ *     permanent failures next to retry-exhausted transient failures
+ *     (Cloudflare delivers exhausted messages to the same DLQ queue),
+ *     so one place holds every undeliverable message.
+ *
+ * The D1 insert stays primary: if the queue send fails, the message is
+ * still dead-lettered in D1 and acked — the send is best-effort and its
+ * failure must not requeue an already-failed permanent message.
  */
 async function deadLetter(
   db: D1Database,
@@ -301,6 +368,16 @@ async function deadLetter(
     `INSERT INTO config_apply_dead_letter (run_id, vin, attempts, error_detail, message_json, dead_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(body.run_id, body.vin, attempts, errorDetail, JSON.stringify(body), new Date().toISOString()).run()
+  // Forward the original message to the queue DLQ (best-effort — see
+  // doc block above). The send is awaited so a rejected write surfaces
+  // in the worker log before the ack below; it is not re-thrown.
+  if (env.APPLY_DLQ) {
+    try {
+      await env.APPLY_DLQ.send(body)
+    } catch (dlqError) {
+      console.error(`[apply-queue] DLQ queue send failed for ${body.run_id}/${body.vin}: ${String((dlqError as Error)?.message ?? dlqError)}`)
+    }
+  }
   // Also mark the queue row failed so the console shows it.
   await db.prepare(
     `UPDATE config_apply_queue SET status = 'failed', last_error = ?, finished_at = ?
