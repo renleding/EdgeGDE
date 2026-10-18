@@ -27,6 +27,8 @@ apps/afirmico-tesla/.wrangler/
 .hermes/baselines/
 .hermes/prompts/
 .hermes/bin/
+.hermes/guard-aliases.sh
+.hermes/worktree-identity.json
 .worktrees/
 __pycache__/
 apps/ai-tutor/public/geography/
