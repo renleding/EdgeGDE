@@ -78,6 +78,7 @@ import { handleCanvasChat } from './api/canvas-chat'
 import { swarmRouter } from './api/swarm'
 import { aiTutorRouter } from './routes/ai-tutor'
 import { aiTutorApiRouter } from './routes/ai-tutor-api'
+import { pdfAutofillRouter } from './routes/pdf-autofill'
 import { fragmentRouter } from './routes/fragment'
 import { stagingRouter } from './routes/staging'
 import leadScorer from './queues/lead-scorer'
@@ -244,6 +245,7 @@ app.use('*', async (c, next) => {
     c.req.path.startsWith('/api/pwa/') ||
     c.req.path.startsWith('/api/v1/doc-intel/') ||
     c.req.path.startsWith('/doc-intel') ||
+    c.req.path.startsWith('/api/v1/pdf/') ||  // FRS-0005: PDF Form Filler (sidecar proxy)
     c.req.path === '/healthz'
   ) {
     return next()
@@ -256,6 +258,10 @@ app.use('*', tenantContextResolver)
 
 // 2. RATE LIMITER
 async function rateLimitHandler(c: Context, next: () => Promise<void>) {
+  // PDF Form Filler (FRS-0005) is internal/Tailscale — skip rate limiting
+  if (c.req.path.startsWith('/api/v1/pdf/')) {
+    return next()
+  }
   const tenant = (c as unknown as { get: (key: string) => TenantConfig | undefined }).get('tenant')
 
   if (!tenant) {
@@ -575,6 +581,7 @@ app.get('/pwa-canvas', redirectPwaCanvas)
 app.get('/pwa-canvas/', redirectPwaCanvas)
 app.route('/ai-tutor', aiTutorRouter)
 app.route('/api/tutor/math', aiTutorApiRouter)
+app.route('/api/v1', pdfAutofillRouter)
 app.get('/api/pwa/workspaces/:workspaceId/transient', getPwaTransient)
 app.post('/api/pwa/workspaces/:workspaceId/transient', postPwaTransient)
 app.get('/api/pwa/workspaces/:workspaceId/action-proposals', getPwaActionProposals)

@@ -56,7 +56,8 @@
   "triggers": { "crons": ["0 8,20 * * *"] },
   "vars": {
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
-    "OTEL_SERVICE_NAME": "edgegde-worker"
+    "OTEL_SERVICE_NAME": "edgegde-worker",
+    "PDF_SIDECAR_URL": "http://127.0.0.1:8890"
   },
 
   "env": {
