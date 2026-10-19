@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.calcom-gcal-bridge</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>/Users/warren/Documents/_HQ_AI/EdgeGDE/automation/cal-com-gcal-bridge/run_bridge.sh</string>
+  </array>
+
+  <!-- Fire every 15 min; run_bridge.sh enforces the 08:00-20:00 Sydney
+       window and the 30-min weekend cadence. -->
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/warren/.hermes/logs/calcom-gcal-bridge.stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/warren/.hermes/logs/calcom-gcal-bridge.stderr.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/warren/.hermes/bin</string>
+    <key>HOME</key>
+    <string>/Users/warren</string>
+  </dict>
+</dict>
+</plist>
