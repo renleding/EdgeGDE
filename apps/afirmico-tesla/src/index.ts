@@ -447,7 +447,7 @@ app.get('/toca-connect', (c) => {
   <h1>Connect your Tesla</h1>
 
   <p>Your authorisation is required as below, and you can revoke it at any
-  time. Nothing is collected until you approve AFRIMICO Auto in the Tesla app.</p>
+  time. Nothing is collected until you approve AFIRMICO Auto in the Tesla app.</p>
 
   ${already}
 
