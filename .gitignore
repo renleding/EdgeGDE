@@ -34,6 +34,7 @@ __pycache__/
 apps/ai-tutor/public/geography/
 apps/edge-runtime/public/ai-tutor/geography/
 apps/edge-runtime/.hermes/
+apps/.hermes/
 apps/EdgeGDE - Document DB/
 apps/state-engine/PII - Warren - ID  Documents/
 # Foreign LiveKit agents scaffold checked out into repo root (not part of EdgeGDE)
