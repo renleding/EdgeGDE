@@ -18,7 +18,8 @@
  */
 
 import { Hono } from 'hono'
-import type { ScheduledController, ExecutionContext, ExportedHandler, Queue, MessageBatch } from '@cloudflare/workers-types'
+import type { Context, Next } from 'hono'
+import type { ScheduledController, ExecutionContext, Queue, MessageBatch } from '@cloudflare/workers-types'
 import type { SendEmail } from '@cloudflare/workers-types'
 import {
   SESSION_COOKIE,
@@ -239,6 +240,54 @@ interface SessionRecord {
 }
 
 const app = new Hono<{ Bindings: Env }>()
+
+/* -------------------------------------------------------------------------- */
+/* Security headers (defense-in-depth on every response)                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Base CSP for this worker's HTML surface. The member-facing pages and the
+ * admin console use no JavaScript at all (styles are inline in <style> blocks,
+ * which this worker renders itself), so script-src is 'self' without inline
+ * allowances: if an injection ever lands, nothing can execute. form-action
+ * 'self' also pins every form on the host (consent, details, admin login)
+ * to same-origin submission, preventing cross-site form forgery.
+ */
+function securityHeaders(c: Context, next: Next): Promise<void> {
+  return next().then(() => {
+    const res = c.res
+    if (!res.headers.has('Content-Security-Policy')) {
+      res.headers.set(
+        'Content-Security-Policy',
+        [
+          "default-src 'self'",
+          "script-src 'self'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data:",
+          "font-src 'self'",
+          "connect-src 'self'",
+          "form-action 'self'",
+          "frame-ancestors 'none'",
+          "base-uri 'self'",
+        ].join('; '),
+      )
+    }
+    if (!res.headers.has('Strict-Transport-Security')) {
+      res.headers.set('Strict-Transport-Security', 'max-age=31536000')
+    }
+    if (!res.headers.has('X-Content-Type-Options')) {
+      res.headers.set('X-Content-Type-Options', 'nosniff')
+    }
+    if (!res.headers.has('X-Frame-Options')) {
+      res.headers.set('X-Frame-Options', 'DENY')
+    }
+    if (!res.headers.has('Referrer-Policy')) {
+      res.headers.set('Referrer-Policy', 'no-referrer')
+    }
+  })
+}
+
+app.use('/*', securityHeaders)
 
 /* -------------------------------------------------------------------------- */
 /* Shared rendering                                                           */
