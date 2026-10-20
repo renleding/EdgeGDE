@@ -1,0 +1,39 @@
+{
+  "author": {
+    "name": "CLI Printing Press"
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  },
+  "description": "Purpose-built fixture for the Unicode-to-ASCII slug contract.",
+  "display_name": "Café Bistro",
+  "license": "Apache-2.0",
+  "manifest_version": "0.3",
+  "name": "cafe-bistro-pp-mcp",
+  "server": {
+    "entry_point": "bin/cafe-bistro-pp-mcp",
+    "mcp_config": {
+      "args": [],
+      "command": "${__dirname}/bin/cafe-bistro-pp-mcp",
+      "env": {
+        "CAFE_BISTRO_API_KEY": "${user_config.cafe_bistro_api_key}"
+      }
+    },
+    "type": "binary"
+  },
+  "user_config": {
+    "cafe_bistro_api_key": {
+      "description": "Sets CAFE_BISTRO_API_KEY for the Café Bistro MCP server.",
+      "required": true,
+      "sensitive": true,
+      "title": "CAFE_BISTRO_API_KEY",
+      "type": "string"
+    }
+  },
+  "version": "<PRINTING_PRESS_VERSION>"
+}

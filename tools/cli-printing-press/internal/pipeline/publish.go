@@ -1,0 +1,1132 @@
+package pipeline
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/mvanhorn/cli-printing-press/v4/internal/browsersniff"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/graphql"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/naming"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/openapi"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/spec"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/specmeta"
+	"github.com/mvanhorn/cli-printing-press/v4/internal/version"
+	"gopkg.in/yaml.v3"
+)
+
+type RunManifest struct {
+	Version               int       `json:"version"`
+	APIName               string    `json:"api_name"`
+	RunID                 string    `json:"run_id"`
+	Scope                 string    `json:"scope"`
+	GitRoot               string    `json:"git_root"`
+	SpecPath              string    `json:"spec_path,omitempty"`
+	SpecURL               string    `json:"spec_url,omitempty"`
+	WorkingDir            string    `json:"working_dir"`
+	PublishedCLIDir       string    `json:"published_cli_dir,omitempty"`
+	ArchivedManuscriptDir string    `json:"archived_manuscript_dir,omitempty"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+func BuildRunManifest(state *PipelineState) RunManifest {
+	return RunManifest{
+		Version:               1,
+		APIName:               state.APIName,
+		RunID:                 state.RunID,
+		Scope:                 state.Scope,
+		GitRoot:               repoRoot(),
+		SpecPath:              state.SpecPath,
+		SpecURL:               state.SpecURL,
+		WorkingDir:            state.EffectiveWorkingDir(),
+		PublishedCLIDir:       state.PublishedDir,
+		ArchivedManuscriptDir: ArchivedManuscriptDir(state.APIName, state.RunID),
+		CreatedAt:             state.StartedAt,
+		UpdatedAt:             time.Now(),
+	}
+}
+
+func WriteRunManifest(state *PipelineState) error {
+	manifest := BuildRunManifest(state)
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling run manifest: %w", err)
+	}
+	if err := os.WriteFile(state.ManifestPath(), data, 0o644); err != nil {
+		return fmt.Errorf("writing run manifest: %w", err)
+	}
+	return nil
+}
+
+func WriteArchivedManifest(state *PipelineState) error {
+	manifest := BuildRunManifest(state)
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling archived manifest: %w", err)
+	}
+	if err := os.MkdirAll(ArchivedManuscriptDir(state.APIName, state.RunID), 0o755); err != nil {
+		return fmt.Errorf("creating archived manuscript dir: %w", err)
+	}
+	if err := os.WriteFile(ArchivedManifestPath(state.APIName, state.RunID), data, 0o644); err != nil {
+		return fmt.Errorf("writing archived manifest: %w", err)
+	}
+	return nil
+}
+
+func PublishWorkingCLI(state *PipelineState, targetDir string) (string, error) {
+	workingDir := state.EffectiveWorkingDir()
+	if workingDir == "" {
+		return "", fmt.Errorf("working dir is empty")
+	}
+
+	finalDir := targetDir
+	var err error
+	if finalDir == "" {
+		finalDir, err = ClaimOutputDir(DefaultOutputDir(state.APIName))
+		if err != nil {
+			return "", err
+		}
+	} else {
+		finalDir, err = filepath.Abs(finalDir)
+		if err != nil {
+			return "", fmt.Errorf("resolving publish dir: %w", err)
+		}
+		if _, err := os.Stat(finalDir); err == nil {
+			return "", fmt.Errorf("publish dir already exists: %s", finalDir)
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("checking publish dir: %w", err)
+		}
+	}
+
+	if err := CopyDir(workingDir, finalDir); err != nil {
+		// CopyDir may have created the destination before failing. It did not
+		// exist before this call, and a leftover tree makes the retry fail
+		// with "already exists".
+		_ = os.RemoveAll(finalDir)
+		return "", fmt.Errorf("publishing CLI: %w", err)
+	}
+
+	prevPublished := state.PublishedDir
+	state.PublishedDir = finalDir
+	// The destination did not exist before this call. Drop it if a later step
+	// fails so the next attempt is not rejected because the path already exists.
+	abandonPublish := func(err error) (string, error) {
+		state.PublishedDir = prevPublished
+		_ = os.RemoveAll(finalDir)
+		return "", err
+	}
+
+	if err := writeCLIManifestForPublish(state, finalDir); err != nil {
+		return abandonPublish(err)
+	}
+
+	// Refresh the MCPB manifest.json for the final published location.
+	// Generate already wrote one alongside .printing-press.json; rewriting
+	// here picks up any provenance fields the publish step added.
+	if err := EnsureMCPBManifest(finalDir); err != nil {
+		return abandonPublish(fmt.Errorf("writing MCPB manifest: %w", err))
+	}
+
+	if err := state.Save(); err != nil {
+		return "", err
+	}
+	if err := WriteRunManifest(state); err != nil {
+		return "", err
+	}
+	return finalDir, nil
+}
+
+func ArchiveRunArtifacts(state *PipelineState) (string, error) {
+	archiveDir := ArchivedManuscriptDir(state.APIName, state.RunID)
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating archive dir: %w", err)
+	}
+
+	type pair struct {
+		src string
+		dst string
+	}
+
+	pairs := []pair{
+		{src: state.ResearchDir(), dst: ArchivedResearchDir(state.APIName, state.RunID)},
+		{src: state.ProofsDir(), dst: ArchivedProofsDir(state.APIName, state.RunID)},
+		{src: state.PipelineDir(), dst: ArchivedPipelineDir(state.APIName, state.RunID)},
+		{src: state.DiscoveryDir(), dst: ArchivedDiscoveryDir(state.APIName, state.RunID)},
+	}
+
+	for _, item := range pairs {
+		info, err := os.Stat(item.src)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("stat %s: %w", item.src, err)
+		}
+		if !info.IsDir() {
+			continue
+		}
+		if err := CopyPublishableManuscriptDir(item.src, item.dst); err != nil {
+			return "", fmt.Errorf("archiving %s: %w", item.src, err)
+		}
+	}
+
+	if err := WriteArchivedManifest(state); err != nil {
+		return "", err
+	}
+	if err := WriteRunManifest(state); err != nil {
+		return "", err
+	}
+	return archiveDir, nil
+}
+
+func writeCLIManifestForPublish(state *PipelineState, dir string) error {
+	// Normalize spec_url vs spec_path. The fullrun pipeline sets
+	// state.SpecURL to the raw --spec argument (URL or file path)
+	// and state.SpecPath = SpecURL for --spec runs. We need to put
+	// URLs in spec_url and file paths in spec_path, not both.
+	specURL, specPath := state.SpecURL, state.SpecPath
+	isURL := strings.HasPrefix(specURL, "http://") || strings.HasPrefix(specURL, "https://")
+	if !isURL && specURL != "" {
+		// Raw --spec argument was a file path, not a URL.
+		specPath = specURL
+		specURL = ""
+	}
+	if isURL {
+		// Don't duplicate a URL into spec_path.
+		if specPath == specURL {
+			specPath = ""
+		}
+	}
+
+	m := CLIManifest{
+		SchemaVersion:        CurrentCLIManifestSchemaVersion,
+		GeneratedAt:          time.Now().UTC(),
+		PrintingPressVersion: version.Version,
+		APIName:              state.APIName,
+		CLIName:              naming.CLI(state.APIName),
+		SpecURL:              specURL,
+		SpecPath:             sanitizeManifestSpecPath(specPath),
+		RunID:                state.RunID,
+	}
+	var existingDescription string
+	var existingAuthPreference string
+	toolsManifestExpected := false
+
+	// Carry forward metadata from the generated manifest when publish-time
+	// parsing is unavailable or lossy for the original spec format. NovelFeatures
+	// is carried forward as a defensive fallback in case research.json is absent;
+	// when both are available, research.json wins as the post-dogfood source of truth.
+	var existingRaw map[string]json.RawMessage
+	if existingData, err := os.ReadFile(filepath.Join(dir, CLIManifestFilename)); err == nil {
+		_ = json.Unmarshal(existingData, &existingRaw)
+		var existing CLIManifest
+		if json.Unmarshal(existingData, &existing) == nil {
+			existingAuthPreference = strings.TrimSpace(existing.AuthPreference)
+			if state.RunID == "" && existing.RunID != "" {
+				state.RunID = existing.RunID
+				m.RunID = existing.RunID
+			}
+			if existing.DisplayName != "" {
+				m.DisplayName = existing.DisplayName
+			}
+			if existing.Creator != nil && !existing.Creator.IsZero() {
+				m.Creator = existing.Creator
+			}
+			if len(existing.Contributors) > 0 {
+				m.Contributors = existing.Contributors
+			}
+			if existing.Owner != "" {
+				m.Owner = existing.Owner
+			}
+			if existing.Printer != "" {
+				m.Printer = existing.Printer
+			}
+			if existing.PrinterName != "" {
+				m.PrinterName = existing.PrinterName
+			}
+			if existing.Category != "" {
+				m.Category = existing.Category
+			}
+			if len(existing.Regions) > 0 {
+				m.Regions = append([]string(nil), existing.Regions...)
+			}
+			if existing.APILanguage != "" {
+				m.APILanguage = existing.APILanguage
+			}
+			if preserveExistingDescription(existing.Description) {
+				m.Description = existing.Description
+				existingDescription = existing.Description
+			}
+			if existing.APIVersion != "" {
+				m.APIVersion = existing.APIVersion
+			}
+			if existing.SpecKind != "" {
+				m.SpecKind = existing.SpecKind
+			}
+			m.MCPBinary = existing.MCPBinary
+			m.MCPToolCount = existing.MCPToolCount
+			m.MCPPublicToolCount = existing.MCPPublicToolCount
+			m.MCPReady = existing.MCPReady
+			m.AuthType = existing.AuthType
+			m.AuthPreference = existingAuthPreference
+			m.AuthEnvVars = existing.AuthEnvVars
+			m.AuthEnvVarSpecs = existing.AuthEnvVarSpecs
+			m.AuthAdditionalHeaders = existing.AuthAdditionalHeaders
+			m.EndpointTemplateVars = existing.EndpointTemplateVars
+			m.EndpointTemplateEnvOverrides = existing.EndpointTemplateEnvOverrides
+			m.EndpointTemplateVarDefaults = existing.EndpointTemplateVarDefaults
+			m.AuthKeyURL = existing.AuthKeyURL
+			m.AuthTitle = existing.AuthTitle
+			m.AuthDescription = existing.AuthDescription
+			m.AuthOptional = existing.AuthOptional
+			m.NovelFeatures = existing.NovelFeatures
+		}
+	}
+
+	// Detect spec format and compute checksum from the spec file archived
+	// alongside the CLI. generate writes spec.json for JSON inputs and
+	// spec.yaml for YAML inputs; --docs / --plan runs leave no archive and
+	// these fields stay empty.
+	if specFile, data, err := findArchivedSpec(state.EffectiveWorkingDir()); err == nil && specFile != "" {
+		// The archive is the spec shipped with this CLI. Keep the provenance
+		// path pointed at it instead of the original research/download path.
+		if m.SpecPath != "" && m.SpecURL == "" {
+			m.SpecPath = filepath.Base(specFile)
+		}
+		m.SpecFormat = detectSpecFormat(data)
+		if checksum, err := specChecksum(specFile, m.SpecFormat); err == nil {
+			m.SpecChecksum = checksum
+		}
+
+		// Populate MCP metadata from the source spec when possible.
+		// If parsing fails, keep any carried-forward values from the generated
+		// manifest so non-OpenAPI CLIs do not lose MCP metadata at publish time.
+		var (
+			parsed   *spec.APISpec
+			parseErr error
+		)
+		switch m.SpecFormat {
+		case "openapi3":
+			parsed, parseErr = openapi.ParseWithOptions(data, openapi.ParseOptions{
+				Path:           specFile,
+				AuthPreference: existingAuthPreference,
+			})
+		case "graphql":
+			parsed, parseErr = graphql.ParseSDLBytes(specFile, data)
+		case "internal":
+			parsed, parseErr = spec.ParseBytes(data)
+		}
+		if parseErr == nil {
+			applyPublishSpecMetadata(parsed, state.APIName)
+			populateMCPMetadata(&m, parsed)
+			if m.Description == "" {
+				m.Description = naming.CompactDescription(parsed.Description)
+			}
+			if preserveExistingDescription(existingDescription) {
+				m.Description = existingDescription
+			}
+		}
+		if m.Description == "" {
+			m.Description = archivedSpecDescription(data)
+		}
+
+		// Fall back to spec.Category so CLIs keep their category at publish
+		// time and verify-skill's canonical-sections check stays aligned with
+		// the rendered README/SKILL install block.
+		if m.Category == "" && parsed != nil && parsed.Category != "" {
+			m.Category = parsed.Category
+		}
+
+		// Generate tools-manifest.json for diagnostic commands
+		// (auth-doctor, mcp-audit). Non-blocking: log warning on error
+		// but don't fail the publish.
+		if parsed != nil {
+			toolsManifestExpected = true
+			if tmErr := WriteToolsManifestWithDescription(dir, parsed, m.Description); tmErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not write tools manifest: %v\n", tmErr)
+			}
+		}
+	}
+
+	// Load novel features from research.json if available, populating the
+	// manifest's NovelFeatures field so publish-validate's transcendence
+	// check passes without manual patching.
+	//
+	// Lookup order:
+	//   1. Check <RunRoot>/research.json (skill-flow convention), then
+	//      <state.PipelineDir>/research.json (generate-flow convention).
+	//   2. With a RunID, glob matching run IDs across scopes as a recovery
+	//      path for recovered/minimal state.
+	//   3. Without a RunID, glob the scoped runstate root for the most recent
+	//      research.json whose APIName matches this API.
+	//
+	// Within the loaded ResearchResult, prefer NovelFeaturesBuilt
+	// (dogfood-verified subset) over NovelFeatures (planned list) — if
+	// dogfood ran, only the actually-shipped features should be advertised.
+	// Falling back to the planned list when dogfood didn't run (or wrote
+	// an empty NovelFeaturesBuilt) keeps first-publish from failing the
+	// transcendence check on a CLI that genuinely shipped novel features.
+	research, source, researchErr := loadResearchForPromote(state)
+	if research != nil {
+		nfs := pickNovelFeaturesForManifest(research)
+		// Override the existing-manifest carry-forward (line 221) with
+		// research.json's view: post-dogfood data is the source of truth.
+		// If pickNovelFeaturesForManifest returned an empty slice (no
+		// Built and no planned), leave the carry-forward in place.
+		if len(nfs) > 0 {
+			m.NovelFeatures = novelFeaturesToManifest(nfs)
+		}
+		if len(m.NovelFeatures) > 0 && source != "" && source != state.PipelineDir() && source != state.RunRoot() {
+			// Visibility for non-canonical sources — a one-line stderr
+			// note keeps promote silent on the happy path but tells the
+			// user when novel_features came from the glob fallback.
+			fmt.Fprintf(os.Stderr, "publish: hydrated %d novel_features from %s\n", len(m.NovelFeatures), source)
+		}
+	} else if researchErr != nil {
+		fmt.Fprintf(os.Stderr,
+			"debug: %v; skipping novel_features enrichment (state.RunID=%q)\n",
+			researchErr,
+			state.RunID)
+	} else {
+		// No research.json found by any lookup path. Emit a debug
+		// breadcrumb naming the canonical paths so the silent dropout
+		// from earlier versions stays observable. Promote still
+		// succeeds with whatever was carried forward from the existing
+		// manifest; publish validate will surface the
+		// transcendence-check failure separately if relevant.
+		canonicalRunResearch := filepath.Join(state.RunRoot(), "research.json")
+		canonicalPipelineResearch := filepath.Join(state.PipelineDir(), "research.json")
+		if len(m.NovelFeatures) == 0 {
+			fmt.Fprintf(os.Stderr,
+				"warning: could not locate originating run's research.json at %s or %s; "+
+					"manifest will require manual enrichment before publish (state.RunID=%q)\n",
+				canonicalRunResearch,
+				canonicalPipelineResearch,
+				state.RunID)
+		} else {
+			fmt.Fprintf(os.Stderr,
+				"debug: research.json not found at %s or %s; preserving existing novel_features "+
+					"(state.RunID=%q)\n",
+				canonicalRunResearch,
+				canonicalPipelineResearch,
+				state.RunID)
+		}
+	}
+
+	if m.Category == "" && state != nil && strings.TrimSpace(state.Category) != "" {
+		m.Category = strings.TrimSpace(state.Category)
+	}
+	if m.Category == "" && state != nil {
+		if rs, ok := loadGenerateResearchState(state.ResearchDir()); ok && strings.TrimSpace(rs.Category) != "" {
+			m.Category = strings.TrimSpace(rs.Category)
+		}
+	}
+	if strings.TrimSpace(m.Category) == "" {
+		cliName := m.CLIName
+		if cliName == "" && state != nil {
+			cliName = naming.CLI(state.APIName)
+		}
+		fmt.Fprintf(os.Stderr, "warning: promoting %s without a public-library category; pass generate --category <slug> so publish and verify-skill use the category-specific install path\n", cliName)
+	}
+
+	backfillPromoteManifestAttribution(&m)
+
+	clearFields := map[string]struct{}{}
+	if m.SpecURL != "" && m.SpecPath == "" {
+		clearFields["spec_path"] = struct{}{}
+	}
+	if m.SpecPath != "" && m.SpecURL == "" {
+		clearFields["spec_url"] = struct{}{}
+	}
+	if err := writeCLIManifestPreservingRawFields(dir, m, existingRaw, clearFields); err != nil {
+		return err
+	}
+	if err := syncToolsManifestNovelFeatures(dir, m.NovelFeatures); err != nil {
+		if os.IsNotExist(err) && !toolsManifestExpected {
+			return nil
+		}
+		return fmt.Errorf("syncing novel features to tools manifest: %w", err)
+	}
+	return nil
+}
+
+func archivedSpecDescription(data []byte) string {
+	var probe struct {
+		Description string `yaml:"description" json:"description"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return ""
+	}
+	return naming.CompactDescription(probe.Description)
+}
+
+func applyPublishSpecMetadata(parsed *spec.APISpec, apiName string) {
+	if parsed == nil || apiName == "" {
+		return
+	}
+	priorName := parsed.Name
+	if priorName != "" && priorName != apiName {
+		specmeta.RebaseAuthEnvPrefix(&parsed.Auth, priorName, apiName)
+	}
+	parsed.Name = apiName
+}
+
+// loadResearchForPromote returns the research.json relevant to the
+// current promote/publish call, plus the path it was loaded from (used
+// for non-canonical-source stderr visibility).
+//
+// Lookup order:
+//   - Check the canonical run-root path, then the pipeline path.
+//   - When RunID is set, glob matching run IDs across scopes.
+//   - When RunID is empty, glob the scoped runstate root for any
+//     research.json whose APIName matches and pick the most recent by mtime.
+//
+// Returns (nil, "", nil) when neither lookup finds a usable research.json.
+func loadResearchForPromote(state *PipelineState) (*ResearchResult, string, error) {
+	canonicalCandidates := []struct {
+		path   string
+		source string
+	}{
+		{path: filepath.Join(state.RunRoot(), "research.json"), source: state.RunRoot()},
+		{path: filepath.Join(state.PipelineDir(), "research.json"), source: state.PipelineDir()},
+	}
+	for _, candidate := range canonicalCandidates {
+		r, err := loadResearchPath(candidate.path)
+		if err != nil {
+			return nil, "", err
+		}
+		if r != nil {
+			if state.RunID == "" {
+				return r, "", nil
+			}
+			return r, candidate.source, nil
+		}
+	}
+
+	if state.RunID != "" {
+		return loadMatchingResearch(globResearchCandidatesForRunID(state.RunID), state.APIName)
+	}
+
+	// Minimal-state fallback: empty RunID and the canonical loader
+	// found nothing. Glob the scoped runstate root for research.json
+	// files matching this APIName and pick the most recent.
+	candidates, err := globResearchCandidates(ScopedRunstateRoot())
+	if err != nil || len(candidates) == 0 {
+		return nil, "", nil
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].mtime.After(candidates[j].mtime)
+	})
+	return loadMatchingResearch(candidates, state.APIName)
+}
+
+func loadResearchPath(path string) (*ResearchResult, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("research.json at %s read failed: %w", path, err)
+	}
+	r, err := decodeResearch(data)
+	if err != nil {
+		return nil, fmt.Errorf("research.json at %s failed to parse: %w", path, err)
+	}
+	return r, nil
+}
+
+func loadMatchingResearch(candidates []researchCandidate, apiName string) (*ResearchResult, string, error) {
+	var loadErr error
+	for _, c := range candidates {
+		r, err := loadResearchPath(c.path)
+		if err != nil {
+			if loadErr == nil {
+				loadErr = err
+			}
+			continue
+		}
+		if r == nil {
+			continue
+		}
+		if apiName != "" && r.APIName != "" && r.APIName != apiName {
+			continue
+		}
+		return r, c.path, nil
+	}
+	if loadErr != nil {
+		return nil, "", loadErr
+	}
+	return nil, "", nil
+}
+
+func globResearchCandidatesForRunID(runID string) []researchCandidate {
+	if runID == "" {
+		return nil
+	}
+	var out []researchCandidate
+	seen := make(map[string]bool)
+	add := func(path string) {
+		if seen[path] {
+			return
+		}
+		seen[path] = true
+		info, err := os.Stat(path)
+		if err != nil {
+			return
+		}
+		out = append(out, researchCandidate{path: path, mtime: info.ModTime()})
+	}
+
+	add(filepath.Join(RunRoot(runID), "research.json"))
+	add(filepath.Join(RunRoot(runID), "pipeline", "research.json"))
+
+	scopeEntries, err := os.ReadDir(RunstateRoot())
+	if err != nil {
+		return out
+	}
+	for _, entry := range scopeEntries {
+		if !entry.IsDir() {
+			continue
+		}
+		runRoot := runRootForScope(entry.Name(), runID)
+		add(filepath.Join(runRoot, "research.json"))
+		add(filepath.Join(runRoot, "pipeline", "research.json"))
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].mtime.After(out[j].mtime)
+	})
+	return out
+}
+
+// researchCandidate is a path + mtime for sorting glob results.
+type researchCandidate struct {
+	path  string
+	mtime time.Time
+}
+
+// globResearchCandidates walks the scoped runstate root for research.json
+// files. Looks under both `<root>/runs/*/research.json` (run-root form,
+// what the skill flow writes) and `<root>/runs/*/pipeline/research.json`
+// (canonical generate-pipeline form). Errors during walk are non-fatal
+// (returns whatever it found so far).
+func globResearchCandidates(scopedRoot string) ([]researchCandidate, error) {
+	runsDir := filepath.Join(scopedRoot, "runs")
+	entries, err := os.ReadDir(runsDir)
+	if err != nil {
+		// Missing runs directory is normal for a brand-new workspace —
+		// not an error worth surfacing.
+		return nil, nil
+	}
+	var out []researchCandidate
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		runDir := filepath.Join(runsDir, entry.Name())
+		// Try run-root research.json (skill-flow shape).
+		for _, candidate := range []string{
+			filepath.Join(runDir, "research.json"),
+			filepath.Join(runDir, "pipeline", "research.json"),
+		} {
+			info, err := os.Stat(candidate)
+			if err != nil {
+				continue
+			}
+			out = append(out, researchCandidate{path: candidate, mtime: info.ModTime()})
+		}
+	}
+	return out, nil
+}
+
+// pickNovelFeaturesForManifest selects the right novel-features list to
+// promote into the manifest. Prefers NovelFeaturesBuilt (dogfood-verified)
+// when non-nil and non-empty; falls back to NovelFeatures (planned) so
+// CLIs whose dogfood didn't run still get a populated manifest.
+func pickNovelFeaturesForManifest(research *ResearchResult) []NovelFeature {
+	if research == nil {
+		return nil
+	}
+	if research.NovelFeaturesBuilt != nil && len(*research.NovelFeaturesBuilt) > 0 {
+		return *research.NovelFeaturesBuilt
+	}
+	return research.NovelFeatures
+}
+
+func CopyDir(src, dst string) error {
+	return copyDirFiltered(src, dst, nil)
+}
+
+const publishableManuscriptMaxCaptureBytes int64 = 100 * 1024 * 1024
+
+type PublishableManuscriptCopyOptions struct {
+	IncludeRawCaptures bool
+}
+
+// CopyPublishableManuscriptDir copies manuscript artifacts that may be bundled
+// into published CLIs. Raw browser-sniff captures stay in local runstate by
+// default because they can carry cookies, session identifiers, and PII.
+// Live-dogfood transcripts and pipeline runstate are always omitted: they
+// carry API response bodies and absolute host paths, and IncludeRawCaptures
+// does not opt them back in. Phase 5 acceptance and skip markers stay.
+// Shipped text has absolute home and .runstate paths rewritten to the
+// <cli-dir> and <runstate> placeholders.
+func CopyPublishableManuscriptDir(src, dst string) error {
+	return CopyPublishableManuscriptDirWithOptions(src, dst, PublishableManuscriptCopyOptions{})
+}
+
+func CopyPublishableManuscriptDirWithOptions(src, dst string, opts PublishableManuscriptCopyOptions) error {
+	if err := copyDirFiltered(src, dst, func(path string, info fs.FileInfo) bool {
+		return shouldSkipPublishableManuscriptFile(path, info, opts)
+	}); err != nil {
+		return err
+	}
+	return redactAbsoluteHostPathsInTree(dst)
+}
+
+func shouldSkipPublishableManuscriptFile(path string, info fs.FileInfo, opts PublishableManuscriptCopyOptions) bool {
+	// A `sources/` directory holds downloaded third-party reference repos — local
+	// research INPUT, not authored manuscript OUTPUT. Never publish copies of other
+	// projects' code: it is a licensing problem and a secret/PII vector (the only
+	// reason it surfaced once was a placeholder email in a vendored README tripping
+	// the PII scan — without it a third-party repo would have shipped silently). The
+	// research flow caches references outside manuscripts; this is the machine
+	// backstop that drops a stray copy regardless. Pruning the dir drops its subtree.
+	if info.IsDir() && filepath.Base(path) == "sources" {
+		return true
+	}
+	if !info.IsDir() && info.Size() >= publishableManuscriptMaxCaptureBytes {
+		return true
+	}
+	if strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".pre-pii-scrub") {
+		return true
+	}
+	// Live transcripts and pipeline runstate carry response bodies and host
+	// paths. This check stays ahead of IncludeRawCaptures so that flag remains
+	// limited to browser-sniff evidence. Phase 5 marker filenames stay copyable
+	// even when their JSON resembles a report.
+	if isManuscriptPipelineRunstate(path, info) || isRawLiveDogfoodTranscript(filepath.Base(path)) || isLiveDogfoodReportFile(path, info) {
+		return true
+	}
+	if opts.IncludeRawCaptures {
+		return false
+	}
+	if isRawBrowserSniffCapture(path, info) {
+		return true
+	}
+	if strings.EqualFold(filepath.Ext(path), ".har") {
+		return true
+	}
+	return false
+}
+
+func isPublishablePhase5Marker(name string) bool {
+	return strings.EqualFold(name, Phase5AcceptanceFilename) || strings.EqualFold(name, Phase5SkipFilename)
+}
+
+// Filename globs miss reruns. The on-disk report is a top-level tests array
+// whose entries carry output_sample, or the dir/binary/verdict/tests key set.
+func isLiveDogfoodReportFile(path string, info fs.FileInfo) bool {
+	if info.IsDir() || isPublishablePhase5Marker(filepath.Base(path)) {
+		return false
+	}
+	if !strings.EqualFold(filepath.Ext(path), ".json") {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !bytes.Contains(data, []byte(`"tests"`)) {
+		return false
+	}
+	return jsonHasLiveDogfoodReportShape(data)
+}
+
+func jsonHasLiveDogfoodReportShape(data []byte) bool {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return false
+	}
+	testsRaw, hasTests := top["tests"]
+	if !hasTests {
+		return false
+	}
+	var tests []json.RawMessage
+	if err := json.Unmarshal(testsRaw, &tests); err != nil {
+		return false
+	}
+	for _, raw := range tests {
+		var entry map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			continue
+		}
+		if _, ok := entry["output_sample"]; ok {
+			return true
+		}
+	}
+	_, hasDir := top["dir"]
+	_, hasBinary := top["binary"]
+	_, hasVerdict := top["verdict"]
+	return hasDir && hasBinary && hasVerdict
+}
+
+func isManuscriptPipelineRunstate(path string, info fs.FileInfo) bool {
+	if !strings.EqualFold(filepath.Base(path), "pipeline") {
+		return false
+	}
+	// A symlink named pipeline is not a directory until followed. Skipping
+	// the link avoids copying a pointer at the runstate tree.
+	return info.IsDir() || info.Mode()&fs.ModeSymlink != 0
+}
+
+func isRawLiveDogfoodTranscript(name string) bool {
+	name = strings.ToLower(name)
+	for _, pattern := range []string{
+		"publish-live-gate*.json",
+		"*-publish-live-gate.json",
+		"dogfood-results*.json",
+		"*-dogfood-results.json",
+	} {
+		matched, err := filepath.Match(pattern, name)
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+func isRawBrowserSniffCapture(path string, info fs.FileInfo) bool {
+	clean := filepath.Clean(path)
+	base := filepath.Base(clean)
+	parentPath := filepath.Dir(clean)
+
+	if pathHasComponent(parentPath, "discovery") {
+		hyphenated, _ := filepath.Match("probe-*.json", base)
+		underscored, _ := filepath.Match("probe_*.json", base)
+		if hyphenated || underscored {
+			return true
+		}
+	}
+	if info.IsDir() && pathHasComponent(parentPath, "discovery") && base == "bundles" {
+		return true
+	}
+	// New writes carry the marker for any --samples-output name. Older trees
+	// used *-browser-sniff-spec-samples, or <stem>-samples for any spec stem.
+	// Stem directories still hold raw_url credentials. Authored notes in a
+	// -samples directory do not.
+	if info.IsDir() && hasSniffSamplesMarker(path) {
+		return true
+	}
+	if info.IsDir() && pathHasComponent(parentPath, "research") && isHistoricalSniffSamplesDir(path, base) {
+		return true
+	}
+	return false
+}
+
+func isHistoricalSniffSamplesDir(dir, name string) bool {
+	lower := strings.ToLower(name)
+	if !strings.HasSuffix(lower, "-samples") {
+		return false
+	}
+	// The pre-marker writer default. Keep it even when the JSON was already
+	// scrubbed of raw_url, so those trees do not reappear on republish.
+	if strings.HasSuffix(lower, "-browser-sniff-spec-samples") {
+		return true
+	}
+	return dirContainsRawURLSample(dir)
+}
+
+func dirContainsRawURLSample(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		// Packaging already drops files at or above this cap, so reading
+		// them cannot change what ships.
+		if info.Size() >= publishableManuscriptMaxCaptureBytes {
+			continue
+		}
+		if fileHasSampleShape(filepath.Join(dir, entry.Name())) {
+			return true
+		}
+	}
+	return false
+}
+
+// Both keys are required, and response_body_known follows the bodies, so a
+// bounded head or tail read can miss it. A note that mentions raw_url without
+// that flag is authored research. A read error after raw_url is seen omits
+// the directory instead of shipping an unconfirmed sample.
+func fileHasSampleShape(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	rawKey := []byte(`"raw_url"`)
+	knownKey := []byte(`"response_body_known"`)
+	overlap := len(knownKey) - 1
+	buf := make([]byte, 32*1024)
+	var carry []byte
+	sawRaw := false
+	sawKnown := false
+	for {
+		n, err := f.Read(buf)
+		window := buf[:n]
+		if len(carry) > 0 {
+			joined := make([]byte, len(carry)+n)
+			copy(joined, carry)
+			copy(joined[len(carry):], buf[:n])
+			window = joined
+		}
+		if n > 0 || len(carry) > 0 {
+			if !sawRaw && bytes.Contains(window, rawKey) {
+				sawRaw = true
+			}
+			if !sawKnown && bytes.Contains(window, knownKey) {
+				sawKnown = true
+			}
+			if sawRaw && sawKnown {
+				return true
+			}
+		}
+		if err == io.EOF {
+			return false
+		}
+		if err != nil {
+			return sawRaw
+		}
+		if len(window) == 0 {
+			continue
+		}
+		if len(window) > overlap {
+			next := make([]byte, overlap)
+			copy(next, window[len(window)-overlap:])
+			carry = next
+			continue
+		}
+		next := make([]byte, len(window))
+		copy(next, window)
+		carry = next
+	}
+}
+
+func hasSniffSamplesMarker(dir string) bool {
+	info, err := os.Lstat(filepath.Join(dir, browsersniff.SamplesDirMarker))
+	return err == nil && info.Mode().IsRegular()
+}
+
+func pathHasComponent(path, component string) bool {
+	return slices.Contains(strings.Split(filepath.ToSlash(filepath.Clean(path)), "/"), component)
+}
+
+// A WalkDir child can disappear between enumeration and stat (Windows
+// GetFileAttributesEx on a vanished .gotmp during --force backup). Skip
+// that entry; keep real IO errors and a vanished source root fatal.
+func skipIfVanished(err error, isDir bool) error {
+	if err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if isDir {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+type copyDirWalkHook func(path string, d fs.DirEntry)
+
+var copyDirTestHook atomic.Pointer[copyDirWalkHook]
+
+func invokeCopyDirTestHook(path string, d fs.DirEntry) {
+	if p := copyDirTestHook.Load(); p != nil {
+		(*p)(path, d)
+	}
+}
+
+func SetCopyDirWalkHookForTest(fn func(path string, d fs.DirEntry)) func() {
+	prev := copyDirTestHook.Load()
+	var installed *copyDirWalkHook
+	if fn != nil {
+		hook := copyDirWalkHook(fn)
+		installed = &hook
+	}
+	copyDirTestHook.Store(installed)
+	return func() {
+		// Leave a later installation in place; restore only what this call set.
+		copyDirTestHook.CompareAndSwap(installed, prev)
+	}
+}
+
+func copyDirFiltered(src, dst string, skipFile func(path string, info fs.FileInfo) bool) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", src)
+	}
+
+	if err := os.MkdirAll(dst, info.Mode()); err != nil {
+		return err
+	}
+
+	srcRoot, err := filepath.Abs(src)
+	if err != nil {
+		return fmt.Errorf("resolving source dir: %w", err)
+	}
+
+	// WalkDir (unlike Walk) does not follow directory symlinks, so the
+	// callback sees them as symlink entries and we can validate them
+	// without descending into potentially huge or circular targets.
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		invokeCopyDirTestHook(path, d)
+		if walkErr != nil {
+			if path == src {
+				return walkErr
+			}
+			return skipIfVanished(walkErr, d != nil && d.IsDir())
+		}
+		if path == src {
+			return nil
+		}
+
+		// Drop git plumbing wherever it appears in the tree. A stray .git
+		// from `git init` in a working CLI dir, or a nested submodule, would
+		// otherwise be carried into the library and re-staged downstream as
+		// a submodule pointer when `git add` runs in the publish repo.
+		// .gitignore / .gitattributes are legitimate CLI content and stay.
+		if d.Name() == ".git" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == ".gitmodules" {
+			return nil
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+
+		// d.Type() returns mode bits from Lstat, so symlinks (including
+		// directory symlinks) are detected before any descent.
+		if d.Type()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return skipIfVanished(err, false)
+			}
+			ok, err := symlinkTargetWithinRoot(srcRoot, path, link)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("symlink %s points outside source tree", path)
+			}
+			if skipFile != nil {
+				info, err := d.Info()
+				if err != nil {
+					return skipIfVanished(err, d.IsDir())
+				}
+				if skipFile(path, info) {
+					return nil
+				}
+				resolvedTarget := link
+				if !filepath.IsAbs(resolvedTarget) {
+					resolvedTarget = filepath.Join(filepath.Dir(path), resolvedTarget)
+				}
+				if targetInfo, err := os.Stat(path); err == nil && skipFile(resolvedTarget, targetInfo) {
+					return nil
+				}
+			}
+			return os.Symlink(link, target)
+		}
+
+		if d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return skipIfVanished(err, true)
+			}
+			// A filtered copy may prune whole subtrees (e.g. downloaded
+			// third-party `sources/` in manuscripts). The unfiltered CopyDir
+			// passes a nil filter, so this never fires for full-CLI copies.
+			if skipFile != nil && skipFile(path, info) {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(target, info.Mode())
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return skipIfVanished(err, false)
+		}
+		if skipFile != nil && skipFile(path, info) {
+			return nil
+		}
+		if err := copyFile(path, target, info.Mode()); err != nil {
+			return skipIfVanished(err, false)
+		}
+		return nil
+	})
+}
+
+func symlinkTargetWithinRoot(root, path, link string) (bool, error) {
+	resolved := link
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(filepath.Dir(path), resolved)
+	}
+
+	absResolved, err := filepath.Abs(resolved)
+	if err != nil {
+		return false, fmt.Errorf("resolving symlink target for %s: %w", path, err)
+	}
+
+	rel, err := filepath.Rel(root, absResolved)
+	if err != nil {
+		return false, fmt.Errorf("checking symlink target for %s: %w", path, err)
+	}
+
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))), nil
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
