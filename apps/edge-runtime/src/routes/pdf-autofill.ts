@@ -94,6 +94,7 @@ function optStr(v: unknown): string | undefined {
 // Router
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** PDF autofill router — proxies /api/v1/pdf/* requests to the local PDF sidecar. */
 export const pdfAutofillRouter = new Hono()
 
 // ── GET /pdf/health — proxy sidecar health ─────────────────────────────
