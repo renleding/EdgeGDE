@@ -78,7 +78,7 @@ export async function nextArtifactVersion(
     }
 
     return result.version
-  } catch (err: any) {
-    throw new Error(`Version increment failed: ${err.message}`)
+  } catch (err) {
+    throw new Error(`Version increment failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }

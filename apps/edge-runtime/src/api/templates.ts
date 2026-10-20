@@ -79,8 +79,8 @@ templateRouter.get('/templates', async (c) => {
 
     const { results } = await db.prepare(sql).bind(...bindings).all()
     return c.json({ templates: results })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 

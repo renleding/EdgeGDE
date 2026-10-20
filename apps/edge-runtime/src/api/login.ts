@@ -68,8 +68,8 @@ router.post('/', async (c) => {
       name: tenant.name,
     })
 
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Login failed' }, 500)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Login failed' }, 500)
   }
 })
 

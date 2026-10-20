@@ -53,7 +53,7 @@ export async function handleCloneJob(body: any, env: any): Promise<void> {
     })
 
     console.log(`[ClonerWorker] cloned ${url} into canvas ${canvasId}`)
-  } catch (e: any) {
-    console.error(`[ClonerWorker] error cloning ${url}:`, e.message)
+  } catch (e) {
+    console.error(`[ClonerWorker] error cloning ${url}:`, e instanceof Error ? e.message : String(e))
   }
 }

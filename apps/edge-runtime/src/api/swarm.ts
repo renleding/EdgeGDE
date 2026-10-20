@@ -61,7 +61,7 @@ swarmRouter.post('/swarm/ingress', async (c) => {
     }
 
     return c.json({ success: true, status: 'event accepted' })
-  } catch (err: any) {
-    return c.json({ error: 'Swarm ingress failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Swarm ingress failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })

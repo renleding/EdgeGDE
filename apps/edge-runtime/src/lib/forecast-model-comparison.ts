@@ -154,11 +154,11 @@ export function runForecastModelComparison(
         result,
         runtimeMs: Date.now() - modelStartedAt,
       }
-    } catch (err: any) {
+    } catch (err) {
       return {
         model: normalizeForecastModelName(model),
         status: 'failed' as const,
-        error: err.message,
+        error: err instanceof Error ? err.message : String(err),
         runtimeMs: Date.now() - modelStartedAt,
       }
     }

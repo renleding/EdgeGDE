@@ -233,10 +233,10 @@ export function mountFormRoutes(app: Hono): void {
         })())
 
         return c.html(html)
-      } catch (err: any) {
+      } catch (err) {
         return c.html(
           `<div id="${escapeHtml(def.resultTargetId)}" class="error">\n` +
-          `  <p>Error: ${escapeHtml(err.message || 'Unknown error')}</p>\n</div>`,
+          `  <p>Error: ${escapeHtml(err instanceof Error ? err.message || 'Unknown error' : 'Unknown error')}</p>\n</div>`,
           500,
         )
       }

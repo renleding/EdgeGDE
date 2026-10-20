@@ -98,7 +98,7 @@ async function fetchAndStoreToR2(
     clearTimeout(timer)
     if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`)
     html = await res.text()
-  } catch (err: any) {
+  } catch (err) {
     clearTimeout(timer)
     throw err
   }

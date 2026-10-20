@@ -34,8 +34,8 @@ tenantRouter.post('/', async (c) => {
   let slug: string
   try {
     slug = validateSlug(String(body.slug || ''))
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400)
   }
 
   // ── 3. Check for duplicates ─────────────────────────────────────────────
@@ -129,8 +129,8 @@ tenantRouter.get('/', async (c) => {
     ).all()
 
     return c.json({ tenants: results || [] })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 

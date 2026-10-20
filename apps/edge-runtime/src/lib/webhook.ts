@@ -132,13 +132,13 @@ export async function dispatchWebhook(
       timestamp: Date.now(),
     }))
     return true
-  } catch (err: any) {
+  } catch (err) {
     console.log(JSON.stringify({
       event: 'webhook_dispatch',
       tenantId: payload.tenantId,
       submissionId: payload.submissionId,
       success: false,
-      error: err.message,
+      error: err instanceof Error ? err.message : String(err),
       timestamp: Date.now(),
     }))
     return false

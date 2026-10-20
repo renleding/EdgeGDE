@@ -104,9 +104,9 @@ vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
       contentType,
       message: `Uploaded ${filename} (${sizeBytes} bytes)`,
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[vault] upload failed:', err)
-    return c.json({ error: 'Upload failed', details: err.message }, 500)
+    return c.json({ error: 'Upload failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 

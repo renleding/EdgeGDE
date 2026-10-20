@@ -86,8 +86,8 @@ router.post('/', async (c) => {
     await TENANT_KV.delete(`tenant:${slug}:email_verification`)
     return c.json({ success: true, verified: true })
 
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Verification failed' }, 500)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Verification failed' }, 500)
   }
 })
 
@@ -140,8 +140,8 @@ router.post('/resend', async (c) => {
 
     return c.json({ success: true })
 
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Failed to resend code' }, 500)
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : 'Failed to resend code' }, 500)
   }
 })
 

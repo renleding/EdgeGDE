@@ -48,7 +48,7 @@ initRouter.post('/chat/init', async (c) => {
       tenantId,
       status: 'active',
     })
-  } catch (err: any) {
-    return c.json({ error: 'Failed to create session', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to create session', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
