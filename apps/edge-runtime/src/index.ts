@@ -1834,7 +1834,7 @@ export default {
         const body = msg.body as Record<string, unknown>
         if (body.type === 'kb_ingest') {
           const { handleKbIngest } = await import('./queues/kb-ingest')
-          await handleKbIngest(body as { type: string; tenantId: string; topic?: string; url?: string; filePath?: string; r2Key?: string; sourceRef?: string }, env)
+          await handleKbIngest(body as { type: string; tenantId: string; topic?: string; url?: string; filePath?: string; r2Key?: string; sourceRef?: string }, safeEnv(env as Record<string, unknown>))
         }
         if (body.type === 'forecast_run_requested') {
           const { queue: handleForecastRun } = await import('./queues/forecast-runner')

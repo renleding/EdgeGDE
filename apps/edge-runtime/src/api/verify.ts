@@ -49,38 +49,37 @@ async function sendEmail(apiKey: string, to: string, code: string): Promise<bool
  */
 router.post('/', async (c) => {
   try {
-    const body: any = await c.req.json()
-    const slug = (body.slug || '').trim()
-    const code = (body.code || '').trim()
+    const body = (await c.req.json()) as Record<string, unknown>
+    const slug = String(body.slug ?? '').trim()
+    const code = String(body.code ?? '').trim()
     if (!slug || !code) return c.json({ error: 'Slug and code are required' }, 400)
 
     const env = envFromContext(c)
     const TENANT_KV = env.TENANT_KV
     if (!TENANT_KV) return c.json({ error: 'Verification unavailable' }, 500)
 
-    const record: any = await TENANT_KV.get(`tenant:${slug}:email_verification`, 'json')
+    const record = await TENANT_KV.get<{ expiresAt?: number; attempts?: number; code?: string }>(`tenant:${slug}:email_verification`, 'json')
     if (!record) return c.json({ error: 'No verification code found. Request a new one.' }, 400)
 
-    if (Date.now() > record.expiresAt) {
+    if (Date.now() > (record.expiresAt ?? 0)) {
       await TENANT_KV.delete(`tenant:${slug}:email_verification`)
       return c.json({ error: 'Verification code expired. Request a new one.' }, 400)
     }
 
-    if (record.attempts >= 5) {
+    if ((record.attempts ?? 0) >= 5) {
       return c.json({ error: 'Too many failed attempts. Request a new code.' }, 429)
     }
 
     if (record.code !== code) {
-      record.attempts = (record.attempts || 0) + 1
-      await TENANT_KV.put(`tenant:${slug}:email_verification`, JSON.stringify(record))
-      return c.json({ error: 'Invalid code', remaining: 5 - record.attempts }, 400)
+      const attempts = (record.attempts ?? 0) + 1
+      await TENANT_KV.put(`tenant:${slug}:email_verification`, JSON.stringify({ ...record, attempts }))
+      return c.json({ error: 'Invalid code', remaining: 5 - attempts }, 400)
     }
 
     // Mark tenant as verified
-    const tenant: any = await TENANT_KV.get(`tenant:${slug}`, 'json')
+    const tenant = await TENANT_KV.get<Record<string, unknown>>(`tenant:${slug}`, 'json')
     if (tenant) {
-      tenant.verified = true
-      await TENANT_KV.put(`tenant:${slug}`, JSON.stringify(tenant))
+      await TENANT_KV.put(`tenant:${slug}`, JSON.stringify({ ...tenant, verified: true }))
     }
 
     await TENANT_KV.delete(`tenant:${slug}:email_verification`)
@@ -96,8 +95,8 @@ router.post('/', async (c) => {
  */
 router.post('/resend', async (c) => {
   try {
-    const body: any = await c.req.json()
-    const slug = (body.slug || '').trim()
+    const body = (await c.req.json()) as Record<string, unknown>
+    const slug = String(body.slug ?? '').trim()
     if (!slug) return c.json({ error: 'Slug is required' }, 400)
 
     const env = envFromContext(c)
@@ -105,14 +104,14 @@ router.post('/resend', async (c) => {
     if (!TENANT_KV) return c.json({ error: 'Verification unavailable' }, 500)
 
     // Load tenant to get email
-    const tenant: any = await TENANT_KV.get(`tenant:${slug}`, 'json')
+    const tenant = await TENANT_KV.get<{ verified?: boolean; email?: string; name?: string }>(`tenant:${slug}`, 'json')
     if (!tenant) return c.json({ error: 'Tenant not found' }, 404)
     if (tenant.verified) return c.json({ error: 'Already verified' }, 400)
 
     // Cooldown check
-    const existing: any = await TENANT_KV.get(`tenant:${slug}:email_verification`, 'json')
-    if (existing && Date.now() - existing.sentAt < 60_000) {
-      const wait = Math.ceil((60_000 - (Date.now() - existing.sentAt)) / 1000)
+    const existing = await TENANT_KV.get<{ sentAt?: number }>(`tenant:${slug}:email_verification`, 'json')
+    if (existing && Date.now() - (existing.sentAt ?? 0) < 60_000) {
+      const wait = Math.ceil((60_000 - (Date.now() - (existing.sentAt ?? 0))) / 1000)
       return c.json({ error: `Please wait ${wait}s before requesting a new code` }, 429)
     }
 

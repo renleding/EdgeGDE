@@ -29,8 +29,12 @@ swarmRouter.post('/swarm/ingress', async (c) => {
     }
 
     // 2. Validate body
-    const body: any = await c.req.json()
-    const { event_type, application_id, payload } = body
+    const body = (await c.req.json()) as Record<string, unknown>
+    const { event_type, application_id, payload } = body as {
+      event_type?: string
+      application_id?: string
+      payload?: unknown
+    }
     if (!event_type) return c.json({ error: 'event_type required' }, 400)
     if (!ALLOWED_EVENTS.includes(event_type)) return c.json({ error: `event_type must be one of: ${ALLOWED_EVENTS.join(', ')}` }, 400)
     if (!application_id) return c.json({ error: 'application_id required' }, 400)
@@ -42,7 +46,7 @@ swarmRouter.post('/swarm/ingress', async (c) => {
 
     const doId = doBinding.idFromName('tenant:afirmico')
     const stub = doBinding.get(doId)
-    const result: any = await stub.fetch('http://do/append', {
+    const result = await stub.fetch('http://do/append', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

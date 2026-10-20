@@ -18,9 +18,9 @@ const router = new Hono()
  */
 router.post('/', async (c) => {
   try {
-    const body: any = await c.req.json()
-    const slug = (body.slug || '').trim()
-    const password = body.password || ''
+    const body = (await c.req.json()) as Record<string, unknown>
+    const slug = String(body.slug ?? '').trim()
+    const password = String(body.password ?? '')
 
     if (!slug || !password) {
       return c.json({ error: 'Slug and password are required' }, 400)
@@ -33,13 +33,13 @@ router.post('/', async (c) => {
       return c.json({ error: 'Authentication unavailable' }, 500)
     }
 
-    const tenant: any = await TENANT_KV.get(`tenant:${slug}`, 'json')
+    const tenant = await TENANT_KV.get<{ tenantId: string; slug: string; name: string }>(`tenant:${slug}`, 'json')
     if (!tenant) {
       return c.json({ error: 'Invalid slug or password' }, 401)
     }
 
     // ── 2. Verify password ─────────────────────────────────────────────
-    const credentials: any = await TENANT_KV.get(`tenant:${slug}:credentials`, 'json')
+    const credentials = await TENANT_KV.get<{ passwordHash?: string }>(`tenant:${slug}:credentials`, 'json')
     if (!credentials?.passwordHash) {
       return c.json({ error: 'Invalid slug or password' }, 401)
     }

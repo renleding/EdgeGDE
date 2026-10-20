@@ -6,6 +6,8 @@
  * Supports optional HMAC-SHA256 signature for payload verification.
  */
 
+import type { KVNamespace } from '@cloudflare/workers-types'
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
@@ -69,7 +71,7 @@ async function computeSignature(
  * @returns true if webhook was dispatched, false if skipped/no config
  */
 export async function dispatchWebhook(
-  TENANT_KV: any,
+  TENANT_KV: KVNamespace,
   payload: WebhookPayload,
 ): Promise<boolean> {
   // 1. Load webhook config
@@ -113,7 +115,7 @@ export async function dispatchWebhook(
     })
 
     if (!response.ok) {
-      console.log(JSON.stringify({
+      console.warn(JSON.stringify({
         event: 'webhook_dispatch',
         tenantId: payload.tenantId,
         submissionId: payload.submissionId,
@@ -124,7 +126,7 @@ export async function dispatchWebhook(
       return false
     }
 
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       event: 'webhook_dispatch',
       tenantId: payload.tenantId,
       submissionId: payload.submissionId,
@@ -133,7 +135,7 @@ export async function dispatchWebhook(
     }))
     return true
   } catch (err) {
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       event: 'webhook_dispatch',
       tenantId: payload.tenantId,
       submissionId: payload.submissionId,

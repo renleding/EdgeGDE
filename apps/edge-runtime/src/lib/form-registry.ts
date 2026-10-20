@@ -32,7 +32,7 @@ interface RegisteredForm {
 }
 
 /** Handler receives validated form data, returns HTML fragment */
-type FormHandler = (data: Record<string, any>, env: any) => Promise<string> | string
+type FormHandler = (data: Record<string, unknown>, env: unknown) => Promise<string> | string
 
 const registry = new Map<string, RegisteredForm>()
 
@@ -124,7 +124,7 @@ export function mountFormRoutes(app: Hono): void {
       // ── Execute handler ────────────────────────────────────────────────
       try {
         const html = handler
-          ? await handler(result.data, c.env)
+          ? await handler(result.data as Record<string, unknown>, c.env)
           : defaultResultHtml(def, result.data)
 
         // ══════════════════════════════════════════════════════════════════

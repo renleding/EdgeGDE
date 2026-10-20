@@ -7,6 +7,17 @@
  */
 
 import { guardKV } from '../lib/kv'
+import { safeEnv } from '../lib/env'
+import type { R2Bucket } from '@cloudflare/workers-types'
+
+/**
+ * Structural env shape for the ingest worker. Narrowed to the typed `Env`
+ * via safeEnv() inside the handlers so every binding access is type-checked.
+ */
+interface IngestEnv {
+  TENANT_KV?: unknown
+  VAULT_BUCKET?: R2Bucket
+}
 
 interface KbIngestMessage {
   tenantId: string
@@ -85,7 +96,7 @@ function extractTextFromHtml(html: string): string {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function fetchAndStoreToR2(
-  env: any, tenantId: string, url: string
+  env: IngestEnv, tenantId: string, url: string
 ): Promise<{ r2Key: string; text: string }> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 15000)
@@ -106,7 +117,9 @@ async function fetchAndStoreToR2(
   // Store raw HTML in R2
   const hash = await makeStableId(url)
   const r2Key = `tenant/${tenantId}/kb_sources/${hash}.html`
-  await env.VAULT_BUCKET.put(r2Key, html)
+  const bucket = env.VAULT_BUCKET
+  if (!bucket) throw new Error('VAULT_BUCKET binding required')
+  await bucket.put(r2Key, html)
 
   return { r2Key, text: extractTextFromHtml(html) }
 }
@@ -179,10 +192,10 @@ function extractTrigger(text: string): string {
 // Write to KV pending (not kb: — human review required)
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function writeKbPending(env: any, tenantId: string, topic: string, entries: NormalizedEntry[], r2Key: string): Promise<void> {
+async function writeKbPending(env: IngestEnv, tenantId: string, topic: string, entries: NormalizedEntry[], r2Key: string): Promise<void> {
   if (entries.length === 0) return
 
-  const kv = guardKV(env.TENANT_KV)
+  const kv = guardKV(safeEnv(env as Record<string, unknown>).TENANT_KV)
   const key = `tenant:${tenantId}:kb_pending:${topic}`
   await kv.put(
     key,
@@ -199,7 +212,7 @@ async function writeKbPending(env: any, tenantId: string, topic: string, entries
 // Main handler
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function handleKbIngest(message: KbIngestMessage, env: any): Promise<void> {
+export async function handleKbIngest(message: KbIngestMessage, env: IngestEnv): Promise<void> {
   const { tenantId, url, filePath, r2Key: existingR2Key } = message
   if (!tenantId) throw new Error('tenantId required')
 
@@ -244,5 +257,5 @@ export async function handleKbIngest(message: KbIngestMessage, env: any): Promis
 
   // Write to pending (kv.ts validates schema on put)
   await writeKbPending(env, tenantId, topic, entries, sourceRef)
-  console.log(`[kb-ingest] Stored ${entries.length} entries in kb_pending:${topic} from ${sourceRef}`)
+  console.warn(`[kb-ingest] Stored ${entries.length} entries in kb_pending:${topic} from ${sourceRef}`)
 }

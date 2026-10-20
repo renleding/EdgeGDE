@@ -85,7 +85,7 @@ vaultRouter.put('/upload/:submissionId/:filename', async (c) => {
       data: { file_name: filename, object_key: objectKey, size_bytes: sizeBytes },
     }))
 
-    console.log(JSON.stringify({
+    console.warn(JSON.stringify({
       event: 'vault_upload',
       docId,
       tenantId,
@@ -128,11 +128,11 @@ vaultRouter.delete('/download/:submissionId/:filename', async (c) => {
 
   try {
     // 1. D1 lookup — verify tenant ownership, get object_key + id
-    const doc: any = await db.prepare(
+    const doc = (await db.prepare(
       `SELECT id, object_key FROM document_vault
        WHERE tenant_id = ? AND submission_id = ? AND file_name = ?
        ORDER BY uploaded_at DESC LIMIT 1`
-    ).bind(tenantId, submissionId, filename).first()
+    ).bind(tenantId, submissionId, filename).first()) as { id: string; object_key: string } | null
 
     if (!doc) return c.json({ error: 'File not found' }, 404)
 
@@ -154,8 +154,8 @@ vaultRouter.delete('/download/:submissionId/:filename', async (c) => {
     }))
 
     return c.json({ success: true, deleted: filename, docId: doc.id })
-  } catch (err: any) {
-    return c.json({ error: 'Delete failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Delete failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -176,10 +176,10 @@ vaultRouter.get('/audit', async (c) => {
     const doId = doBinding.idFromName(`tenant:${tenantId}`)
     const stub = doBinding.get(doId)
     const res = await stub.fetch('http://do/list')
-    const data: any = await res.json()
+    const data = await res.json()
     return c.json(data)
-  } catch (err: any) {
-    return c.json({ error: 'Audit query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Audit query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -205,8 +205,8 @@ vaultRouter.get('/:submissionId', async (c) => {
     ).bind(submissionId, tenantId).all()
 
     return c.json({ documents: results || [] })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -230,12 +230,12 @@ vaultRouter.get('/download/:submissionId/:filename', async (c) => {
 
   try {
     // 1. D1 lookup — verifies tenant ownership
-    const doc: any = await db.prepare(
+    const doc = (await db.prepare(
       `SELECT id, object_key, content_type
        FROM document_vault
        WHERE tenant_id = ? AND submission_id = ? AND file_name = ?
        ORDER BY uploaded_at DESC LIMIT 1`
-    ).bind(tenantId, submissionId, filename).first()
+    ).bind(tenantId, submissionId, filename).first()) as { id: string; object_key: string; content_type?: string } | null
 
     if (!doc) return c.json({ error: 'File not found' }, 404)
 
@@ -260,8 +260,8 @@ vaultRouter.get('/download/:submissionId/:filename', async (c) => {
     }))
 
     return new Response(object.body, { headers })
-  } catch (err: any) {
-    return c.json({ error: 'Download failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Download failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 

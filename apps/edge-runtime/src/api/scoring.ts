@@ -1064,7 +1064,7 @@ scoringAdminRouter.post('/kb/ingest', async (c) => {
 
   // Fallback: run inline (for local dev without queue)
   const { handleKbIngest } = await import('../queues/kb-ingest')
-  c.executionCtx.waitUntil(handleKbIngest({ tenantId, url: body.url, topic: body.topic, sourceRef: body.url }, c.env).catch(() => {}))
+  c.executionCtx.waitUntil(handleKbIngest({ tenantId, url: body.url, topic: body.topic, sourceRef: body.url }, envFromContext(c)).catch(() => {}))
   return c.json({ success: true, status: 'processing', url: body.url })
 })
 
