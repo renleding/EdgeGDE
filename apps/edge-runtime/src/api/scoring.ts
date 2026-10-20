@@ -116,9 +116,9 @@ scoringAdminRouter.post('/scoring/rubrics/:id/activate', async (c) => {
   const rubricId = c.req.param('id')
 
   // Fetch rubric
-  const rubric: any = await db.prepare(
+  const rubric = (await db.prepare(
     `SELECT * FROM scoring_rubrics WHERE id = ?`
-  ).bind(rubricId).first()
+  ).bind(rubricId).first()) as { id: string; tenant_id: string; version?: string } | null
 
   if (!rubric) return c.json({ error: 'Rubric not found' }, 404)
 
@@ -161,16 +161,16 @@ scoringAdminRouter.post('/scoring/execute', async (c) => {
   if (!leadFields) return c.json({ error: 'fields required' }, 400)
 
   // Find active rubric for tenant
-  const rubric: any = await db.prepare(
+  const rubric = (await db.prepare(
     `SELECT * FROM scoring_rubrics WHERE tenant_id = ? AND is_active = 1 LIMIT 1`
-  ).bind(tenantId).first()
+  ).bind(tenantId).first()) as { id: string; version?: string; ruleset_json: string } | null
 
   if (!rubric) return c.json({ error: 'No active rubric for tenant' }, 400)
 
   // Check idempotency
-  const existing: any = await db.prepare(
+  const existing = (await db.prepare(
     `SELECT * FROM lead_scores WHERE tenant_id = ? AND lead_id = ? AND rubric_id = ?`
-  ).bind(tenantId, leadId, rubric.id).first()
+  ).bind(tenantId, leadId, rubric.id).first()) as { id: string; score: number } | null
 
   if (existing) {
     return c.json({
@@ -311,7 +311,13 @@ scoringAdminRouter.get('/hot-alerts', async (c) => {
 
   const tenantId = c.req.query('tenant') // optional: filter by tenant
 
-  let allAlerts: any[] = []
+  let allAlerts: Array<{
+    submissionId: string
+    tenantId: string
+    score: number
+    rationale: string
+    timestamp: string | null
+  }> = []
 
   try {
     if (tenantId) {
@@ -326,13 +332,19 @@ scoringAdminRouter.get('/hot-alerts', async (c) => {
     }
 
     return c.json({ alerts: allAlerts })
-  } catch (err: any) {
-    return c.json({ error: 'Failed to fetch alerts', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to fetch alerts', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
 // Helper: fetch all alerts for a tenant from the index pointer
-async function fetchAlertsForTenant(kv: any, tenantId: string): Promise<any[]> {
+async function fetchAlertsForTenant(kv: KVNamespace, tenantId: string): Promise<Array<{
+  submissionId: string
+  tenantId: string
+  score: number
+  rationale: string
+  timestamp: string | null
+}>> {
   const indexKey = hotLeadIndexKey(tenantId)
   const indexRaw = await kv.get(indexKey)
   if (!indexRaw) return []
@@ -363,8 +375,8 @@ async function fetchAlertsForTenant(kv: any, tenantId: string): Promise<any[]> {
   )
 
   return results
-    .map((r: any) => (r.status === 'fulfilled' ? r.value : null))
-    .filter((a: any) => a !== null)
+    .map((r) => (r.status === 'fulfilled' ? r.value : null))
+    .filter((a) => a !== null)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -395,8 +407,8 @@ scoringAdminRouter.delete('/hot-alerts/:submissionId', async (c) => {
     }
 
     return c.json({ success: true, dismissed: submissionId })
-  } catch (err: any) {
-    return c.json({ error: 'Failed to dismiss alert', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to dismiss alert', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -416,7 +428,7 @@ scoringAdminRouter.get('/leads', async (c) => {
                     current_stage,
                     payload
              FROM form_submissions WHERE 1=1`
-  const binds: any[] = []
+  const binds: string[] = []
 
   if (band && ['hot', 'warm', 'cold'].includes(band)) {
     sql += ` AND score_band = ?`
@@ -433,7 +445,17 @@ scoringAdminRouter.get('/leads', async (c) => {
   try {
     const { results } = await db.prepare(sql).bind(...binds).all()
 
-    const leads = (results || []).map((r: any) => {
+    const leads = ((results || []) as Array<{
+      id: string
+      tenant_id: string
+      form_id: string
+      payload?: unknown
+      lead_score?: number
+      score_band?: string
+      current_stage?: string
+      score_rationale?: string
+      created_at: string
+    }>).map((r) => {
       // Extract name and email from payload JSON if available
       let name = ''
       let email = ''
@@ -458,8 +480,8 @@ scoringAdminRouter.get('/leads', async (c) => {
     })
 
     return c.json({ leads })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -574,8 +596,8 @@ scoringAdminRouter.post('/replay-deadletters', async (c) => {
           await db.prepare(
             'INSERT OR IGNORE INTO form_submissions (id, tenant_id, form_id, payload) VALUES (?, ?, ?, ?)'
           ).bind(submissionId, tenantId, formId, payload).run()
-        } catch (insertErr: any) {
-          results.push({ submissionId, status: 'failed', error: insertErr.message })
+        } catch (insertErr) {
+          results.push({ submissionId, status: 'failed', error: insertErr instanceof Error ? insertErr.message : String(insertErr) })
           continue
         }
 
@@ -595,8 +617,8 @@ scoringAdminRouter.post('/replay-deadletters', async (c) => {
         await TENANT_KV.delete(dlKey)
 
         results.push({ submissionId, status: 'replayed' })
-      } catch (err: any) {
-        results.push({ submissionId, status: 'failed', error: err.message })
+      } catch (err) {
+        results.push({ submissionId, status: 'failed', error: err instanceof Error ? err.message : String(err) })
       }
     }
 
@@ -611,8 +633,8 @@ scoringAdminRouter.post('/replay-deadletters', async (c) => {
     const failed = results.filter((r) => r.status === 'failed').length
 
     return c.json({ replayed, failed, skipped: batch.length - replayed - failed, results })
-  } catch (err: any) {
-    return c.json({ error: 'Replay failed', details: err.message, results }, 500)
+  } catch (err) {
+    return c.json({ error: 'Replay failed', details: err instanceof Error ? err.message : String(err), results }, 500)
   }
 })
 
@@ -626,7 +648,7 @@ scoringAdminRouter.get('/insights', async (c) => {
 
   const tenantId = c.req.query('tenant')
   const where = tenantId ? 'WHERE tenant_id = ?' : ''
-  const binds: any[] = tenantId ? [tenantId] : []
+  const binds: string[] = tenantId ? [tenantId] : []
 
   try {
     const [totalResult, avgResult, bandResult] = await Promise.all([
@@ -662,8 +684,8 @@ scoringAdminRouter.get('/insights', async (c) => {
         : null,
       bandDistribution: bandMap,
     })
-  } catch (err: any) {
-    return c.json({ error: 'Insights query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Insights query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -689,10 +711,19 @@ scoringAdminRouter.get('/telemetry', async (c) => {
        LIMIT 30`
     ).bind(tenantIdQuery).all()
 
-    const days = results || []
-    const totalCalls = days.reduce((s: number, r: any) => s + (r.llm_calls || 0), 0)
-    const totalSuccess = days.reduce((s: number, r: any) => s + (r.llm_success || 0), 0)
-    const totalLatency = days.reduce((s: number, r: any) => s + (r.total_latency_ms || 0), 0)
+    const days = (results || []) as Array<{
+      date: string
+      llm_calls?: number
+      llm_success?: number
+      llm_fail?: number
+      total_latency_ms?: number
+      avg_latency_ms?: number
+      red_flag_count?: number
+      total_agentic_score?: number
+    }>
+    const totalCalls = days.reduce((s: number, r) => s + (r.llm_calls || 0), 0)
+    const totalSuccess = days.reduce((s: number, r) => s + (r.llm_success || 0), 0)
+    const totalLatency = days.reduce((s: number, r) => s + (r.total_latency_ms || 0), 0)
 
     return c.json({
       days,
@@ -702,12 +733,12 @@ scoringAdminRouter.get('/telemetry', async (c) => {
         totalFail: totalCalls - totalSuccess,
         avgLatencyMs: totalCalls > 0 ? Math.round(totalLatency / totalCalls) : null,
         successRate: totalCalls > 0 ? Math.round((totalSuccess / totalCalls) * 1000) / 10 : null,
-        redFlagCount: days.reduce((s: number, r: any) => s + (r.red_flag_count || 0), 0),
+        redFlagCount: days.reduce((s: number, r) => s + (r.red_flag_count || 0), 0),
         daysTracked: days.length,
       },
     })
-  } catch (err: any) {
-    return c.json({ error: 'Telemetry query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Telemetry query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -736,8 +767,8 @@ scoringAdminRouter.get('/contacts', async (c) => {
     ).bind(tenantId).all()
 
     return c.json({ contacts: results || [] })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -759,8 +790,8 @@ scoringAdminRouter.get('/stages', async (c) => {
     ).bind(tenantId).all()
 
     return c.json({ stages: results || [] })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -784,9 +815,9 @@ scoringAdminRouter.patch('/leads/:id/stage', async (c) => {
 
   try {
     // 1. Verify submission exists and belongs to tenant
-    const current: any = await db.prepare(
+    const current = (await db.prepare(
       `SELECT current_stage FROM form_submissions WHERE id = ? AND tenant_id = ? LIMIT 1`
-    ).bind(submissionId, tenantId).first()
+    ).bind(submissionId, tenantId).first()) as { current_stage?: string } | null
 
     if (!current) return c.json({ error: 'Submission not found' }, 404)
 
@@ -822,8 +853,8 @@ scoringAdminRouter.patch('/leads/:id/stage', async (c) => {
     }
 
     return c.json({ success: true, submissionId, fromStage, toStage })
-  } catch (err: any) {
-    return c.json({ error: 'Stage update failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Stage update failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -841,8 +872,8 @@ scoringAdminRouter.get('/ui-config', async (c) => {
   try {
     const config = await kv.get(`tenant:${tenantId}:ui:config`, 'json')
     return c.json({ config: config || null })
-  } catch (err: any) {
-    return c.json({ error: 'Failed to read UI config', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to read UI config', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -871,8 +902,8 @@ scoringAdminRouter.put('/ui-config', async (c) => {
   try {
     await kv.put(`tenant:${tenantId}:ui:config`, JSON.stringify(validation.data))
     return c.json({ success: true, tenantId, version: '1.0' })
-  } catch (err: any) {
-    return c.json({ error: 'Failed to save UI config', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to save UI config', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -886,8 +917,8 @@ scoringAdminRouter.delete('/ui-config', async (c) => {
   try {
     await kv.delete(`tenant:${tenantId}:ui:config`)
     return c.json({ success: true, message: 'UI config reset to default' })
-  } catch (err: any) {
-    return c.json({ error: 'Failed to delete UI config', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to delete UI config', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -906,16 +937,16 @@ scoringAdminRouter.get('/ui-config/render', async (c) => {
   if (!tenantId) return c.json({ error: 'tenant required' }, 400)
 
   try {
-    const config: any = await kv.get(`tenant:${tenantId}:ui:config`, 'json')
+    const config = await kv.get<Record<string, unknown>>(`tenant:${tenantId}:ui:config`, 'json')
     if (!config) return c.html('<div style="color:#8b949e;padding:20px;text-align:center">No UI config configured</div>')
 
     const validation = validateUiConfigSafe(config)
     if (!validation.success) return c.html(`<div style="color:#f85149;padding:20px">Validation failed</div>`)
 
     // Load context from latest active chat session
-    const session: any = await db.prepare(
+    const session = (await db.prepare(
       `SELECT collected_fields_json FROM chat_sessions WHERE tenant_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
-    ).bind(tenantId).first()
+    ).bind(tenantId).first()) as { collected_fields_json?: string } | null
 
     const collected: Record<string, unknown> = session?.collected_fields_json ? JSON.parse(session.collected_fields_json) : {}
     const ctx: Record<string, string | number | boolean> = {}
@@ -925,8 +956,8 @@ scoringAdminRouter.get('/ui-config/render', async (c) => {
 
     const html = renderUiConfigToHtml(validation.data.root, ctx)
     return c.html(html)
-  } catch (err: any) {
-    return c.html(`<div style="color:#f85149;padding:20px">${err.message}</div>`)
+  } catch (err) {
+    return c.html(`<div style="color:#f85149;padding:20px">${err instanceof Error ? err.message : String(err)}</div>`)
   }
 })
 
@@ -971,8 +1002,8 @@ scoringAdminRouter.get('/health', async (c) => {
       },
       version: '0.8.1',
     })
-  } catch (err: any) {
-    return c.json({ error: 'Health check failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Health check failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -988,8 +1019,8 @@ scoringAdminRouter.get('/deploy-log', async (c) => {
     const log = await kv.get('global:deploy:log', 'json')
     if (!log) return c.json({ message: 'No deployment log found' }, 404)
     return c.json(log)
-  } catch (err: any) {
-    return c.json({ error: 'Failed to read deploy log', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to read deploy log', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -1014,12 +1045,18 @@ scoringAdminRouter.get('/applications/:id/events', async (c) => {
     const stub = doBinding.get(doId)
     const res = await stub.fetch(`http://do/list?tenantId=${tenantId}&sessionId=${appId}&limit=${limit}`)
     if (!res.ok) return c.json({ error: 'Failed to fetch events' }, 500)
-    const data: any = await res.json()
+    const data = (await res.json()) as { entries?: Array<{
+      type?: string
+      ts?: number
+      actor?: string
+      seq: number
+      data?: Record<string, unknown>
+    }> }
 
     const recent = (data.entries || [])
-      .sort((a: any, b: any) => b.seq - a.seq)
+      .sort((a, b) => b.seq - a.seq)
       .slice(0, limit)
-      .map((e: any) => ({
+      .map((e) => ({
         type: e.type,
         ts: e.ts,
         actor: e.actor,
@@ -1028,8 +1065,8 @@ scoringAdminRouter.get('/applications/:id/events', async (c) => {
       }))
 
     return c.json({ applicationId: appId, events: recent })
-  } catch (err: any) {
-    return c.json({ error: 'Failed to fetch application events', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Failed to fetch application events', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
