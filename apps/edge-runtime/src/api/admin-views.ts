@@ -361,7 +361,7 @@ adminRouter.post('/ingest-url', async (c) => {
       return c.html('<div style="color:#3fb950">✅ Queued for ingestion. Refresh pending tab.</div>')
     }
     const { handleKbIngest } = await import('../queues/kb-ingest')
-    c.executionCtx.waitUntil(handleKbIngest({ tenantId, url, topic, sourceRef: url }, c.env).catch(() => {}))
+    c.executionCtx.waitUntil(handleKbIngest({ tenantId, url, topic, sourceRef: url }, envFromContext(c)).catch(() => {}))
     return c.html('<div style="color:#3fb950">✅ Processing. Refresh pending tab shortly.</div>')
   } catch (err: unknown) {
     return c.html(`<div style="color:#da3633">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`)
@@ -419,7 +419,7 @@ adminRouter.post('/upload-file', async (c) => {
 
     // Process via ingest handler
     const { handleKbIngest } = await import('../queues/kb-ingest')
-    c.executionCtx.waitUntil(handleKbIngest({ tenantId, topic, sourceRef: r2Key || fileName, r2Key: r2Key || undefined }, c.env).catch(() => {}))
+    c.executionCtx.waitUntil(handleKbIngest({ tenantId, topic, sourceRef: r2Key || fileName, r2Key: r2Key || undefined }, envFromContext(c)).catch(() => {}))
     return c.html(`<div style="color:#3fb950">✅ File "${escapeHtml(fileName)}" uploaded and processing. Refresh pending tab.</div>`)
 
   } catch (err: unknown) {

@@ -32,7 +32,7 @@ interface RegisteredForm {
 }
 
 /** Handler receives validated form data, returns HTML fragment */
-type FormHandler = (data: Record<string, any>, env: any) => Promise<string> | string
+type FormHandler = (data: Record<string, unknown>, env: unknown) => Promise<string> | string
 
 const registry = new Map<string, RegisteredForm>()
 
@@ -124,7 +124,7 @@ export function mountFormRoutes(app: Hono): void {
       // ── Execute handler ────────────────────────────────────────────────
       try {
         const html = handler
-          ? await handler(result.data, c.env)
+          ? await handler(result.data as Record<string, unknown>, c.env)
           : defaultResultHtml(def, result.data)
 
         // ══════════════════════════════════════════════════════════════════
@@ -233,10 +233,10 @@ export function mountFormRoutes(app: Hono): void {
         })())
 
         return c.html(html)
-      } catch (err: any) {
+      } catch (err) {
         return c.html(
           `<div id="${escapeHtml(def.resultTargetId)}" class="error">\n` +
-          `  <p>Error: ${escapeHtml(err.message || 'Unknown error')}</p>\n</div>`,
+          `  <p>Error: ${escapeHtml(err instanceof Error ? err.message || 'Unknown error' : 'Unknown error')}</p>\n</div>`,
           500,
         )
       }

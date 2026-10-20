@@ -30,7 +30,7 @@ interface TemplateMeta {
 }
 
 interface TemplatePayload {
-  layout: any
+  layout: Record<string, unknown>
   design: string
 }
 
@@ -55,7 +55,7 @@ templateRouter.get('/templates', async (c) => {
 
   try {
     let sql: string
-    let bindings: any[]
+    let bindings: string[]
 
     if (category && tenantId) {
       sql = `SELECT id, name, category, version, origin, created_at
@@ -79,8 +79,8 @@ templateRouter.get('/templates', async (c) => {
 
     const { results } = await db.prepare(sql).bind(...bindings).all()
     return c.json({ templates: results })
-  } catch (err: any) {
-    return c.json({ error: 'Query failed', details: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: 'Query failed', details: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -231,7 +231,7 @@ instantiateRouter.post('/tenant/forms/instantiate-template', async (c) => {
   if (!templateId) return c.json({ error: 'templateId is required' }, 400)
 
   // 1. Fetch template metadata from D1
-  const meta: any = await db.prepare(
+  const meta = await db.prepare(
     `SELECT * FROM template_registry WHERE id = ? AND is_active = 1`
   ).bind(templateId).first()
 
@@ -257,7 +257,7 @@ instantiateRouter.post('/tenant/forms/instantiate-template', async (c) => {
 
     for (const [path, value] of Object.entries(overrides)) {
       const parts = path.split('.')
-      let current: any = layout
+      let current: Record<string, unknown> = layout
       let validPath = true
 
       for (let i = 0; i < parts.length - 1; i++) {
@@ -265,7 +265,7 @@ instantiateRouter.post('/tenant/forms/instantiate-template', async (c) => {
           validPath = false
           break
         }
-        current = current[parts[i]]
+        current = current[parts[i]] as Record<string, unknown>
       }
 
       if (validPath) {

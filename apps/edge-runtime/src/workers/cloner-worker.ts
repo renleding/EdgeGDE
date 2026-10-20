@@ -9,12 +9,23 @@
  */
 
 import { cloneWebsite } from '../cloner/website-cloner'
+import type { DurableObjectNamespace } from '@cloudflare/workers-types'
+
+interface CloneJobEnv {
+  CANVAS_SESSION?: DurableObjectNamespace
+}
+
+interface CloneJobMessage {
+  type?: string
+  url?: string
+  canvasId?: string
+}
 
 /**
  * Handle a clone_website queue message.
  * Called from the main queue handler.
  */
-export async function handleCloneJob(body: any, env: any): Promise<void> {
+export async function handleCloneJob(body: CloneJobMessage, env: CloneJobEnv): Promise<void> {
   if (body?.type !== 'clone_website') return
 
   const { url, canvasId } = body
@@ -41,8 +52,10 @@ export async function handleCloneJob(body: any, env: any): Promise<void> {
     doc.id = canvasId
 
     // Initialize the DO with the cloned document
-    const doId = env.CANVAS_SESSION.idFromName(canvasId)
-    const stub = env.CANVAS_SESSION.get(doId)
+    const namespace = env.CANVAS_SESSION
+    if (!namespace) throw new Error('CANVAS_SESSION binding required')
+    const doId = namespace.idFromName(canvasId)
+    const stub = namespace.get(doId)
     await stub.fetch('http://dO/init', {
       method: 'POST',
       body: JSON.stringify({
@@ -52,8 +65,8 @@ export async function handleCloneJob(body: any, env: any): Promise<void> {
       }),
     })
 
-    console.log(`[ClonerWorker] cloned ${url} into canvas ${canvasId}`)
-  } catch (e: any) {
-    console.error(`[ClonerWorker] error cloning ${url}:`, e.message)
+    console.warn(`[ClonerWorker] cloned ${url} into canvas ${canvasId}`)
+  } catch (e) {
+    console.error(`[ClonerWorker] error cloning ${url}:`, e instanceof Error ? e.message : String(e))
   }
 }
