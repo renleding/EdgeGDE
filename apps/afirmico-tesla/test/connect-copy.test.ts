@@ -24,7 +24,7 @@ describe('/toca-connect summary paragraph (F01-R10)', () => {
   it('states the wording in force', () => {
     expect(flat).toContain(
       'Your authorisation is required as below, and you can revoke it at any time. ' +
-        'Nothing is collected until you approve AFRIMICO Auto in the Tesla app.',
+        'Nothing is collected until you approve AFIRMICO Auto in the Tesla app.',
     )
   })
 
