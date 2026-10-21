@@ -795,12 +795,13 @@ adminApp.get('/members', async (c) => {
   ${(rows.results?.length ?? 0) === 0
     ? '<div class="empty">No members yet.</div>'
     : `<table>
-      <thead><tr><th>Member</th><th>TOCA</th><th>Email</th><th>Vehicles</th><th>Consent</th><th>Joined</th></tr></thead>
+      <thead><tr><th>Member ID</th><th>Name</th><th>TOCA</th><th>Email</th><th>Vehicles</th><th>Consent</th><th>Joined</th></tr></thead>
       <tbody>
       ${rows.results!.map((m: Record<string, unknown>) => `<tr>
-        <td><code>${escapeHtml(m.member_id)}</code><br><span class="meta">${escapeHtml(m.display_name ?? '')}</span></td>
+        <td><code>${escapeHtml(m.member_id)}</code></td>
+        <td>${escapeHtml(m.display_name ?? '—')}</td>
         <td><span class="pill ${m.toca_status === 'verified_toca' ? 'ok' : 'warn'}">${escapeHtml(m.toca_status)}</span></td>
-        <td>${escapeHtml(m.email ?? m.tesla_email ?? '—')}</td>
+        <td>${escapeHtml(m.tesla_email ?? m.email ?? '—')}</td>
         <td>${escapeHtml(m.vehicles)}</td>
         <td>${Number(m.active_consent) > 0 ? '<span class="pill ok">active</span>' : '<span class="pill bad">none</span>'}</td>
         <td class="meta">${escapeHtml(m.created_at)}</td>
