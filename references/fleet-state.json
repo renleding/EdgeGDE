@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "policy_ref": "~/.hermes/skills/repo-worktree-policy/SKILL.md (Fleet Isolation)",
+  "fleet_registry_ref": "references/agent-fleet-ports.json",
+  "updated_at": "2026-10-20T11:30:00Z",
+  "herdr_workspace": "w1",
+  "slots": [
+    {
+      "agent": "agent-1",
+      "pane": "w1:p1",
+      "herdr_agent_name": "hermes",
+      "worktree": "../EdgeGDE-worktrees/agent-1",
+      "abs_path": "/Users/warren/Documents/_HQ_AI/EdgeGDE-worktrees/agent-1",
+      "port": 8788,
+      "branch_on_start": "main (detached)",
+      "role": "worker",
+      "first_act": "git switch -c work-<desc>"
+    },
+    {
+      "agent": "agent-2",
+      "pane": "w1:p5",
+      "herdr_agent_name": "hermes-2",
+      "worktree": "../EdgeGDE-worktrees/agent-2",
+      "abs_path": "/Users/warren/Documents/_HQ_AI/EdgeGDE-worktrees/agent-2",
+      "port": 8789,
+      "branch_on_start": "main (detached)",
+      "role": "worker",
+      "resumable_session": "20261006_104850_91d2af"
+    },
+    {
+      "agent": "agent-3",
+      "pane": "w1:p6",
+      "herdr_agent_name": "hermes-3",
+      "worktree": "../EdgeGDE-worktrees/agent-3",
+      "abs_path": "/Users/warren/Documents/_HQ_AI/EdgeGDE-worktrees/agent-3",
+      "port": 8790,
+      "branch_on_start": "work/tesla-queue-handler",
+      "role": "worker",
+      "caveat_2026-10-20": "p6 hosts the live coordinator session (hermes-agent repo); agent-3 has no pane host until that session ends. Run agent-3 via kanban dispatch until then."
+    },
+    {
+      "agent": "agent-4",
+      "pane": "w1:p7",
+      "herdr_agent_name": "hermes-4",
+      "worktree": "../EdgeGDE-worktrees/tesla-app",
+      "abs_path": "/Users/warren/Documents/_HQ_AI/EdgeGDE-worktrees/tesla-app",
+      "port": 8791,
+      "branch_on_start": "work/sdd-o7-poll-verification",
+      "role": "worker (named worktree, alias tesla-app)"
+    },
+    {
+      "agent": "agent-5",
+      "pane": "w1:p9",
+      "herdr_agent_name": "hermes-5",
+      "worktree": "../EdgeGDE-worktrees/agent-5",
+      "abs_path": "/Users/warren/Documents/_HQ_AI/EdgeGDE-worktrees/agent-5",
+      "port": 8792,
+      "branch_on_start": "work/agent5-printing-press-apa",
+      "role": "worker"
+    },
+    {
+      "agent": "agent-6",
+      "pane": "w1:p8",
+      "herdr_agent_name": "hermes-6",
+      "worktree": "EdgeGDE/ (main checkout)",
+      "abs_path": "/Users/warren/Documents/_HQ_AI/EdgeGDE",
+      "port": 8787,
+      "branch_on_start": "main",
+      "role": "coordinator — stable base",
+      "caveat_2026-10-20": "p8 hosts the my-agent lane (own repo at ../my-agent, user-reserved). Coordinator work runs from the session on p6 until p8 frees."
+    }
+  ],
+  "identity_files": {
+    "note": "Each worktree + main checkout carries .hermes/worktree-identity.json {worktree_name, agent_number, assigned_port, branch}. Agents self-verify from this file. A mismatch = crossover; fix the file, not the agent's belief.",
+    "main_checkout": "/Users/warren/Documents/_HQ_AI/EdgeGDE/.hermes/worktree-identity.json"
+  },
+  "known_broken": {
+    "herdr_agent_bridge": "herdr agent list = [] and agent prompt/agent explain = agent_not_found. herdr-agent-state plugin reports pane.report_agent_session only at hermes startup with HERDR_SOCKET_PATH set; zero events in ~/.config/herdr/herdr-server.log. Fallback: herdr pane send-text + send-keys Enter at idle prompts. Full repair needs fleet session restarts (option 2)."
+  }
+}
