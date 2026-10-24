@@ -51,9 +51,9 @@ documentsRouter.get('/documents/download', async (c) => {
     headers.set('Cache-Control', 'private, max-age=3600')
 
     return new Response(object.body, { headers })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:download] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -101,9 +101,9 @@ documentsRouter.post('/documents/upload', async (c) => {
       r2_key: r2Key,
       size_bytes: file.size,
     }, 201)
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:upload] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -242,9 +242,9 @@ documentsRouter.get('/documents/:id', async (c) => {
       fields: decryptedFields,
       custom_fields: customFields,
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:document:detail] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -325,9 +325,9 @@ documentsRouter.put('/documents/:id/fields', async (c) => {
       fields_added: inserted.length,
       fields: inserted,
     }, 201)
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:document:fields] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
