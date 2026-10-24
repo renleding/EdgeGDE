@@ -165,9 +165,9 @@ searchRouter.get('/documents', async (c) => {
     }
 
     return c.json({ documents, ...(decryptedFields !== null ? { fields: decryptedFields } : {}) })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:search] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -230,9 +230,9 @@ searchRouter.get('/audit', async (c) => {
     )
 
     return c.json({ events })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:audit] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -269,9 +269,9 @@ searchRouter.get('/documents/custom-fields', async (c) => {
     )
 
     return c.json({ fields })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:custom-fields] GET error:', err)
-    return c.json({ error: err.message }, 500)
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -311,9 +311,9 @@ searchRouter.post('/documents/custom-fields', async (c) => {
     )
 
     return c.json({ success: true, custom_field_id: id }, 201)
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:custom-fields] POST error:', err)
-    return c.json({ error: err.message }, 500)
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
   }
 })
 
@@ -389,9 +389,9 @@ searchRouter.post('/documents/:id/approve', async (c) => {
       document_id: documentId,
       status: 'approved',
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:approve] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -458,9 +458,9 @@ searchRouter.post('/documents/:id/reject', async (c) => {
       document_id: documentId,
       status: 'rejected',
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:reject] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -501,9 +501,9 @@ searchRouter.get('/documents/pending-review', async (c) => {
     )
 
     return c.json({ documents, total: documents.length })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:pending-review] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -750,9 +750,9 @@ searchRouter.post('/documents/check-duplicates', async (c) => {
       matched: matches.length > 0,
       total_candidates_checked: candidateDocs.length,
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:check-duplicates] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -803,9 +803,9 @@ searchRouter.delete('/documents/:id', async (c) => {
     await queryRun(db, 'DELETE FROM documents WHERE document_id = ?', documentId)
 
     return c.json({ success: true, deleted_keys: keysToDelete })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:delete] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -864,9 +864,9 @@ searchRouter.put('/fields/:id/:name', async (c) => {
     )
 
     return c.json({ success: true, field_name: newFieldName, old_field_name: fieldName, overridden_value: body.value })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:field-override] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
@@ -901,9 +901,9 @@ searchRouter.delete('/fields/:id/:name', async (c) => {
     )
 
     return c.json({ success: true, deleted_field: fieldName })
-  } catch (err: any) {
+  } catch (err) {
     console.error('[doc-intel:field-delete] error:', err)
-    const errResp = errorBody('INTERNAL_ERROR', err.message)
+    const errResp = errorBody('INTERNAL_ERROR', err instanceof Error ? err.message : String(err))
     return c.json(errResp.body, errResp.status)
   }
 })
