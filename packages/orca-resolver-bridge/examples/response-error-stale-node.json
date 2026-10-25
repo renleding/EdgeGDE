@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "request_id": "9d1e2f3a-4b5c-4d6e-8f9a-0b1c2d3e4f5a",
+  "resolved_at": "2026-10-26T08:15:00.000Z",
+  "resolver": {
+    "version": "state-engine@1.4.2",
+    "latency_ms": 12,
+    "node_live": false,
+    "target_id": "A1B2C3D4E5F6A7B8C9D0"
+  },
+  "error": {
+    "code": "STALE_NODE",
+    "message": "backendDOMNodeId 5177 no longer exists in the live DOM and structural fallback found no candidate at or above the 0.5 confidence floor.",
+    "retryable": false,
+    "retry_policy": "recapture",
+    "details": {
+      "stale_backend_dom_node_id": 5177,
+      "confidence_floor": 0.5,
+      "best_candidate": {
+        "selector": "input.rc-input",
+        "match_score": 0.41
+      }
+    }
+  },
+  "warnings": []
+}

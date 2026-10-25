@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0.0",
+  "request_id": "9d1e2f3a-4b5c-4d6e-8f9a-0b1c2d3e4f5a",
+  "resolved_at": "2026-10-26T08:15:00.000Z",
+  "resolution": {
+    "status": "resolved",
+    "resolution_path": "fallback_structural",
+    "confidence": 0.83,
+    "element_ref": {
+      "backend_dom_node_id": 5302,
+      "selector": "div[data-radix-portal] input[role=\"combobox\"][aria-label=\"Vehicles make and model\"]",
+      "ax_node_id": null,
+      "bounds": {
+        "x": 220,
+        "y": 348,
+        "width": 320,
+        "height": 36
+      },
+      "frame_id": "F1.1",
+      "target_id": "A1B2C3D4E5F6A7B8C9D0"
+    },
+    "strategy": "structural_styles_match",
+    "element_type": "combobox",
+    "action_hints": [
+      "click",
+      "fill",
+      "type"
+    ],
+    "known_bug_flags": [
+      "radix_portal_block"
+    ],
+    "known_bug_workarounds": [
+      {
+        "bug_id": "radix_portal_block",
+        "workaround": "CDP mouse events are intercepted by the Radix portal overlay. Use KEY tier (ArrowDown+Enter) for combobox selection.",
+        "applied": false,
+        "reason": "Execution-time workaround. Enforced by the Action Engine at dispatch."
+      }
+    ],
+    "fallback_match": {
+      "matched_on": [
+        "dom_structure",
+        "computed_styles",
+        "geometry"
+      ],
+      "match_score": 0.83,
+      "differences": [
+        "attributes.aria-expanded changed 'true' to 'false'"
+      ],
+      "candidate_count": 3,
+      "candidate_refs": [
+        "div[data-radix-portal] input[role=\"combobox\"]",
+        "input.rc-input",
+        "input[placeholder^=\"Start typing\"]"
+      ]
+    },
+    "action_outcome": null
+  },
+  "resolver": {
+    "version": "state-engine@1.4.2",
+    "latency_ms": 187,
+    "node_live": false,
+    "target_id": "A1B2C3D4E5F6A7B8C9D0"
+  },
+  "warnings": [
+    "backendDOMNodeId 5177 stale at resolve time. Structural fallback used."
+  ]
+}

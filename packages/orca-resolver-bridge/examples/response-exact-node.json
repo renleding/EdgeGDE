@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0.0",
+  "request_id": "3f6b2a1e-7c4d-4e5f-9a8b-1c2d3e4f5a6b",
+  "resolved_at": "2026-10-26T08:15:00.000Z",
+  "resolution": {
+    "status": "resolved",
+    "resolution_path": "exact_backend_node",
+    "confidence": 1.0,
+    "element_ref": {
+      "backend_dom_node_id": 4821,
+      "selector": "button#save-and-calculate",
+      "ax_node_id": 112,
+      "bounds": {
+        "x": 640,
+        "y": 812,
+        "width": 168,
+        "height": 40
+      },
+      "frame_id": "F1.1",
+      "target_id": "A1B2C3D4E5F6A7B8C9D0"
+    },
+    "strategy": "backend_node_exact",
+    "element_type": "button",
+    "action_hints": [
+      "click",
+      "hover"
+    ],
+    "known_bug_flags": [
+      "react_props_fallback"
+    ],
+    "known_bug_workarounds": [
+      {
+        "bug_id": "react_props_fallback",
+        "workaround": "Save button may lack __reactProps$. Dispatch a bubbling click event or call b.click() after removing disabled.",
+        "applied": false,
+        "reason": "Execution-time workaround. Enforced by the Action Engine at dispatch."
+      }
+    ],
+    "fallback_match": null,
+    "action_outcome": {
+      "requested_action": {
+        "type": "click",
+        "value": null,
+        "submit": false
+      },
+      "executed": true,
+      "action_tier": "CDP",
+      "verification": {
+        "verified": true,
+        "method": "state_diff",
+        "state_changed": true,
+        "verdict": "verified",
+        "diff_summary": "Dialog 'Asset details' opened. Dialog count 0 -> 1."
+      },
+      "rejection": null
+    }
+  },
+  "resolver": {
+    "version": "state-engine@1.4.2",
+    "latency_ms": 42,
+    "node_live": true,
+    "target_id": "A1B2C3D4E5F6A7B8C9D0"
+  },
+  "warnings": []
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "request_id": "3f6b2a1e-7c4d-4e5f-9a8b-1c2d3e4f5a6b",
+  "resolved_at": "2026-10-26T08:15:00.000Z",
+  "resolver": {
+    "version": "state-engine@1.4.2",
+    "latency_ms": 12,
+    "node_live": false,
+    "target_id": "A1B2C3D4E5F6A7B8C9D0"
+  },
+  "error": {
+    "code": "TARGET_NOT_ATTACHED",
+    "message": "Resolver is not attached to target A1B2C3D4E5F6A7B8C9D0 and automatic attach failed. Target may be closed.",
+    "retryable": true,
+    "retry_policy": "reattach",
+    "details": {
+      "target_id": "A1B2C3D4E5F6A7B8C9D0",
+      "attach_attempted": true
+    }
+  },
+  "warnings": []
+}

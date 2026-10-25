@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://edgegde.dev/schemas/orca-resolver-bridge/v1.0.0/orca-resolver-error.schema.json",
+  "title": "OrcaResolverBridgeErrorEnvelope",
+  "description": "Standalone error envelope for the Orca-to-Resolver bridge. The error object is byte-identical to the error property in orca-resolver-response.schema.json. Contract IDD-016 v1.0.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "resolved_at", "error"],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "retry_policy"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": ["STALE_NODE", "ELEMENT_NOT_RESOLVABLE", "RESOLVER_TIMEOUT", "ACTION_REJECTED", "INVALID_REQUEST", "UNSUPPORTED_SCHEMA_VERSION", "TARGET_NOT_ATTACHED", "RESOLVER_UNREACHABLE", "INTERNAL_ERROR"]
+        },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "retry_policy": {
+          "type": "string",
+          "enum": ["none", "recapture", "reattach", "backoff"]
+        },
+        "details": { "type": "object" },
+        "known_bug_flags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "default": []
+        }
+      }
+    },
+    "resolver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "latency_ms", "node_live", "target_id"],
+      "properties": {
+        "version": { "type": "string" },
+        "latency_ms": { "type": "number", "minimum": 0 },
+        "node_live": { "type": "boolean" },
+        "target_id": { "type": "string" }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "default": []
+    }
+  }
+}
