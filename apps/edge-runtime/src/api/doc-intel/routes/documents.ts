@@ -17,6 +17,7 @@ import { resolveTenant, errorBody, resolveBindings } from '../lib/errors'
 import { queryFirst, queryAll, queryRun } from '../lib/db'
 import { decryptFields } from '../../../lib/encryption'
 
+/** Router for document storage endpoints (R2 download/upload, document detail, custom fields). */
 export const documentsRouter = new Hono()
 
 // ═══════════════════════════════════════════════════════════════════════════
