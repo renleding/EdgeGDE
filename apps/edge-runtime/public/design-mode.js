@@ -12,6 +12,11 @@
  *  - Portal-safe: Radix portal elements (body-level roots outside the React
  *    tree) are picked and classified like any other node
  *  - Status surfacing: capture status, transport errors, resolver response
+ *  - Action confirmation loop (IDD-016 §13.1 item 7): after the Orca CDP
+ *    controller executes a bridged action and hot-reloads the tab, this
+ *    script re-exposes __orcaDesignModeRenderConfirmation and renders the
+ *    before/after + verdict panel (Design Mode state survives the reload
+ *    via sessionStorage)
  *
  * Capture never mutates the page (IDD-016 §11 invariant 9). The overlay is
  * the Design Mode feature UI itself and is fully removed on disable.
@@ -31,6 +36,44 @@
   ];
   var ORCA_ROOT_ID = 'orca-design-mode-root';
 
+  // Scoped styles for the confirmation panel. Injected by the script itself
+  // so the panel is readable on ANY page (admin console or bare fixture),
+  // not only on the page that ships the admin stylesheet.
+  var CONFIRM_STYLES =
+    '.orca-confirm-card{position:fixed;top:14px;right:14px;z-index:2147483647;width:min(460px,92vw);' +
+    'max-height:82vh;overflow:auto;background:#161b22;border:1px solid #2d3140;border-radius:8px;' +
+    'box-shadow:0 8px 30px rgba(0,0,0,.5);color:#e1e4e8;font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}' +
+    '.orca-confirm-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;' +
+    'border-bottom:1px solid #2d3140;position:sticky;top:0;background:#161b22}' +
+    '.orca-confirm-title{font-weight:600;color:#f0f6fc;font-size:13px}' +
+    '.orca-confirm-dismiss{background:none;border:1px solid #2d3140;color:#8b949e;border-radius:6px;cursor:pointer;padding:2px 8px;font-size:12px}' +
+    '.orca-confirm-dismiss:hover{color:#e1e4e8;border-color:#4a4d55}' +
+    '.orca-confirm-body{padding:10px 12px}' +
+    '.orca-confirm-verdict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}' +
+    '.orca-confirm-verdict .verdict-text{font-size:13px;font-weight:600}' +
+    '.orca-confirm-verdict .verdict-text.ok{color:#3fb950}' +
+    '.orca-confirm-verdict .verdict-text.bad{color:#f85149}' +
+    '.orca-confirm-verdict .verdict-text.warn{color:#d29922}' +
+    '.orca-confirm-verdict .verdict-text.muted{color:#8b949e}' +
+    '.orca-confirm-note{font-size:11px;color:#d29922;background:#2d2716;border:1px solid #d2992240;border-radius:6px;padding:6px 8px;margin:6px 0}' +
+    '.orca-confirm-shots{display:flex;gap:10px;margin:8px 0}' +
+    '.orca-confirm-shot{flex:1;min-width:0}' +
+    '.orca-confirm-shot figcaption{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}' +
+    '.orca-confirm-shot img{max-width:100%;height:auto;display:block;border:1px solid #2d3140;border-radius:4px;background:#0d1117}' +
+    '.orca-confirm-shot-missing{border:1px dashed #2d3140;border-radius:4px;padding:14px;color:#8b949e;font-size:11px;text-align:center}' +
+    '.orca-confirm-section{margin:8px 0}' +
+    '.orca-confirm-section h4{font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px}' +
+    '.orca-confirm-kv{display:flex;gap:8px;margin:3px 0;font-size:12px}' +
+    '.orca-confirm-kv .k{color:#8b949e;min-width:130px}' +
+    '.orca-confirm-kv .v{color:#e1e4e8;word-break:break-all}' +
+    '.orca-confirm-actions{display:flex;gap:8px;margin-top:10px}' +
+    '.orca-confirm-actions button{background:#1c2128;color:#e1e4e8;border:1px solid #2d3140;border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer}' +
+    '.orca-confirm-actions button:hover{background:#2d3140}' +
+    '.orca-confirm-error{border:1px solid #da363340;background:#2d1616;border-radius:6px;padding:8px;margin:6px 0}' +
+    '.orca-confirm-error .code{color:#f85149;font-weight:600}' +
+    '.orca-confirm pre{background:#0d1117;border:1px solid #2d3140;border-radius:6px;padding:8px;overflow:auto;max-height:180px;font-size:10px}' +
+    '.orca-confirm .flag{display:inline-block;background:#d2992220;color:#d29922;border:1px solid #d29922;border-radius:10px;padding:1px 8px;font-size:10px;margin:2px 4px 2px 0}';
+
   var STATE = {
     active: false,
     root: null,
@@ -39,6 +82,8 @@
     requestId: null,
     lastPayload: null,
     lastResponse: null,
+    lastConfirmation: null,
+    executing: false,
     handlersInstalled: false
   };
 
@@ -239,7 +284,13 @@
     var h = Math.max(1, Math.round(rect.height));
     var canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
-    var ctx = canvas.getContext('2d');
+    var ctx = canvas.getContext && canvas.getContext('2d');
+    if (!ctx) {
+      // Canvas 2D unavailable (headless test DOM / canvas blocked) — return a
+      // schema-valid 1x1 transparent PNG placeholder instead of crashing the
+      // pick flow; the controller replaces it with a real clip anyway.
+      return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    }
     ctx.fillStyle = '#161b22';
     ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = '#58a6ff';
@@ -492,6 +543,357 @@
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Execution guard + action confirmation panel (IDD-016 §13.1 item 7)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function setExecutionGuard(executing) {
+    STATE.executing = !!executing;
+    if (STATE.highlight) STATE.highlight.style.display = 'none';
+    setStatus('captureStatus',
+      STATE.executing ? 'Executing bridged action — picking paused…' : 'Active — hover to inspect, click to capture',
+      STATE.executing ? 'warning' : 'success');
+    log('info', STATE.executing ? 'execution guard ON — picker paused for action dispatch' : 'execution guard OFF — picking resumed');
+  }
+
+  function confirmEl(tag, cls) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    return n;
+  }
+
+  function confirmKv(host, key, value) {
+    var row = confirmEl('div', 'orca-confirm-kv');
+    var k = confirmEl('span', 'k'); k.textContent = key;
+    var v = confirmEl('span', 'v'); v.textContent = value == null ? '' : String(value);
+    row.appendChild(k); row.appendChild(v);
+    host.appendChild(row);
+  }
+
+  function confirmBadge(text, cls) {
+    return confirmEl('span', 'badge ' + (cls || 'badge-gray'));
+  }
+
+  function confirmBadgeText(host, text, cls) {
+    var b = confirmBadge(text, cls);
+    b.textContent = text;
+    host.appendChild(b);
+    return b;
+  }
+
+  function confirmJsonDetails(host, summary, obj) {
+    if (obj === undefined || obj === null) return;
+    var d = confirmEl('details', 'collapsible');
+    var s = confirmEl('summary'); s.textContent = summary;
+    var pre = confirmEl('pre', 'json-highlight');
+    pre.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    d.appendChild(s); d.appendChild(pre);
+    host.appendChild(d);
+  }
+
+  function confirmShot(host, shot, label) {
+    var fig = confirmEl('figure', 'orca-confirm-shot');
+    var cap = confirmEl('figcaption'); cap.textContent = label;
+    fig.appendChild(cap);
+    if (shot && shot.storage === 'data_uri' && shot.data_uri && shot.data_uri.length <= 4000000) {
+      var img = confirmEl('img');
+      img.src = shot.data_uri;
+      img.alt = label;
+      fig.appendChild(img);
+    } else {
+      var ph = confirmEl('div', 'orca-confirm-shot-missing');
+      ph.textContent = shot ? 'screenshot exceeds the 4M data-URI cap (blob_ref)' : 'not captured';
+      fig.appendChild(ph);
+    }
+    host.appendChild(fig);
+  }
+
+  function verdictBadge(verdict) {
+    if (verdict === 'verified') return { text: 'VERIFIED — state change confirmed', cls: 'badge-green', tone: 'ok' };
+    if (verdict === 'no_state_change') return { text: 'UNVERIFIED — NO STATE CHANGE', cls: 'badge-red', tone: 'bad' };
+    if (verdict === 'false_positive_detected') return { text: 'FALSE POSITIVE DETECTED', cls: 'badge-red', tone: 'bad' };
+    if (verdict === 'not_verified') return { text: 'NOT VERIFIED', cls: 'badge-gray', tone: 'muted' };
+    return { text: 'VERIFICATION PENDING', cls: 'badge-gray', tone: 'muted' };
+  }
+
+  /**
+   * Render the action confirmation panel (before/after region captures +
+   * verification verdict + state-diff evidence). Called by the Orca CDP
+   * controller via window.__orcaDesignModeRenderConfirmation after the
+   * hot-reload, and from sessionStorage restore for the interim notice.
+   *
+   * Frozen badge decisions (IDD-016 bridge comment, t_f86d149b):
+   *  - inputs: resolution.confidence, resolution_path, fallback_match
+   *  - verdict from action_outcome.verification {verified, verdict,
+   *    diff_summary, false_positive_guard}
+   *  - error path renders error {code, message, retryable, retry_policy}
+   *  - no_state_change shows diff evidence + the unverified verdict —
+   *    NEVER a success badge
+   */
+  function renderConfirmation(session, interim) {
+    if (!session) return;
+    STATE.lastConfirmation = session;
+    // Pending stash semantics: the controller writes it before the
+    // hot-reload; the interim render keeps it alive across further reloads;
+    // the FULL render (post-reload injection) consumes and clears it.
+    try {
+      if (interim) sessionStorage.setItem('orcaDesignMode.pending', JSON.stringify(session));
+      else sessionStorage.removeItem('orcaDesignMode.pending');
+    } catch (e) {}
+    ensureRoot();
+
+    var host = $('confirmationContent');
+    var selfHosted = false;
+    if (!host) {
+      host = confirmEl('div');
+      host.id = 'confirmationContent';
+      var card = confirmEl('div', 'orca-confirm-card');
+      var head = confirmEl('div', 'orca-confirm-head');
+      var title = confirmEl('span', 'orca-confirm-title');
+      title.textContent = 'Orca Action Confirmation';
+      head.appendChild(title);
+      card.appendChild(head);
+      card.appendChild(host);
+      STATE.root.appendChild(card);
+      selfHosted = true;
+    }
+    while (host.firstChild) host.removeChild(host.firstChild);
+
+    var phase = session.phase || 'unknown';
+    var res = session.resolution || {};
+    var conf = typeof res.confidence === 'number' ? res.confidence : null;
+
+    // ── Interim notice: action done, page reloading / re-capturing ──
+    if (interim || phase === 'reloading') {
+      var iw = confirmEl('div', 'orca-confirm-body');
+      confirmKv(iw, 'Status', 'Action completed — page hot-reloaded, re-capturing the affected region…');
+      if (session.request_id) confirmKv(iw, 'request_id', session.request_id);
+      if (session.verdict) confirmKv(iw, 'verdict', session.verdict);
+      host.appendChild(iw);
+      setStatus('confirmationStatus', 'Action completed — reloading for visual confirmation…', 'warning');
+      log('info', 'confirmation: interim notice (request_id=' + (session.request_id || 'n/a') + ')');
+      return;
+    }
+
+    var body = confirmEl('div', 'orca-confirm-body');
+    var headRow = confirmEl('div', 'orca-confirm-verdict');
+    var vBadge = confirmEl('span', 'badge badge-gray');
+    var statusLine = '';
+    var statusType = 'success';
+
+    if (phase === 'error') {
+      var err = session.error || {};
+      vBadge.className = 'badge badge-red';
+      vBadge.textContent = 'ERROR ' + (err.code || 'UNKNOWN');
+      statusLine = 'Error ' + (err.code || 'unknown') + ' — ' + (err.message || '');
+      statusType = 'error';
+    } else if (phase === 'rejection') {
+      vBadge.className = 'badge badge-yellow';
+      vBadge.textContent = 'ACTION REJECTED';
+      statusLine = 'Resolver declined the action in-band — see rejection reason';
+      statusType = 'warning';
+    } else if (phase === 'human_confirm') {
+      vBadge.className = 'badge badge-blue';
+      vBadge.textContent = 'AWAITING CONFIRMATION';
+      statusLine = 'Resolution below the auto-execute policy — human confirmation required';
+      statusType = 'warning';
+    } else if (phase === 'no_action') {
+      vBadge.className = 'badge badge-gray';
+      vBadge.textContent = 'NO COMPATIBLE ACTION';
+      statusLine = 'Resolved, but the element exposes no auto-executable action hint';
+      statusType = 'inactive';
+    } else {
+      var vb = verdictBadge(session.verdict);
+      vBadge.className = 'badge ' + vb.cls;
+      vBadge.textContent = vb.text;
+      statusLine = 'Verdict: ' + (session.verdict || 'pending');
+      statusType = session.verdict === 'verified' ? 'success'
+        : (session.verdict === 'no_state_change' || session.verdict === 'false_positive_detected') ? 'error'
+        : 'warning';
+    }
+    headRow.appendChild(vBadge);
+    body.appendChild(headRow);
+
+    // ── Resolution provenance (frozen decision 2) ──
+    if (phase !== 'error') {
+      var rsec = confirmEl('div', 'orca-confirm-section');
+      var rh = confirmEl('h4'); rh.textContent = 'Resolution'; rsec.appendChild(rh);
+      if (conf !== null) {
+        var crow = confirmEl('div', 'orca-confirm-kv');
+        var ck = confirmEl('span', 'k'); ck.textContent = 'confidence';
+        var cv = confirmEl('span', 'v');
+        var cb = confirmEl('span', conf === 1 ? 'badge badge-green' : conf >= 0.9 ? 'badge badge-blue' : conf >= 0.5 ? 'badge badge-yellow' : 'badge badge-red');
+        cb.textContent = String(conf);
+        cv.appendChild(cb);
+        crow.appendChild(ck); crow.appendChild(cv);
+        rsec.appendChild(crow);
+      }
+      if (res.resolution_path) confirmKv(rsec, 'resolution_path', res.resolution_path);
+      if (res.strategy) confirmKv(rsec, 'strategy', res.strategy);
+      if (res.element_ref && res.element_ref.selector) confirmKv(rsec, 'selector hint', res.element_ref.selector);
+      if (res.fallback_match) {
+        confirmKv(rsec, 'fallback matched_on', (res.fallback_match.matched_on || []).join(', '));
+        confirmKv(rsec, 'fallback match_score', String(res.fallback_match.match_score));
+        if (res.fallback_match.differences && res.fallback_match.differences.length) {
+          confirmKv(rsec, 'fallback differences', res.fallback_match.differences.join('; '));
+        }
+        confirmKv(rsec, 'fallback candidates', String(res.fallback_match.candidate_count));
+      }
+      if (session.element && session.element.tag) {
+        confirmKv(rsec, 'picked element', '<' + session.element.tag + '>' + (session.element.in_portal ? ' [portal]' : ''));
+      }
+      body.appendChild(rsec);
+    }
+
+    // ── Action + verification verdict (frozen decision 3) ──
+    if (session.action && session.action.executed !== undefined) {
+      var asec = confirmEl('div', 'orca-confirm-section');
+      var ah = confirmEl('h4'); ah.textContent = 'Action'; asec.appendChild(ah);
+      if (session.action.requested_action) {
+        confirmKv(asec, 'requested', session.action.requested_action.type +
+          (session.action.requested_action.value ? '=' + session.action.requested_action.value : ''));
+      }
+      confirmKv(asec, 'executed', String(session.action.executed));
+      if (session.action.action_tier) confirmKv(asec, 'action_tier', session.action.action_tier);
+      body.appendChild(asec);
+    }
+    if (session.verification) {
+      var vsec = confirmEl('div', 'orca-confirm-section');
+      var vh = confirmEl('h4'); vh.textContent = 'Verification (state-diff)'; vsec.appendChild(vh);
+      confirmKv(vsec, 'method', session.verification.method || 'state_diff');
+      confirmKv(vsec, 'state_changed', String(session.verification.state_changed));
+      if (session.verification.diff_summary) confirmKv(vsec, 'diff_summary', session.verification.diff_summary);
+      if (session.verification.false_positive_guard) confirmKv(vsec, 'false_positive_guard', session.verification.false_positive_guard);
+      body.appendChild(vsec);
+      if (session.verdict === 'no_state_change') {
+        var note = confirmEl('div', 'orca-confirm-note');
+        note.textContent = 'The action executed but the state-diff shows no change. This is NOT a success — no success badge is shown.';
+        body.appendChild(note);
+      }
+      if (session.verdict === 'false_positive_detected') {
+        var fp = confirmEl('div', 'orca-confirm-note');
+        fp.textContent = 'A known false-positive pattern matched (guard: ' +
+          (session.verification.false_positive_guard || 'unnamed') + '). The change was not accepted as proof.';
+        body.appendChild(fp);
+      }
+    }
+    if (session.rejection) {
+      var jsec = confirmEl('div', 'orca-confirm-section');
+      var jh = confirmEl('h4'); jh.textContent = 'Rejection'; jsec.appendChild(jh);
+      confirmKv(jsec, 'code', session.rejection.code || '');
+      confirmKv(jsec, 'reason_code', session.rejection.reason_code || '');
+      confirmKv(jsec, 'reason', session.rejection.reason || '');
+      body.appendChild(jsec);
+    }
+
+    // ── Error payload (frozen decision 4) ──
+    if (phase === 'error' && session.error) {
+      var esec = confirmEl('div', 'orca-confirm-error');
+      var er = confirmEl('div');
+      var ec = confirmEl('span', 'code'); ec.textContent = session.error.code || 'ERROR';
+      er.appendChild(ec);
+      er.appendChild(document.createTextNode(' ' + (session.error.message || '')));
+      esec.appendChild(er);
+      confirmKv(esec, 'retryable', String(session.error.retryable));
+      confirmKv(esec, 'retry_policy', session.error.retry_policy || '');
+      confirmJsonDetails(esec, 'error details', session.error.details);
+      if (session.error.known_bug_flags && session.error.known_bug_flags.length) {
+        confirmKv(esec, 'known_bug_flags', session.error.known_bug_flags.join(', '));
+      }
+      body.appendChild(esec);
+    }
+
+    // ── Known-bug flags + workarounds ──
+    if (session.known_bug_flags && session.known_bug_flags.length) {
+      var bsec = confirmEl('div', 'orca-confirm-section');
+      var bh = confirmEl('h4'); bh.textContent = 'Known-bug flags'; bsec.appendChild(bh);
+      session.known_bug_flags.forEach(function (f) {
+        confirmBadgeText(bsec, f, 'badge-yellow');
+      });
+      body.appendChild(bsec);
+    }
+    if (session.known_bug_workarounds && session.known_bug_workarounds.length) {
+      confirmJsonDetails(body, 'known_bug_workarounds (' + session.known_bug_workarounds.length + ')', session.known_bug_workarounds);
+    }
+
+    // ── Before / after region captures ──
+    if (session.before || session.after) {
+      var ssec = confirmEl('div', 'orca-confirm-section');
+      var sh = confirmEl('h4'); sh.textContent = 'Region capture — before / after hot-reload'; ssec.appendChild(sh);
+      var shots = confirmEl('div', 'orca-confirm-shots');
+      confirmShot(shots, session.before, 'BEFORE (pick)');
+      confirmShot(shots, session.after, 'AFTER (post-reload)');
+      ssec.appendChild(shots);
+      if (session.after_element) {
+        confirmKv(ssec, 'after re-locate', session.after_element.via || '');
+        confirmKv(ssec, 'after region DOM changed', String(session.after_element.dom_changed));
+      }
+      if (session.recapture_error) {
+        var rn = confirmEl('div', 'orca-confirm-note');
+        rn.textContent = 'After-capture unavailable: ' + session.recapture_error;
+        ssec.appendChild(rn);
+      }
+      body.appendChild(ssec);
+    }
+
+    // ── Evidence meta ──
+    var msec = confirmEl('div', 'orca-confirm-section');
+    var mh = confirmEl('h4'); mh.textContent = 'Evidence'; msec.appendChild(mh);
+    if (session.request_id) confirmKv(msec, 'request_id', session.request_id);
+    if (session.session_id) confirmKv(msec, 'session_id', session.session_id);
+    if (session.transport) confirmKv(msec, 'transport', session.transport);
+    if (session.resolver) {
+      confirmKv(msec, 'resolver', session.resolver.version || '');
+      confirmKv(msec, 'resolver latency_ms', String(session.resolver.latency_ms));
+      confirmKv(msec, 'node_live', String(session.resolver.node_live));
+    }
+    if (session.reload) confirmKv(msec, 'hot-reload', session.reload.wait || String(session.reload.reloaded));
+    if (session.policy) confirmKv(msec, 'policy', session.policy.decision + (session.policy.hint ? ' (' + session.policy.hint + ')' : ''));
+    confirmJsonDetails(msec, 'warnings', session.warnings && session.warnings.length ? session.warnings : null);
+    confirmJsonDetails(msec, 'stage log', session.stage_log && session.stage_log.length ? session.stage_log : null);
+    body.appendChild(msec);
+
+    // ── Panel actions ──
+    var act = confirmEl('div', 'orca-confirm-actions');
+    var copyBtn = confirmEl('button');
+    copyBtn.type = 'button';
+    copyBtn.textContent = 'Copy evidence JSON';
+    copyBtn.addEventListener('click', function () {
+      var txt = JSON.stringify(session, null, 2);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(
+          function () { log('success', 'confirmation evidence copied to clipboard'); },
+          function () { log('error', 'clipboard copy failed'); }
+        );
+      }
+    });
+    var dismissBtn = confirmEl('button');
+    dismissBtn.type = 'button';
+    dismissBtn.textContent = 'Dismiss';
+    dismissBtn.addEventListener('click', function () {
+      if (selfHosted) {
+        var card = host.closest('.orca-confirm-card');
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+      } else {
+        while (host.firstChild) host.removeChild(host.firstChild);
+      }
+      try { sessionStorage.removeItem('orcaDesignMode.pending'); } catch (e) {}
+      setStatus('confirmationStatus', 'Confirmation dismissed', 'inactive');
+    });
+    act.appendChild(copyBtn);
+    act.appendChild(dismissBtn);
+    body.appendChild(act);
+
+    host.appendChild(body);
+
+    setStatus('confirmationStatus', statusLine, statusType);
+    log(statusType === 'error' ? 'error' : statusType === 'warning' ? 'warning' : 'success',
+      'confirmation rendered: phase=' + phase +
+      (session.verdict ? ' verdict=' + session.verdict : '') +
+      ' confidence=' + (conf === null ? 'n/a' : conf));
+    try { host.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Pick flow
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -500,15 +902,17 @@
   }
 
   function onPickClick(event) {
-    if (!STATE.active) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-
+    if (!STATE.active || STATE.executing) return;
     var x = event.clientX;
     var y = event.clientY;
     var el = document.elementFromPoint(x, y);
     if (!el || isOrcaUi(el)) return;
+    // Suppress the page's own handlers — this click is a PICK, not an
+    // activation. (Guard order matters: clicks on our own UI must pass
+    // through unsuppressed so the FAB stays clickable.)
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
 
     setStatus('captureStatus', 'Capturing element <' + el.tagName.toLowerCase() + '>…', 'pending');
     log('info', 'pick at (' + x + ',' + y + ')');
@@ -524,7 +928,7 @@
   }
 
   function onPickHover(event) {
-    if (!STATE.active || !STATE.highlight) return;
+    if (!STATE.active || !STATE.highlight || STATE.executing) return;
     var el = document.elementFromPoint(event.clientX, event.clientY);
     if (!el || isOrcaUi(el)) {
       STATE.highlight.style.display = 'none';
@@ -550,13 +954,21 @@
     var root = document.createElement('div');
     root.id = ORCA_ROOT_ID;
     root.innerHTML =
-      '<div id="orca-design-mode-overlay" style="position:fixed;inset:0;z-index:2147483646;background:transparent;cursor:crosshair"></div>' +
+      '<div id="orca-design-mode-overlay" style="position:fixed;inset:0;z-index:2147483646;background:transparent;cursor:crosshair;pointer-events:none"></div>' +
       '<div id="orca-design-mode-highlight" style="position:absolute;z-index:2147483647;border:2px solid #58a6ff;background:rgba(88,166,255,0.12);border-radius:3px;pointer-events:none;display:none;font:11px/1.4 monospace;color:#58a6ff;padding:1px 4px;white-space:pre"></div>' +
       '<button id="orca-design-mode-fab" type="button" style="position:fixed;right:18px;bottom:18px;z-index:2147483647;padding:10px 14px;border-radius:999px;border:1px solid #2d3140;background:#161b22;color:#e1e4e8;font:12px/1 -apple-system,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.4)">◉ Design Mode</button>';
     document.body.appendChild(root);
     STATE.root = root;
     STATE.overlay = root.querySelector('#orca-design-mode-overlay');
     STATE.highlight = root.querySelector('#orca-design-mode-highlight');
+    // Panel styles are self-contained so the confirmation panel renders on
+    // any page, not just the admin console (which ships its own stylesheet).
+    if (!$('orca-design-mode-styles')) {
+      var st = document.createElement('style');
+      st.id = 'orca-design-mode-styles';
+      st.textContent = CONFIRM_STYLES;
+      document.head.appendChild(st);
+    }
     return root;
   }
 
@@ -573,9 +985,15 @@
     boundHover = function (ev) { onPickHover(ev); };
     boundKey = function (ev) { if (ev.key === 'Escape') disable(); };
 
-    STATE.overlay.addEventListener('click', boundClick, true);
-    STATE.overlay.addEventListener('mousemove', boundHover, true);
+    // Document-level capture listeners. The overlay is pointer-events:none,
+    // so elementFromPoint sees the real page and the highlight tracks the
+    // hovered element. Capture-phase click lets us suppress the page's own
+    // handlers for the PICK click (the pick is not an activation).
+    document.addEventListener('click', boundClick, true);
+    document.addEventListener('mousemove', boundHover, true);
     document.addEventListener('keydown', boundKey, true);
+    document.documentElement.style.cursor = 'crosshair';
+    try { sessionStorage.setItem('orcaDesignMode.active', '1'); } catch (e) {}
 
     var btn = STATE.root.querySelector('#orca-design-mode-fab');
     btn.textContent = '◉ Design Mode ON (Esc to exit)';
@@ -591,9 +1009,14 @@
   function disable() {
     if (!STATE.active) return;
     STATE.active = false;
-    if (STATE.overlay && boundClick) STATE.overlay.removeEventListener('click', boundClick, true);
-    if (STATE.overlay && boundHover) STATE.overlay.removeEventListener('mousemove', boundHover, true);
+    if (boundClick) document.removeEventListener('click', boundClick, true);
+    if (boundHover) document.removeEventListener('mousemove', boundHover, true);
     if (boundKey) document.removeEventListener('keydown', boundKey, true);
+    document.documentElement.style.cursor = '';
+    try {
+      sessionStorage.removeItem('orcaDesignMode.active');
+      sessionStorage.removeItem('orcaDesignMode.pending');
+    } catch (e) {}
     if (STATE.root && STATE.root.parentNode) STATE.root.parentNode.removeChild(STATE.root);
     STATE.root = STATE.overlay = STATE.highlight = null;
     boundClick = boundHover = boundKey = null;
@@ -623,7 +1046,9 @@
     toggle: toggle,
     isActive: function () { return STATE.active; },
     getLastPayload: function () { return STATE.lastPayload; },
-    getLastResponse: function () { return STATE.lastResponse; }
+    getLastResponse: function () { return STATE.lastResponse; },
+    setExecutionGuard: setExecutionGuard,
+    getLastConfirmation: function () { return STATE.lastConfirmation; }
   };
   window.toggleDesignMode = toggle;
   window.showTab = showTab;
@@ -635,6 +1060,35 @@
   window.__orcaDesignModeRenderResponse = function (result) {
     renderResponse(result);
   };
+  // Confirmation-loop entry point: the Orca CDP controller injects the
+  // session payload (before/after captures + verdict) after the hot-reload.
+  window.__orcaDesignModeRenderConfirmation = function (session) {
+    renderConfirmation(session, false);
+  };
+
+  // Restore Design Mode + any pending confirmation across the confirmation
+  // loop's hot-reload (sessionStorage survives the reload; in-memory STATE
+  // does not). The controller re-injects the full payload once the page is
+  // ready — until then the interim notice keeps the loop visible.
+  // The injected script runs at document-start (body may not exist yet),
+  // so defer the restore to DOMContentLoaded when needed.
+  function restoreAfterReload() {
+    try {
+      if (sessionStorage.getItem('orcaDesignMode.active') === '1') {
+        enable();
+        log('info', 'Design Mode restored after hot-reload');
+      }
+      var pendingRaw = sessionStorage.getItem('orcaDesignMode.pending');
+      if (pendingRaw) renderConfirmation(JSON.parse(pendingRaw), true);
+    } catch (e) {
+      console.error('[orca] post-reload restore failed', e);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', restoreAfterReload);
+  } else {
+    restoreAfterReload();
+  }
 
   log('info', 'Orca Design Mode loaded (contract ' + CONTRACT_VERSION + ') — click "Enable Design Mode"');
 })();

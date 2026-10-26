@@ -177,6 +177,14 @@ export function renderDesignModePage(stateEnginePort: string): string {
     </div>
 
     <div class="card">
+      <h2>Action Confirmation</h2>
+      <div id="confirmationStatus" class="overlay-info">
+        <span class="status-dot inactive"></span> No action yet. Pick an element to resolve it; when the Orca CDP controller executes a bridged action, the tab hot-reloads and the before/after evidence panel lands here.
+      </div>
+      <div id="confirmationContent" style="font-size:13px"></div>
+    </div>
+
+    <div class="card">
       <h2>Settings</h2>
       <div class="grid">
         <div>
@@ -194,6 +202,13 @@ export function renderDesignModePage(stateEnginePort: string): string {
         <div>
           <label class="label">Locale</label>
           <div class="value"><input type="text" id="localeContext" value="en-AU" style="width:100px"></div>
+        </div>
+        <div>
+          <label class="label">Action Policy</label>
+          <div class="value" style="display:flex;align-items:center;gap:6px;font-family:inherit">
+            <input type="checkbox" id="autoExecuteActions" checked>
+            <span>Auto-execute actions (confidence ≥ 0.9, Orca CDP controller path)</span>
+          </div>
         </div>
       </div>
     </div>

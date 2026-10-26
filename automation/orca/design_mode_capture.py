@@ -158,7 +158,9 @@ function () {
 """
 
 # Shim appended to the injected design-mode.js so picks flow to the controller
-# over the Runtime binding instead of a same-origin HTTP proxy.
+# over the Runtime binding instead of a same-origin HTTP proxy. Also rides
+# the page's auto-execute setting (admin console checkbox) so the §8 policy
+# decision can be made controller-side.
 _BINDING_SHIM = """
 ;(function () {
   if (!window.__orcaDesignModePickInstalled) {
@@ -166,8 +168,12 @@ _BINDING_SHIM = """
     var origDeliver = window.__orcaDesignModeDeliverPick;
     window.__orcaDesignModeDeliverPick = function (payload, x, y) {
       if (typeof window.__orcaDesignModePick === 'function') {
-        try { window.__orcaDesignModePick(JSON.stringify({ payload: payload, x: x, y: y })); }
-        catch (e) { console.error('[orca] binding pick failed', e); }
+        try {
+          var autoExecute = true;
+          var cb = document.getElementById('autoExecuteActions');
+          if (cb && cb.type === 'checkbox') autoExecute = cb.checked;
+          window.__orcaDesignModePick(JSON.stringify({ payload: payload, x: x, y: y, auto_execute: autoExecute }));
+        } catch (e) { console.error('[orca] binding pick failed', e); }
       } else if (typeof origDeliver === 'function') {
         origDeliver(payload, x, y);
       }
@@ -175,6 +181,28 @@ _BINDING_SHIM = """
   }
 })();
 """
+
+
+# Readiness probe for install_design_mode: script surface + render entry both live.
+INSTALL_READINESS_PROBE = (
+    "typeof window.orcaDesignMode === 'object' && "
+    "typeof window.__orcaDesignModeDeliverPick === 'function' && "
+    "typeof window.__orcaDesignModeRenderConfirmation === 'function'"
+)
+
+
+def selector_hints_from_attributes(attrs: dict) -> list[str]:
+    """Stable CSS attribute selectors for capture/re-location, safest first.
+
+    Built from the in-page payload's relevantAttributes. Attribute selectors
+    avoid CSS escaping issues with ids and work for portal elements too.
+    """
+    hints = []
+    for name in ("id", "data-testid", "name", "aria-label", "title"):
+        val = (attrs or {}).get(name)
+        if val:
+            hints.append(f'[{name}={json.dumps(val)}]')
+    return hints
 
 
 def sha256_hex(text: str) -> str:
@@ -334,7 +362,7 @@ def build_request(
     return payload
 
 
-def synthesize_unreachable(request_id: str, target_id: str, attempts: int, detail: str) -> dict:
+def synthesize_unreachable(request_id: str, target_id: str, attempts: int, detail: str, ladder_ms: Optional[list] = None) -> dict:
     """IDD-016 §5.3 rule 3 — caller-synthesized transport failure envelope."""
     return {
         "schema_version": CONTRACT_VERSION,
@@ -354,7 +382,7 @@ def synthesize_unreachable(request_id: str, target_id: str, attempts: int, detai
             "details": {
                 "transports_attempted": ["mcp", "http"],
                 "attempts": attempts,
-                "ladder_ms": UNREACHABLE_LADDER_MS,
+                "ladder_ms": list(ladder_ms if ladder_ms is not None else UNREACHABLE_LADDER_MS),
             },
             "known_bug_flags": [],
         },
@@ -427,6 +455,10 @@ class CdpClient:
 class DesignModeCapture:
     """Orca-side Design Mode capture + resolver transport (IDD-016)."""
 
+    # §5.3 default ladder. Class-level so instances constructed via __new__
+    # (the test suite's fake-CDP harness) still carry the frozen default.
+    unreachable_ladder_ms: list = list(UNREACHABLE_LADDER_MS)
+
     def __init__(
         self,
         cdp_ws_url: str,
@@ -436,6 +468,7 @@ class DesignModeCapture:
         locale: str = "en-AU",
         http_timeout: float = 15.0,
         sleep_fn=asyncio.sleep,
+        unreachable_ladder_ms: Optional[list] = None,
     ):
         self.cdp = CdpClient(cdp_ws_url)
         self.state_engine_port = state_engine_port
@@ -450,6 +483,11 @@ class DesignModeCapture:
         self.last_transport: Optional[str] = None
         self._sessions: dict[str, str] = {}
         self._pick_queue: asyncio.Queue = asyncio.Queue()
+        # §5.3 ladder — overridable (tests and failure-path demos use a
+        # compressed ladder; the frozen default is [5000, 15000, 25000, 60000]).
+        self.unreachable_ladder_ms = list(
+            unreachable_ladder_ms if unreachable_ladder_ms is not None else UNREACHABLE_LADDER_MS
+        )
 
     # ── target / session management ──────────────────────────────────────
 
@@ -470,6 +508,16 @@ class DesignModeCapture:
             return None
         if sid:
             self._sessions[target_id] = sid
+            # CDP domain lazy-init (found by live probing, kanban t_f86d149b):
+            # DOM/CSS recipe commands — getComputedStyleForNode, getBoxModel,
+            # describeNode — fail with "agent was not enabled" on a session
+            # whose domains were never enabled. Enable the capture recipe's
+            # domains once per session (idempotent).
+            for method in ("DOM.enable", "CSS.enable"):
+                try:
+                    await self.cdp.send(method, {}, session_id=sid)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("domain enable %s failed: %s", method, e)
         return sid
 
     async def _cdp(self, method: str, params: dict, target_id: str, timeout: float = 30.0) -> dict:
@@ -478,8 +526,38 @@ class DesignModeCapture:
 
     # ── IDD-016 §6.2 capture recipe (raw CDP) ────────────────────────────
 
-    async def capture_element(self, target_id: str, x: Optional[float] = None, y: Optional[float] = None, remote_object_id: Optional[str] = None) -> dict:
-        """Capture the clicked element via raw CDP. Never mutates the page."""
+    async def _node_ids_from_backend(self, target_id: str, backend_node_id: int) -> Optional[int]:
+        """nodeId for a backendNodeId.
+
+        Chrome ≥151 omits nodeId from DOM.getNodeForLocation responses —
+        derive it via DOM.pushNodesByBackendIdsToFrontend.
+        """
+        res = await self._cdp(
+            "DOM.pushNodesByBackendIdsToFrontend", {"backendNodeIds": [int(backend_node_id)]}, target_id
+        )
+        ids = res.get("nodeIds") or []
+        return ids[0] if ids else None
+
+    async def _node_ids_from_selector(self, target_id: str, selector: str) -> tuple[Optional[int], Optional[int]]:
+        """(nodeId, backendNodeId) for a CSS selector via DOM.querySelector."""
+        doc = await self._cdp("DOM.getDocument", {"depth": 0}, target_id)
+        root_id = (doc.get("root") or {}).get("nodeId")
+        if not root_id:
+            return None, None
+        q = await self._cdp("DOM.querySelector", {"nodeId": root_id, "selector": selector}, target_id)
+        node_id = q.get("nodeId")
+        if not node_id:
+            return None, None
+        desc = await self._cdp("DOM.describeNode", {"nodeId": node_id}, target_id)
+        return node_id, desc.get("node", {}).get("backendNodeId")
+
+    async def capture_element(self, target_id: str, x: Optional[float] = None, y: Optional[float] = None, remote_object_id: Optional[str] = None, selector_hints: Optional[list] = None) -> dict:
+        """Capture the clicked element via raw CDP. Never mutates the page.
+
+        Node resolution order (§6.2 steps 1–3): explicit RemoteObjectId →
+        stable attribute selectors from the in-page payload (deterministic;
+        immune to overlay/portal hit-testing quirks) → pick coordinates.
+        """
         # 1–3. Element handle → nodeId → backendNodeId (exact CDP handle).
         backend_node_id, node_id = None, None
         if remote_object_id:
@@ -487,10 +565,17 @@ class DesignModeCapture:
             desc = await self._cdp("DOM.describeNode", {"nodeId": node_id}, target_id)
             backend_node_id = desc.get("node", {}).get("backendNodeId")
         else:
-            if x is None or y is None:
-                raise ValueError("capture_element needs (x, y) or remote_object_id")
-            loc = await self._cdp("DOM.getNodeForLocation", {"x": int(x), "y": int(y)}, target_id)
-            node_id, backend_node_id = loc.get("nodeId"), loc.get("backendNodeId")
+            for sel in selector_hints or []:
+                node_id, backend_node_id = await self._node_ids_from_selector(target_id, sel)
+                if node_id and backend_node_id:
+                    break
+            if not backend_node_id or not node_id:
+                if x is None or y is None:
+                    raise ValueError("capture_element needs remote_object_id, selector_hints, or (x, y)")
+                loc = await self._cdp("DOM.getNodeForLocation", {"x": int(x), "y": int(y)}, target_id)
+                node_id, backend_node_id = loc.get("nodeId"), loc.get("backendNodeId")
+                if backend_node_id and not node_id:
+                    node_id = await self._node_ids_from_backend(target_id, backend_node_id)
         if not backend_node_id or not node_id:
             raise RuntimeError("CDP returned no backendNodeId for pick")
 
@@ -556,8 +641,31 @@ class DesignModeCapture:
             x, y = min(xs), min(ys)
             w = max(xs) - x
             h = max(ys) - y
-        except Exception:  # noqa: BLE001 - zero-area geometry is still schema-valid
-            return {"x": 0, "y": 0, "width": 0, "height": 0, "coordinate_space": "viewport"}
+        except Exception:  # noqa: BLE001 - fall through to the rect probe below
+            w = h = 0
+        if not w or not h:
+            # Box model came back empty (observed live on Chrome 151 for
+            # nodes resolved via querySelector on a freshly-attached session)
+            # — probe the page's own layout rect so the clip is never
+            # degenerate. Zero stays only for genuinely layout-less nodes.
+            try:
+                resolve = await self._cdp("DOM.resolveNode", {"nodeId": node_id}, target_id)
+                object_id = (resolve.get("object") or {}).get("objectId")
+                if object_id:
+                    rect_res = await self._cdp(
+                        "Runtime.callFunctionOn",
+                        {
+                            "objectId": object_id,
+                            "functionDeclaration": "function(){const r=this.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height};}",
+                            "returnByValue": True,
+                        },
+                        target_id,
+                    )
+                    r = (rect_res.get("result") or {}).get("value") or {}
+                    if r.get("w") and r.get("h"):
+                        return {"x": r["x"], "y": r["y"], "width": r["w"], "height": r["h"], "coordinate_space": "viewport"}
+            except Exception:  # noqa: BLE001 - keep zero-geometry (schema-invalid → surfaced)
+                pass
         return {"x": x, "y": y, "width": w, "height": h, "coordinate_space": "viewport"}
 
     async def _screenshot(self, target_id: str, geometry: dict) -> dict:
@@ -585,8 +693,8 @@ class DesignModeCapture:
                 "storage": "data_uri",
                 "data_uri": data_uri,
                 "mime_type": "image/png",
-                "width": geometry["width"],
-                "height": geometry["height"],
+                "width": max(1, int(geometry["width"])),
+                "height": max(1, int(geometry["height"])),
                 "sha256": digest,
             }
         blob_id = "orca-capture-" + uuid.uuid4().hex[:8]
@@ -595,8 +703,8 @@ class DesignModeCapture:
             "storage": "blob_ref",
             "blob_id": blob_id,
             "mime_type": "image/png",
-            "width": geometry["width"],
-            "height": geometry["height"],
+            "width": max(1, int(geometry["width"])),
+            "height": max(1, int(geometry["height"])),
             "sha256": digest,
         }
 
@@ -781,11 +889,14 @@ class DesignModeCapture:
                 return envelope
             # Transport-level failure: RESOLVER_UNREACHABLE ladder (§5.3 rule 5).
             if attempts < MAX_TRANSPORT_ATTEMPTS:
-                delay = UNREACHABLE_LADDER_MS[attempts - 1] / 1000.0
+                delay = self.unreachable_ladder_ms[attempts - 1] / 1000.0
                 logger.warning("[bridge] unreachable (attempt %d) — ladder sleep %dms", attempts, delay * 1000)
                 await self.sleep_fn(delay)
                 continue
-            envelope = synthesize_unreachable(request_id, target_id, attempts, "both transports exhausted")
+            envelope = synthesize_unreachable(
+                request_id, target_id, attempts, "both transports exhausted",
+                ladder_ms=self.unreachable_ladder_ms,
+            )
             self.last_request = payload
             self.last_response = envelope
             self.last_transport = "unreachable"
@@ -804,15 +915,39 @@ class DesignModeCapture:
                 return c.read_text(encoding="utf-8") + "\n" + _BINDING_SHIM
         raise FileNotFoundError("design-mode.js not found — set ORCA_DESIGN_MODE_JS or install alongside edge-runtime")
 
-    async def install_design_mode(self, target_id: str) -> None:
-        """Inject Design Mode into the target and wire picks to this controller."""
+    async def install_design_mode(self, target_id: str) -> dict:
+        """Inject Design Mode into the target and wire picks to this controller.
+
+        CDP domain lazy-init gotcha (found by live probe, kanban t_f86d149b):
+        Runtime.addBinding and Page.addScriptToEvaluateOnNewDocument silently
+        no-op on a flattened session whose Runtime/Page domains were never
+        enabled — the binding never materializes on window and the
+        on-new-document script never fires. Enable BOTH domains first.
+
+        Sequence: enable domains → add binding → register script for future
+        documents (survives the confirmation loop's hot-reload) → probe the
+        CURRENT document (already-loaded tabs predate the registration, so
+        the script is evaluated directly into it) → readiness probe.
+        """
+        await self._cdp("Page.enable", {}, target_id)
+        await self._cdp("Runtime.enable", {}, target_id)
         await self._cdp("Runtime.addBinding", {"name": "__orcaDesignModePick"}, target_id)
         await self._cdp(
             "Page.addScriptToEvaluateOnNewDocument",
             {"source": self.design_mode_js()},
             target_id,
         )
-        await self._evaluate(target_id, "window.__orcaDesignModeInstall && window.__orcaDesignModeInstall()")
+        # Current document already loaded → the on-new-document script will
+        # not fire for it; evaluate the source directly (idempotent IIFE,
+        # shim double-install guarded by __orcaDesignModePickInstalled).
+        if not await self._evaluate(target_id, INSTALL_READINESS_PROBE):
+            await self._cdp(
+                "Runtime.evaluate",
+                {"expression": self.design_mode_js(), "returnByValue": False},
+                target_id,
+            )
+        ready = bool(await self._evaluate(target_id, INSTALL_READINESS_PROBE))
+        return {"installed": ready, "target_id": target_id}
 
     async def next_pick(self, timeout: float = 300.0) -> dict:
         """Block until the page reports a pick via the Runtime binding."""
@@ -839,13 +974,91 @@ class DesignModeCapture:
 
     async def handle_pick(self, pick: dict) -> dict:
         """Full flow for one pick: capture → resolve. Returns the envelope."""
+        in_page = pick.get("payload") or {}
+        attrs = ((in_page.get("element") or {}).get("dom_snapshot") or {}).get("attributes") or {}
         payload = await self.capture_element(
             pick.get("target_id", ""),
             x=pick.get("x"),
             y=pick.get("y"),
             remote_object_id=pick.get("remote_object_id"),
+            selector_hints=selector_hints_from_attributes(attrs),
         )
         return await self.resolve(payload)
+
+    # ── confirmation-loop support (kanban t_f86d149b) ─────────────────────
+
+    def session_for(self, target_id: str) -> Optional[str]:
+        """The flattened CDP session id currently attached to a target."""
+        return self._sessions.get(target_id)
+
+    async def evaluate(self, target_id: str, expression: str, timeout: float = 30.0) -> Any:
+        """Public Runtime.evaluate wrapper (returnByValue)."""
+        return await self._evaluate(target_id, expression)
+
+    async def reload_and_wait(self, target_id: str, timeout: float = 15.0) -> dict:
+        """Hot-reload the tab (Page.reload) and wait for loadEventFired.
+
+        Used by the visual confirmation loop after a bridged action: the page
+        re-navigates to its current state, the Design Mode script (installed
+        via Page.addScriptToEvaluateOnNewDocument) re-runs automatically, and
+        the loop re-locates + re-captures the affected region.
+        """
+        sid = await self._session(target_id)
+        if not sid:
+            return {"reloaded": False, "reason": "no_session"}
+        loop = asyncio.get_event_loop()
+        loaded: asyncio.Future = loop.create_future()
+
+        def _on_event(evt: dict):
+            if evt.get("method") == "Page.loadEventFired" and evt.get("sessionId") == sid:
+                if not loaded.done():
+                    loaded.set_result(True)
+
+        self.cdp.subscribe(_on_event)
+        try:
+            await self._cdp("Page.enable", {}, target_id)
+            await self._cdp("Page.reload", {"ignoreCache": True}, target_id)
+            try:
+                await asyncio.wait_for(loaded, timeout=timeout)
+                return {"reloaded": True, "wait": "loadEventFired"}
+            except asyncio.TimeoutError:
+                # Belt-and-braces: probe the new document directly.
+                ready = await self._evaluate(target_id, "document.readyState")
+                return {"reloaded": True, "wait": "timeout_fallback", "ready_state": ready}
+        finally:
+            try:
+                self.cdp._subscribers.remove(_on_event)
+            except ValueError:
+                pass
+
+    async def capture_region(self, target_id: str, node_id: int) -> dict:
+        """Re-capture an element region from a FRESH nodeId (post-reload).
+
+        Reuses the §6.2 recipe pieces (box-model geometry → clipped
+        Page.captureScreenshot → outerHTML) against a node handle obtained
+        after the reload. Never mutates the page.
+        """
+        geometry = await self._geometry(target_id, node_id)
+        screenshot = await self._screenshot(target_id, geometry)
+        outer_html = (await self._cdp("DOM.getOuterHTML", {"nodeId": node_id}, target_id)).get("outerHTML", "")
+        return {
+            "geometry": geometry,
+            "screenshot": screenshot,
+            "outer_html": outer_html[:MAX_OUTER_HTML],
+        }
+
+    async def element_from_point(self, target_id: str, x: float, y: float) -> dict:
+        """Probe the element at viewport coordinates (post-reload fallback)."""
+        expr = (
+            "(()=>{const el=document.elementFromPoint(%s,%s);"
+            "return el?{found:true,tag:el.tagName.toLowerCase(),text:(el.textContent||'').trim().substring(0,80)}:{found:false};})()"
+            % (int(x), int(y))
+        )
+        val = await self._evaluate(target_id, expr)
+        try:
+            return json.loads(val) if isinstance(val, str) else (val or {"found": False})
+        except (json.JSONDecodeError, TypeError):
+            return {"found": False}
 
 
 def load_schema() -> Optional[dict]:

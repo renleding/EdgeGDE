@@ -26,3 +26,8 @@ declare const process: {
   env: Record<string, string | undefined>
   exit(code?: number): never
 }
+
+declare module '*?raw' {
+  const content: string
+  export default content
+}
