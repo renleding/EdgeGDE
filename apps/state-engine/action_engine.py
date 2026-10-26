@@ -221,7 +221,7 @@ class ActionEngine:
 
     async def _tier_cdp(self, action_type: ActionType, target: str, 
                         value: Optional[str]) -> bool:
-        expr = f'''()=>{{for(var b of document.querySelectorAll('button,[role=button],a,[role=combobox]')){{if((b.textContent||'').trim()==='{target}'&&b.offsetParent){{var r=b.getBoundingClientRect();return{{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),disabled:b.disabled}}}}}}return null}}()'''
+        expr = f'''(()=>{{for(var b of document.querySelectorAll('button,[role=button],a,[role=combobox]')){{if((b.textContent||'').trim()==='{target}'&&b.offsetParent){{var r=b.getBoundingClientRect();return{{x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),disabled:b.disabled}}}}}}return null}})()'''
         r = await self.cdp.send('Runtime.evaluate', {
             'expression': expr, 'returnByValue': True
         })
@@ -244,7 +244,7 @@ class ActionEngine:
 
     async def _tier_js(self, action_type: ActionType, target: str,
                        value: Optional[str]) -> bool:
-        expr = f'''()=>{{for(var b of document.querySelectorAll('button,[role=button],a[href]')){{if((b.textContent||'').trim()==='{target}'&&b.offsetParent){{b.removeAttribute('disabled');b.click();return true}}}}return false}}()'''
+        expr = f'''(()=>{{for(var b of document.querySelectorAll('button,[role=button],a[href]')){{if((b.textContent||'').trim()==='{target}'&&b.offsetParent){{b.removeAttribute('disabled');b.click();return true}}}}return false}})()'''
         r = await self.cdp.send('Runtime.evaluate', {
             'expression': expr, 'returnByValue': True
         })
@@ -252,7 +252,7 @@ class ActionEngine:
 
     async def _tier_react(self, action_type: ActionType, target: str,
                           value: Optional[str]) -> bool:
-        expr = f'''()=>{{for(var b of document.querySelectorAll('button')){{if((b.textContent||'').trim()==='{target}'){{var pk=Object.keys(b).find(k=>k.startsWith('__reactProps'));if(pk&&b[pk]&&typeof b[pk].onClick==='function'){{b[pk].onClick();return true}}}}}}return false}}()'''
+        expr = f'''(()=>{{for(var b of document.querySelectorAll('button')){{if((b.textContent||'').trim()==='{target}'){{var pk=Object.keys(b).find(k=>k.startsWith('__reactProps'));if(pk&&b[pk]&&typeof b[pk].onClick==='function'){{b[pk].onClick();return true}}}}}}return false}})()'''
         r = await self.cdp.send('Runtime.evaluate', {
             'expression': expr, 'returnByValue': True
         })
