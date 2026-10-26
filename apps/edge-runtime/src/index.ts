@@ -80,6 +80,7 @@ import { aiTutorRouter } from './routes/ai-tutor'
 import { aiTutorApiRouter } from './routes/ai-tutor-api'
 import { pdfAutofillRouter } from './routes/pdf-autofill'
 import { fragmentRouter } from './routes/fragment'
+import { designModeRouter } from './routes/design-mode'
 import { stagingRouter } from './routes/staging'
 import leadScorer from './queues/lead-scorer'
 import type { ForecastRunnerEnv } from './queues/forecast-runner'
@@ -522,6 +523,7 @@ app.get('/.well-known/mcp.json', (c) => {
 app.route('/api', apiRouter)
 app.route('/api', dashboardRouter)
 app.route('/api', fragmentRouter)
+app.route('/design-mode', designModeRouter)
 app.route('/api/v1/doc-intel', docIntelRouter)
 app.route('/doc-intel', docIntelUiRouter)
 app.route('/api/v1', agentRouter)

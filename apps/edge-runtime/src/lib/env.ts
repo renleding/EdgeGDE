@@ -60,6 +60,7 @@ export interface Env {
   // Text vars
   OTEL_EXPORTER_OTLP_ENDPOINT?: string
   OTEL_SERVICE_NAME?: string
+  STATE_ENGINE_PORT?: string
   WORKER_VERSION?: string
 
   // Alerting
