@@ -345,12 +345,12 @@ export async function forwardToResolver(
     )
     const envelope = envelopeFromBody(await resp.json())
     if (envelope !== null) {
-      console.log('[DesignMode] resolver responded via MCP request_id=' + requestId)
+      console.warn('[DesignMode] resolver responded via MCP request_id=' + requestId)
       return { transport: 'mcp', response: envelope }
     }
-    console.log('[DesignMode] MCP response was not a contract envelope — failing over (HTTP ' + resp.status + ')')
+    console.warn('[DesignMode] MCP response was not a contract envelope — failing over (HTTP ' + resp.status + ')')
   } catch (e) {
-    console.log('[DesignMode] MCP transport failed:', (e as Error).message)
+    console.warn('[DesignMode] MCP transport failed:', (e as Error).message)
   }
 
   // §5.2 — HTTP fallback: byte-identical payload, bridge version header.
@@ -366,16 +366,16 @@ export async function forwardToResolver(
     )
     const envelope = envelopeFromBody(await resp.json())
     if (envelope !== null) {
-      console.log('[DesignMode] resolver responded via HTTP fallback request_id=' + requestId)
+      console.warn('[DesignMode] resolver responded via HTTP fallback request_id=' + requestId)
       return { transport: 'http_fallback', response: envelope }
     }
-    console.log('[DesignMode] HTTP fallback body was not a contract envelope (HTTP ' + resp.status + ')')
+    console.warn('[DesignMode] HTTP fallback body was not a contract envelope (HTTP ' + resp.status + ')')
   } catch (e) {
-    console.log('[DesignMode] HTTP fallback transport failed:', (e as Error).message)
+    console.warn('[DesignMode] HTTP fallback transport failed:', (e as Error).message)
   }
 
   // §5.3 rule 3 — both transports failed: synthesize locally.
-  console.log('[DesignMode] both transports failed — synthesizing RESOLVER_UNREACHABLE')
+  console.warn('[DesignMode] both transports failed — synthesizing RESOLVER_UNREACHABLE')
   return {
     transport: 'unreachable',
     response: unreachableEnvelope(requestId, targetId, 'state engine unreachable on port ' + opts.stateEnginePort)
