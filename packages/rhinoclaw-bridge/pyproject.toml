@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rhinoclaw-bridge"
+version = "0.1.0"
+description = "Thin MCP↔TCP bridge for RhinoClaw — Hermes integration"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Hermes", email = "hermes@edgegde.local"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "rhinoclaw-client",
+    "mcp<2",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

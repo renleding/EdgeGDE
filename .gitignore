@@ -24,11 +24,19 @@ apps/afirmico-tesla/.wrangler/
 .hermes/scripts/
 .hermes/skills/
 .hermes/scratch/
+.hermes/cache/
 .hermes/baselines/
 .hermes/prompts/
 .hermes/bin/
 .hermes/guard-aliases.sh
 .hermes/worktree-identity.json
+
+# Scratch/temp files
+temp/
+graph_dump.json
+result.json
+*.pyc
+__pycache__/
 .worktrees/
 __pycache__/
 apps/ai-tutor/public/geography/
