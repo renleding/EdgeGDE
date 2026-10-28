@@ -40,11 +40,38 @@ RULES:
 - Example diagram for line graph: "xyChart\\n  x-axis \"x\"\\n  y-axis \"y\"\\n  line \"y = 2x + 1\"\\n  data [1, 3, 5, 7, 9]"`
 
 // ── Helpers ──
-function getApiKey(env: any): string {
+interface TutorEnv {
+  OPENROUTER_API_KEY?: string
+  OTEL_EXPORTER_OTLP_ENDPOINT?: string
+}
+
+function getApiKey(env: TutorEnv): string {
   return env.OPENROUTER_API_KEY || ''
 }
 
-async function callLLM(systemPrompt: string, userMessage: string, env: any): Promise<any> {
+interface LLMResponse {
+  choices: Array<{
+    message: {
+      content: string
+    }
+  }>
+}
+
+interface TutorResponse {
+  answer: string
+  working: string
+  tip: string
+  diagram?: string
+}
+
+interface EvalResponse {
+  verdicts: Array<{
+    index: number
+    isCorrect: boolean
+  }>
+}
+
+async function callLLM(systemPrompt: string, userMessage: string, env: TutorEnv): Promise<unknown> {
   const apiKey = getApiKey(env)
   if (!apiKey) {
     return { answer: 'Tutor API key not configured.', working: '', tip: 'Ask your administrator to set OPENROUTER_API_KEY.' }
@@ -108,14 +135,14 @@ router.post('/ask', async (c) => {
       ? `Document context:\n${context.slice(0, 4000)}\n\nStudent question: ${message}`
       : message
 
-    const result = await callLLM(TUTOR_SYSTEM_PROMPT, userMessage, c.env)
+    const result = await callLLM(TUTOR_SYSTEM_PROMPT, userMessage, c.env) as TutorResponse
     return c.json({
       response: result.answer || '',
       working: result.working || '',
       tip: result.tip || 'Keep practicing — you are building real skills.',
     })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -157,9 +184,9 @@ Respond in JSON: {"questions": [{"question": "...", "type": "multiple-choice|sho
     const result = await callLLM(TUTOR_SYSTEM_PROMPT, testPrompt, c.env)
     // Attach a testId so frontend can reference it
     const testId = `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    return c.json({ ...result, testId })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+    return c.json({ ...(result as Record<string, unknown>), testId })
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
