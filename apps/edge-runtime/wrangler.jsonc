@@ -57,7 +57,8 @@
   "vars": {
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
     "OTEL_SERVICE_NAME": "edgegde-worker",
-    "PDF_SIDECAR_URL": "http://127.0.0.1:8890"
+    "PDF_SIDECAR_URL": "http://127.0.0.1:8890",
+    "STATE_ENGINE_PORT": "9110"
   },
 
   "env": {
@@ -89,13 +90,17 @@
       }],
       "vars": {
         "OTEL_EXPORTER_OTLP_ENDPOINT": "https://waters-eleven-crops-prot.trycloudflare.com",
-        "OTEL_SERVICE_NAME": "edgegde-worker-staging"
+        "OTEL_SERVICE_NAME": "edgegde-worker-staging",
+        "STATE_ENGINE_PORT": "9110"
       },
       "triggers": { "crons": [] }
     },
 
     "production": {
-      "name": "edgegde-calculator"
+      "name": "edgegde-calculator",
+      "vars": {
+        "STATE_ENGINE_PORT": "9110"
+      }
     }
   }
 }

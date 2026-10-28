@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orca Confirmation Demo — Sync Settings</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #ffffff; color: #1f2328; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  p.sub { color: #57606a; margin: 0 0 20px; font-size: 13px; }
+  .card { border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; max-width: 560px; background: #f6f8fa; }
+  #state-line { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+  #state-line.on { color: #1a7f37; }
+  #controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { padding: 8px 16px; border-radius: 6px; border: 1px solid #1f2328; background: #ffffff; font-size: 13px; cursor: pointer; }
+  button:hover { background: #eaeef2; }
+  #status-area { margin-top: 12px; }
+  #sync-status { border-color: #1a7f37; color: #1a7f37; }
+  .hint { margin-top: 16px; font-size: 11px; color: #8b949e; }
+</style>
+</head>
+<body>
+  <h1>Demo App — Sync Settings</h1>
+  <p class="sub">Fixture for the Orca Design Mode confirmation-loop demo. State persists in localStorage + URL hash, so the post-reload region capture shows the real change.</p>
+  <div class="card">
+    <p id="state-line">Sync is OFF</p>
+    <div id="controls">
+      <button id="sync-toggle" data-testid="sync-toggle" aria-label="Toggle sync">Enable sync</button>
+      <button id="ping-btn" data-testid="ping-btn" aria-label="Ping no-op">Ping (no-op)</button>
+      <button id="reset-btn" data-testid="reset-btn" aria-label="Reset demo">Reset demo</button>
+    </div>
+    <div id="status-area"></div>
+    <p class="hint">Enable sync appends a status button and moves the URL hash — both visible to the state-diff verifier. Ping increments an invisible counter only (true no-op).</p>
+  </div>
+<script>
+(function () {
+  'use strict';
+  var KEY = 'orcaDemo.sync';
+  function isOn() {
+    return localStorage.getItem(KEY) === 'on' || location.hash === '#sync-on';
+  }
+  function render() {
+    var on = isOn();
+    var line = document.getElementById('state-line');
+    line.textContent = on ? 'Sync is ON' : 'Sync is OFF';
+    line.className = on ? 'on' : '';
+    var toggle = document.getElementById('sync-toggle');
+    toggle.textContent = on ? 'Disable sync' : 'Enable sync';
+    var area = document.getElementById('status-area');
+    var existing = document.getElementById('sync-status');
+    if (on && !existing) {
+      var b = document.createElement('button');
+      b.id = 'sync-status';
+      b.textContent = 'Sync is ON';
+      area.appendChild(b);
+    } else if (!on && existing) {
+      existing.remove();
+    }
+  }
+  document.getElementById('sync-toggle').addEventListener('click', function () {
+    var on = !isOn();
+    if (on) {
+      localStorage.setItem(KEY, 'on');
+      history.replaceState(null, '', '#sync-on');
+    } else {
+      localStorage.removeItem(KEY);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    render();
+  });
+  document.getElementById('ping-btn').addEventListener('click', function () {
+    // True no-op: no DOM, URL, or storage change. State-diff must report
+    // no_state_change (verified=false) — never a success badge.
+    window.__pingCount = (window.__pingCount || 0) + 1;
+  });
+  document.getElementById('reset-btn').addEventListener('click', function () {
+    localStorage.removeItem(KEY);
+    history.replaceState(null, '', location.pathname + location.search);
+    render();
+  });
+  render();
+})();
+</script>
+</body>
+</html>
