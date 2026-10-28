@@ -11,6 +11,7 @@
  */
 
 import { guardDB } from '../lib/db'
+import type { Env } from '../lib/env'
 
 const SNAPSHOT_INTERVAL = 5
 
@@ -48,9 +49,9 @@ export class ChatSession_DO {
   private state: ChatSessionState | null = null
   private scheduledSnapshot = false
   readonly state_: DurableObjectState
-  private env: any
+  private env: Env
 
-  constructor(state: DurableObjectState, env: any) {
+  constructor(state: DurableObjectState, env: Env) {
     this.state_ = state
     this.env = env
   }
@@ -100,7 +101,7 @@ export class ChatSession_DO {
           status: 'active',
           ocrStatus: '',
           stepCount: 0,
-        version: 0,
+          version: 0,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         }
@@ -144,19 +145,21 @@ export class ChatSession_DO {
   private async hydrateFromD1(tenantId: string): Promise<void> {
     if (this.state) return
     try {
-      const db = guardDB(this.env?.['DB'])
-      const row: any = await db.prepare(
+      const db = guardDB(this.env.DB)
+      const row = await db.prepare(
         `SELECT id, collected_fields_json, state_json, status FROM chat_sessions WHERE id = ? AND tenant_id = ?`
-      ).bind(this.state_.id.toString(), tenantId).first()
+      ).bind(this.state_.id.toString(), tenantId).first() as
+        | { id: string; collected_fields_json: string | null; state_json: string | null; status: string | null }
+        | null
       if (row) {
         this.state = {
-          sessionId: row.id,
+          sessionId: row.id as string,
           tenantId,
-          collected: row.collected_fields_json ? JSON.parse(row.collected_fields_json) : {},
-          currentField: row.state_json ? (JSON.parse(row.state_json).currentField || '') : '',
-          status: row.status || 'active',
+          collected: row.collected_fields_json ? JSON.parse(row.collected_fields_json as string) : {},
+          currentField: row.state_json ? (JSON.parse(row.state_json as string).currentField || '') : '',
+          status: (row.status as 'active' | 'complete' | 'abandoned') || 'active',
           stepCount: 0,
-        version: 0,
+          version: 0,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         }
@@ -177,7 +180,7 @@ export class ChatSession_DO {
   private async snapshotNow(): Promise<void> {
     if (!this.state) return
     try {
-      const db = guardDB(this.env?.['DB'])
+      const db = guardDB(this.env.DB)
       const s = this.state
       await db.prepare(
         `UPDATE chat_sessions SET collected_fields_json = ?, state_json = ?, status = ?, updated_at = ? WHERE id = ?`

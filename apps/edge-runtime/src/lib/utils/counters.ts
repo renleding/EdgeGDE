@@ -8,13 +8,15 @@
  *
  * @packageDocumentation
  */
+import type { KVNamespace } from '@cloudflare/workers-types'
 
 /**
  * Read a counter value from a specific KV namespace.
  * Returns 0 if the key doesn't exist or on any error.
  * Guaranteed never to throw.
  */
-export async function getCounter(kvBinding: any, key: string): Promise<number> {
+export async function getCounter(kvBinding: KVNamespace | undefined, key: string): Promise<number> {
+  if (!kvBinding) return 0
   try {
     const raw = await kvBinding.get(key)
     let count = parseInt(raw || '0', 10)
@@ -30,7 +32,8 @@ export async function getCounter(kvBinding: any, key: string): Promise<number> {
  * On failure, tries to initialize the key to 1.
  * Silent on error — telemetry never breaks the main flow.
  */
-export async function incrementCounter(kvBinding: any, key: string): Promise<void> {
+export async function incrementCounter(kvBinding: KVNamespace | undefined, key: string): Promise<void> {
+  if (!kvBinding) return
   try {
     const current = await getCounter(kvBinding, key)
     await kvBinding.put(key, String(current + 1))
