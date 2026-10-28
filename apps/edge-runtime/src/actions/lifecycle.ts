@@ -388,6 +388,21 @@ export interface ReplayEvent {
   correlationId: string
 }
 
+interface AuditLedgerListResponse {
+  entries: Array<{
+    type: string
+    seq: number
+    data: {
+      actionType: string
+      input: unknown
+      expectedOutput: unknown
+      expectedStatus: 'success' | 'failure'
+      correlationId: string
+    }
+  }>
+  nextCursor: number | null
+}
+
 export interface ReplayResult {
   missionId: string
   totalEvents: number
@@ -604,7 +619,7 @@ export async function replayFromAuditLedger(
   while (cursor !== null) {
     const url = `/list?cursor=${cursor}&limit=500`
     const resp = await stub.fetch(url)
-    const data: any = await resp.json()
+    const data: AuditLedgerListResponse = await resp.json()
     if (!data.entries) break
     for (const entry of data.entries) {
       if (entry.type === 'action_executed') {

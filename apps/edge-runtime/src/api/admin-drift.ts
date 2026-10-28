@@ -6,6 +6,7 @@
 import { Hono } from 'hono'
 import { envFromContext } from '../lib/env'
 import { guardKV } from '../lib/kv'
+import { Blueprint } from '../factory/blueprint/blueprint.schema'
 import { detectConfigDrift } from '../factory/drift/drift.detector'
 
 const router = new Hono()
@@ -49,14 +50,14 @@ router.get('/', async (c) => {
       if (!blueprintRaw) {
         summary = `<div style="color:#da3633;font-size:12px">Blueprint "${escapeHtml(ref.id)}" not found</div>`
       } else {
-        const blueprint = parseJson<any>(blueprintRaw)
+        const blueprint = parseJson<Blueprint>(blueprintRaw)
         // Load tenant chat config
         const tenantConfigRaw = await kv.get(`tenant:${tenantId}:chat:config`, ctx)
         if (!tenantConfigRaw) {
           summary = '<div style="color:#da3633;font-size:12px">Tenant has no chat config</div>'
         } else {
           // Detect drift
-          const tenantConfig = parseJson<any>(tenantConfigRaw)
+          const tenantConfig = parseJson<Record<string, unknown>>(tenantConfigRaw)
           const tenantOverrides = tenantConfig.ui ? { ui: tenantConfig.ui } : undefined
           const drift = detectConfigDrift(blueprint, tenantConfig, tenantOverrides)
 
@@ -74,8 +75,8 @@ router.get('/', async (c) => {
         }
       }
     }
-  } catch (err: any) {
-    summary = `<div style="color:#da3633;font-size:12px">Error: ${escapeHtml(err.message)}</div>`
+  } catch (err: unknown) {
+    summary = `<div style="color:#da3633;font-size:12px">Error: ${escapeHtml(err instanceof Error ? err.message : String(err))}</div>`
   }
 
   const body = `
