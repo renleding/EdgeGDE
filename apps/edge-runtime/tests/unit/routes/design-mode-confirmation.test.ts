@@ -18,7 +18,7 @@
  *    pointer-events:none so elementFromPoint sees the real page
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import DESIGN_MODE_JS from '../public/design-mode.js?raw'
+import DESIGN_MODE_JS from '../../../public/design-mode.js?raw'
 
 // The script is a browser IIFE — execute it in global scope (indirect eval)
 // where `document`/`window`/`sessionStorage` resolve to the happy-dom globals.

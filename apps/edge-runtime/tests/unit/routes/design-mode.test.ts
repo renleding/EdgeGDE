@@ -5,7 +5,7 @@
  * errors vs transport failures, and caller-synthesized RESOLVER_UNREACHABLE.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { forwardToResolver, renderDesignModePage } from '../src/routes/design-mode'
+import { forwardToResolver, renderDesignModePage } from '../../../src/routes/design-mode'
 
 const REQUEST = {
   schema_version: '1.0.0',
