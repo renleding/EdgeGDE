@@ -23,6 +23,14 @@ export interface OcrResult {
   error?: string
 }
 
+interface OllamaChatResponse {
+  choices: Array<{
+    message: {
+      content: string
+    }
+  }>
+}
+
 function parseFields(text: string): OcrExtraction {
   const def: OcrExtraction = { fullName: '', dob: '', address: '', licenseNum: '' }
 
@@ -74,7 +82,7 @@ Only return the extracted fields. If a field is not visible, leave the value emp
       return { success: false, error: `Ollama returned ${response.status}` }
     }
 
-    const data: any = await response.json()
+    const data: OllamaChatResponse = await response.json()
     const text = data?.choices?.[0]?.message?.content || ''
 
     if (!text.trim()) {
@@ -89,7 +97,7 @@ Only return the extracted fields. If a field is not visible, leave the value emp
     }
 
     return { success: true, fields }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'OCR extraction failed' }
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : 'OCR extraction failed' }
   }
 }
