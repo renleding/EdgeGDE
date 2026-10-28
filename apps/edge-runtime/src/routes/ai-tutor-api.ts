@@ -12,6 +12,7 @@
  */
 import { Hono } from 'hono'
 import type { Env } from '../lib/env'
+import type { KVNamespace } from '@cloudflare/workers-types'
 import { instrumentLifecycleEvent } from '../lib/otel-worker'
 
 const router = new Hono<{ Bindings: Env }>()
@@ -28,7 +29,7 @@ RULES:
 - tip should be a practical learning suggestion
 - If the student uploads a document, use it as context for explanations
 - Follow the NSW Mathematics Standard Stage 6 syllabus
-- Format equations using KaTeX notation (e.g., $$x = \\\\frac{-b \\\\pm \\\\sqrt{b^2 - 4ac}}{2a}$$)
+- Format equations using KaTeX notation (e.g., $$x = \\\\\\\\frac{-b \\\\\\\\pm \\\\\\\\sqrt{b^2 - 4ac}}{2a}$$)
 - For geometry, graphing, step-by-step logic, or any concept that benefits from a diagram,
   include a "diagram" field with a Mermaid.js definition string
 - Use these Mermaid diagram types:
@@ -36,8 +37,8 @@ RULES:
   * xy-chart for linear/quadratic/trig graphs
   * pie for statistical distributions
   * gantt for study schedules
-- Example diagram for triangle area: "graph TD\\n  A[Triangle] --> B[Base = 7cm]\\n  A --> C[Height = 12cm]\\n  B --> D[Area = 0.5 x 7 x 12]\\n  D --> E[42 cm2]"
-- Example diagram for line graph: "xyChart\\n  x-axis \"x\"\\n  y-axis \"y\"\\n  line \"y = 2x + 1\"\\n  data [1, 3, 5, 7, 9]"`
+- Example diagram for triangle area: "graph TD\\\\n  A[Triangle] --> B[Base = 7cm]\\\\n  A --> C[Height = 12cm]\\\\n  B --> D[Area = 0.5 x 7 x 12]\\\\n  D --> E[42 cm2]"
+- Example diagram for line graph: "xyChart\\\\n  x-axis \\"x\\"\\\\n  y-axis \\"y\\"\\\\n  line \\"y = 2x + 1\\"\\\\n  data [1, 3, 5, 7, 9]"`
 
 // ── Helpers ──
 interface TutorEnv {
@@ -69,6 +70,23 @@ interface EvalResponse {
     index: number
     isCorrect: boolean
   }>
+}
+
+interface QuestionInput {
+  question: string
+  type: 'multiple-choice' | 'short-answer' | 'extended'
+  options?: string[]
+  answer: string
+}
+
+interface ResultEntry {
+  questionIndex: number
+  question: string
+  correctAnswer: string
+  userAnswer: string
+  isCorrect: boolean
+  type: string
+  needsReview?: boolean
 }
 
 async function callLLM(systemPrompt: string, userMessage: string, env: TutorEnv): Promise<unknown> {
@@ -112,7 +130,7 @@ async function callLLM(systemPrompt: string, userMessage: string, env: TutorEnv)
     throw new Error(`LLM API error: ${response.status} — ${errText}`)
   }
 
-  const data: any = await response.json()
+  const data: LLMResponse = await response.json()
   const content = data?.choices?.[0]?.message?.content
   if (!content) throw new Error('LLM returned empty response')
 
@@ -132,7 +150,7 @@ router.post('/ask', async (c) => {
     }
 
     const userMessage = context
-      ? `Document context:\n${context.slice(0, 4000)}\n\nStudent question: ${message}`
+      ? `Document context:\\n${context.slice(0, 4000)}\\n\\nStudent question: ${message}`
       : message
 
     const result = await callLLM(TUTOR_SYSTEM_PROMPT, userMessage, c.env) as TutorResponse
@@ -166,8 +184,8 @@ router.post('/upload', async (c) => {
     }
 
     return c.json({ id: docId, name: file.name, size: text.length, stored: !!kv })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -177,9 +195,7 @@ router.post('/test', async (c) => {
     const { count = 5, topic } = await c.req.json()
     const n = Math.min(Math.max(parseInt(count) || 5, 1), 20)
 
-    const testPrompt = `Generate a ${n}-question NSW Mathematics Standard practice test${topic ? ` on ${topic}` : ''}.
-Include a mix of multiple-choice, short answer, and extended response questions.
-Respond in JSON: {"questions": [{"question": "...", "type": "multiple-choice|short-answer|extended", "options": ["A", "B", "C", "D"], "answer": "..."}]}`
+    const testPrompt = `Generate a ${n}-question NSW Mathematics Standard practice test${topic ? ` on ${topic}` : ''}.\nInclude a mix of multiple-choice, short answer, and extended response questions.\nRespond in JSON: {"questions": [{"question": "...", "type": "multiple-choice|short-answer|extended", "options": ["A", "B", "C", "D"], "answer": "..."}]}`
 
     const result = await callLLM(TUTOR_SYSTEM_PROMPT, testPrompt, c.env)
     // Attach a testId so frontend can reference it
@@ -199,7 +215,7 @@ router.post('/score', async (c) => {
     }
 
     // For each question, determine if the answer is correct
-    const results = questions.map((q: any, i: number) => {
+    const results = questions.map((q: QuestionInput, i: number) => {
       const userAnswer = (answers[i] || '').trim()
       const correctAnswer = (q.answer || '').trim()
 
@@ -224,24 +240,19 @@ router.post('/score', async (c) => {
         isCorrect: false, // placeholder, re-evaluated via LLM below
         type: q.type,
       }
-    })
+    }) as ResultEntry[]
 
     // Batch short-answer / extended questions to LLM for semantic evaluation
-    const freeformQ = results.filter((r: any) => r.type !== 'multiple-choice' && r.userAnswer)
+    const freeformQ = results.filter((r) => r.type !== 'multiple-choice' && r.userAnswer)
     if (freeformQ.length > 0) {
-      const evalPrompt = `You are a maths tutor evaluating student answers. For each question, determine if the student's answer is mathematically correct (accept equivalent answers, allow minor phrasing differences, ignore units casing).
-
-Respond in JSON: {"verdicts": [{"index": 0, "isCorrect": true}, ...]}
-
-Questions and answers:
-${freeformQ.map((r: any, idx: number) =>
-  `Q${idx}: ${r.question}\nCorrect answer: ${r.correctAnswer}\nStudent answer: ${r.userAnswer}`
-).join('\n\n')}`
+      const evalPrompt = `You are a maths tutor evaluating student answers. For each question, determine if the student's answer is mathematically correct (accept equivalent answers, allow minor phrasing differences, ignore units casing).\n\nRespond in JSON: {"verdicts": [{"index": 0, "isCorrect": true}, ...]}\n\nQuestions and answers:\n${freeformQ.map((r, idx: number) =>
+  `Q${idx}: ${r.question}\\nCorrect answer: ${r.correctAnswer}\\nStudent answer: ${r.userAnswer}`
+).join('\\n\\n')}`
 
       try {
-        const evalResult = await callLLM(`You are a strict but fair maths tutor evaluator.`, evalPrompt, c.env)
+        const evalResult = await callLLM(`You are a strict but fair maths tutor evaluator.`, evalPrompt, c.env) as EvalResponse
         if (evalResult?.verdicts) {
-          evalResult.verdicts.forEach((v: any) => {
+          evalResult.verdicts.forEach((v) => {
             const freeIdx = freeformQ[v.index]?.questionIndex
             if (freeIdx != null && results[freeIdx]) {
               results[freeIdx].isCorrect = v.isCorrect === true
@@ -250,17 +261,17 @@ ${freeformQ.map((r: any, idx: number) =>
         }
       } catch {
         // LLM evaluation failed — mark all freeform as needing review
-        freeformQ.forEach((r: any) => { results[r.questionIndex].needsReview = true })
+        freeformQ.forEach((r) => { results[r.questionIndex].needsReview = true })
       }
     }
 
-    const score = results.filter((r: any) => r.isCorrect).length
+    const score = results.filter((r) => r.isCorrect).length
     const total = questions.length
     const percentage = total > 0 ? Math.round((score / total) * 100) : 0
 
     return c.json({ results, score, total, percentage })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -298,15 +309,15 @@ router.post('/save-result', async (c) => {
     // Update the student's test index
     const indexKey = `tutor:student:${studentId}`
     const existingRaw = await kv.get(indexKey)
-    const index: any[] = existingRaw ? JSON.parse(existingRaw) : []
+    const index = existingRaw ? JSON.parse(existingRaw) : []
     index.push({ testId, topic: topic || 'All Topics', score, total, percentage, timestamp })
     // Keep only latest 50 entries
     if (index.length > 50) index.splice(0, index.length - 50)
     await kv.put(indexKey, JSON.stringify(index))
 
     return c.json({ saved: true, testId })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -339,8 +350,8 @@ router.get('/test/:testId', async (c) => {
     if (!raw) return c.json({ error: 'Test not found' }, 404)
 
     return c.json(JSON.parse(raw))
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err: unknown) {
+    return c.json({ error: err instanceof Error ? err.message : 'Unknown error' }, 500)
   }
 })
 
@@ -358,7 +369,7 @@ router.get('/progress', async (c) => {
 
 // ── GET /api/tutor/progress/csv ──
 router.get('/progress/csv', async (c) => {
-  const csv = 'subject,topic,mastery,time_min,test_count,streak_days\nmaths-standard,all,0,0,0,0\n'
+  const csv = 'subject,topic,mastery,time_min,test_count,streak_days\\nmaths-standard,all,0,0,0,0\\n'
   return new Response(csv, {
     headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="math-tutor-progress.csv"' },
   })
