@@ -46,3 +46,7 @@ apps/edge-runtime/public/.well-known/appspecific/*.private.pem
 # HTML build artifacts (source of truth = docs/*.md)
 docs/html/*.html
 !docs/html/template.html
+
+# Local Hermes artifacts (per-worktree)
+.hermes/worktree-identity.json
+.hermes/guard-aliases.sh
