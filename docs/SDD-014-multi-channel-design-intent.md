@@ -1,7 +1,7 @@
 # SDD-014: Multi-Channel Design Intent — System Design
 
 **Status**: PROPOSED
-**Version**: 1.0.1
+**Version**: 1.0.2
 **Author**: Hermes (Director)
 **Date**: 2026-10-30
 **Related**: FRS-015, IDD-017, SDD-010, IDD-010
@@ -25,7 +25,7 @@ One certified geometry engine, many authoring surfaces. A channel is a **thin ad
               Channel Adapter  (manifest load → validate → resolve)
                           │
                           ▼
-              Design Intent Package  (13 keys, channel-free)
+              Design Intent Package  (11 keys, channel-free)
                           │
                           ▼
         ┌─────────────────┴──────────────────┐
@@ -84,8 +84,8 @@ Design notes:
 
 ```
 explicit publish action
-  → adapter: resolve + validate → assemble 13-key package
-  → schema check (exactly 13 keys, all in range)  [fail closed]
+  → adapter: resolve + validate → assemble 11-key package
+  → schema check (exactly 11 keys, all in range)  [fail closed]
   → enqueue publish job (request_id, channel_id, package)
   → engine: generate certified geometry (10–90 s)
   → validation: topology + volume vs reference
@@ -269,8 +269,9 @@ None of these block Phase 1.
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-10-30 | Initial multi-channel system design |
+| 1.0.2 | 2026-10-30 | Corrects package size references from 13 to 11 keys |
 | 1.0.1 | 2026-10-30 | Adds Order Intent Store; adds §3.4 reproducibility path (five-year test); adds second-resolver, self-sufficiency and vocabulary-leak risks |
 
 ---
 
-**End of SDD-014 v1.0.1**
+**End of SDD-014 v1.0.2**

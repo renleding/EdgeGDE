@@ -1,11 +1,11 @@
 # IDD-010: Parametric Lattice Lamp Generator — Two-Layer Interface Design
 
 **Status**: DRAFT → **ARCHITECTURAL DECISION v1.0**
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Author**: Hermes (Director)
 **Date**: 2026-10-30
 **Related**: FRS-010, SDD-010, FRS-011, IDD-011
-**Supersedes**: IDD-010 v1.1.0 (Option B: dual-block panel, dual fingerprints)
+**Supersedes**: IDD-010 v1.2.0 (corrects the package schema to the engine's real 10 keys / 11-key package)
 
 ---
 
@@ -145,10 +145,8 @@ Defines exact interfaces for the **two-layer** parametric lattice lamp generator
       "gyroid_cell": 8.0,
       "sheet_mm": 1.2,
       "band_mm": 25.0,
-      "bore_diameter": 35.0,
-      "collar_height": 30.0,
-      "dome_height": 20.0,
-      "top_closure_ratio": 0.8,
+      "bore_mm": 40.0,
+      "dome_mm": 1.6,
       "voxel_mm": 0.30
     },
     "triggered_layer2_mission": "lattice-lamp-layer2-001"
@@ -318,13 +316,13 @@ Height..............300.0 mm
 | `Cell Size` | `Gyroid_Cell_Size` | `gyroid_cell` | `.1f` | `mm` | 8.0 |
 | `Sheet Thickness` | `Gyroid_Thickness` | `sheet_mm` | `.1f` | `mm` | 1.2 |
 | `Band Width` | `Band_Width` | `band_mm` | `.1f` | `mm` | 25.0 |
-| `Bore Diameter` | `Bore_Diameter` | `bore_diameter` | `.1f` | `mm` | 35.0 |
-| `Collar Height` | `Collar_Height` | `collar_height` | `.1f` | `mm` | 30.0 |
-| `Dome Height` | `Dome_Height` | `dome_height` | `.1f` | `mm` | 20.0 |
-| `Top Closure` | `Top_Closure_Ratio` | `top_closure_ratio` | `.2f` | — | 0.80 |
-| `Voxel Resolution` | `Voxel_Resolution` | `voxel_mm` | `.2f` | `mm` | 0.30 |
+| `Bore Diameter` | `Bore_Diameter` | `bore_mm` | `.1f` | `mm` | 40.0 |
+| `Dome Thickness` | `Dome_Thickness` | `dome_mm` | `.1f` | `mm` | 1.6 |
+| `Voxel Resolution` | `Resolution_Production` | `voxel_mm` | `.2f` | `mm` | 0.30 |
 
 Ordering is fixed as above. Parameters absent from the certified generator MUST NOT appear in this block.
+
+**Correction (v1.3.0)**: this block previously carried 12 lines. `Collar Height` and `Top Closure` were removed because `build()` never reads them, `Bore Diameter` moved from `bore_diameter`/35.0 to `bore_mm`/40.0, and `Dome Height` (20 mm) became `Dome Thickness` (1.6 mm) because the engine consumes `dome_mm` as a shell thickness. The certified block is exactly **10 lines**.
 
 #### 3.5.3b Design Studio Parameter Lines (Not in Certified Engine)
 
@@ -358,8 +356,7 @@ Two fingerprints are computed independently. Only `certified_fp` may invalidate 
 certified_fp = "sha256:" + sha256(
     canonical_json({
         height, diameter, twist_deg, wall_mm, gyroid_cell, sheet_mm,
-        band_mm, bore_diameter, collar_height, dome_height,
-        top_closure_ratio, voxel_mm
+        band_mm, bore_mm, dome_mm, voxel_mm
     } rounded to 4 decimal places)
 ).hexdigest()
 ```
@@ -410,7 +407,7 @@ Path: `C:/temp/lattice_lamp_publish_state.json`
 }
 ```
 
-The `studio_parameters` object is sidecar-only. It is **never** merged into `lattice_lamp_params.json`, whose key set must remain exactly `product` plus the 12 certified parameters so schema equality with the certified engine is preserved.
+The `studio_parameters` object is sidecar-only. It is **never** merged into `lattice_lamp_params.json`, whose key set must remain exactly `product` plus the 10 certified parameters (11 keys) so schema equality with the certified engine is preserved.
 
 Written by Publish Design and by Preview Design (preview fields only). Read by the panel each solve. A missing or unparseable sidecar MUST degrade to `DRAFT` / `Not Published` / `Pending` without raising an error on the canvas.
 
@@ -472,7 +469,7 @@ python3 -m packages.generator_certified.task034_run \
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["height", "diameter", "twist_deg", "wall_mm", "gyroid_cell", "sheet_mm", "band_mm", "bore_diameter", "collar_height", "dome_height", "top_closure_ratio", "voxel_mm"],
+  "required": ["height", "diameter", "twist_deg", "wall_mm", "gyroid_cell", "sheet_mm", "band_mm", "bore_mm", "dome_mm", "voxel_mm"],
   "properties": {
     "height": {"type": "number", "minimum": 100, "maximum": 500, "default": 300},
     "diameter": {"type": "number", "minimum": 50, "maximum": 300, "default": 150},
@@ -481,11 +478,9 @@ python3 -m packages.generator_certified.task034_run \
     "gyroid_cell": {"type": "number", "minimum": 2, "maximum": 20, "default": 8.0},
     "sheet_mm": {"type": "number", "minimum": 0.5, "maximum": 5, "default": 1.2},
     "band_mm": {"type": "number", "minimum": 0, "maximum": 50, "default": 25.0},
-    "bore_diameter": {"type": "number", "minimum": 10, "maximum": 100, "default": 35.0},
-    "collar_height": {"type": "number", "minimum": 0, "maximum": 100, "default": 30.0},
-    "dome_height": {"type": "number", "minimum": 0, "maximum": 50, "default": 20.0},
-    "top_closure_ratio": {"type": "number", "minimum": 0, "maximum": 1.0, "default": 0.8},
-    "voxel_mm": {"type": "number", "minimum": 0.2, "maximum": 1.0, "default": 0.30}
+    "bore_mm": {"type": "number", "minimum": 10, "maximum": 100, "default": 40.0},
+    "dome_mm": {"type": "number", "minimum": 0.2, "maximum": 10.0, "default": 1.6},
+    "voxel_mm": {"type": "number", "minimum": 0.1, "maximum": 1.0, "default": 0.30}
   }
 }
 ```
@@ -595,7 +590,7 @@ python3 -m packages.generator_certified.task034_run \
 - `parameter_groups` — 4 logical groups present
 - `preview_design` — Preview Design action functional, returns grid size
 - `publish_design` — Publish Design action functional, writes Design Intent Package
-- `current_design_panel` — single read-only panel, 9 blocks, 12 certified DNA lines plus a separately labelled 6-line studio block, no crossover violations, rendered status matches sidecar (see 3.5.6)
+- `current_design_panel` — single read-only panel, 9 blocks, 10 certified DNA lines plus a separately labelled 6-line studio block, no crossover violations, rendered status matches sidecar (see 3.5.6)
 
 **Evidence Schema:**
 ```json

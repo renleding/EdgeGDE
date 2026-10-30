@@ -18,6 +18,42 @@ BASE = dict(diameter=150.0, height=300.0, twist_deg=45.0, wall_mm=1.6,
             dome_mm=1.6, voxel_mm=0.8)
 
 
+# ---------------------------------------------------------------------------
+# PREVIEW BUILD - NON-CERTIFIED VIEWPORT REPRESENTATION
+#
+# A designer moving a slider needs shape feedback, not manufacturing geometry.
+# Feeding a 0.8 mm production mesh (12.6M facets / 631 MB STL) into Rhino freezes
+# any viewport and makes the Design Studio unusable.
+#
+# build_preview() is the fast path. It samples the SAME field with a coarser
+# voxel and is explicitly NOT a certified artifact.
+#
+# The flooring constraint is FIDELITY, not file size. Features thinner than the
+# sample spacing are dropped outright, so a coarse preview can silently become a
+# different object. Measured against the 0.8 mm production mesh (Z = 375.45 mm):
+#
+#     voxel_mm   faces        STL      z_error
+#     1.6       1,882,576     94 MB    -0.3 mm   <- default (fidelity floor)
+#     1.8       1,188,184     59 MB    -9.1 mm   dome starts aliasing
+#     2.0         233,700     12 MB   -24.1 mm   dome lost
+#     2.2         415,420     21 MB   -33.3 mm
+#     2.5         543,924     27 MB   -37.1 mm   dome gone, shape is wrong
+#     0.8      12,626,696    631 MB    reference (production / certified)
+#
+# `dome_mm` is 1.6 mm and `sheet_mm` is 1.2 mm, so any voxel coarser than ~1.6 mm
+# under-samples them. Preview policy: the mesh must remain dimensionally
+# representative. See docs/TASK-044-lessons-learned.md (LL-044-02).
+#
+# Contract:
+#   - does NOT change BASE and does NOT add a certified parameter
+#   - does NOT alter build() semantics or certification
+#   - result is marked certified=False and must never be sliced or certified
+#   - voxel_mm is a viewport sampling rate, not a design parameter
+# ---------------------------------------------------------------------------
+PREVIEW_VOXEL_MM = 1.6
+PREVIEW_MAX_STL_MB = 100.0
+
+
 def smax(a, b, k):
     return 0.5 * (a + b + np.sqrt((a - b) ** 2 + k * k))
 
@@ -176,3 +212,51 @@ def build(p, max_voxels=90_000_000):
         "gate_pass": bool(naked == 0 and nonman == 0 and vol > 0 and n_comp == 1),
         "seconds": round(time.time() - t0, 1),
     }
+
+
+def build_preview(p, voxel_mm=PREVIEW_VOXEL_MM, max_voxels=90_000_000):
+    """Coarse viewport build for the Design Studio feedback loop.
+
+    NON-CERTIFIED. Produces the same field as build() sampled at a coarser
+    voxel so the result lands in the 3-30 MB range that Rhino (and any viewer)
+    handles interactively. Never slice, certify, or ship a preview mesh.
+
+    Args:
+        p:         parameter dict (certified keys only)
+        voxel_mm:  preview sampling rate. Default 1.6 (~94 MB), which is the
+                   fidelity floor: it keeps Z within 0.3 mm of production.
+                   Coarser values (2.0+) drop the 1.6 mm dome and must not be
+                   used for design review. See LL-044-02.
+        max_voxels: resource guard passed through to build().
+
+    Returns:
+        The build() result dict, plus:
+            preview=True, certified=False, preview_voxel_mm=<rate>
+        and build.last_vertices / build.last_faces are populated exactly as for
+        build(), because it delegates to build().
+
+    Raises:
+        ValueError: if voxel_mm is not a positive number.
+    """
+    if not isinstance(voxel_mm, (int, float)) or voxel_mm <= 0:
+        raise ValueError("voxel_mm must be a positive number, got %r" % (voxel_mm,))
+
+    # never mutate the caller's package
+    pp = dict(p)
+    pp["voxel_mm"] = float(voxel_mm)
+
+    res = build(pp, max_voxels=max_voxels)
+
+    if res.get("status") == "ok":
+        est_stl_mb = res["faces"] * 50 / 1e6
+        res["preview"] = True
+        res["certified"] = False
+        res["preview_voxel_mm"] = float(voxel_mm)
+        res["preview_stl_mb_est"] = round(est_stl_mb, 1)
+        res["preview_within_policy"] = est_stl_mb < PREVIEW_MAX_STL_MB
+        if est_stl_mb >= PREVIEW_MAX_STL_MB:
+            res["preview_warning"] = (
+                "preview exceeds %.0f MB policy; use a coarser voxel_mm"
+                % PREVIEW_MAX_STL_MB
+            )
+    return res

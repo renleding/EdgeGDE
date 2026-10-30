@@ -1,7 +1,7 @@
 # IDD-017: Multi-Channel Design Intent — Interface Contracts
 
 **Status**: PROPOSED
-**Version**: 1.0.1
+**Version**: 1.0.2
 **Author**: Hermes (Director)
 **Date**: 2026-10-30
 **Related**: FRS-015, SDD-014, IDD-010, FRS-010
@@ -21,7 +21,7 @@ Defines the contracts that let multiple authoring front-ends feed one certified 
 | I-04 Channel → Finish/order manifest | non-geometric attributes |
 | I-05 Publish → Audit record | provenance |
 
-The Design Intent Package itself is **unchanged**. Its schema remains exactly `product` + the 12 certified keys (IDD-010 §3.5 / §4.2). Channel identity lives in the envelope and audit trail, never in the package.
+The Design Intent Package itself is **unchanged**. Its schema remains exactly `product` + the 10 certified keys (IDD-010 §3.5 / §4.2). Channel identity lives in the envelope and audit trail, never in the package.
 
 ---
 
@@ -44,16 +44,14 @@ The Design Intent Package itself is **unchanged**. Its schema remains exactly `p
     "gyroid_cell": 8.0,
     "sheet_mm": 1.2,
     "band_mm": 25.0,
-    "bore_diameter": 35.0,
-    "collar_height": 30.0,
-    "dome_height": 20.0,
-    "top_closure_ratio": 0.8,
+    "bore_mm": 40.0,
+    "dome_mm": 1.6,
     "voxel_mm": 0.30
   },
   "mapped_attributes": [
     {"control": "mount_type", "label": "Mount",
-     "options": {"pendant": {"bore_diameter": 35.0, "collar_height": 30.0},
-                 "floor":   {"bore_diameter": 42.0, "collar_height": 45.0}}}
+     "options": {"pendant": {"bore_mm": 40.0},
+                 "floor":   {"bore_mm": 50.0}}}
   ],
   "non_geometric": [
     {"attr": "colour", "label": "Colour", "options": ["ivory", "charcoal", "sand"]}
@@ -66,7 +64,7 @@ The Design Intent Package itself is **unchanged**. Its schema remains exactly `p
 
 | Rule | Detail |
 |------|--------|
-| R-01 | `exposed[].param` MUST be one of the 12 certified keys |
+| R-01 | `exposed[].param` MUST be one of the 10 certified keys |
 | R-02 | `min`/`max` MUST be within the certified range for that parameter |
 | R-03 | `defaults` MUST cover exactly the certified keys **not** in `exposed` or resolvable via `mapped_attributes` |
 | R-04 | `defaults` values MUST be within certified ranges |
@@ -127,15 +125,15 @@ Any failure at step 4 is a hard rejection. No partial packages.
   "gyroid_cell": 8.0,
   "sheet_mm": 1.2,
   "band_mm": 25.0,
-  "bore_diameter": 42.0,
-  "collar_height": 45.0,
-  "dome_height": 20.0,
-  "top_closure_ratio": 0.8,
+  "bore_mm": 50.0,
+  "dome_mm": 1.6,
   "voxel_mm": 0.30
 }
 ```
 
-Exactly 13 keys. No `channel_id`, no `colour`, no `mount_type`. `mount_type` has already become `bore_diameter` + `collar_height`.
+Exactly 11 keys — verified schema-equal to `BASE` in `task034_engine.py`. No `channel_id`, no `colour`, no `mount_type`. `mount_type: floor` has already become `bore_mm: 50.0`.
+
+**Correction (v1.0.2)**: earlier revisions of this document specified 13 keys. Four keys it named — `bore_diameter`, `collar_height`, `dome_height`, `top_closure_ratio` — do not exist in the engine. The real keys are `bore_mm` (default 40.0) and `dome_mm` (default 1.6, a shell *thickness*). Mount mapping therefore resolves to `bore_mm` alone, since the engine has no collar parameter.
 
 ---
 
@@ -207,7 +205,7 @@ A preset resolves one human choice into several certified parameters:
 | Rule | Detail |
 |------|--------|
 | R-07 | The finish manifest MUST reference `certified_fp` so a finish is always bound to a specific certified geometry |
-| R-08 | The finish manifest MUST NOT contain any of the 12 certified keys |
+| R-08 | The finish manifest MUST NOT contain any of the 10 certified keys |
 | R-09 | Changes to finish attributes MUST NOT alter `certified_fp` |
 
 ---
@@ -222,7 +220,7 @@ A preset resolves one human choice into several certified parameters:
   "grid": "38x38x38",
   "elapsed_ms": 1420,
   "geometry_ref": "preview/web-customer/uuid4.glb",
-  "resolved_parameters": { "...": "12 keys, for display only" }
+  "resolved_parameters": { "...": "10 keys, for display only" }
 }
 ```
 
@@ -244,8 +242,8 @@ A preset resolves one human choice into several certified parameters:
   "manifest_version": "1.0.0",
   "tier": "C",
   "mode": "publish",
-  "resolved_parameters": { "...": "12 keys" },
-  "mapped_resolutions": {"mount_type": {"bore_diameter": 42.0, "collar_height": 45.0}},
+  "resolved_parameters": { "...": "10 keys" },
+  "mapped_resolutions": {"mount_type": {"bore_mm": 50.0}},
   "certified_fp": "sha256:...",
   "package_path": "C:/temp/lattice_lamp_params.json",
   "timestamp": "2026-10-30T14:02:11+11:00",
@@ -284,7 +282,7 @@ All rejections fail closed. No partial package, no silent default substitution b
 |-----------|------|
 | Channel independence | same 12 values via `gh-design-studio` and `web-customer` → identical `certified_fp` |
 | Determinism | same 12 values via either channel → byte-identical certified geometry |
-| Schema purity | package from every channel has exactly 13 keys |
+| Schema purity | package from every channel has exactly 11 keys |
 | No widening | manifest with `max` above certified max is rejected |
 | No studio leakage | Tier B/C manifest referencing a studio param is rejected |
 | Finish isolation | changing `colour` leaves `certified_fp` unchanged |
@@ -301,8 +299,9 @@ All rejections fail closed. No partial package, no silent default substitution b
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-10-30 | Initial multi-channel contracts |
+| 1.0.2 | 2026-10-30 | Corrects the package to 11 keys / 10 certified parameters against the real engine `BASE`; replaces `bore_diameter`+`collar_height` mount mapping with `bore_mm` |
 | 1.0.1 | 2026-10-30 | Adds Order Intent record (R-16…R-20) and presets (R-21…R-24); adds self-sufficiency, mapping-isolation, preset-determinism and vocabulary-rejection invariants |
 
 ---
 
-**End of IDD-017 v1.0.1**
+**End of IDD-017 v1.0.2**
