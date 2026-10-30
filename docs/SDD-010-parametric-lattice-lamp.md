@@ -1,11 +1,21 @@
 # SDD-010: Parametric Lattice Lamp Generator — Two-Layer System Design
 
 **Status**: DRAFT → **ARCHITECTURAL DECISION v1.0**
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Author**: Hermes (Director)
 **Date**: 2026-10-30
 **Related**: FRS-010, IDD-010, FRS-011, IDD-011
 **Supersedes**: SDD-010 v0.3.0 (single-layer GH geometry engine)
+
+> **Correction v1.3.0 (DOC-FIX-001):** this document previously described 12
+> certified parameters and a 13-key package, reconstructed from a panel draft.
+> The authoritative contract is `BASE` in `packages/generator-certified/task034_engine.py`:
+> **10 certified parameters** (`height`, `diameter`, `twist_deg`, `wall_mm`,
+> `gyroid_cell`, `sheet_mm`, `band_mm`, `bore_mm`, `dome_mm`, `voxel_mm`) plus
+> `product`, giving an **11-key package**. `bore_diameter`, `collar_height`,
+> `dome_height` and `top_closure_ratio` never existed in the engine. The collar is
+> derived geometry from `bore_mm`; `dome_mm` is a shell thickness consumed as
+> `DOME / 2.0`, not a height. See FRS-010 v1.3.0 and IDD-010 v1.3.0.
 
 ---
 
@@ -36,7 +46,7 @@
 │  │ Rhino 8 + Grasshopper                                               │   │
 │  │  ┌─────────────────────────────────────────────────────────────┐   │   │
 │  │  │ lattice_lamp_v1_FROZEN.gh                                   │   │   │
-│  │  │  - 12 Parameter Sliders (aligned with Python BASE dict)    │   │   │
+│  │  │  - 10 Certified Parameter Sliders (aligned with Python BASE)    │   │   │
 │  │  │  - Visual Preview Geometry (NON-CERTIFIED)                 │   │   │
 │  │  │  - JSON Export Button/Component                             │   │   │
 │  │  └─────────────────────────────────────────────────────────────┘   │   │
@@ -51,8 +61,8 @@
 │  │  │ task034_engine.py  ← SDF composition + marching cubes       │   │   │
 │  │  │  - Wall SDF: Tapered cylinder with twist                   │   │   │
 │  │  │  - Gyroid SDF: TPMS sin(Kx)cos(Ky)+... thickness=sheet_mm  │   │   │
-│  │  │  - Collar SDF: Cylindrical bore (bore_diameter)            │   │   │
-│  │  │  - Dome SDF: Spherical cap (dome_height)                   │   │   │
+│  │  │  - Collar SDF: Cylindrical bore (bore_mm)                 │   │   │
+│  │  │  - Dome SDF: Spherical cap (dome_mm)                         │   │   │
 │  │  │  - Field Composition: smin(smin(smin(d_wall, d_lat),       │   │   │
 │  │  │                        d_col), d_dome)  KS=0.30             │   │   │
 │  │  │  - Marching Cubes extraction at voxel_mm resolution        │   │   │
@@ -85,7 +95,7 @@
 | **Hermes** | All | Parameter orchestration, mission planning, verification |
 | **rhinoclaw-bridge** | 1 | MCP↔TCP translation, auth, framing |
 | **RhinoClaw Plugin** | 1 | GH definition loading, execution, parameter export, unified inspection |
-| **Grasshopper** | 1 | **Parameter UI only** — 12 sliders, visual preview, JSON export |
+| **Grasshopper** | 1 | **Parameter UI only** — 10 certified + 6 studio sliders, visual preview, JSON export |
 | **Python Generator** | 2 | **Authoritative geometry** — SDF composition, marching cubes, certification |
 | **Manufacturing Pipeline** | 3 | Slicer validation, envelope audit, production certification |
 
@@ -127,8 +137,8 @@ Python: task034_run.py --params ... --output ... --validate --load-into-rhino
       ├─► SDF Composition:
       │     d_wall  = tapered cylinder with twist (twist_deg phase)
       │     d_lat   = TPMS gyroid K=2π/gyroid_cell, thickness=sheet_mm, band=band_mm
-      │     d_col   = cylindrical bore (bore_diameter) for Z < collar_height
-      │     d_dome  = spherical cap for Z > height - dome_height
+      │     d_col   = collar ring derived from bore_mm (collar height is not a parameter)
+      │     d_dome  = spherical cap, shell thickness = dome_mm
       │     field   = smin(smin(smin(d_wall, d_lat), d_col), d_dome)  KS=0.30
       │
       ├─► Marching Cubes at voxel_mm resolution
@@ -188,7 +198,7 @@ TASK-044 Phase 5: Production Certification
 
 ```
 lattice_lamp_v1_FROZEN.gh
-├── Group: PRODUCT_DNA (12 CERTIFIED sliders — aligned with Python BASE dict)
+├── Group: PRODUCT_DNA (10 CERTIFIED sliders — aligned with Python BASE)
 │   ├── Geometry: Height, Diameter, Twist_Angle
 │   ├── Lattice: Gyroid_Cell_Size, Gyroid_Thickness, Band_Width
 │   ├── Manufacturing: Wall_Thickness, Bore_Diameter, Collar_Height, Dome_Height
@@ -210,7 +220,7 @@ lattice_lamp_v1_FROZEN.gh
 │
 ├── Group: PUBLISH_DESIGN (Design Intent Package Export)
 │   ├── Python Script Component: "Publish Design"
-│   │   Inputs: All 12 slider values
+│   │   Inputs: All 10 certified slider values
 │   │   Code: Write Design Intent Package JSON to configurable path
 │   │   Output: published (bool), output_path (str), triggered_layer2_mission (str)
 │   └── Trigger: Button (designer-initiated)
@@ -220,7 +230,7 @@ lattice_lamp_v1_FROZEN.gh
 │   │   └── Renders 8 fixed blocks: Status, Published, Design Package,
 │   │       Product DNA, Preview Quality, Certified Geometry,
 │   │       Current Layer, Architecture
-│   ├── Driven by: 12 live slider values + publish state sidecar
+│   ├── Driven by: 10 certified live slider values + publish state sidecar
 │   └── Renders DRAFT | READY | PUBLISHED
 │
 └── Group: INSPECTION_HOOKS
@@ -263,10 +273,8 @@ design_intent = {
     "gyroid_cell": Gyroid_Cell_Size,
     "sheet_mm": Gyroid_Thickness,
     "band_mm": Band_Width,
-    "bore_diameter": Bore_Diameter,
-    "collar_height": Collar_Height,
-    "dome_height": Dome_Height,
-    "top_closure_ratio": Top_Closure_Ratio,
+    "bore_mm": Bore_Mm,
+    "dome_mm": Dome_Thickness,
     "voxel_mm": Voxel_Resolution
 }
 
@@ -284,7 +292,7 @@ triggered_layer2_mission = "lattice-lamp-layer2-001"
 
 ```python
 # GH Python Script Component: "Preview Design"
-# Inputs: All 12 slider values, resolution (fast/medium/high)
+# Inputs: All 10 certified slider values, resolution (fast/medium/high)
 # Output: previewed (bool), grid_size (str), solve_time_ms (int)
 
 # Runs fast local GH solve at 38³ grid for immediate visual feedback
@@ -297,7 +305,7 @@ triggered_layer2_mission = "lattice-lamp-layer2-001"
 #### 3.4.1 Component composition
 
 ```
-12 certified sliders ──┐
+10 certified sliders ──┐
 6 studio sliders ──────┼─► [ Python 3 Script: Compose Panel Text ] ─► [ Panel ]
 Publish Design --------┘            ▲                                   (read-only)
   (published, path)                 │
@@ -310,7 +318,7 @@ Three components, no geometry code:
 
 | Component | Role |
 |-----------|------|
-| `Compose Panel Text` (Python 3 Script) | Reads the 12 certified values, the 6 studio values, the publish-state sidecar, and the preview/publish pulse inputs; returns one formatted string |
+| `Compose Panel Text` (Python 3 Script) | Reads the 10 certified values, the 6 studio values, the publish-state sidecar, and the preview/publish pulse inputs; returns one formatted string |
 | `Panel` (GH native) | Displays the string; must have **no input ports exposed to the designer** |
 | `File Read` (native or inside the script) | Loads `lattice_lamp_publish_state.json` each solve |
 
@@ -322,7 +330,7 @@ The studio sliders feed the panel for display only. They must not be wired into 
 
 A GH Panel only re-evaluates when one of its upstream inputs changes. Two cases must both refresh it:
 
-1. **Slider moved** → all 12 values are inputs to the script, so any change forces recompute. Handled automatically.
+1. **Slider moved** → all 10 certified values are inputs to the script, so any change forces recompute. Handled automatically.
 2. **Publish or Preview pressed with unchanged values** → nothing upstream changed, so the panel would go stale. Therefore the `published` boolean from Publish Design and the `previewed` boolean from Preview Design MUST be wired as inputs to `Compose Panel Text`, acting as refresh pulses.
 
 Omitting the pulses is the most likely implementation defect: the panel would show `DRAFT` immediately after a successful publish until some slider is touched.
@@ -331,8 +339,7 @@ Omitting the pulses is the most likely implementation defect: the panel would sh
 
 ```python
 CERT_KEYS = ("height","diameter","twist_deg","wall_mm","gyroid_cell","sheet_mm",
-             "band_mm","bore_diameter","collar_height","dome_height",
-             "top_closure_ratio","voxel_mm")
+             "band_mm","bore_mm","dome_mm","voxel_mm")
 STUDIO_KEYS = ("wave_amplitude","wave_frequency","interference_density",
                "helical_offset","bulb_concealment","mount_diameter")
 
@@ -379,7 +386,7 @@ Degradation is explicit: absent or corrupt sidecar yields `DRAFT` / `Not Publish
 
 `published_at` is captured at publish time and never recomputed on subsequent solves — otherwise the "Published" line would drift every time the file is reopened.
 
-`studio_parameters` is written to the sidecar only. Publish Design's Design Intent Package must remain exactly `product` plus the 12 certified keys; adding studio keys would break schema equality with the certified engine and fail Layer 2 validation.
+`studio_parameters` is written to the sidecar only. Publish Design's Design Intent Package must remain exactly `product` plus the 10 certified keys; adding studio keys would break schema equality with the certified engine and fail Layer 2 validation.
 
 #### 3.4.5 Known risks
 
@@ -389,7 +396,7 @@ Degradation is explicit: absent or corrupt sidecar yields `DRAFT` / `Not Publish
 | Float noise flips PUBLISHED → DRAFT | False "unpublished" warning | 4 dp rounding in fingerprint (IDD-010 §3.5.4) |
 | Sidecar path drift between Preview and Publish | Panel reads wrong state | Single shared path constant |
 | Designer edits the panel text | Panel no longer authoritative | Panel has no input ports; `inspect_workspace` asserts `read_only` |
-| Studio params leaked into the Design Intent Package | Layer 2 schema check fails; generator rejects the package | Keep studio keys out of the publish payload; assert exactly 13 keys in `validate_schema` |
+| Studio params leaked into the Design Intent Package | Layer 2 schema check fails; generator rejects the package | Keep studio keys out of the publish payload; assert exactly 11 keys in `validate_schema` |
 | Studio params folded into `cert_fp` | Published design flips to DRAFT on a studio-only edit | Two fingerprints (3.4.3); assert studio edit leaves status PUBLISHED |
 | Studio block not visually distinct | Designer believes Wave/Interference affect the manufactured part | Separate heading, separator, `(Not in Certified Engine)` sub-header, closing note; assert `studio_block_labelled` |
 | Parameters rendered in the wrong block | Dashboard misstates what is manufactured | `inspect_workspace` reports `crossover_violations`; non-empty is a failure |
@@ -424,9 +431,8 @@ def build_field(params: dict) -> callable:
     cell = params["gyroid_cell"]
     sheet = params["sheet_mm"]
     band = params["band_mm"]
-    bore = params["bore_diameter"] / 2
-    collar_h = params["collar_height"]
-    dome_h = params["dome_height"]
+    bore = params["bore_mm"] / 2
+    dome_t = params["dome_mm"]
     
     K = 2 * pi / cell
     
@@ -444,10 +450,10 @@ def build_field(params: dict) -> callable:
         d_lat = smax(abs(gyroid) - sheet/2, -(r - R_eff + band))
         
         # Collar (bore)
-        d_col = bore - r if z < collar_h else inf
+        d_col = max(abs(r - (bore + R) / 2) - (R - bore) / 2, abs(z - 1) - 1)
         
         # Dome
-        d_dome = z - (H - dome_h) if z > H - dome_h else inf
+        d_dome = abs(sqrt(r * r + (z - H) ** 2) - R) - dome_t / 2
         
         # Field composition: KS=0.30
         return smin(smin(smin(d_wall, d_lat), d_col), d_dome)
@@ -663,7 +669,7 @@ EdgeGDE/
 
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
-| **1. Layer 1: GH Parameter UI** | `lattice_lamp_v1_FROZEN.gh` with 12 sliders + JSON export | 🔄 **ACTIVE** |
+| **1. Layer 1: GH Parameter UI** | `lattice_lamp_v1_FROZEN.gh` with 10 certified + 6 studio sliders + JSON export | 🔄 **ACTIVE** |
 | **2. Layer 1: Inspection Integration** | RhinoClaw `inspect_workspace(layer=1)` implemented | ⏳ |
 | **3. Layer 2: Mission Integration** | Hermes missions for Layer 1 → Layer 2 pipeline | ⏳ |
 | **4. Layer 3: TASK-044 Phase 2** | Slicer validation with certified STL | ⏳ |
