@@ -1,11 +1,11 @@
 # FRS-010: Parametric Lattice Lamp Generator — Two-Layer Architecture
 
 **Status**: PROPOSED → **ARCHITECTURAL DECISION v1.0**
-**Version**: 1.2.0
+**Version**: 1.3.0
 **Author**: Hermes (Director)
 **Date**: 2026-10-30
 **Related**: FRS-008, FRS-009, FRS-011, IDD-010, IDD-011
-**Supersedes**: FRS-010 v1.1.0 (adopts Option B dual-block panel)
+**Supersedes**: FRS-010 v1.2.0 (corrects Product DNA to the engine's real 10-key schema)
 
 ---
 
@@ -72,7 +72,9 @@ Build a **two-layer parametric lattice lamp system**:
 
 ## 4. Layer 1: Grasshopper Design Studio
 
-### 4.1 Product DNA (12 Required — Aligned with Python BASE Dict)
+### 4.1 Product DNA (10 Required — Exact `BASE` Dict in `task034_engine.py`)
+
+**Corrected 2026-10-30 after auditing the engine source.** An earlier revision of this table listed 12 parameters, four of which do not exist in the engine: `bore_diameter`, `collar_height`, `dome_height`, `top_closure_ratio`. `build()` reads exactly the ten keys below (`task034_engine.py:32-40`), and `task037_converge.py:29` freezes nine of them for the reference study with `voxel_mm` supplied per run.
 
 | Parameter | Type | Range | Default | Python BASE Key | Description |
 |-----------|------|-------|---------|-----------------|-------------|
@@ -83,16 +85,17 @@ Build a **two-layer parametric lattice lamp system**:
 | `Gyroid_Cell_Size` | Float | 2–20 mm | 8.0 | `gyroid_cell` | TPMS gyroid unit cell dimension |
 | `Gyroid_Thickness` | Float | 0.5–5 mm | 1.2 | `sheet_mm` | Gyroid sheet thickness |
 | `Band_Width` | Float | 0–50 mm | 25.0 | `band_mm` | Gyroid band width from surface |
-| `Bore_Diameter` | Float | 10–100 mm | 35.0 | `bore_diameter` | Central bore diameter |
-| `Collar_Height` | Float | 0–100 mm | 30.0 | `collar_height` | Mounting collar height |
-| `Dome_Height` | Float | 0–50 mm | 20.0 | `dome_height` | Top dome height |
-| `Top_Closure_Ratio` | Float | 0–1.0 | 0.8 | — | Aperture ratio (visual only) |
-| `Voxel_Resolution` | Float | 0.2–1.0 mm | 0.30 | `voxel_mm` | Marching cubes resolution |
+| `Bore_Diameter` | Float | 10–100 mm | 40.0 | `bore_mm` | Central bore diameter |
+| `Dome_Thickness` | Float | 0.2–10 mm | 1.6 | `dome_mm` | Shell thickness of the spherical top cap (not a height) |
+| `Voxel_Resolution` | Float | 0.10–1.0 mm | 0.30 | `voxel_mm` | Marching-cubes resolution; engine `BASE` fallback is 0.8 |
 
-**Key Changes from v0.3.0**:
-- Removed: `Wave_Amplitude`, `Wave_Frequency`, `Interference_Density`, `Helical_Offset`, `Bulb_Concealment`, `Mount_Diameter` (not in Python BASE)
-- Added: `Band_Width`, `Bore_Diameter`, `Collar_Height`, `Dome_Height`, `Voxel_Resolution`
-- Ranges/defaults aligned with Python BASE dict and the TASK-037 convergence study
+**Correction record (v1.3.0)**:
+- **Removed** `Collar_Height` and `Top_Closure_Ratio` — neither is read by `build()`; both were modelling concepts that never became engine inputs
+- **Renamed** `Bore_Diameter` key `bore_diameter` → **`bore_mm`**, default 35.0 → **40.0** (matches `BASE` and the TASK-037 freeze)
+- **Renamed** `Dome_Height` (20 mm "height") → **`Dome_Thickness`** (1.6 mm shell), key `dome_mm`; the engine uses it as `DOME/2.0` in the spherical-cap SDF, so it is a wall thickness
+- **`Voxel_Resolution`** 0.30 is the certified production resolution; the engine's own fallback is 0.8
+- Consequence: the Design Intent Package is **11 keys** (`product` + 10), not 13
+- Studio parameters (`Wave_Amplitude`, `Wave_Frequency`, `Interference_Density`, `Helical_Offset`, `Bulb_Concealment`, `Mount_Diameter`) remain excluded from the engine, as recorded in 4.1.1
 
 ### 4.1.1 Design Studio Parameters (Not in Certified Engine)
 
@@ -111,7 +114,7 @@ Rules:
 
 | ID | Requirement |
 |----|-------------|
-| FRS-010-47 | Studio parameters MUST NOT be exported into the Design Intent Package; the package MUST contain exactly the 12 certified keys plus `product` |
+| FRS-010-47 | Studio parameters MUST NOT be exported into the Design Intent Package; the package MUST contain exactly the 10 certified keys plus `product` (11 keys total) |
 | FRS-010-48 | Studio parameters MUST NOT contribute to the certified fingerprint, so changing them MUST NOT invalidate a PUBLISHED state |
 | FRS-010-49 | Studio parameters MUST be persisted in the publish-state sidecar so they survive save, close, and reopen |
 | FRS-010-50 | The panel MUST state, in the studio block itself, that these parameters do not affect certified geometry |
@@ -132,9 +135,9 @@ Rules:
 
 | ID | Requirement |
 |----|-------------|
-| FRS-010-08 | Publish Design MUST export all 12 parameters as JSON with exact keys matching the Python BASE dict, plus a `product` field |
+| FRS-010-08 | Publish Design MUST export all 10 engine parameters as JSON with exact keys matching the Python `BASE` dict, plus a `product` field |
 | FRS-010-09 | Export path MUST be configurable (default: `C:/temp/lattice_lamp_params.json`) |
-| FRS-010-10 | JSON format: `{"product":"LatticeLamp","height":300,"diameter":150,"twist_deg":45,"wall_mm":1.6,"gyroid_cell":8.0,"sheet_mm":1.2,"band_mm":25.0,"bore_diameter":35.0,"collar_height":30.0,"dome_height":20.0,"top_closure_ratio":0.8,"voxel_mm":0.30}` |
+| FRS-010-10 | JSON format (11 keys, verified schema-equal to `BASE`): `{"product":"LatticeLamp","height":300,"diameter":150,"twist_deg":45,"wall_mm":1.6,"gyroid_cell":8.0,"sheet_mm":1.2,"band_mm":25.0,"bore_mm":40.0,"dome_mm":1.6,"voxel_mm":0.30}` |
 | FRS-010-11 | Publish Design MUST trigger Layer 2 certified geometry generation via a Hermes mission |
 | FRS-010-12 | Preview Design MUST run a fast local preview (e.g. 38³ grid) without certification, without writing the Design Intent Package |
 
@@ -228,7 +231,7 @@ Design Studio
 |----|-------------|
 | FRS-010-14 | The panel MUST be a single read-only GH Panel with no input ports; designers MUST NOT be able to type into it |
 | FRS-010-15 | The panel MUST render these blocks in this fixed order: Status, Published, Design Package, Certified Product DNA, Design Studio Parameters, Preview Quality, Certified Geometry, Current Layer, Architecture |
-| FRS-010-16 | **Certified Product DNA** MUST list exactly the 12 certified parameters, in the order given in 4.1, each with unit suffix and dot-leader alignment |
+| FRS-010-16 | **Certified Product DNA** MUST list exactly the 10 certified parameters, in the order given in 4.1, each with unit suffix and dot-leader alignment |
 | FRS-010-17 | **Design Studio Parameters** MUST be a separate block, visually distinguished from Certified Product DNA, headed `(Not in Certified Engine)` and closed with an explicit "does not affect certified geometry" note |
 | FRS-010-51 | Studio parameters MUST NOT appear inside the Certified Product DNA block, and certified parameters MUST NOT appear inside the Design Studio block |
 | FRS-010-52 | The two blocks MUST be visually distinguishable without relying on colour alone (separate heading, separate separator, explicit sub-header), so the distinction survives greyscale, colour-blindness, and printing |
@@ -266,7 +269,7 @@ Two independent fingerprints exist, and only one of them governs Status.
 
 | Fingerprint | Inputs | Governs | May invalidate PUBLISHED |
 |-------------|--------|---------|--------------------------|
-| `certified_fp` | the 12 certified parameters (4.1) | Status, Published, Design Package | **Yes** |
+| `certified_fp` | the 10 certified parameters (4.1) | Status, Published, Design Package | **Yes** |
 | `studio_fp` | the 6 studio parameters (4.1.1) | the studio block's advisory marker only | **No** |
 
 | ID | Requirement |
@@ -297,8 +300,8 @@ Two independent fingerprints exist, and only one of them governs Status.
 |----|-------------|
 | FRS-010-24 | **Base form**: tapered cylinder with twist (`twist_deg` drives phase along Z) |
 | FRS-010-25 | **Lattice**: TPMS gyroid field `sin(Kx)cos(Ky)+sin(Ky)cos(Kz)+sin(Kz)cos(Kx)` with `K=2π/gyroid_cell`, thickness `sheet_mm` |
-| FRS-010-26 | **Collar**: cylindrical bore (`bore_diameter`) for Z < `collar_height` |
-| FRS-010-27 | **Dome**: spherical cap for Z > `height − dome_height` |
+| FRS-010-26 | **Bore**: cylindrical void of diameter `bore_mm` through the body (`d_col` in the engine); there is no separate collar height — the engine has no `collar_height` key |
+| FRS-010-27 | **Dome**: spherical cap of shell thickness `dome_mm` closing the top (`d_dome` uses `DOME/2.0`); `dome_mm` is a thickness, not a height |
 | FRS-010-28 | **Field composition**: `smin(smin(smin(d_wall, d_lat), d_col), d_dome)` with KS=0.30 |
 | FRS-010-29 | **Extraction**: marching cubes at `voxel_mm` resolution, under a 90M voxel budget |
 | FRS-010-30 | **Topology**: output MUST be watertight, manifold, single-body |
@@ -364,15 +367,15 @@ Two independent fingerprints exist, and only one of them governs Status.
 | AC-14 | Certified geometry loads into the `Lattice_Lamp_Certified` layer | 2 |
 | AC-15 | Designer sees certified geometry in the viewport within 5 s of publish | 2 |
 | **AC-16** | **Current Design panel renders all 8 blocks in the specified order** | **1** |
-| **AC-17** | **Product DNA block lists exactly the 12 certified parameters, no phantom parameters** | **1** |
+| **AC-17** | **Product DNA block lists exactly the 10 certified parameters, no phantom parameters** | **1** |
 | **AC-18** | **Panel shows DRAFT before preview, READY after a successful preview, PUBLISHED after publish** | **1** |
 | **AC-19** | **Changing any slider after publish returns the panel to DRAFT** | **1** |
 | **AC-20** | **Status and publish timestamp survive save, close, and reopen** | **1** |
 | **AC-21** | **Panel is read-only — no input ports, not typeable** | **1** |
 | **AC-22** | **Design Studio Parameters block renders separately, with `(Not in Certified Engine)` heading and the "does not affect certified geometry" note** | **1** |
-| **AC-23** | **Certified Product DNA block contains exactly 12 lines; Design Studio block exactly 6; no crossover** | **1** |
+| **AC-23** | **Certified Product DNA block contains exactly 10 lines; Design Studio block exactly 6; no crossover** | **1** |
 | **AC-24** | **Changing a studio parameter leaves Status `PUBLISHED` and shows `changed since publish` in the studio block** | **1** |
-| **AC-25** | **Design Intent Package still contains exactly 13 keys (product + 12 certified) with no studio keys** | **1** |
+| **AC-25** | **Design Intent Package still contains exactly 11 keys (product + 10 certified) with no studio keys** | **1** |
 
 ---
 
@@ -398,7 +401,7 @@ The product configurator draft supplied on 2026-10-30 listed six parameters the 
 
 | Option | Description | Outcome |
 |--------|-------------|---------|
-| A | Panel shows only the 12 certified parameters | Rejected — loses design vocabulary |
+| A | Panel shows only the 10 certified parameters | Rejected — loses design vocabulary |
 | **B** | **Certified Product DNA + Design Studio Parameters (Not in Certified Engine) as a separate block** | **ADOPTED** |
 | C | Re-introduce the six into the Python generator | Not adopted — would invalidate the TASK-037 certification baseline |
 

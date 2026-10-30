@@ -1,7 +1,7 @@
 # FRS-015: Multi-Channel Design Intent — Many Front-Ends, One Certified Engine
 
 **Status**: PROPOSED
-**Version**: 1.0.1
+**Version**: 1.0.2
 **Author**: Hermes (Director)
 **Date**: 2026-10-30
 **Related**: FRS-010, IDD-010, IDD-017, SDD-010, SDD-014, FRS-011
@@ -87,8 +87,8 @@ A web channel is an **additional** authoring surface. It never becomes a second 
 
 | Tier | Channel | Exposed parameters | Typical latency budget |
 |------|---------|--------------------|------------------------|
-| **Tier A — Designer** | `gh-design-studio` | 12 certified + 6 studio (non-certified) | preview < 5 s, certified < 90 s |
-| **Tier B — Internal** | `web-internal` | approved subset of the 12 certified (e.g. 5) | preview 0.5–2 s, certified 10–90 s |
+| **Tier A — Designer** | `gh-design-studio` | 10 certified + 6 studio (non-certified) | preview < 5 s, certified < 90 s |
+| **Tier B — Internal** | `web-internal` | approved subset of the 10 certified (e.g. 5) | preview 0.5–2 s, certified 10–90 s |
 | **Tier C — Customer** | `web-customer` | minimal subset (e.g. 3) | preview 0.5–2 s, certified on demand |
 
 Tiers B and C expose **fewer** parameters, with ranges **narrowed** to a safe commercial envelope — never widened beyond the certified range.
@@ -98,11 +98,11 @@ Tiers B and C expose **fewer** parameters, with ranges **narrowed** to a safe co
 | ID | Requirement |
 |----|-------------|
 | FRS-015-01 | Every channel MUST emit a Design Intent Package that validates against the same schema used by the certified engine |
-| FRS-015-02 | A channel MUST expose only a **subset** of the 12 certified parameters; it MUST NOT introduce geometry parameters |
+| FRS-015-02 | A channel MUST expose only a **subset** of the 10 certified parameters; it MUST NOT introduce geometry parameters |
 | FRS-015-03 | Parameter ranges exposed by a channel MUST be equal to or narrower than the certified range; widening is forbidden |
 | FRS-015-04 | Parameters not exposed by a channel MUST be filled from a declared, versioned channel default set, not from an implicit value |
 | FRS-015-05 | Every channel MUST declare a `channel_id` and a `manifest_version` in its requests and audit records |
-| FRS-015-06 | `channel_id` MUST NOT be written into the Design Intent Package; the package key set stays exactly `product` + the 12 certified keys |
+| FRS-015-06 | `channel_id` MUST NOT be written into the Design Intent Package; the package key set stays exactly `product` + the 10 certified keys |
 | FRS-015-07 | The certified engine MUST behave identically regardless of originating channel, and MUST NOT read channel metadata |
 | FRS-015-08 | Identical parameter values authored through different channels MUST produce an identical `certified_fp` and byte-identical certified geometry |
 | FRS-015-27 | A channel MAY expose a **preset** control (e.g. `Small` / `Medium` / `Large`) that resolves to several certified parameters at once; presets MUST be declared in the manifest, MUST resolve deterministically, and MUST NOT be treated as a new geometry parameter *(added v1.0.1)* |
@@ -194,7 +194,7 @@ Each channel is defined by a manifest, versioned independently of the engine.
 | AC-03 | A channel cannot emit a parameter outside the certified 12 |
 | AC-04 | A channel cannot emit a range wider than the certified range |
 | AC-05 | Non-exposed parameters resolve from declared manifest defaults |
-| AC-06 | Design Intent Package key set is exactly 13 keys for every channel |
+| AC-06 | Design Intent Package key set is exactly 11 keys for every channel |
 | AC-07 | Preview is labelled non-certified and never overwrites the package |
 | AC-08 | Customer channel rejects studio parameters |
 | AC-09 | Audit record captures channel, manifest version, and resolved parameters |
@@ -248,8 +248,9 @@ Phase 1 must be proven first: one channel, one package, one engine, end to end.
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0.0 | 2026-10-30 | Initial multi-channel requirements |
+| 1.0.2 | 2026-10-30 | Corrects certified parameter count from 12 to 10 and package from 13 to 11 keys, matching `task034_engine.py` `BASE` |
 | 1.0.1 | 2026-10-30 | Ratifies resolver-before-package (§2.1); adds package self-sufficiency, Order Intent persistence, engine rejection of human vocabulary (FRS-015-23…26); adds presets (FRS-015-27); adds AC-11…AC-14 |
 
 ---
 
-**End of FRS-015 v1.0.1**
+**End of FRS-015 v1.0.2**
