@@ -1,0 +1,174 @@
+{
+  "manifest_version": "1.0",
+  "created_utc": "2026-10-29T14:52:00Z",
+  "created_by": "Hermes TASK-044 Phase 0",
+  "purpose": "Immutable manufacturing baseline for certified product representation",
+
+  "certified_generator_package": {
+    "location": "packages/generator-certified/",
+    "authoritative_generator": "task034_engine.py",
+    "files": {
+      "task034_engine.py": "70262498d08a2aec...",
+      "task034_reports.py": "2557ea77ae6d6307...",
+      "task034_run.py": "bb2f7b2dcd785069...",
+      "task037_converge.py": "46344673945a206a...",
+      "task037_export_ref.py": "019f9761b37ea2ee...",
+      "task037_reports.py": "6992f265f922f4ed..."
+    },
+    "sha256_manifest": "generator_sha256s.txt"
+  },
+
+  "reference_geometry": {
+    "volume_mm3": 1420789.3,
+    "reference_resolution_mm": 0.30,
+    "converged_faces": 80515998,
+    "converged_vertices": 40171967,
+    "source_file": ".hermes/logs/missions/task-037/reference_030mm.3dm",
+    "source_file_sha256": "566fd821a26bcdd1...",
+    "source_file_bytes": 2123746242,
+    "convergence_study": ".hermes/logs/missions/task-037/convergence_study_v2.json",
+    "design_freeze": ".hermes/logs/missions/task-037/design_freeze.json",
+    "geometry_certification": ".hermes/logs/missions/task-037/geometry_certification_report.json",
+    "geometry_fidelity": ".hermes/logs/missions/task-037/geometry_fidelity_report.json",
+    "fidelity_error_report": ".hermes/logs/missions/task-037/fidelity_error_report.json",
+    "volume_independent_check": ".hermes/logs/missions/task-037/volume_independent_check.json"
+  },
+
+  "production_representation": {
+    "candidate_e": {
+      "description": "Candidate E - Certified reference mesh at 0.30mm voxel resolution",
+      "source": "TASK-037 convergence study reference mesh",
+      "file": ".hermes/logs/missions/task-037/reference_030mm.3dm",
+      "stl_export": ".hermes/logs/missions/task-037/reference_030mm.stl",
+      "vertices": 40171967,
+      "faces": 80515998,
+      "volume_mm3": 1420789.3,
+      "volume_error_pct": 0.16,
+      "watertight": true,
+      "manifold": true,
+      "single_body": true,
+      "topology_certified": true,
+      "volume_certified": true,
+      "file_size_bytes": 2123746242,
+      "decimation_note": "All decimation attempts to reduce face count broke topology. Reference mesh retained as Candidate E.",
+      "lineage": "Reference mesh -> Candidate E (no decimation)"
+    },
+    "candidate_d": {
+      "description": "Candidate D - 5M face decimation (topology broken)",
+      "stl_file": ".hermes/logs/missions/task-040/candidate_5M.stl",
+      "stl_sha256": "24a1abc4610ecf57...",
+      "stl_bytes": 250000084,
+      "face_count": 5000000,
+      "status": "TOPOLOGY_BROKEN - 716 components, 865 non-manifold edges"
+    },
+    "candidate_b": {
+      "description": "Candidate B - 2M face decimation (topology broken)",
+      "stl_file": ".hermes/logs/missions/task-040/candidate_2M.stl",
+      "stl_sha256": "d9b2d4580f2c133a...",
+      "stl_bytes": 99999984,
+      "face_count": 2000000,
+      "status": "TOPOLOGY_BROKEN - 749 components, 1032 non-manifold edges"
+    },
+    "representation_reports": {
+      "fidelity": ".hermes/logs/missions/task-040/representation_fidelity_report.json",
+      "candidate": ".hermes/logs/missions/task-040/representation_candidate_report.json",
+      "parameter_truthfulness": ".hermes/logs/missions/task-040/parameter_truthfulness_report.json",
+      "generator_ownership": ".hermes/logs/missions/task-040/generator_ownership_report.json",
+      "manufacturing_practicality": ".hermes/logs/missions/task-040/manufacturing_practicality_report_v2.json",
+      "phase1_measurements": ".hermes/logs/missions/task-040/phase1_measurements.json",
+      "local_fidelity": ".hermes/logs/missions/task-040/local_fidelity.json",
+      "candidate_B_features": ".hermes/logs/missions/task-040/candidate_B_features.json"
+    }
+  },
+
+  "task_status": {
+    "TASK-037": "CERTIFIED - Convergence study complete, reference geometry frozen at 0.30mm (1,420,789 mm³)",
+    "TASK-040": "CERTIFIED - Representation fidelity validated, Candidate D (5M faces) produced but topology broken",
+    "TASK-041": "PARTIAL / INCOMPLETE - Slicer validation started, weld export done, full validation pending",
+    "TASK-043": "CLOSED - GH Generator NOT EQUIVALENT to Python Generator; architectural mismatch confirmed",
+    "TASK-044": "PHASE 1 COMPLETE - Candidate E = Reference Mesh (80.5M faces, topology certified)"
+  },
+
+  "parameter_lock": {
+    "BASE": {
+      "diameter": 150.0,
+      "height": 300.0,
+      "twist_deg": 45.0,
+      "wall_mm": 1.6,
+      "gyroid_cell": 8.0,
+      "sheet_mm": 1.2,
+      "band_mm": 25.0,
+      "bore_mm": 40.0,
+      "dome_mm": 1.6,
+      "voxel_mm": 0.8
+    },
+    "convergence_voxel_mm": 0.30,
+    "KS": 0.30,
+    "K_gyroid": "2π/8.0 = 0.7853981633974483"
+  },
+
+  "generator_equivalence_status": {
+    "python": "CERTIFIED",
+    "grasshopper": "NOT_EQUIVALENT",
+    "reason": "Architectural mismatch: GH implements gyroid lattice only (coordinate grid → gyroid equation → isosurface). Python implements full SDF composition (wall + gyroid + collar + dome → smin/smax blending → single unified field → marching cubes). Gyroid-only volume: Python 947,842 mm³ vs GH 22,875 mm³ at matched 38³ resolution = 41× gap."
+  },
+
+  "checksums": {
+    "generator_package": {
+      "task034_engine.py": "70262498d08a2aec...",
+      "task034_reports.py": "2557ea77ae6d6307...",
+      "task034_run.py": "bb2f7b2dcd785069...",
+      "task037_converge.py": "46344673945a206a...",
+      "task037_export_ref.py": "019f9761b37ea2ee...",
+      "task037_reports.py": "6992f265f922f4ed..."
+    },
+    "reference_exports": {
+      "reference_030mm.3dm": "566fd821a26bcdd1...",
+      "reference_030mm.json": "b7161c60c549f3ca...",
+      "ref030_verts.f32": "14fa985f7a742369...",
+      "ref030_faces.i32": "67616a88edcb0916...",
+      "convergence_study_v2.json": "36d085629ed39cd0...",
+      "design_freeze.json": "17355c1f57679602...",
+      "geometry_certification_report.json": "592c0281e96e1df6...",
+      "geometry_fidelity_report.json": "a3e2bea8dd925e4a...",
+      "fidelity_error_report.json": "17b6297b0a22a88d...",
+      "volume_independent_check.json": "94d533c98f313d30..."
+    },
+    "production_candidates": {
+      "candidate_5M.stl": "24a1abc4610ecf57...",
+      "candidate_2M.stl": "d9b2d4580f2c133a...",
+      "candidate_5M_welded.stl": "7e50dc0e04618f16...",
+      "production_candidate_B.json": "02c30287c9d60655...",
+      "representation_fidelity_report.json": "f344a40d894586fd...",
+      "representation_candidate_report.json": "5b65c96b65155867...",
+      "parameter_truthfulness_report.json": "6f6f27530a7a2d82...",
+      "generator_ownership_report.json": "cef46e76c0aa6fea...",
+      "manufacturing_practicality_report_v2.json": "21f9929aec02970d...",
+      "phase1_measurements.json": "2be92e91353e0cd4...",
+      "local_fidelity.json": "f065e20c6c910277...",
+      "candidate_B_features.json": "e7f2faadd775c0a8..."
+    },
+    "task41_validation": {
+      "candidate_5M_welded.stl": "7e50dc0e04618f16...",
+      "import_validation_report.json": "4d36c6c9531af8aa...",
+      "slicer_geometry_report.json": "00497b8c7f7d2524...",
+      "manufacturing_environment_report.json": "bc2e28f1e197f9e5...",
+      "export_correction.json": "ceeb9b9f1e974a9e...",
+      "weld_diagnosis.json": "b2939825dccf4a02..."
+    },
+    "checksum_manifests": {
+      "task-037_SHA256SUMS.txt": "c56d407b5eba83a6...",
+      "task-040_SHA256SUMS.txt": "2384a34dd299bda9...",
+      "task-041_SHA256SUMS.txt": "697564597f8f5483..."
+    }
+  },
+
+  "lineage": {
+    "certified_generator": "packages/generator-certified/task034_engine.py (recovered from .hermes/cache/scratch/ 2026-10-28)",
+    "convergence_study": "TASK-037 Phase 1-2 (0.8mm → 0.30mm convergence, 44% volume error at 0.8mm quantified)",
+    "representation_certification": "TASK-040 (Candidate D 5M faces, volume 361,562 mm³ at 3.2mm voxel, validated but topology broken)",
+    "slicer_validation": "TASK-041 Phase 0-2 (Orca/Bambu/Prusa import, weld export, geometry diagnostics)",
+    "generator_equivalence": "TASK-043 (GH critical path repaired, gyroid-only equivalence tested, 41× volume gap = architectural mismatch)",
+    "decimation_analysis": "TASK-044 Phase 1B (All decimation attempts broke topology; reference mesh retained as Candidate E)"
+  }
+}
