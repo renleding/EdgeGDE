@@ -1,0 +1,46 @@
+{
+  "manifest_version": "1.0",
+  "updated_utc": "2026-10-29T16:45:00Z",
+  "phase": "TASK-044 Phase 1B Complete",
+  "decision": "Reference mesh (80.5M faces) retained as Candidate E due to decimation topology limitations",
+  
+  "candidate_E": {
+    "description": "Certified reference mesh at 0.30mm voxel resolution",
+    "source": "task037_converge.py reference mesh",
+    "file": ".hermes/logs/missions/task-037/reference_030mm.3dm",
+    "stl_export": ".hermes/logs/missions/task-037/reference_030mm.stl (not yet exported)",
+    "vertices": 40171967,
+    "faces": 80515998,
+    "volume_mm3": 1420789.3,
+    "volume_error_pct": 0.16,
+    "watertight": true,
+    "manifold": true,
+    "single_body": true,
+    "topology_certified": true,
+    "volume_certified": true,
+    "file_size_bytes": 2123746242,
+    "note": "This is the authoritative certified representation. Decimation to lower face counts breaks topology with current tools."
+  },
+  
+  "decimation_attempts": {
+    "10M_faces": {
+      "volume_error_pct": 0.14,
+      "topology": "BROKEN - 756 components, 854 non-manifold edges",
+      "repair_result": "PARTIAL - 206 non-manifold edges remain, not watertight"
+    },
+    "5M_faces": {
+      "volume_error_pct": 24.7,
+      "topology": "BROKEN - 716 components, 865 non-manifold edges"
+    },
+    "2M_faces_from_0p5mm": {
+      "volume_error_pct": 20.0,
+      "topology": "BROKEN - 1347 components, 2394 non-manifold edges"
+    }
+  },
+  
+  "root_cause": "Quadric edge collapse decimation (trimesh/pymeshlab) optimizes geometric error, not topological correctness. No available local tool preserves watertight/manifold/single-body through aggressive decimation.",
+  
+  "recommendation": "Use reference mesh (80.5M faces) as Candidate E for Phase 2 Slicer Validation. For manufacturing workflows requiring smaller STL, invest in topology-preserving decimation pipeline or cloud-based decimation service.",
+  
+  "phase_2_readiness": "READY - Reference mesh is topology-certified and volume-certified"
+}
