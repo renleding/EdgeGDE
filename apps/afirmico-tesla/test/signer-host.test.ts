@@ -1,21 +1,31 @@
 /**
- * Tests for the signer/relay host split (FRS-010 F02-R11; SDD-010 §2, rev 1.11).
+ * Retired-claim scan for the signer/relay host split.
  *
- * Why this test exists. The architecture said two contradictory things at once:
+ * History. This file used to also assert the *contents* of FRS-010 and SDD-010:
+ * that the SDD diagram drew the signer as its own tier, that the signer stayed
+ * out of the internet-facing port story, that §9 O-4 remained open, and that
+ * F02-R11 named a role without placing it on a host.
+ *
+ * Those assertions are about what the specifications say, so they moved with the
+ * documents when the specification corpus left this repository (2026-10-31) and
+ * now run in the corpus CI. Keeping them here would have required the specs to
+ * stay in the repo forever.
+ *
+ * What remains is the half that belongs to this repository: no *operative text*
+ * may assert either retired claim. That is a property of this codebase, not of
+ * the specifications, so it is checked here and needs no access to the docs.
+ *
+ * Why the claims matter. The architecture said two contradictory things at once:
  * SDD-010 §2 drew `tesla-http-proxy` inside the relay box and asserted "Both
- * share ONE private key", while our own recorded decision was that the signer
- * runs on a separate host. The owner spotted the contradiction and asked for a
- * sourced answer, which is the right way round — a design claim that only the
- * document asserts is not a design.
- *
- * Three research passes over Tesla's documentation established:
+ * share ONE private key", while the recorded decision was that the signer runs
+ * on a separate host. Three research passes over Tesla's documentation
+ * established:
  *   - the Fleet Telemetry server MUST be publicly exposed (vehicles dial in);
  *   - the configuration-signing key SHOULD be kept offline and in an HSM;
  *   - the proxy must NOT listen without client authentication.
  * None of them requires co-location, and the key guidance points the other way.
  *
- * Two claims are therefore retired, and each is a way this requirement fails
- * silently rather than loudly:
+ * Both retired claims fail silently rather than loudly:
  *
  *   1. "Both share ONE private key" — factually wrong in either layout.
  *      `fleet-telemetry` terminates vehicle mTLS with its OWN Let's Encrypt
@@ -26,9 +36,8 @@
  *      a settled fact. A fabricated rationale is worse than a missing one,
  *      because it closes the question it should have left open.
  *
- * The scan is scoped like `general-authorisation-copy.test.ts`: changelog rows
- * and revision notes must be able to quote what was retired, and test files must
- * be able to name the phrasing they ban.
+ * The scan is scoped so that changelog rows and revision notes may quote what was
+ * retired, and test files may name the phrasing they ban.
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -37,9 +46,6 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const repo = fileURLToPath(new URL('../../..', import.meta.url))
-
-const SDD = join(repo, 'docs/SDD-010-afirmico-auto-telemetry-architecture-v1.md')
-const FRS = join(repo, 'docs/FRS-010-afirmico-auto-tesla-fleet-data-v1.md')
 
 /** Retired claims, each formerly asserted as operative design. */
 const BANNED: Array<[string, RegExp]> = [
@@ -102,11 +108,9 @@ const files = roots
   // only add false positives on content already covered.
   .filter((f) => !/\/docs\/html\//.test(f))
 
-describe('the signer is not co-located with the relay (SDD-010 §2, rev 1.11)', () => {
-  it('finds the documents it is supposed to be checking', () => {
+describe('retired co-location claims stay out of operative text', () => {
+  it('scans a meaningful body of files', () => {
     expect(files.length).toBeGreaterThan(5)
-    expect(files).toContain(SDD)
-    expect(files).toContain(FRS)
   })
 
   it('asserts no retired co-location claim in operative text', () => {
@@ -122,37 +126,5 @@ describe('the signer is not co-located with the relay (SDD-010 §2, rev 1.11)', 
       })
     }
     expect(found).toEqual([])
-  })
-
-  it('draws the signer as its own tier, outside the relay box', () => {
-    const sdd = readFileSync(SDD, 'utf8')
-    const diagram = sdd.slice(sdd.indexOf('## 2. Component Boundaries'), sdd.indexOf('## 3. Data Flow'))
-    expect(diagram).toMatch(/TIER 2b .*Config signer/)
-    // The relay box must explicitly deny holding the key, or a reader will
-    // assume it does — that assumption is the defect this test guards.
-    expect(diagram).toMatch(/holds NO application private key/)
-  })
-
-  it('keeps the signer out of the internet-facing port story', () => {
-    const sdd = readFileSync(SDD, 'utf8')
-    // The relay is the only public component; the signer takes no inbound port.
-    expect(sdd).toMatch(/The signer must NOT be internet-facing|must NOT be internet-facing/i)
-    expect(sdd).toMatch(/no inbound port/i)
-  })
-
-  it('leaves the egress-IP question OPEN rather than answered', () => {
-    // It was withdrawn because it was never verified. If a future revision
-    // resolves it, resolve it with a citation and delete this expectation
-    // deliberately — do not let it drift back to an asserted fact.
-    const sdd = readFileSync(SDD, 'utf8')
-    const o4 = sdd.slice(sdd.indexOf('| O-4 |'), sdd.indexOf('| O-5 |'))
-    expect(o4).toMatch(/not asserted anywhere|Build phase/i)
-  })
-
-  it('F02-R11 names the signing role only, placing it on no host', () => {
-    const frs = readFileSync(FRS, 'utf8')
-    const row = frs.slice(frs.indexOf('| F02-R11 |'), frs.indexOf('| F02-R12 |'))
-    expect(row).toMatch(/configuration signer/i)
-    expect(row).not.toMatch(/same host|relay host/i)
   })
 })

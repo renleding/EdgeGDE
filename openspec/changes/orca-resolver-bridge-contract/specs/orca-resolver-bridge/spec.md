@@ -1,7 +1,7 @@
 # Capability: orca-resolver-bridge
 
 Frozen integration contract between Orca Design Mode element capture and the Hermes State Engine Resolver (FRS-005).
-Contract document: `docs/IDD-016-orca-resolver-bridge-v1.md`. Schemas: `packages/orca-resolver-bridge/schemas/`.
+Contract document: `~/hermes-master/05_DOCS/frs/IDD-016-orca-resolver-bridge-v1.md`. Schemas: `packages/orca-resolver-bridge/schemas/`.
 
 ## ADDED Requirements
 

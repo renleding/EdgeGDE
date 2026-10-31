@@ -1,7 +1,7 @@
 # Orca Design Mode — CDP capture controller + action confirmation loop
 
 Browser-side capture flow and post-action confirmation loop for the
-Orca→Resolver bridge (contract: `docs/IDD-016-orca-resolver-bridge-v1.md`,
+Orca→Resolver bridge (contract: `~/hermes-master/05_DOCS/frs/IDD-016-orca-resolver-bridge-v1.md`,
 repo root).
 
 ## Files

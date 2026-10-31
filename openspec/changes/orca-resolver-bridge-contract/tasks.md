@@ -9,7 +9,7 @@
 - [x] `packages/orca-resolver-bridge/mcp-tool.json` — `mcp_resolve_element` definition plus HTTP fallback declaration
 - [x] `packages/orca-resolver-bridge/examples/` — positive and negative example payloads
 - [x] `packages/orca-resolver-bridge/tools/validate_examples.py` — schema validation plus cross-artifact consistency
-- [x] `docs/IDD-016-orca-resolver-bridge-v1.md` — the frozen contract document
+- [x] `~/hermes-master/05_DOCS/frs/IDD-016-orca-resolver-bridge-v1.md` — the frozen contract document
 
 ## Phase 1: Hermes resolver side (kanban t_7363056a)
 
@@ -54,4 +54,4 @@
 
 - `cd packages/orca-resolver-bridge && python3 tools/validate_examples.py` exits 0
 - `openspec validate orca-resolver-bridge-contract` passes
-- ste-lint reports 0 hard violations on `docs/IDD-016-orca-resolver-bridge-v1.md`
+- ste-lint reports 0 hard violations on `~/hermes-master/05_DOCS/frs/IDD-016-orca-resolver-bridge-v1.md`

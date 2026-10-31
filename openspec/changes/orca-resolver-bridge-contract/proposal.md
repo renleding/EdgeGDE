@@ -12,7 +12,7 @@ This change publishes that contract: versioned schemas, the MCP tool definition,
 
 | Artifact | Location |
 |---|---|
-| Contract document | `docs/IDD-016-orca-resolver-bridge-v1.md` |
+| Contract document | `~/hermes-master/05_DOCS/frs/IDD-016-orca-resolver-bridge-v1.md` |
 | Schema package | `packages/orca-resolver-bridge/` |
 | Request schema | `packages/orca-resolver-bridge/schemas/orca-resolver-request.schema.json` |
 | Response schema | `packages/orca-resolver-bridge/schemas/orca-resolver-response.schema.json` |
