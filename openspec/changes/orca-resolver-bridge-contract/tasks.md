@@ -13,14 +13,16 @@
 
 ## Phase 1: Hermes resolver side (kanban t_7363056a)
 
-- [ ] Register `mcp_resolve_element` on the state engine MCP server
-- [ ] Add `POST /api/v1/resolver/resolve` with identical payload handling
-- [ ] Validate requests. Map violations to `INVALID_REQUEST` with `validation_errors`
-- [ ] Implement the exact `backendDOMNodeId` fast path. Confidence exactly 1.0
-- [ ] Implement stale-node structural fallback with `fallback_match` metadata. Floor at 0.5
-- [ ] Attach known-bug flags and workarounds from the registry
-- [ ] Implement `request_id` response cache with 60s TTL
-- [ ] Map failures to the error registry. Honor `timeout_ms`
+Implemented in `apps/state-engine/orca_resolver.py` + `main.py` (PR #315, merged 2026-11-01).
+
+- [x] Register `mcp_resolve_element` on the state engine MCP server
+- [x] Add `POST /api/v1/resolver/resolve` with identical payload handling
+- [x] Validate requests. Map violations to `INVALID_REQUEST` with `validation_errors`
+- [x] Implement the exact `backendDOMNodeId` fast path. Confidence exactly 1.0
+- [x] Implement stale-node structural fallback with `fallback_match` metadata. Floor at 0.5
+- [x] Attach known-bug flags and workarounds from the registry
+- [x] Implement `request_id` response cache with 60s TTL
+- [x] Map failures to the error registry. Honor `timeout_ms`
 
 ## Phase 2: Orca capture side (kanban t_4242d4b7)
 
@@ -33,10 +35,10 @@
 
 ## Phase 3: Action and verification wiring (kanban t_466ce83a)
 
-- [ ] Map `action` plus `action_hints` to Action Engine primitives
-- [ ] Apply known-bug workarounds before dispatch
-- [ ] Verification Engine state-diff verdict per IDD-016 §7.5
-- [ ] Structured outcome with diff summary and verdict
+- [x] Map `action` plus `action_hints` to Action Engine primitives — `_apply_action` maps click/fill/type/select/hover to `ActionType`
+- [ ] Apply known-bug workarounds before dispatch — flags are attached and consulted, workaround pre-dispatch application not yet wired
+- [x] Verification Engine state-diff verdict per IDD-016 §7.5 — `verdict` ∈ verified / not_verified / no_state_change
+- [x] Structured outcome with diff summary and verdict — `action_outcome.verification.diff_summary`
 
 ## Phase 4: Governance (kanban t_b1efe846)
 
