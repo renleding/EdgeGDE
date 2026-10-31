@@ -3,7 +3,7 @@
 Frozen integration contract between **Orca Design Mode** (browser-tab capture side)
 and the **Hermes State Engine Resolver** (FRS-005, resolution side).
 
-**The authoritative contract document is [`docs/IDD-016-orca-resolver-bridge-v1.md`](../../docs/IDD-016-orca-resolver-bridge-v1.md).**
+**The authoritative contract document is `~/hermes-master/05_DOCS/frs/IDD-016-orca-resolver-bridge-v1.md`.**
 Read it before implementing either side. This package holds the machine-readable
 artifacts that document references. Do not edit schemas here without a contract
 version bump (see IDD-016 §4).

@@ -91,8 +91,11 @@ describe('no operative copy asserts a bound on the collected set (F01-R10, v1.25
   it('finds the documents it is supposed to be checking', () => {
     // Guard against a vacuous pass from walking an empty list.
     expect(files.length).toBeGreaterThan(8)
-    expect(files.some((f) => f.endsWith('FRS-010-afirmico-auto-tesla-fleet-data-v1.md'))).toBe(true)
-    expect(files.some((f) => f.endsWith('SDD-010-afirmico-auto-telemetry-architecture-v1.md'))).toBe(true)
+    // The FRS-010 / SDD-010 presence checks were removed when the specification
+    // corpus left this repository (2026-10-31). Assertions about those documents'
+    // content — including the SDD §4.1 config block — now run in the corpus CI,
+    // where the specifications live. This scan still covers src and the docs that
+    // remain here, so it keeps its body of evidence.
     expect(files.some((f) => f.endsWith('src/index.ts'))).toBe(true)
   })
 
@@ -135,16 +138,7 @@ describe('no operative copy asserts a bound on the collected set (F01-R10, v1.25
     expect(keys).toContain('Trim')
   })
 
-  it('SDD 4.1 config matches the authoritative set, not the retired polling set', () => {
-    // §4.1 is the artifact actually sent to vehicles; it must mirror §3.7.
-    const sdd = readFileSync(
-      join(repo, 'docs/SDD-010-afirmico-auto-telemetry-architecture-v1.md'), 'utf8',
-    )
-    const cfg = sdd.slice(sdd.indexOf('"fields": {'), sdd.indexOf('"fields": {') + 2000)
-    for (const retired of ['BatteryLevel', 'LocatedAtHome', 'LocatedAtWork']) {
-      expect(cfg, `retired polling field ${retired} still in the config`).not.toContain(retired)
-    }
-    expect(cfg).toContain('Odometer')
-    expect(cfg).toContain('SelfDrivingMilesSinceReset')
-  })
+  // 'SDD 4.1 config matches the authoritative set' moved to the specification
+  // corpus CI (2026-10-31). It asserted a block of SDD prose, so it belongs with
+  // the SDD, not with this repository. See ~/hermes-master/05_DOCS/frs/check_specs.py.
 })

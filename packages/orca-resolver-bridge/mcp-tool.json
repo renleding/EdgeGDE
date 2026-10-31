@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "mcp_resolve_element",
   "title": "Resolve Orca Design Mode element capture",
-  "description": "Resolve an element captured by Orca Design Mode against the live page. Primary path: exact backendDOMNodeId resolution at confidence 1.0. Fallback: structural match on DOM plus computed styles when the node is stale, with reduced confidence and fallback-match metadata. When the request carries an action, the Action Engine executes it and the Verification Engine confirms via state-diff. Success is state changed, never selector presence. Contract: docs/IDD-016-orca-resolver-bridge-v1.md, schema_version 1.0.0.",
+  "description": "Resolve an element captured by Orca Design Mode against the live page. Primary path: exact backendDOMNodeId resolution at confidence 1.0. Fallback: structural match on DOM plus computed styles when the node is stale, with reduced confidence and fallback-match metadata. When the request carries an action, the Action Engine executes it and the Verification Engine confirms via state-diff. Success is state changed, never selector presence. Contract: IDD-016 v1.0.0, schema_version 1.0.0.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://edgegde.dev/schemas/orca-resolver-bridge/v1.0.0/orca-resolver-request.schema.json",
@@ -1094,7 +1094,7 @@
   },
   "contract": {
     "version": "1.0.0",
-    "document": "docs/IDD-016-orca-resolver-bridge-v1.md",
+    "document": "IDD-016-orca-resolver-bridge-v1.md",
     "request_schema": "schemas/orca-resolver-request.schema.json",
     "response_schema": "schemas/orca-resolver-response.schema.json",
     "error_schema": "schemas/orca-resolver-error.schema.json",

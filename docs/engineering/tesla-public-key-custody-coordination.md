@@ -22,7 +22,7 @@
 **Status:** Open — coordination required  \
 **Author:** Hermes (Director)  \
 **Date:** 2026-09-29  \
-**Related:** `docs/FRS-010-afirmico-auto-tesla-fleet-data-v1.md` (F02-R01, F02-R02, R-08)
+**Related:** `~/hermes-master/05_DOCS/frs/FRS-010-afirmico-auto-tesla-fleet-data-v1.md` (F02-R01, F02-R02, R-08)
 
 ---
 
