@@ -9,21 +9,25 @@
  * @packageDocumentation
  */
 
+/** Fallback used when a thrown value carries no usable message. */
+const FALLBACK_MESSAGE = 'Unknown error'
+
 /**
  * Narrow an unknown thrown value to a human-readable message.
  *
  * Handles `Error` instances, string throws, and objects carrying a `message`
- * property. Never throws and never returns `undefined`.
+ * property. Empty messages are treated as absent, so the result is always a
+ * non-empty string. Never throws and never returns `undefined`.
  *
  * @param err - The value caught in a `catch` block.
  * @returns The best available message, or a generic fallback.
  */
 export function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === 'string') return err
+  if (err instanceof Error) return err.message || FALLBACK_MESSAGE
+  if (typeof err === 'string') return err || FALLBACK_MESSAGE
   if (err && typeof err === 'object' && 'message' in err) {
     const message = (err as { message: unknown }).message
-    if (typeof message === 'string') return message
+    if (typeof message === 'string' && message) return message
   }
-  return 'Unknown error'
+  return FALLBACK_MESSAGE
 }
