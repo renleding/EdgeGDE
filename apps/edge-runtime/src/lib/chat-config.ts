@@ -193,13 +193,44 @@ function contentHash(config: ChatConfig): string {
 
 // ── Zod helpers ─────────────────────────────────────────────────────────────
 
+/**
+ * Legacy config envelope carrying the upgrade-blocking marker that must be
+ * honoured before a stored config is parsed or returned.
+ */
+interface LegacyChatConfigEnvelope {
+  upgrade_status?: string
+}
+
+/**
+ * Minimal structural KV surface used by the chat-config helpers.
+ *
+ * These helpers only read JSON values and persist payloads, so the contract is
+ * kept structural rather than nominal. Callers legitimately pass different
+ * backing objects (`GuardedKV`, a raw `KVNamespace`, or a test double), so the
+ * public parameters stay `unknown` and are narrowed here once instead of
+ * widening every signature to `any`.
+ */
+interface ChatConfigKV {
+  get(key: string, type: 'json'): Promise<unknown>
+  put(key: string, value: unknown): Promise<unknown>
+}
+
+/** Narrow an untyped KV-ish binding to the surface these helpers rely on. */
+function asKV(kv: unknown): ChatConfigKV {
+  return kv as ChatConfigKV
+}
+
 /** Map a ZodError to [{path, message}] for human-readable rendering. */
-export function formatZodIssues(err: any): Array<{ path: string; message: string }> {
-  const issues = Array.isArray(err?.issues) ? err.issues : []
-  return issues.map((issue: any) => ({
-    path: Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path ?? ''),
-    message: String(issue.message ?? 'Invalid value'),
-  }))
+export function formatZodIssues(err: unknown): Array<{ path: string; message: string }> {
+  const maybeIssues = (err as { issues?: unknown } | null | undefined)?.issues
+  const issues: unknown[] = Array.isArray(maybeIssues) ? maybeIssues : []
+  return issues.map((issue) => {
+    const entry = issue as { path?: unknown; message?: unknown }
+    return {
+      path: Array.isArray(entry.path) ? entry.path.join('.') : String(entry.path ?? ''),
+      message: String(entry.message ?? 'Invalid value'),
+    }
+  })
 }
 
 /** Parse + validate raw config, throwing a ZodError on invalid input. */
@@ -210,7 +241,7 @@ export function parseChatConfig(raw: unknown): ChatConfig {
 // ── KV read/write ───────────────────────────────────────────────────────────
 
 /** Coerce a raw KV value (string or object) to an object. */
-function unwrap(raw: any): unknown {
+function unwrap(raw: unknown): unknown {
   if (raw == null) return null
   if (typeof raw === 'string') {
     try {
@@ -223,9 +254,9 @@ function unwrap(raw: any): unknown {
 }
 
 /** Load the global baseline config; returns FALLBACK_CONFIG on any failure. */
-export async function loadGlobalChatConfig(kv: any): Promise<ChatConfig> {
+export async function loadGlobalChatConfig(kv: unknown): Promise<ChatConfig> {
   try {
-    const raw = await kv.get(globalChatConfigKey(), 'json')
+    const raw = await asKV(kv).get(globalChatConfigKey(), 'json')
     const obj = unwrap(raw)
     if (obj == null) return FALLBACK_CONFIG
     return ChatConfigSchema.parse(obj)
@@ -235,9 +266,9 @@ export async function loadGlobalChatConfig(kv: any): Promise<ChatConfig> {
 }
 
 /** Load a tenant config; returns null when absent or invalid (fail-closed). */
-export async function loadTenantChatConfig(kv: any, tenantId: string): Promise<ChatConfig | null> {
+export async function loadTenantChatConfig(kv: unknown, tenantId: string): Promise<ChatConfig | null> {
   try {
-    const raw = await kv.get(tenantChatConfigKey(tenantId), 'json')
+    const raw = await asKV(kv).get(tenantChatConfigKey(tenantId), 'json')
     const obj = unwrap(raw)
     if (obj == null) return null
     return ChatConfigSchema.parse(obj)
@@ -252,7 +283,7 @@ export async function loadTenantChatConfig(kv: any, tenantId: string): Promise<C
  * `scope` is `'global'` or `'tenant'`; `tenantId` is ignored for global.
  */
 export async function saveChatConfig(
-  kv: any,
+  kv: unknown,
   scope: 'global' | 'tenant',
   tenantId: string,
   config: ChatConfig,
@@ -267,8 +298,9 @@ export async function saveChatConfig(
     ? globalChatSnapshotKey(hash)
     : tenantChatSnapshotKey(tenantId, hash)
 
-  await kv.put(key, validated)
-  await kv.put(snapshotKey, validated)
+  const store = asKV(kv)
+  await store.put(key, validated)
+  await store.put(snapshotKey, validated)
   return { key, hash, snapshotKey, bytes }
 }
 
@@ -302,7 +334,7 @@ export function mergeChatConfig(globalConfig: ChatConfig, tenantConfig: ChatConf
 }
 
 /** Resolve the effective config for a tenant: global baseline overlaid with tenant override. */
-export async function getEffectiveChatConfig(kv: any, tenantId: string): Promise<ChatConfig> {
+export async function getEffectiveChatConfig(kv: unknown, tenantId: string): Promise<ChatConfig> {
   const globalConfig = await loadGlobalChatConfig(kv)
   const tenantConfig = await loadTenantChatConfig(kv, tenantId)
   return mergeChatConfig(globalConfig, tenantConfig)
@@ -313,17 +345,17 @@ export async function getEffectiveChatConfig(kv: any, tenantId: string): Promise
 // Retained for existing callers (`chat.ts`, `chat-views.ts`) which address a
 // single tenant's config and expect FALLBACK_CONFIG on any failure.
 
-export async function loadChatConfig(kv: any, tenantId: string): Promise<ChatConfig> {
+export async function loadChatConfig(kv: unknown, tenantId: string): Promise<ChatConfig> {
   try {
     // Preserve the legacy upgrade-blocking invariant before parsing.
-    let raw: any
+    let raw: unknown
     try {
-      raw = await kv.get(`tenant:${tenantId}:chat:config`, 'json')
+      raw = await asKV(kv).get(`tenant:${tenantId}:chat:config`, 'json')
     } catch {
       raw = null
     }
-    const rawObj = raw == null ? null : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return raw } })() : raw)
-    if (rawObj && typeof rawObj === 'object' && rawObj.upgrade_status === 'pending') {
+    const rawObj: unknown = raw == null ? null : (typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return raw } })() : raw)
+    if (rawObj && typeof rawObj === 'object' && (rawObj as LegacyChatConfigEnvelope).upgrade_status === 'pending') {
       console.warn('[chat-config] Upgrade pending for', tenantId, '— blocking')
       throw new Error('System update in progress. Please try again shortly.')
     }
