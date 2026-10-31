@@ -8,7 +8,7 @@
  * Backward compatible -- missions without reconcile/compensate behave exactly
  * as they did before.
  *
- * @see docs/FRS-001-compensation-replay-reconcile-dryrun.md
+ * @see ~/hermes-master/05_DOCS/frs/FRS-001-compensation-replay-reconcile-dryrun.md
  */
 
 import type { EdgeGDEAction, ActionContext, ActionResult, MissionDefinition } from './types'

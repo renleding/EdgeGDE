@@ -7,7 +7,7 @@
 `render_from_markdown()` SHALL return a `RenderResult` with the full HTML document, extracted title, and section list.
 
 #### Scenario: FRS-012 renders with title and sections
-- Given: `docs/FRS-012-agentic-sdlc-v1.md`
+- Given: `~/hermes-master/05_DOCS/frs/FRS-012-agentic-sdlc-v1.md`
 - When: rendered
 - Then: `title` SHALL be the document's H1
 - And: `sections` SHALL contain 9 entries

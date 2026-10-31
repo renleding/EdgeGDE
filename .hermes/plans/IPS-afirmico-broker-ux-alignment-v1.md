@@ -3,7 +3,7 @@
 **Version:** 1.0  
 **Status:** Draft  
 **Target:** EdgeGDE Worker (index.ts, widget.js, fragment.ts, broker_pipeline_view.json, EDR renderer)  
-**FRS Source:** docs/ux-research/UX_PRINCIPLES_REPORT_v2.md, docs/FRS-SDLC-UI-IMPROVEMENT.md  
+**FRS Source:** docs/ux-research/UX_PRINCIPLES_REPORT_v2.md, ~/hermes-master/05_DOCS/frs/FRS-SDLC-UI-IMPROVEMENT.md  
 **Kanban:** EG-FEAT-0036  
 **Audit findings:** docs/IPS/alphabet-broker-ux-audit.md  
 

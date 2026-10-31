@@ -108,8 +108,8 @@ All 7 CI checks pass on #243, #247, #248. Integration test `tests/test_droid_f04
 - PR #248 — F04 follow-ups (parallel dispatch, budget, execute.py, test placement)
 - `tests/test_droid_f04.py` — 4 integration tests
 - `tools/saga.py` — existing Saga implementation (not yet wired)
-- `docs/FRS-007-action-ledger-budget-guardrails-v1.md` — budget requirements (F02-R01..R10)
-- `docs/FRS-012-agentic-sdlc-v1.md` — spec for all 6 features
+- `~/hermes-master/05_DOCS/frs/FRS-007-action-ledger-budget-guardrails-v1.md` — budget requirements (F02-R01..R10)
+- `~/hermes-master/05_DOCS/frs/FRS-012-agentic-sdlc-v1.md` — spec for all 6 features
 
 ---
 

@@ -14,7 +14,7 @@
 ## Remaining Phase 4 Items
 
 ### P1 — Multi-Tenant Self-Service Onboarding
-**Reference:** `docs/FRS-multi-tenant-self-service-onboarding.md`  
+**Reference:** `~/hermes-master/05_DOCS/frs/FRS-multi-tenant-self-service-onboarding.md`  
 **Work:** Create a self-service tenant registration endpoint with Turnstile verification, KV tenant provisioning, and D1 tenant schema init. Currently tenants are hardcoded in wrangler config.
 
 ### P1 — End-to-End Test Suite in CI
