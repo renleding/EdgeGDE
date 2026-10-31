@@ -124,7 +124,7 @@ The exact baseline will be determined once the API key is resolved and the adapt
 
 | File | Purpose |
 |------|---------|
-| `docs/FRS-002-agentic-coding-capability.md` | Func/tech spec for agentic coding capability |
+| `~/hermes-master/05_DOCS/frs/FRS-002-agentic-coding-capability.md` | Func/tech spec for agentic coding capability |
 | `.hermes/logs/swe-bench/` | Execution logs directory |
 | `/tmp/hermes-swe-bench-v3.py` | Main adapter script (readable from any shell) |
 | `/tmp/swe-bench-worktrees/` | Cloned repo worktrees (will be cleaned) |

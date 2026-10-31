@@ -43,9 +43,9 @@
 
 ## Phase 7: Documentation
 
-- [x] `docs/FRS-012-agentic-sdlc-v1.md`
-- [x] `docs/SDD-012-agentic-sdlc-v1.md`
-- [x] `docs/IDD-012-agentic-sdlc-v1.md`
+- [x] `~/hermes-master/05_DOCS/frs/FRS-012-agentic-sdlc-v1.md`
+- [x] `~/hermes-master/05_DOCS/frs/SDD-012-agentic-sdlc-v1.md`
+- [x] `~/hermes-master/05_DOCS/frs/IDD-012-agentic-sdlc-v1.md`
 - [x] OpenSpec change: `openspec/changes/frs-012-agentic-sdlc/` (proposal, design, 6 specs, tasks)
 
 ## Definition of Done

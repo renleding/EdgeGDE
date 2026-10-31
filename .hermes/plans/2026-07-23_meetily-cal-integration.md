@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11+, watchdog (FSEvents), aiosqlite, httpx (async HTTP), Ollama /api/chat, cal.com API v2, Gmail OAuth2, Salestrekker REST API, MemPalace REST API.
 
-**FRS Reference:** `docs/FRS-meetily-cal-integration-v1.md`
+**FRS Reference:** `~/hermes-master/05_DOCS/frs/FRS-meetily-cal-integration-v1.md`
 
 **Parent Task:** DOC-FRS-0001
 

@@ -96,9 +96,9 @@ import Rhino.Geometry.Intersect as rgx
 
 | File | Purpose |
 |------|---------|
-| `docs/FRS-010-parametric-lattice-lamp.md` | Functional requirements (12 params) |
-| `docs/SDD-010-parametric-lattice-lamp.md` | System design with inspection levels |
-| `docs/IDD-010-parametric-lattice-lamp.md` | Interface contracts (MCP/TCP) |
+| `~/hermes-master/05_DOCS/frs/FRS-010-parametric-lattice-lamp.md` | Functional requirements (12 params) |
+| `~/hermes-master/05_DOCS/frs/SDD-010-parametric-lattice-lamp.md` | System design with inspection levels |
+| `~/hermes-master/05_DOCS/frs/IDD-010-parametric-lattice-lamp.md` | Interface contracts (MCP/TCP) |
 | `gh-definitions/lattice_lamp_v1.gh` | Grasshopper definition (to be created) |
 | `packages/rhinoclaw-client/` | Python TCP client |
 | `packages/rhinoclaw-bridge/` | MCP ↔ TCP bridge |
