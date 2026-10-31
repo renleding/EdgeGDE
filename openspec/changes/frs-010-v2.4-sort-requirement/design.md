@@ -48,9 +48,9 @@ The root cause was a duplicate `const` declaration. TypeScript cannot catch it b
 | File | Purpose |
 |------|---------|
 | `test/scripts-syntax.test.ts` | New CI test - extracts and validates all inline scripts |
-| `~/hermes-master/05_DOCS/frs/IDD-011-afirmico-auto-configurator-v1.md` | New IDD document |
+| `~/hermes-master/05_DOCS/frs/IDD-021-afirmico-auto-configurator-v1.md` | New IDD document |
 | `~/hermes-master/05_DOCS/frs/FRS-010-afirmico-auto-tesla-fleet-data-v1.md` | Amended to v2.4 (apps/ duplicate since removed — FRS-010 v2.7 reconciliation) |
-| `~/hermes-master/05_DOCS/frs/SDD-011-afirmico-auto-config-scopes-v1.md` | Amended with sort design |
+| `~/hermes-master/05_DOCS/frs/SDD-021-afirmico-auto-config-scopes-v1.md` | Amended with sort design |
 
 ## Inline script extraction
 
