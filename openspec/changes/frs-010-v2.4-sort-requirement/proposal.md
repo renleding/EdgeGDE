@@ -18,7 +18,7 @@ This change adds the missing spec layer and a CI gate that extracts and syntax-c
 |----------|--------|
 | FRS-010 v2.4 | Add FEATURE-15: Configurator Column Sorting with SHALL/MUST requirements and scenarios |
 | CI pipeline | Add `test/scripts-syntax.test.ts` — renders all admin pages, extracts inline `<script>`, runs `node --check` |
-| IDD | New `IDD-011-afirmico-auto-configurator-v1.md` documenting the page interface |
+| IDD | New `IDD-021-afirmico-auto-configurator-v1.md` documenting the page interface |
 | SDD | Amend SDD-011 to reference the sort implementation design |
 
 ## Capabilities affected
