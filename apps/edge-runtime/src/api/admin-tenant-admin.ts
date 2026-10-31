@@ -22,6 +22,7 @@ import {
   setParentInheritance,
 } from '../lib/config-inheritance'
 import { adminNav, pageShell } from '../lib/admin-layout'
+import { errorMessage } from '../lib/errors'
 
 /**
  * Tenant administration routes: tenant listing, config overrides,
@@ -294,13 +295,18 @@ function tenantDetailHtml(detail: TenantDetail, token?: string): string {
 /**
  * List all tenant IDs by scanning D1 (preferred) or falling back to agent profiles in KV.
  */
-async function discoverTenantIds(kv: ReturnType<typeof guardKV>, db: any): Promise<string[]> {
-  // Try D1 first
-  if (db && typeof db.prepare === 'function') {
+async function discoverTenantIds(kv: ReturnType<typeof guardKV>, db: unknown): Promise<string[]> {
+  // Try D1 first — narrow structurally so callers may pass an unbound/absent binding.
+  const d1 = db as
+    | { prepare(sql: string): { all(): Promise<{ results?: Array<{ slug: string; tenant_id: string }> }> } }
+    | null
+    | undefined
+
+  if (d1 && typeof d1.prepare === 'function') {
     try {
-      const { results } = await db.prepare(
-        'SELECT slug, tenant_id FROM tenants ORDER BY created_at DESC'
-      ).all() as { results?: Array<{ slug: string; tenant_id: string }> }
+      const { results } = await d1
+        .prepare('SELECT slug, tenant_id FROM tenants ORDER BY created_at DESC')
+        .all()
       if (results && results.length > 0) {
         return results.map(r => r.tenant_id || r.slug)
       }
@@ -438,8 +444,8 @@ adminTenantRouter.get('/', async (c) => {
       <a href="/admin/tenants?token=${escapeHtml(token || '')}" style="background:#1c2128;color:#f0f6fc">Tenants</a>`
 
     return c.html(pageShell('Tenants', body, nav))
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 500)
   }
 })
 
@@ -518,8 +524,8 @@ adminTenantRouter.get('/:id', async (c) => {
       <a href="/admin/tenants/${escapeHtml(tenantId)}?token=${escapeHtml(token || '')}" style="background:#1c2128;color:#f0f6fc">${escapeHtml(profile.name)}</a>`
 
     return c.html(pageShell(`Tenant: ${profile.name}`, body, nav))
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 500)
   }
 })
 
@@ -556,8 +562,8 @@ adminTenantRouter.post('/:id/sync', async (c) => {
       effectiveRevision: result.effectiveRevision,
       propagatedChildren: result.propagatedChildren || [],
     })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 500)
   }
 })
 
@@ -611,7 +617,7 @@ adminTenantRouter.delete('/:id', async (c) => {
       deleted: true,
       message: `Tenant "${profile.name}" has been soft-deleted.`,
     })
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500)
+  } catch (err) {
+    return c.json({ error: errorMessage(err) }, 500)
   }
 })
