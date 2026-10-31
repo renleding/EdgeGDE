@@ -133,7 +133,7 @@ export function normalizeMetricPoints(points: MetricPointInput[]): MetricPointIn
     .sort((a, b) => a.ds.localeCompare(b.ds))
 }
 
-export async function ingestMetricSeriesPoints(db: any, input: MetricSeriesInput): Promise<MetricSeriesSummary> {
+export async function ingestMetricSeriesPoints(db: unknown, input: MetricSeriesInput): Promise<MetricSeriesSummary> {
   const guardedDb = guardDB(db)
   const seriesId = normalizeMetricSeriesId(input.metricName, input.seriesId)
   const points = normalizeMetricPoints(input.points)
@@ -220,7 +220,7 @@ export async function ingestMetricSeriesPoints(db: any, input: MetricSeriesInput
   return getMetricSeriesSummary(guardedDb, input.tenantId, input.metricName, seriesId)
 }
 
-export async function getMetricSeriesSummary(db: any, tenantId: string, metricName: string, seriesId: string): Promise<MetricSeriesSummary> {
+export async function getMetricSeriesSummary(db: unknown, tenantId: string, metricName: string, seriesId: string): Promise<MetricSeriesSummary> {
   const guardedDb = guardDB(db)
   const row = await guardedDb.first<MetricSeriesSummary>(
     {},
@@ -235,11 +235,11 @@ export async function getMetricSeriesSummary(db: any, tenantId: string, metricNa
   return row
 }
 
-export async function queryMetricSeriesPoints(db: any, options: QueryMetricSeriesPointsOptions): Promise<MetricPoint[]> {
+export async function queryMetricSeriesPoints(db: unknown, options: QueryMetricSeriesPointsOptions): Promise<MetricPoint[]> {
   const guardedDb = guardDB(db)
   const limit = Math.min(Math.max(Number(options.limit || 512), 1), 5000)
   const clauses = ['tenant_id = ?']
-  const params: any[] = [options.tenantId]
+  const params: unknown[] = [options.tenantId]
 
   if (options.metricName) {
     clauses.push('metric_name = ?')
@@ -270,9 +270,9 @@ export async function queryMetricSeriesPoints(db: any, options: QueryMetricSerie
   return result.results
 }
 
-export async function listMetricSeries(db: any, tenantId: string, metricName?: string, limit = 100): Promise<MetricSeriesSummary[]> {
+export async function listMetricSeries(db: unknown, tenantId: string, metricName?: string, limit = 100): Promise<MetricSeriesSummary[]> {
   const guardedDb = guardDB(db)
-  const params: any[] = [tenantId]
+  const params: unknown[] = [tenantId]
   const where = metricName ? 'tenant_id = ? AND metric_name = ?' : 'tenant_id = ?'
   if (metricName) params.push(metricName)
   params.push(Math.min(Math.max(limit, 1), 500))
