@@ -1,0 +1,23 @@
+{
+  "schema_version": "2.0.0",
+  "request_id": "3f6b2a1e-7c4d-4e5f-9a8b-1c2d3e4f5a6b",
+  "resolved_at": "2026-10-26T08:15:00.000Z",
+  "resolver": {
+    "version": "state-engine@1.4.2",
+    "latency_ms": 12,
+    "node_live": false,
+    "target_id": "A1B2C3D4E5F6A7B8C9D0"
+  },
+  "error": {
+    "code": "RESOLVER_TIMEOUT",
+    "message": "Resolution plus action execution exceeded the 10000 ms budget.",
+    "retryable": true,
+    "retry_policy": "backoff",
+    "details": {
+      "budget_ms": 10000,
+      "spent_ms": 10012,
+      "phase": "action_execution"
+    }
+  },
+  "warnings": []
+}

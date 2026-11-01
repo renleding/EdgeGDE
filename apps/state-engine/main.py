@@ -10,13 +10,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from action_engine import ActionEngine
 from action_journal import ActionJournal
+from automation_bridge_resolver import AutomationBridgeResolver, CONTRACT_VERSION, ERROR_REGISTRY
 from cdp_connection import CdpConnection
 from evidence_adapter import EvidenceAdapter
 from evidence_worker import EvidenceWorker
 from fact_registry_api import FactRegistryAPI
 from mission_runtime import MissionRuntime
 from mitmproxy_client import MitmproxyClient, install_ca_into_cft
-from orca_resolver import OrcaResolver, CONTRACT_VERSION, ERROR_REGISTRY
 from resolver import Resolver
 from salestrekker_rules import get_salestrekker_rules
 from state_cache import StateCache, build_state_summary
@@ -37,7 +37,7 @@ class StateEngineMCP:
         self.engine = None
         self.workflow = None
         self.resolver = None
-        self.orca_resolver = None
+        self.automation_bridge_resolver = None
         self.evidence = None
         self.evidence_worker = None
         self.state_registry = None  # FRS-007 Phase 2
@@ -99,10 +99,10 @@ class StateEngineMCP:
             self.engine = ActionEngine(self.cdp, self.cache, self.journal,
                                         registry=self.fact_registry)
             self.resolver = Resolver(self.cdp)
-            self.orca_resolver = OrcaResolver(
+            self.automation_bridge_resolver = AutomationBridgeResolver(
                 self.cdp, cache=self.cache, evidence=self.evidence, journal=self.journal
             )
-            self.orca_resolver.engine = self.engine
+            self.automation_bridge_resolver.engine = self.engine
             self.workflow = WorkflowEngine(self.engine)
 
             logger.info("State Engine MCP started on port %d", PORT)
@@ -429,7 +429,7 @@ class StateEngineMCP:
             action: Optional[dict] = None,
             context: Optional[dict] = None,
         ) -> str:
-            """Resolve an Orca Design Mode element capture against the live page.
+            """Resolve an Automation Bridge Design Mode element capture against the live page.
 
             Primary path: exact backendDOMNodeId resolution at confidence 1.0.
             Fallback: structural match on DOM plus computed styles when the
@@ -439,13 +439,13 @@ class StateEngineMCP:
             and the Verification Engine confirms via state-diff. Success is
             state changed, never selector presence.
 
-            Contract: IDD-016 v1.0.0
+            Contract: IDD-016 v2.0.0
             """
-            if not self.orca_resolver:
+            if not self.automation_bridge_resolver:
                 return json.dumps({
                     "error": {
                         "code": "INTERNAL_ERROR",
-                        "message": "OrcaResolver not initialized",
+                        "message": "AutomationBridgeResolver not initialized",
                         "retryable": True,
                         "retry_policy": "backoff",
                         "details": {"phase": "startup"},
@@ -461,7 +461,7 @@ class StateEngineMCP:
                 "action": action or {},
                 "context": context or {},
             }
-            envelope = await self.orca_resolver.resolve(request)
+            envelope = await self.automation_bridge_resolver.resolve(request)
             return json.dumps(envelope)
 
         # HTTP fallback endpoint (IDD-016 §5.2)
@@ -470,21 +470,21 @@ class StateEngineMCP:
 
         @mcp.custom_route("/api/v1/resolver/resolve", methods=["POST"])
         async def http_resolve(request: Request):
-            """HTTP fallback for Orca Design Mode resolver (IDD-016 §5.2)."""
-            if not self.orca_resolver:
+            """HTTP fallback for Automation Bridge Design Mode resolver (IDD-016 §5.2)."""
+            if not self.automation_bridge_resolver:
                 return JSONResponse(
                     status_code=503,
                     content={
                         "error": {
                             "code": "INTERNAL_ERROR",
-                            "message": "OrcaResolver not initialized",
+                            "message": "AutomationBridgeResolver not initialized",
                             "retryable": True,
                             "retry_policy": "backoff",
                         }
                     },
                 )
             # Check version header
-            version = request.headers.get("X-Orca-Bridge-Version", "1.0.0")
+            version = request.headers.get("X-Automation-Bridge-Version", "2.0.0")
             if version != CONTRACT_VERSION:
                 return JSONResponse(
                     status_code=400,
@@ -511,7 +511,7 @@ class StateEngineMCP:
                         }
                     },
                 )
-            envelope = await self.orca_resolver.resolve(body)
+            envelope = await self.automation_bridge_resolver.resolve(body)
             if "error" in envelope:
                 status = ERROR_REGISTRY.get(envelope["error"]["code"],
                                             ERROR_REGISTRY["INTERNAL_ERROR"])["http_status"]

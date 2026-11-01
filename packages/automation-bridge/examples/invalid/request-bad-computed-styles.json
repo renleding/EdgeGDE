@@ -1,0 +1,85 @@
+{
+  "schema_version": "2.0.0",
+  "request_id": "9d1e2f3a-4b5c-4d6e-8f9a-0b1c2d3e4f5a",
+  "captured_at": "2026-10-26T08:15:00.000Z",
+  "page": {
+    "url": "https://pc.v2.salestrekker.com/deals/48122/assets/new",
+    "target_id": "A1B2C3D4E5F6A7B8C9D0",
+    "title": "New asset \u2014 Deal 48122 \u2014 Salestrekker",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "device_pixel_ratio": 1
+  },
+  "element": {
+    "backend_dom_node_id": 5177,
+    "dom_snapshot": {
+      "outer_html": "<input role=\"combobox\" aria-expanded=\"true\" aria-controls=\"vehicle-make-listbox\" aria-label=\"Vehicles make and model\" placeholder=\"Start typing\u2026\" autocomplete=\"off\" class=\"rc-input\"/>",
+      "tag": "input",
+      "attributes": {
+        "role": "combobox",
+        "aria-expanded": "true",
+        "aria-controls": "vehicle-make-listbox",
+        "aria-label": "Vehicles make and model",
+        "placeholder": "Start typing\u2026",
+        "autocomplete": "off",
+        "class": "rc-input"
+      },
+      "text_content": "",
+      "ancestor_path": [
+        {
+          "tag": "div",
+          "index": 1,
+          "id": "radix-vehicle-make",
+          "classes": [
+            "radix-portal-root"
+          ]
+        },
+        {
+          "tag": "body",
+          "index": 1
+        },
+        {
+          "tag": "html",
+          "index": 1
+        }
+      ],
+      "structural_hash": "e321c0f3c264c11016b9b7593d150bbefb5c0704b4b3ccf46a2d502d4f4617fa",
+      "child_count": 0,
+      "truncated": false
+    },
+    "computed_styles": {
+      "display": "block",
+      "colour": "red"
+    },
+    "geometry": {
+      "x": 220,
+      "y": 348,
+      "width": 320,
+      "height": 36,
+      "coordinate_space": "viewport"
+    },
+    "portal": {
+      "in_portal": true,
+      "portal_root_hint": "div[data-radix-portal]"
+    },
+    "screenshot": {
+      "storage": "blob_ref",
+      "blob_id": "orc-capture-7f3a91",
+      "blob_url": "blob:https://pc.v2.salestrekker.com/9c1e2b3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+      "blob_expires_at": "2026-10-26T08:45:00.000Z",
+      "mime_type": "image/png",
+      "width": 320,
+      "height": 36
+    }
+  },
+  "action": {
+    "type": "fill",
+    "value": "Toyota"
+  },
+  "context": {
+    "app": "salestrekker",
+    "locale": "en-AU"
+  }
+}

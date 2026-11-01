@@ -1,0 +1,297 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { PortfolioManifest, Project, CI_CD_Config, CI_Stage, BranchProtection } from '../types';
+import { manifestValidator } from '../validator/ManifestValidator';
+import { gateEngine } from '../gate/GateEngine';
+
+// Node.js types
+declare const process: { cwd(): string };
+
+export interface CIGeneratorOptions {
+  outputDir: string;
+  templatePath?: string;
+  includeGovernance: boolean;
+  includeBrowserTests: boolean;
+}
+
+export interface ProjectCIConfig {
+  project: Project;
+  config: CI_CD_Config;
+  workflowPath: string;
+}
+
+export class CIGenerator {
+  private options: CIGeneratorOptions;
+  private manifest: PortfolioManifest;
+
+  constructor(options: Partial<CIGeneratorOptions> = {}) {
+    this.options = {
+      outputDir: options.outputDir || '/Users/warren/Documents/_HQ_AI/EdgeGDE/.github/workflows',
+      templatePath: options.templatePath,
+      includeGovernance: options.includeGovernance ?? true,
+      includeBrowserTests: options.includeBrowserTests ?? false
+    };
+    this.manifest = manifestValidator.getManifest();
+  }
+
+  /**
+   * Generate CI/CD workflows for all active projects
+   */
+  generateAll(): ProjectCIConfig[] {
+    const results: ProjectCIConfig[] = [];
+
+    for (const project of this.manifest.portfolio) {
+      // Only generate for projects with implementation started
+      if (project.health.implementation_started || project.lifecycle.stage === 'active' || project.lifecycle.stage === 'production') {
+        const config = this.generateForProject(project);
+        results.push(config);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Generate CI/CD for a specific project
+   */
+  generateForProject(project: Project): ProjectCIConfig {
+    const config = this.buildConfig(project);
+    const workflowPath = path.join(this.options.outputDir, `ci-${project.project}.yml`);
+    
+    const workflowYaml = this.renderWorkflow(project, config);
+    
+    // Ensure output directory exists
+    if (!fs.existsSync(this.options.outputDir)) {
+      fs.mkdirSync(this.options.outputDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(workflowPath, workflowYaml);
+
+    return { project, config, workflowPath };
+  }
+
+  /**
+   * Build CI/CD config for a project
+   */
+  private buildConfig(project: Project): CI_CD_Config {
+    const stages: CI_Stage[] = [
+      {
+        name: 'Lint & Type Check',
+        commands: [
+          'bun install --frozen-lockfile',
+          'bun run lint',
+          'bun run typecheck'
+        ],
+        dependencies: [],
+        required: true
+      },
+      {
+        name: 'Unit Tests',
+        commands: [
+          'bun install --frozen-lockfile',
+          'bun test --coverage'
+        ],
+        dependencies: ['Lint & Type Check'],
+        required: true
+      },
+      {
+        name: 'Build',
+        commands: [
+          'bun install --frozen-lockfile',
+          'bun run build'
+        ],
+        dependencies: ['Unit Tests'],
+        required: true
+      }
+    ];
+
+    // Add governance check if enabled
+    if (this.options.includeGovernance) {
+      stages.push({
+        name: 'Governance Gate',
+        commands: [
+          'bun install --frozen-lockfile',
+          'bun run governance-check'
+        ],
+        dependencies: ['Build'],
+        required: true
+      });
+    }
+
+    // Add security scan
+    stages.push({
+      name: 'Security Scan',
+      commands: [
+        'bun install --frozen-lockfile',
+        'bun audit --level=high'
+      ],
+      dependencies: this.options.includeGovernance ? ['Governance Gate'] : ['Build'],
+      required: true
+    });
+
+    // Add browser tests if enabled and project uses automation-bridge
+    if (this.options.includeBrowserTests && (project.project === 'automation-bridge' || project.project === 'orca-ade')) {
+      stages.push({
+        name: 'Browser Tests',
+        commands: [
+          'bun install --frozen-lockfile',
+          'bun test:browser'
+        ],
+        dependencies: ['Security Scan'],
+        required: false
+      });
+    }
+
+    // Add release stage
+    stages.push({
+      name: 'Release',
+      commands: [
+        'bun install --frozen-lockfile',
+        'bun run release'
+      ],
+      dependencies: stages.slice(-1).map(s => s.name),
+      required: false // Only runs on main branch
+    });
+
+    const branchProtection: BranchProtection = {
+      main: ['Lint & Type Check', 'Unit Tests', 'Build', 'Security Scan', ...(this.options.includeGovernance ? ['Governance Gate'] : [])],
+      work_branches: ['Lint & Type Check', 'Unit Tests', 'Governance Gate']
+    };
+
+    return {
+      project: project.project,
+      stages,
+      branch_protection: branchProtection
+    };
+  }
+
+  /**
+   * Render GitHub Actions workflow YAML
+   */
+  private renderWorkflow(project: Project, config: CI_CD_Config): string {
+    let yaml = `# CI/CD Pipeline for ${project.project}\n`;
+    yaml += `# Auto-generated by agentic-sdlc CIGenerator\n`;
+    yaml += `# DO NOT EDIT MANUALLY - changes will be overwritten\n\n`;
+    
+    yaml += `name: CI - ${project.project}\n\n`;
+    
+    yaml += `on:\n`;
+    yaml += `  push:\n`;
+    yaml += `    branches: [main, work/**]\n`;
+    yaml += `  pull_request:\n`;
+    yaml += `    branches: [main]\n\n`;
+
+    yaml += `jobs:\n`;
+
+    // Render each stage as a job
+    for (const stage of config.stages) {
+      const jobId = stage.name.toLowerCase().replace(/\s+/g, '-');
+      const needs = stage.dependencies.length > 0 ? stage.dependencies.map(d => d.toLowerCase().replace(/\s+/g, '-')) : [];
+
+      yaml += `  ${jobId}:\n`;
+      yaml += `    name: ${stage.name}\n`;
+      yaml += `    runs-on: ubuntu-latest\n`;
+      
+      if (needs.length > 0) {
+        yaml += `    needs: [${needs.map(n => `"${n}"`).join(', ')}]\n`;
+      }
+
+      // Add conditional for release job
+      if (stage.name === 'Release') {
+        yaml += `    if: github.ref == 'refs/heads/main' && github.event_name == 'push'\n`;
+      }
+
+      yaml += `    steps:\n`;
+      yaml += `      - uses: actions/checkout@v4\n`;
+      yaml += `      - uses: oven-sh/setup-bun@v1\n`;
+      yaml += `        with:\n`;
+      yaml += `          bun-version: latest\n`;
+
+      for (const command of stage.commands) {
+        yaml += `      - run: ${command}\n`;
+      }
+
+      // Add codecov for test stage
+      if (stage.name === 'Unit Tests') {
+        yaml += `      - uses: codecov/codecov-action@v3\n`;
+        yaml += `        if: github.event_name == 'push'\n`;
+      }
+
+      // Add CodeQL for security scan
+      if (stage.name === 'Security Scan') {
+        yaml += `      - uses: github/codeql-action/init@v2\n`;
+        yaml += `        with:\n`;
+        yaml += `          languages: typescript\n`;
+        yaml += `      - uses: github/codeql-action/analyze@v2\n`;
+      }
+
+      yaml += `\n`;
+    }
+
+    return yaml;
+  }
+
+  /**
+   * Generate a combined CI workflow for the entire portfolio
+   */
+  generatePortfolioWorkflow(): string {
+    const projects = this.manifest.portfolio.filter(p => 
+      p.health.implementation_started || p.lifecycle.stage === 'active' || p.lifecycle.stage === 'production'
+    );
+
+    let yaml = `# Portfolio CI/CD Pipeline\n`;
+    yaml += `# Auto-generated by agentic-sdlc CIGenerator\n`;
+    yaml += `# DO NOT EDIT MANUALLY - changes will be overwritten\n\n`;
+    
+    yaml += `name: Portfolio CI\n\n`;
+    
+    yaml += `on:\n`;
+    yaml += `  push:\n`;
+    yaml += `    branches: [main]\n`;
+    yaml += `  pull_request:\n`;
+    yaml += `    branches: [main]\n\n`;
+
+    yaml += `jobs:\n`;
+
+    // Validation job
+    yaml += `  validate:\n`;
+    yaml += `    name: Validate Portfolio\n`;
+    yaml += `    runs-on: ubuntu-latest\n`;
+    yaml += `    steps:\n`;
+    yaml += `      - uses: actions/checkout@v4\n`;
+    yaml += `      - uses: oven-sh/setup-bun@v1\n`;
+    yaml += `      - run: bun install --frozen-lockfile\n`;
+    yaml += `      - run: bun run validate:portfolio\n\n`;
+
+    // Governance check job
+    yaml += `  governance:\n`;
+    yaml += `    name: Governance Gates\n`;
+    yaml += `    runs-on: ubuntu-latest\n`;
+    yaml += `    needs: validate\n`;
+    yaml += `    steps:\n`;
+    yaml += `      - uses: actions/checkout@v4\n`;
+    yaml += `      - uses: oven-sh/setup-bun@v1\n`;
+    yaml += `      - run: bun install --frozen-lockfile\n`;
+    yaml += `      - run: bun run governance:check\n\n`;
+
+    // Build each project
+    for (const project of projects) {
+      const jobId = project.project.replace(/-/g, '_');
+      yaml += `  ${jobId}:\n`;
+      yaml += `    name: Build ${project.project}\n`;
+      yaml += `    runs-on: ubuntu-latest\n`;
+      yaml += `    needs: governance\n`;
+      yaml += `    steps:\n`;
+      yaml += `      - uses: actions/checkout@v4\n`;
+      yaml += `      - uses: oven-sh/setup-bun@v1\n`;
+      yaml += `        with:\n`;
+      yaml += `          bun-version: latest\n`;
+      yaml += `      - run: bun install --frozen-lockfile\n`;
+      yaml += `      - run: bun run build --filter=${project.project}\n\n`;
+    }
+
+    return yaml;
+  }
+}
+
+export const ciGenerator = new CIGenerator();

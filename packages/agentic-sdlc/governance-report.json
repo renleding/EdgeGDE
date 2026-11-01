@@ -1,0 +1,350 @@
+{
+  "allowed": false,
+  "verdict": "FAIL",
+  "checks": [
+    {
+      "check": "no-print",
+      "status": "FAIL",
+      "details": "Line 466: print() not allowed in production code (use logging)",
+      "file": "demo_confirmation_loop.py",
+      "line": 466
+    },
+    {
+      "check": "no-print",
+      "status": "FAIL",
+      "details": "Line 729: print() not allowed in production code (use logging)",
+      "file": "design_mode_confirmation.py",
+      "line": 729
+    },
+    {
+      "check": "no-print",
+      "status": "FAIL",
+      "details": "Line 63: print() not allowed in production code (use logging)",
+      "file": "rename_ab.py",
+      "line": 63
+    },
+    {
+      "check": "no-print",
+      "status": "FAIL",
+      "details": "Line 78: print() not allowed in production code (use logging)",
+      "file": "rename_ab.py",
+      "line": 78
+    },
+    {
+      "check": "no-print",
+      "status": "FAIL",
+      "details": "Line 88: print() not allowed in production code (use logging)",
+      "file": "rename_ab.py",
+      "line": 88
+    },
+    {
+      "check": "no-print",
+      "status": "FAIL",
+      "details": "Line 581: print() not allowed in production code (use logging)",
+      "file": "ab_action_bridge.py",
+      "line": 581
+    },
+    {
+      "check": "no-print",
+      "status": "FAIL",
+      "details": "Line 1111: print() not allowed in production code (use logging)",
+      "file": "design_mode_capture.py",
+      "line": 1111
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 63: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 63
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 71: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 71
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 76: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 76
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 77: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 77
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 81: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 81
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 85: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 85
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 106: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 106
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 112: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 112
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 140: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 140
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 148: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 148
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 174: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 174
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 184: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 184
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 213: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 213
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 246: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 246
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 255: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 255
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 261: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 261
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 268: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 268
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 310: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 310
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 341: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 341
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 370: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 370
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 435: Public function/class missing docstring",
+      "file": "demo_confirmation_loop.py",
+      "line": 435
+    },
+    {
+      "check": "file-size",
+      "status": "WARN",
+      "details": "File has 739 lines (> 500)",
+      "file": "design_mode_confirmation.py"
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 91: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 91
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 146: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 146
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 325: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 325
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 722: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 722
+    },
+    {
+      "check": "trailing-whitespace",
+      "status": "WARN",
+      "details": "Line 55: trailing whitespace",
+      "file": "rename_ab.py",
+      "line": 55
+    },
+    {
+      "check": "trailing-whitespace",
+      "status": "WARN",
+      "details": "Line 59: trailing whitespace",
+      "file": "rename_ab.py",
+      "line": 59
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 52: Public function/class missing docstring",
+      "file": "rename_ab.py",
+      "line": 52
+    },
+    {
+      "check": "file-size",
+      "status": "WARN",
+      "details": "File has 585 lines (> 500)",
+      "file": "ab_action_bridge.py"
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 38: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 38
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 47: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 47
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 54: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 54
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 62: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 62
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 69: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 69
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 74: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 74
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 83: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 83
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 149: Public function/class missing docstring",
+      "file": "resolver_transport_adapter.py",
+      "line": 149
+    },
+    {
+      "check": "file-size",
+      "status": "WARN",
+      "details": "File has 1118 lines (> 500)",
+      "file": "design_mode_capture.py"
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 208: Public function/class missing docstring",
+      "file": "design_mode_capture.py",
+      "line": 208
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 289: Public function/class missing docstring",
+      "file": "design_mode_capture.py",
+      "line": 289
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 427: Public function/class missing docstring",
+      "file": "design_mode_capture.py",
+      "line": 427
+    }
+  ],
+  "timestamp": "2026-11-01T05:26:10.520805Z",
+  "files_checked": 7,
+  "violations": 7,
+  "warnings": 42
+}

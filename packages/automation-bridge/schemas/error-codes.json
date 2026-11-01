@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://edgegde.dev/schemas/automation-bridge/v2.0.0/error-codes.json",
+  "title": "AutomationBridgeErrorCodes",
+  "description": "Error code registry for the Automation Bridge Design Mode to Hermes State Engine Resolver bridge. Contract IDD-016 v2.0.0. The four contract-mandated codes are STALE_NODE, ELEMENT_NOT_RESOLVABLE, RESOLVER_TIMEOUT, ACTION_REJECTED.",
+  "type": "object",
+  "required": ["contract_version", "codes"],
+  "properties": {
+    "contract_version": { "const": "2.0.0" },
+    "codes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "meaning", "source", "http_status", "retryable", "retry_policy", "retry_backoff_ms", "max_retries", "caller_action"],
+        "properties": {
+          "code": { "type": "string" },
+          "meaning": { "type": "string" },
+          "source": {
+            "type": "string",
+            "enum": ["resolver", "caller_transport"],
+            "description": "resolver: emitted by the state engine in the response envelope. caller_transport: synthesized by the Automation Bridge caller when the resolver cannot be reached at all."
+          },
+          "http_status": {
+            "type": ["integer", "null"],
+            "description": "HTTP status for the direct-call fallback. Null when the code never crosses HTTP."
+          },
+          "retryable": { "type": "boolean" },
+          "retry_policy": {
+            "type": "string",
+            "enum": ["none", "recapture", "reattach", "backoff"]
+          },
+          "retry_backoff_ms": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 },
+            "description": "Delay ladder in milliseconds, one entry per retry attempt."
+          },
+          "max_retries": { "type": "integer", "minimum": 0 },
+          "caller_action": {
+            "type": "string",
+            "description": "What the caller MUST do on this code."
+          }
+        }
+      }
+    }
+  },
+  "contract_version": "2.0.0",
+  "codes": [
+    {
+      "code": "STALE_NODE",
+      "meaning": "The requested backendDOMNodeId no longer exists in the live DOM of page.target_id, and structural fallback matching found no candidate at or above the confidence floor.",
+      "source": "resolver",
+      "http_status": 409,
+      "retryable": false,
+      "retry_policy": "recapture",
+      "retry_backoff_ms": [],
+      "max_retries": 0,
+      "caller_action": "Recapture the element to obtain a fresh backendDOMNodeId. You may resend once as a NEW request_id. Do not blind-retry the same payload."
+    },
+    {
+      "code": "ELEMENT_NOT_RESOLVABLE",
+      "meaning": "No candidate reached the confidence floor of 0.5. The element is not resolvable on this page state.",
+      "source": "resolver",
+      "http_status": 422,
+      "retryable": false,
+      "retry_policy": "none",
+      "retry_backoff_ms": [],
+      "max_retries": 0,
+      "caller_action": "Surface the failure to the Design Mode user with the candidate list in details. A human must pick again. Do not retry automatically."
+    },
+    {
+      "code": "RESOLVER_TIMEOUT",
+      "meaning": "Resolution plus optional action execution exceeded the request timeout_ms budget.",
+      "source": "resolver",
+      "http_status": 504,
+      "retryable": true,
+      "retry_policy": "backoff",
+      "retry_backoff_ms": [1000, 3000],
+      "max_retries": 2,
+      "caller_action": "Retry with the SAME request_id so the resolver replays the cached outcome instead of re-executing. Stop after 2 retries and surface the error."
+    },
+    {
+      "code": "ACTION_REJECTED",
+      "meaning": "The resolved element cannot accept the requested action. reason_code gives the cause: confidence_below_policy, element_type_incompatible, known_bug_no_workaround, or element_not_interactable.",
+      "source": "resolver",
+      "http_status": 422,
+      "retryable": false,
+      "retry_policy": "none",
+      "retry_backoff_ms": [],
+      "max_retries": 0,
+      "caller_action": "Do not retry the same action. Either change the action, apply the flagged known-bug workaround, or ask the user to confirm."
+    },
+    {
+      "code": "INVALID_REQUEST",
+      "meaning": "The request payload failed schema validation. details.validation_errors lists every violation.",
+      "source": "resolver",
+      "http_status": 400,
+      "retryable": false,
+      "retry_policy": "none",
+      "retry_backoff_ms": [],
+      "max_retries": 0,
+      "caller_action": "Fix the payload against automation-bridge-request.schema.json. Retrying an invalid payload always fails."
+    },
+    {
+      "code": "UNSUPPORTED_SCHEMA_VERSION",
+      "meaning": "The request schema_version major differs from the resolver's supported contract version.",
+      "source": "resolver",
+      "http_status": 400,
+      "retryable": false,
+      "retry_policy": "none",
+      "retry_backoff_ms": [],
+      "max_retries": 0,
+      "caller_action": "Upgrade the caller to the resolver's contract version. Do not retry with the old payload."
+    },
+    {
+      "code": "TARGET_NOT_ATTACHED",
+      "meaning": "The resolver is not attached to page.target_id, and automatic attach failed because the target is closed or unreachable.",
+      "source": "resolver",
+      "http_status": 409,
+      "retryable": true,
+      "retry_policy": "reattach",
+      "retry_backoff_ms": [250],
+      "max_retries": 1,
+      "caller_action": "Confirm the tab is still open, then retry once with the same request_id after the resolver reattaches."
+    },
+    {
+      "code": "RESOLVER_UNREACHABLE",
+      "meaning": "Neither the MCP endpoint nor the HTTP fallback responded. Transport-level failure synthesized by the caller. The resolver never emits this code.",
+      "source": "caller_transport",
+      "http_status": null,
+      "retryable": true,
+      "retry_policy": "backoff",
+      "retry_backoff_ms": [5000, 15000, 25000, 60000],
+      "max_retries": 4,
+      "caller_action": "Retry the transport with the same request_id using the documented ladder. After the fourth failure, surface the error and stop."
+    },
+    {
+      "code": "INTERNAL_ERROR",
+      "meaning": "Unexpected resolver failure. The response carries resolver.version and the request_id for journal correlation.",
+      "source": "resolver",
+      "http_status": 500,
+      "retryable": true,
+      "retry_policy": "backoff",
+      "retry_backoff_ms": [2000],
+      "max_retries": 1,
+      "caller_action": "Retry once with the same request_id. If it persists, file a state-engine issue with the request_id."
+    }
+  ]
+}

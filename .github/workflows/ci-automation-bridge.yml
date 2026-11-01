@@ -1,0 +1,137 @@
+name: CI - automation-bridge
+
+on:
+  push:
+    branches: [main, work/**]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: '3.11'
+  AUTOMATION_BRIDGE_PATH: 'automation/automation-bridge'
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install linting tools
+        run: |
+          pip install --upgrade pip
+          pip install ruff mypy
+      - name: Run ruff
+        run: ruff check ${{ env.AUTOMATION_BRIDGE_PATH }}/
+      - name: Run mypy
+        run: mypy ${{ env.AUTOMATION_BRIDGE_PATH }}/ --ignore-missing-imports
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest pytest-cov pytest-asyncio
+      - name: Run tests
+        run: |
+          pytest ${{ env.AUTOMATION_BRIDGE_PATH }}/ \
+            --cov=${{ env.AUTOMATION_BRIDGE_PATH }} \
+            --cov-report=xml \
+            --cov-report=term-missing
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        if: github.event_name == 'push'
+        with:
+          files: ./coverage.xml
+          flags: automation-bridge
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install security tools
+        run: |
+          pip install --upgrade pip
+          pip install bandit pip-audit
+      - name: Run bandit
+        run: bandit -r ${{ env.AUTOMATION_BRIDGE_PATH }}/ -f json -o bandit-report.json || true
+      - name: Run pip-audit
+        run: pip-audit --format=json --output=pip-audit-report.json || true
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            pip-audit-report.json
+
+  governance:
+    name: Governance Gate
+    runs-on: ubuntu-latest
+    needs: security
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run governance check
+        run: |
+          python3 tools/governance-check.py ${{ env.AUTOMATION_BRIDGE_PATH }}/
+      - name: Verify no violations
+        run: |
+          if [ -f governance-violations.json ]; then
+            cat governance-violations.json
+            exit 1
+          fi
+
+  integration:
+    name: Integration Tests (CfT)
+    runs-on: ubuntu-latest
+    needs: governance
+    if: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run integration tests
+        run: |
+          pytest ${{ env.AUTOMATION_BRIDGE_PATH }}/test_*integration*.py -v
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [test, security, governance]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install release tools
+        run: pip install build twine
+      - name: Build package
+        run: |
+          cd ${{ env.AUTOMATION_BRIDGE_PATH }}
+          python -m build
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: twine upload ${{ env.AUTOMATION_BRIDGE_PATH }}/dist/*

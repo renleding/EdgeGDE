@@ -1,0 +1,133 @@
+{
+  "allowed": true,
+  "verdict": "PASS",
+  "checks": [
+    {
+      "check": "file-size",
+      "status": "WARN",
+      "details": "File has 739 lines (> 500)",
+      "file": "design_mode_confirmation.py"
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 91: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 91
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 146: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 146
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 325: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 325
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 722: Public function/class missing docstring",
+      "file": "design_mode_confirmation.py",
+      "line": 722
+    },
+    {
+      "check": "file-size",
+      "status": "WARN",
+      "details": "File has 585 lines (> 500)",
+      "file": "ab_action_bridge.py"
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 38: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 38
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 47: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 47
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 54: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 54
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 62: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 62
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 69: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 69
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 74: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 74
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 83: Public function/class missing docstring",
+      "file": "ab_action_bridge.py",
+      "line": 83
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 149: Public function/class missing docstring",
+      "file": "resolver_transport_adapter.py",
+      "line": 149
+    },
+    {
+      "check": "file-size",
+      "status": "WARN",
+      "details": "File has 1118 lines (> 500)",
+      "file": "design_mode_capture.py"
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 208: Public function/class missing docstring",
+      "file": "design_mode_capture.py",
+      "line": 208
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 289: Public function/class missing docstring",
+      "file": "design_mode_capture.py",
+      "line": 289
+    },
+    {
+      "check": "missing-docstring",
+      "status": "WARN",
+      "details": "Line 427: Public function/class missing docstring",
+      "file": "design_mode_capture.py",
+      "line": 427
+    }
+  ],
+  "timestamp": "2026-11-01T05:29:48.427080Z",
+  "files_checked": 5,
+  "violations": 0,
+  "warnings": 18
+}

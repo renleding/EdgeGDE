@@ -42,6 +42,7 @@ import { registerRouter } from './api/register'
 import { loginRouter } from './api/login'
 import { onboardingRouter } from './routes/onboarding'
 import { tenantDashboardRouter } from './routes/tenant-dashboard'
+import { automationBridgeDesignModeRouter } from './routes/automation-bridge-design-mode'
 import { verifyRouter } from './api/verify'
 // import { sdlcRouter } from './routes/sdlc' // TODO: restore when SDLC UI Phase 3 is merged
 import { clearSessionCookie } from './middleware/session'
@@ -561,6 +562,7 @@ app.route('/register', registerRouter)
 app.route('/login', loginRouter)
 app.route('/onboarding', onboardingRouter)
 app.route('/tenant', tenantDashboardRouter)
+app.route('/admin/automation-bridge', automationBridgeDesignModeRouter)
 app.route('/verify', verifyRouter)
 // app.route('/sdlc', sdlcRouter) // TODO: restore when SDLC UI Phase 3 is merged
 

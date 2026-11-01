@@ -171,6 +171,57 @@ jobs:
         run: npx -y @fission-ai/openspec validate --all
         working-directory: .
 
+  automation-bridge-contract:
+    name: Automation Bridge Contract Governance
+    needs: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install jsonschema
+        run: pip install jsonschema>=4.18
+      - name: Validate contract artifacts
+        run: python3 packages/automation-bridge/tools/validate_examples.py
+        working-directory: .
+      - name: Check known-bug flags in test responses
+        run: |
+          # Verify that response examples for portal elements carry the radix_portal_block flag
+          python3 -c "
+          import json, sys
+          with open('packages/automation-bridge/examples/response-fallback-match.json') as f:
+              data = json.load(f)
+          flags = data.get('resolution', {}).get('known_bug_flags', [])
+          if 'radix_portal_block' not in flags:
+              print('FAIL: response-fallback-match.json missing radix_portal_block flag')
+              sys.exit(1)
+          print('PASS: fallback match example carries known-bug flags')
+          "
+      - name: Verify action outcome has verification verdict
+        run: |
+          python3 -c "
+          import json, sys, os
+          examples_dir = 'packages/automation-bridge/examples'
+          for f in os.listdir(examples_dir):
+              if f.startswith('response-') and not f.startswith('response-error'):
+                  with open(os.path.join(examples_dir, f)) as fp:
+                      data = json.load(fp)
+                  res = data.get('resolution', {})
+                  action_outcome = res.get('action_outcome')
+                  if action_outcome:
+                      verification = action_outcome.get('verification')
+                      if not verification:
+                          print(f'FAIL: {f} has action_outcome but missing verification')
+                          sys.exit(1)
+                      verdict = verification.get('verdict')
+                      if verdict not in ('verified', 'no_state_change', 'not_verified', 'false_positive_detected'):
+                          print(f'FAIL: {f} has invalid verdict: {verdict}')
+                          sys.exit(1)
+          print('PASS: all action outcomes have valid verification verdicts')
+          "
+
   automation-sync:
     # The Hermes automation that merges every PR previously lived only in
     # ~/.hermes/scripts/ (not version controlled), so it received no review.

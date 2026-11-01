@@ -1,0 +1,11 @@
+{
+  "name": "@edgegde/automation-bridge",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Frozen integration contract between Automation Bridge Design Mode and the Hermes State Engine Resolver (FRS-005). Language-neutral JSON Schemas, MCP tool definition, error registry, examples, and validator.",
+  "scripts": {
+    "validate": "python3 tools/validate_examples.py"
+  },
+  "license": "MIT"
+}

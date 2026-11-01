@@ -1,0 +1,59 @@
+{
+  "946acf9d-d5b2-4c02-aaf3-3fc87af53e9f": {
+    "id": "946acf9d-d5b2-4c02-aaf3-3fc87af53e9f",
+    "type": "test-task",
+    "payload": {
+      "step": 1
+    },
+    "status": "completed",
+    "createdAt": 1793516407193,
+    "updatedAt": 1793516407198,
+    "startedAt": 1793516407198,
+    "completedAt": 1793516407198,
+    "result": {
+      "message": "Task completed successfully",
+      "taskId": "946acf9d-d5b2-4c02-aaf3-3fc87af53e9f"
+    },
+    "retries": 0,
+    "maxRetries": 3,
+    "plugin": "test-task"
+  },
+  "ede5ffaa-d4ff-4fd9-a98d-cb106f5c098e": {
+    "id": "ede5ffaa-d4ff-4fd9-a98d-cb106f5c098e",
+    "type": "test-task",
+    "payload": {
+      "step": 3
+    },
+    "status": "completed",
+    "createdAt": 1793516407197,
+    "updatedAt": 1793516407199,
+    "startedAt": 1793516407199,
+    "completedAt": 1793516407199,
+    "result": {
+      "message": "Task completed successfully",
+      "taskId": "ede5ffaa-d4ff-4fd9-a98d-cb106f5c098e"
+    },
+    "retries": 0,
+    "maxRetries": 3,
+    "plugin": "test-task"
+  },
+  "550cea69-d444-4122-82d4-96e8f7ace42b": {
+    "id": "550cea69-d444-4122-82d4-96e8f7ace42b",
+    "type": "test-task",
+    "payload": {
+      "step": 2
+    },
+    "status": "completed",
+    "createdAt": 1793516407198,
+    "updatedAt": 1793516407199,
+    "startedAt": 1793516407199,
+    "completedAt": 1793516407199,
+    "result": {
+      "message": "Task completed successfully",
+      "taskId": "550cea69-d444-4122-82d4-96e8f7ace42b"
+    },
+    "retries": 0,
+    "maxRetries": 3,
+    "plugin": "test-task"
+  }
+}
